@@ -14,8 +14,8 @@ log_error() {
   echo -e "${RED}[ERROR]${NC} $*"
 }
 
-# Superset of both callers' failure diagnostics. SETTINGS_ID and OVERLAY_ID
-# are unset in verify-overlay-x11.sh, so those blocks no-op there.
+# Superset of callers' failure diagnostics. SETTINGS_ID / CHAT_ID / OVERLAY_ID
+# are unset in scripts that never find those windows, so those blocks no-op.
 fail() {
   log_error "$@"
   if [ -n "${TRACE_LOG:-}" ] && [ -f "$TRACE_LOG" ]; then
@@ -25,6 +25,10 @@ fail() {
   if [ -n "${SETTINGS_ID:-}" ]; then
     log_error "Settings xprop:"
     xprop -id "$SETTINGS_ID" WM_NAME _NET_WM_STATE WM_CLASS 2>&1 | head -20 >&2 || true
+  fi
+  if [ -n "${CHAT_ID:-}" ]; then
+    log_error "Chat xprop:"
+    xprop -id "$CHAT_ID" WM_NAME _NET_WM_STATE WM_CLASS 2>&1 | head -20 >&2 || true
   fi
   if [ -n "${OVERLAY_ID:-}" ]; then
     log_error "Overlay xprop:"

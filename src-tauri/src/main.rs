@@ -4929,6 +4929,17 @@ fn main() {
             if model::env_switch("FIDGET_OPEN_SETTINGS").unwrap_or(false) {
                 present_settings(app.handle().clone());
             }
+            // Same hook for Chat. Summon is macOS-only in fidget-verify; X11
+            // scripts open Chat this way and assert it stays perch-eligible.
+            if model::env_switch("FIDGET_OPEN_CHAT").unwrap_or(false) {
+                if let Some(live) = lives.first() {
+                    let title = roster
+                        .get(&live.id)
+                        .map(|instance| instance.name.clone())
+                        .unwrap_or_else(|| live.character.name.clone());
+                    open_chat(app.handle(), &live.id, title, None);
+                }
+            }
 
             let tray = {
                 let installed: Vec<String> = character_cache.keys().cloned().collect();
