@@ -2307,6 +2307,58 @@ mod tests {
         assert_eq!(drawn("  "), None);
     }
 
+    /// A Harness that puts planning on the message channel sometimes glues a
+    /// declared Behavior to the end of that sentence (`…character.ponder\n`).
+    /// The period is the marker: cut the preamble, keep the spoken line.
+    /// Action-log turns from cursor-agent, 2026-10-11.
+    #[test]
+    fn a_declared_behavior_glued_after_a_period_is_not_spoken_with_the_preamble() {
+        let declared = declares(&["ponder", "walk", "settle", "mutter"]);
+        let drawn = |reply: &str| dialogue_of(reply, &declared);
+
+        assert_eq!(
+            drawn(
+                "Checking whether anything on screen shows Grok usage, then answering in character.ponder\nI cast Doomsday. Not... accounting. Your 'usage' is invisible to me."
+            ),
+            Some(
+                "I cast Doomsday. Not... accounting. Your 'usage' is invisible to me.".to_string()
+            ),
+        );
+        assert_eq!(
+            drawn(
+                "Just got summoned onto the Dock. I'll look at what's open, then answer.walk\nSummoned to the Dock. Nineteen windows."
+            ),
+            Some("Summoned to the Dock. Nineteen windows.".to_string()),
+        );
+        assert_eq!(
+            drawn("I'll look again.mutter Fidget's in front."),
+            Some("Fidget's in front.".to_string()),
+        );
+        assert_eq!(
+            dialogue_of("I'll rest now.\nnap\nBack in five.", &declares(&["nap"]),),
+            Some("I'll rest now.\nBack in five.".to_string()),
+            "a Behavior already on its own line keeps prose before it as speech"
+        );
+
+        match directing(
+            Scripted::says(
+                "Checking whether anything on screen shows Grok usage, then answering in character.ponder\nI cast Doomsday.",
+            ),
+            ["ponder", "walk"],
+        )
+        .wake(&typed("any Grok usage?"))
+        {
+            Wake::Proposed(proposal) => {
+                assert_eq!(proposal.behavior, "ponder");
+                assert_eq!(
+                    proposal.dialogue.as_deref(),
+                    Some("I cast Doomsday.")
+                );
+            }
+            other => panic!("glued ponder should propose, not {other:?}"),
+        }
+    }
+
     /// Every desktop line filled, as one wake sends it.
     fn busy() -> Context {
         let minutes = |m: u64| Duration::from_secs(m * 60);
@@ -2633,7 +2685,7 @@ mod tests {
     #[test]
     fn streamed_speech_holds_the_contract_line_back_and_grows_into_the_parsed_line() {
         let banner = format!("{PI_BANNER}\nwave\nHello!");
-        let rows: [(&str, Option<&str>); 19] = [
+        let rows: [(&str, Option<&str>); 20] = [
             ("stroll\nhey there", Some("hey there")),
             ("wave", None),
             ("nap | sleepy", Some("sleepy")),
@@ -2652,6 +2704,11 @@ mod tests {
             (
                 "I'll be right back.\n\nnap\n\nSee you soon.",
                 Some("I'll be right back.\n\n\nSee you soon."),
+            ),
+            // Planning glued to the Behavior (cursor-agent message channel).
+            (
+                "Looking around, then answering.nap\nBack in five.",
+                Some("Back in five."),
             ),
             ("\n\nwave\n\nHello\n\n", Some("Hello")),
             ("wave\n   \n\n", None),
