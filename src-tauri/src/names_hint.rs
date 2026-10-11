@@ -1,8 +1,9 @@
 //! The window-names notice. Chat shows it when something asked what is on
 //! screen and the answer had no names.
 //!
-//! `NamesHint` is derived on each read from usable consent, the durable
-//! dismissal, and a process-lifetime latch. Nothing here can grant consent.
+//! `NamesHint` is derived on each read from usable consent, the Settings
+//! switch, the durable dismissal, and a process-lifetime latch. Nothing
+//! here can grant consent.
 
 use std::io;
 use std::path::Path;
@@ -16,13 +17,16 @@ use crate::settings::Settings;
 /// What `hint` reads, kept off the stored state so the three inputs cannot drift.
 struct Standing {
     names_usable: bool,
+    switch_on: bool,
     dismissed: bool,
     asked_unnamed: bool,
 }
 
 impl From<Standing> for NamesHint {
     fn from(standing: Standing) -> Self {
-        if standing.names_usable {
+        // The notice asks for the Settings switch. Once that switch is on,
+        // the notice is done, even while the OS grant has not landed.
+        if standing.names_usable || standing.switch_on {
             Self::Quiet
         } else if standing.dismissed {
             Self::Dismissed
@@ -116,10 +120,12 @@ impl Notice {
         }
     }
 
-    /// Quiet, Due, or Dismissed from usable consent, the dismissal, and the latch.
+    /// Quiet, Due, or Dismissed from usable consent, the Settings switch,
+    /// the dismissal, and the latch.
     pub fn hint(&self, settings: &Settings) -> NamesHint {
         Standing {
             names_usable: self.names.usable(),
+            switch_on: settings.use_window_names,
             dismissed: settings.names_hint_dismissed,
             asked_unnamed: self.asked_unnamed.load(Ordering::Relaxed),
         }

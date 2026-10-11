@@ -127,8 +127,8 @@
   --antigravity-accent: #C5221F;
 }
 
-/* Terminal log. Port of .v-term from docs/design/chat-mockups.html: 62 rules
-   for a dense monospace aesthetic with elapsed-time gutter and log structure. */
+/* Terminal log. Port of .v-term from docs/design/chat-mockups.html: a dense
+   monospace log. The speaker sits on its own line, above the words. */
 .chat-ui-terminal {
   --chat-panel: #0A0D12;
   --chat-ink: #C6D0DC;
@@ -243,21 +243,16 @@
 }
 
 .chat-ui-terminal .row {
-  grid-template-columns: 46px auto 1fr;
-  gap: 8px;
-  align-items: baseline;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
 }
 
 .chat-ui-terminal .row::before {
-  content: "+" attr(data-t) "s";
-  color: var(--chat-ink-4);
-  font-size: 11px;
-  grid-column: 1;
-  grid-row: 1;
+  content: none;
 }
 
 .chat-ui-terminal .row .who {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1;
   gap: 6px;
 }
@@ -277,8 +272,8 @@
 }
 
 .chat-ui-terminal .row .said {
-  grid-column: 3;
-  grid-row: 1;
+  grid-column: 1;
+  grid-row: 2;
 }
 
 .chat-ui-terminal .row.you .said {
@@ -291,20 +286,14 @@
 
 .chat-ui-terminal .ask {
   margin: 4px 0;
-  padding: 7px 10px 8px 54px;
-  position: relative;
+  padding: 7px 10px 8px;
   background: #16130C;
   border: 1px solid #4A3D1E;
   border-radius: var(--chat-radius);
 }
 
 .chat-ui-terminal .ask::before {
-  content: "+" attr(data-t) "s";
-  position: absolute;
-  left: 10px;
-  top: 7px;
-  color: var(--chat-ink-4);
-  font-size: 11px;
+  content: none;
 }
 
 .chat-ui-terminal .ask .head {
@@ -422,6 +411,13 @@
 .chat-ui-terminal .composer button:disabled {
   color: var(--chat-ink-4);
   cursor: default;
+}
+
+/* The status bar is the next sibling and paints over a ring that hangs
+   outside the field. */
+.chat-ui-terminal .composer textarea:focus-visible,
+.chat-ui-terminal .composer button:focus-visible {
+  outline-offset: -2px;
 }
 
 /* Pane of glass. Port of .v-glass from docs/design/chat-mockups.html: 52 rules
