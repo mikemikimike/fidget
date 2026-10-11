@@ -20,6 +20,6 @@ pub use overlay::{
 };
 pub use pointer::{buttons_down, double_click_interval_ms};
 pub use sensing::WindowsActivitySource;
-pub(super) use settings_raise::{lower_to_normal_level, raise_above_overlay};
+pub(super) use settings_raise::{activate_for_typing, lower_to_normal_level, raise_above_overlay};
 
 pub(super) use window_source::{visible_window_titles, WindowsWindowSource};

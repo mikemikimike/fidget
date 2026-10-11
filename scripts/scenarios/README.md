@@ -30,9 +30,9 @@ skipped or printed the header, 3 a tool error.
 360 and 320 points and checks that the header keeps one row and never scrolls
 sideways.
 
-`chat-level.sh` takes the same two binaries. It checks that Chat floats at
-layer 25 only while focused, and that minimizing Chat, focused or not, logs the
-change that lets the quick-message pill back.
+`chat-level.sh` takes the same two binaries. It checks that Chat stays at
+layer 0 while focused (a Perch under the overlay), and that minimizing Chat,
+focused or not, logs the change that lets the quick-message pill back.
 
 `question-bubble.sh` takes the same two binaries. Its fixture asks a permission
 question on the first turn, then the scenario pokes the sprite at the position
@@ -95,9 +95,9 @@ runs that leaf, or skips when this host has none.
 
 These stay macOS only on purpose:
 
-- `chat-level` asserts Chat's macOS window level. Windows has only a topmost
-  flag, and X11 leaves stacking to the window manager. Its minimize check could
-  still get its own leaf.
+- `chat-level` asserts focused Chat stays at macOS layer 0 so it remains a
+  Perch. Windows has only a topmost flag, and X11 leaves stacking to the window
+  manager. Its minimize check could still get its own leaf.
 - `hero-gif` records the README video, and the README needs one recording, not
   one per OS.
 - `codex-sign-in-link` and `antigravity-sign-in` check a sign-in flow that is

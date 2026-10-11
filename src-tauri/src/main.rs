@@ -280,9 +280,8 @@ struct PendingAsks(Mutex<Pending>);
 struct MinimizedChats(Mutex<HashSet<String>>);
 
 impl MinimizedChats {
-    /// `Some(true)` floats Chat above the overlay, `Some(false)` drops it to a
-    /// normal level. No event says "minimized", so focus and resize re-read it.
-    /// See `set` for macOS.
+    /// `Some(true)` / `Some(false)` is focus gained / lost. No event says
+    /// minimized, so focus and resize re-read it (see `set` on macOS).
     fn note(
         &self,
         label: &str,
@@ -2208,9 +2207,9 @@ fn build_overlay(
     Ok(())
 }
 
-/// Build one Instance's Chat surface. None of `build_overlay`'s flags:
-/// click-through would swallow the caret click; always-on-top would follow the
-/// user out of the app. Chat floats over the bubble only while it has focus.
+/// Build one Instance's Chat surface. No overlay flags: click-through would
+/// swallow the caret click; always-on-top would follow the user out of the app.
+/// Stays under the overlay as a Perch; typing reaches it via key focus.
 fn build_chat(
     app: &tauri::AppHandle,
     label: &str,
@@ -2252,11 +2251,11 @@ fn build_chat(
                 .as_ref()
                 .is_some_and(|window| window.is_minimized().unwrap_or(false))
         };
-        let (Some(floats), Some(window)) = (chats.note(&label, event, minimized), &window) else {
+        let (Some(focused), Some(window)) = (chats.note(&label, event, minimized), &window) else {
             return;
         };
-        let level = if floats {
-            platform::raise_above_overlay(window)
+        let level = if focused {
+            platform::activate_for_typing(window)
         } else {
             platform::lower_to_normal_level(window)
         };
@@ -2346,10 +2345,9 @@ fn open_chat(app: &tauri::AppHandle, id: &InstanceId, title: String, feet: Optio
                 }
             },
         };
-        // Both paths: `focused(true)` only orders the window to the front of
-        // this application. The raise activates the process, which a Summon has
-        // to do, and lifts Chat over the overlay so the bubble cannot cover it.
-        if let Err(why) = platform::raise_above_overlay(&window) {
+        // Both paths: `focused(true)` only orders within this app. Activate for
+        // typing, but keep Chat under the overlay so it stays a Perch.
+        if let Err(why) = platform::activate_for_typing(&window) {
             eprintln!("chat: {label} could not be raised: {why}");
         }
     }) {
@@ -4933,6 +4931,17 @@ fn main() {
             // For verify/smoke scripts that need the settings window on launch.
             if model::env_switch("FIDGET_OPEN_SETTINGS").unwrap_or(false) {
                 present_settings(app.handle().clone());
+            }
+            // Same hook for Chat. Summon is macOS-only in fidget-verify; X11
+            // scripts open Chat this way and assert it stays perch-eligible.
+            if model::env_switch("FIDGET_OPEN_CHAT").unwrap_or(false) {
+                if let Some(live) = lives.first() {
+                    let title = roster
+                        .get(&live.id)
+                        .map(|instance| instance.name.clone())
+                        .unwrap_or_else(|| live.character.name.clone());
+                    open_chat(app.handle(), &live.id, title, None);
+                }
             }
 
             let tray = {

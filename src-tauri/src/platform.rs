@@ -402,6 +402,34 @@ pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> 
     Ok(())
 }
 
+/// Give `window` the keyboard at the normal window level. Main thread only.
+/// The overlay stays above so Chat's ledge stays a Perch.
+#[cfg(target_os = "macos")]
+pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use objc2::msg_send;
+    use objc2_app_kit::{NSApplication, NSNormalWindowLevel, NSWindowLevel};
+    use objc2_foundation::MainThreadMarker;
+
+    let ptr = window
+        .ns_window()
+        .map_err(|e| format!("window has no native handle: {e}"))?
+        as *mut objc2::runtime::AnyObject;
+
+    unsafe {
+        let ns_window = &*ptr;
+        let mtm = MainThreadMarker::new_unchecked();
+        let app = NSApplication::sharedApplication(mtm);
+
+        let _: () = msg_send![ns_window, setLevel: NSNormalWindowLevel as NSWindowLevel];
+        let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
+        #[allow(deprecated)]
+        app.activateIgnoringOtherApps(true);
+        let _: () = msg_send![ns_window, makeKeyAndOrderFront: std::ptr::null::<objc2::runtime::AnyObject>()];
+    }
+
+    Ok(())
+}
+
 /// Nudge the menu bar icon toward the clock on first launch. Main thread only.
 #[cfg(target_os = "macos")]
 pub fn seed_tray_position() {
@@ -433,12 +461,34 @@ pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> 
     Ok(())
 }
 
+/// Give `window` the keyboard without `_NET_WM_STATE_ABOVE`. Main thread only.
+/// keep_above is layer 1, which `perch_eligible` drops, so Chat would stop
+/// being a Perch while focused.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use gtk::prelude::*;
+
+    let gtk_window = window
+        .gtk_window()
+        .map_err(|e| format!("window has no gtk handle: {e}"))?;
+    gtk_window.set_keep_above(false);
+    gtk_window.present();
+    Ok(())
+}
+
 /// Raise `window` above the overlay, and give it the keyboard. Main thread only.
 ///
 /// The overlay is HWND_TOPMOST. A normal window cannot stack above that band.
 #[cfg(not(unix))]
 pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     windows::raise_above_overlay(window)
+}
+
+/// Give `window` the keyboard without entering the topmost band. Main thread only.
+/// Topmost Chat stacks above the overlay, so the sprite paints behind the ledge.
+#[cfg(not(unix))]
+pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> {
+    windows::activate_for_typing(window)
 }
 
 #[cfg(target_os = "macos")]

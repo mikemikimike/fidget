@@ -106,6 +106,7 @@ scripts/verify-settings-keyboard-webview.sh         # macOS: keyboard-only Setti
 scripts/verify-settings-webview-clipboard-macos.sh  # macOS: Copy on the BYO row writes the pasteboard (#855)
 scripts/verify-settings-webview-phase2-win.ps1      # Windows: window, tabs, Sound round-trip, z-order
 scripts/verify-settings-zorder-x11.sh               # Linux: Settings above the overlay
+scripts/verify-chat-perch-x11.sh                    # Linux: focused Chat has no ABOVE and is a Perch
 scripts/verify-anchor-taskbar-win.ps1               # Windows: no auto-open Settings, taskbar click opens Settings
 scripts/bench-rss-macos.sh                          # macOS: resident set over a run, per process
 scripts/bench-rss-linux.sh                          # Linux: RSS baseline (needs a working display)

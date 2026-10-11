@@ -94,6 +94,7 @@ Map lives in [`features/`](features/README.md). Prefer one feature per proof run
 | Windows overlay | `.agents/skills/verify-fidget/helpers/drive-overlay-win.ps1` |
 | Windows Settings | `scripts/verify-settings-webview-phase2-win.ps1` (copy `$Out` into evidence after) |
 | Linux Settings z-order | `xvfb-run -a -s "-screen 0 1280x720x24" scripts/verify-settings-zorder-x11.sh` (exit `0`: Settings stacks above the overlay in the ABOVE band, #1344) |
+| Linux Chat perch | `xvfb-run -a -s "-screen 0 1280x720x24" bash scripts/verify-chat-perch-x11.sh` (exit `0`: focused Chat has no `_NET_WM_STATE_ABOVE`, holds as a Perch, composer click recorded) |
 | Harness ACP (no sprite) | `FIDGET_HARNESS=hermes scripts/probe-harness.sh` |
 | macOS Keychain diagnostic unit | `scripts/test_verify_overlay_diagnostics.sh` |
 | Settings keyboard checks on fixtures | `scripts/test_verify_settings_keyboard.sh` (no app, no Accessibility) |
