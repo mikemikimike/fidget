@@ -728,6 +728,76 @@ mod tests {
         );
     }
 
+    /// Jump is a primitive Behavior every Character can be asked to play.
+    /// A package that never writes `[behaviors.jump]` still gets one at load,
+    /// weight zero until dedicated art earns ambient use (same policy as #490).
+    #[test]
+    fn an_undeclared_jump_is_still_playable() {
+        use crate::engine::{BehaviorProposal, Engine, Point, WorldSnapshot};
+
+        let character = load_manifest(&declaring(&REQUIRED_ANIMATIONS)).expect("package is valid");
+        let jump = character
+            .behaviors
+            .get("jump")
+            .expect("every Character can be asked to jump");
+        assert_eq!(jump.primitives, vec![Primitive::Jump]);
+        assert_eq!(jump.weight, 0, "ambient off until the package earns it");
+
+        let ground = WorldSnapshot {
+            displays: vec![crate::engine::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1000.0,
+                height: 800.0,
+            }],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        let mut engine =
+            Engine::new(Point { x: 100.0, y: 0.0 }).with_behaviors(character.behaviors.clone());
+        for _ in 0..40 {
+            engine.tick(&ground);
+        }
+
+        let proposed = WorldSnapshot {
+            proposal: Some(BehaviorProposal {
+                behavior: "jump".to_string(),
+                dialogue: None,
+            }),
+            ..ground.clone()
+        };
+        let launch = engine.tick(&proposed);
+        assert_eq!(
+            launch.behavior.as_deref(),
+            Some("jump"),
+            "the proposal was taken: {launch:?}"
+        );
+        let launched = engine.tick(&ground);
+        assert!(
+            launched.velocity.y < 0.0,
+            "off the floor upward: {launched:?}"
+        );
+    }
+
+    /// An author who writes jump keeps their weight; the engine default must
+    /// not overwrite a Character that already hops on its own.
+    #[test]
+    fn a_declared_jump_keeps_its_weight() {
+        let manifest = format!(
+            "{}[behaviors.jump]\nplay = [\"jump\"]\nweight = 7\n",
+            declaring(&REQUIRED_ANIMATIONS)
+        );
+        let character = load_manifest(&manifest).expect("package is valid");
+        assert_eq!(
+            character.behaviors["jump"].weight, 7,
+            "author-declared jump wins over the engine default"
+        );
+        assert_eq!(
+            character.behaviors["jump"].primitives,
+            vec![Primitive::Jump]
+        );
+    }
+
     #[test]
     fn a_loaded_character_carries_exactly_the_art_its_animations_name() {
         let character = load_manifest(&declaring(&REQUIRED_ANIMATIONS)).expect("package is valid");
@@ -1440,9 +1510,10 @@ mod tests {
             "the prompt reaches the Director verbatim: {:?}",
             character.personality
         );
-        assert!(
-            character.behaviors.is_empty(),
-            "describing a jump declares nothing: {:?}",
+        assert_eq!(
+            character.behaviors.keys().cloned().collect::<Vec<_>>(),
+            vec!["jump".to_string()],
+            "prose declares nothing; the engine still supplies the jump primitive: {:?}",
             character.behaviors
         );
         assert_eq!(
