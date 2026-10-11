@@ -480,6 +480,9 @@ fn proposal_for(behaviors: &[String], reply: &str) -> (Wake, Option<String>) {
     }
 }
 
+/// Planning on the message channel sometimes ends `…character.ponder\n` with
+/// no newline before the Behavior. The period marks the glue. Drop the
+/// preamble; leave a Behavior already on its own line alone.
 fn unglue_declared_behavior(reply: &str, behaviors: &[String]) -> String {
     if behaviors.is_empty() || parse_proposal(reply).is_ok() {
         return reply.to_string();
