@@ -570,6 +570,55 @@ mod tests {
         }
     }
 
+    /// The default Character is what a new user talks to. Asking it to jump
+    /// must leave the ground: without a declared `jump` Behavior the Director
+    /// treats the name as a near miss and speaks it, and MCP `play_behavior`
+    /// enqueues a proposal the Engine silently drops.
+    #[test]
+    fn asking_the_default_character_to_jump_leaves_the_ground() {
+        let character = shipped_character(DEFAULT_CHARACTER);
+        assert!(
+            character.behaviors.contains_key("jump"),
+            "{DEFAULT_CHARACTER} must declare jump so asking for it is a Behavior, not speech"
+        );
+
+        let ground = WorldSnapshot {
+            displays: vec![Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1000.0,
+                height: 800.0,
+            }],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        let mut engine =
+            Engine::new(Point { x: 100.0, y: 0.0 }).with_behaviors(character.behaviors.clone());
+        for _ in 0..40 {
+            engine.tick(&ground);
+        }
+
+        let proposed = WorldSnapshot {
+            proposal: Some(BehaviorProposal {
+                behavior: "jump".to_string(),
+                dialogue: None,
+            }),
+            ..ground.clone()
+        };
+        let launch = engine.tick(&proposed);
+        assert_eq!(
+            launch.behavior.as_deref(),
+            Some("jump"),
+            "the proposal was taken: {launch:?}"
+        );
+
+        let launched = engine.tick(&ground);
+        assert!(
+            launched.velocity.y < 0.0,
+            "off the floor upward: {launched:?}"
+        );
+    }
+
     /// Comparative claims a single weight cannot pin: Jotaro stands more than
     /// he speaks, Cat leads with curiosity.
     #[test]
