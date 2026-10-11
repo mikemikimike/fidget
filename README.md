@@ -45,6 +45,12 @@ That taps [omesser/homebrew-fidget](https://github.com/omesser/homebrew-fidget) 
 
 Or download a build from [GitHub Releases](https://github.com/omesser/fidget/releases): a `.dmg` for macOS (Apple Silicon), an AppImage and a `.deb` for Linux (x86_64), or an NSIS installer for Windows (x86_64). The builds are not signed yet, so the first open warns. On macOS, open Fidget.app from the disk image, dismiss the Gatekeeper dialog, then System Settings → Privacy & Security → Open Anyway. On Windows, choose More info → Run anyway in SmartScreen.
 
+macOS may block `/Applications/Fidget.app` after a Homebrew or download install. Removing its quarantine attribute bypasses a macOS security check. Run the command at your own risk. Never run it on an app you do not trust. Fidget is open source, so you can inspect its code, but that alone does not verify the downloaded app. To remove the quarantine attribute, run:
+
+```sh
+xattr -d com.apple.quarantine /Applications/Fidget.app
+```
+
 Or clone and run from the repo root (macOS, Linux, Windows):
 
 ```sh
