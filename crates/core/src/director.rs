@@ -598,6 +598,19 @@ struct ParsedContract {
     peeled_thought: Option<String>,
 }
 
+fn join_trimmed_lines(lines: &[&str]) -> Option<String> {
+    lines
+        .iter()
+        .position(|line| !line.trim().is_empty())
+        .map(|first| {
+            let last = lines
+                .iter()
+                .rposition(|line| !line.trim().is_empty())
+                .unwrap_or(first);
+            lines[first..=last].join("\n")
+        })
+}
+
 fn parse_contract(reply: &str) -> Result<ParsedContract, ParseError> {
     let cleaned = strip_harness_banners(reply);
     let lines: Vec<&str> = cleaned.lines().collect();
@@ -611,19 +624,9 @@ fn parse_contract(reply: &str) -> Result<ParsedContract, ParseError> {
         .ok_or(ParseError)?;
 
     // A `behavior:` line marks the act. Prose before it is planning for the
-    // Thinking row (#1492). A bare name mid-reply still keeps lines either side (#609).
+    // Thinking row. A bare name mid-reply still keeps lines either side.
     let peeled_thought = if marked {
-        let above: Vec<&str> = lines[..at].to_vec();
-        above
-            .iter()
-            .position(|line| !line.trim().is_empty())
-            .map(|first| {
-                let last = above
-                    .iter()
-                    .rposition(|line| !line.trim().is_empty())
-                    .unwrap_or(first);
-                above[first..=last].join("\n")
-            })
+        join_trimmed_lines(&lines[..at])
     } else {
         None
     };
@@ -639,16 +642,7 @@ fn parse_contract(reply: &str) -> Result<ParsedContract, ParseError> {
     // Blank lines are the model's own paragraph breaks; only the ones at the
     // ends are dropped, as the contract line's padding. A name cut from the
     // middle leaves the padding either side of it behind, as one wider gap.
-    let dialogue = said
-        .iter()
-        .position(|line| !line.trim().is_empty())
-        .map(|first| {
-            let last = said
-                .iter()
-                .rposition(|line| !line.trim().is_empty())
-                .unwrap_or(first);
-            said[first..=last].join("\n")
-        });
+    let dialogue = join_trimmed_lines(&said);
 
     Ok(ParsedContract {
         proposal: BehaviorProposal {
@@ -1864,7 +1858,7 @@ mod tests {
     }
 
     /// The `behavior:` marker is the act. Planning above it is Thinking, not
-    /// speech (#1492). A bare name mid-reply still keeps prose (#609).
+    /// speech. A bare name mid-reply still keeps prose.
     #[test]
     fn a_behavior_marker_drops_planning_above_it() {
         let marked = parse_proposal(
