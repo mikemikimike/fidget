@@ -165,8 +165,9 @@ chat_geom() {
 }
 
 chat_geom
-[ -n "$CHAT_X" ] && [ -n "$CHAT_Y" ] && [ -n "$CHAT_W" ] && [ -n "$CHAT_H" ] ||
+if [ -z "$CHAT_X" ] || [ -z "$CHAT_Y" ] || [ -z "$CHAT_W" ] || [ -z "$CHAT_H" ]; then
   fail "Could not read Chat geometry"
+fi
 
 WIN_TYPE=$(xprop -id "$CHAT_ID" _NET_WM_WINDOW_TYPE 2> /dev/null || true)
 {
