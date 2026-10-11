@@ -394,6 +394,19 @@ mod tests {
     }
 
     #[test]
+    fn the_settings_switch_quiets_the_notice_while_the_os_grant_is_off() {
+        let notice = Notice::new(&NAMES_OFF);
+        notice.titles_were_read();
+        let switched = Settings {
+            use_window_names: true,
+            names_hint_dismissed: false,
+            ..Settings::default()
+        };
+        assert_eq!(notice.hint(&switched), NamesHint::Quiet);
+        assert_eq!(notice.hint(&Settings::default()), NamesHint::Due);
+    }
+
+    #[test]
     fn usable_names_quiet_the_notice_even_when_asked_and_dismissed() {
         let notice = Notice::new(&NAMES_ON);
         notice.titles_were_read();
