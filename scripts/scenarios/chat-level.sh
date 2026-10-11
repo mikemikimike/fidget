@@ -9,7 +9,7 @@
 # Duration: about 30 s, 2 min at most.
 # Grants: Accessibility for the terminal that runs it.
 # Asserts: Chat stays at the normal window level (0) while focused so it remains
-#   a Perch under the overlay (#1498), and still at 0 once Finder is in front.
+#   a Perch under the overlay, and still at 0 once Finder is in front.
 #   A minimized Chat logs that it is minimized, which is what lets the
 #   quick-message pill back, and logs that it is not once restored, focused or
 #   not.

@@ -403,8 +403,7 @@ pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> 
 }
 
 /// Give `window` the keyboard at the normal window level. Main thread only.
-/// The overlay stays above so Chat's ledge stays a Perch (#1498). Typing
-/// reaches Chat via key focus; the overlay still owns opaque pointer hits.
+/// The overlay stays above so Chat's ledge stays a Perch.
 #[cfg(target_os = "macos")]
 pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> {
     use objc2::msg_send;
@@ -463,9 +462,8 @@ pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> 
 }
 
 /// Give `window` the keyboard without `_NET_WM_STATE_ABOVE`. Main thread only.
-///
-/// keep_above marks layer 1, which `perch_eligible` drops, so Chat would stop
-/// being a Perch while focused (#1498).
+/// keep_above is layer 1, which `perch_eligible` drops, so Chat would stop
+/// being a Perch while focused.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> {
     use gtk::prelude::*;
@@ -487,9 +485,7 @@ pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> 
 }
 
 /// Give `window` the keyboard without entering the topmost band. Main thread only.
-///
-/// Topmost Chat stacks above the overlay in the same band, so the sprite paints
-/// behind the ledge the Character is trying to stand on (#1498).
+/// Topmost Chat stacks above the overlay, so the sprite paints behind the ledge.
 #[cfg(not(unix))]
 pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> {
     windows::activate_for_typing(window)

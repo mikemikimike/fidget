@@ -280,10 +280,8 @@ struct PendingAsks(Mutex<Pending>);
 struct MinimizedChats(Mutex<HashSet<String>>);
 
 impl MinimizedChats {
-    /// `Some(true)` means Chat took focus and needs the keyboard, `Some(false)`
-    /// means it lost focus. Chat stays at the normal window level so it remains
-    /// a Perch under the overlay (#1498). No event says "minimized", so focus
-    /// and resize re-read it. See `set` for macOS.
+    /// `Some(true)` / `Some(false)` is focus gained / lost. No event says
+    /// minimized, so focus and resize re-read it (see `set` on macOS).
     fn note(
         &self,
         label: &str,
@@ -2211,7 +2209,7 @@ fn build_overlay(
 
 /// Build one Instance's Chat surface. No overlay flags: click-through would
 /// swallow the caret click; always-on-top would follow the user out of the app.
-/// Stays under the overlay as a Perch; typing reaches it via key focus (#1498).
+/// Stays under the overlay as a Perch; typing reaches it via key focus.
 fn build_chat(
     app: &tauri::AppHandle,
     label: &str,
@@ -2347,9 +2345,8 @@ fn open_chat(app: &tauri::AppHandle, id: &InstanceId, title: String, feet: Optio
                 }
             },
         };
-        // Both paths: `focused(true)` only orders the window to the front of
-        // this application. Activate the process for typing, but keep Chat under
-        // the overlay so it stays a Perch (#1498).
+        // Both paths: `focused(true)` only orders within this app. Activate for
+        // typing, but keep Chat under the overlay so it stays a Perch.
         if let Err(why) = platform::activate_for_typing(&window) {
             eprintln!("chat: {label} could not be raised: {why}");
         }
