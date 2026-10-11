@@ -69,8 +69,8 @@ function drive(steps) {
   function snap(row) {
     return {
       label: row.querySelector(".who-label").textContent,
-      open: row.querySelector(".thinking-toggle").getAttribute("aria-expanded"),
-      hidden: row.querySelector(".said").hidden,
+      open: row.querySelector(".thinking-toggle")?.getAttribute("aria-expanded") ?? null,
+      hidden: row.querySelector(".said")?.hidden ?? null,
       classes: [...row.classList].filter((cls) => cls !== "restored").sort(),
       pieces: [...row.querySelectorAll(".said > *")].map((piece) => ({
         className: piece.className,
@@ -238,3 +238,99 @@ test(
     assert.deepEqual(report.rows[1], report.rows[3]);
   },
 );
+
+test(
+  "long titles for several tool kinds move into details, while short empty calls are labels",
+  { skip: CHROME_OR_CI, timeout: 60000 },
+  () => {
+    const longCalls = [
+      { id: "t-search", title: "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks", kind: "search" },
+      { id: "t-execute", title: "Run checks across every workspace and collect all failed assertion messages", kind: "execute", name: "run_command" },
+    ].map((call) => ({ ...call, status: "completed", locations: [], content: [] }));
+    const plain = {
+      id: "t-plain",
+      title: "Web search",
+      kind: "search",
+      status: "completed",
+      locations: [],
+      content: [],
+    };
+    const report = drive(`
+    const report = {};
+    emit("chat-restored", ${JSON.stringify([...longCalls, plain].map((call) => ({ ...call, type: "tool_call" })))});
+    for (const call of ${JSON.stringify(longCalls)}) emit("chat-tool", call);
+    emit("chat-tool", ${JSON.stringify(plain)});
+    report.rows = [...document.querySelectorAll("#log .row.tool")].map((row) => ({
+      label: row.querySelector(".who-label").textContent,
+      toggle: !!row.querySelector(".thinking-toggle"),
+      detail: row.querySelector(".said")?.textContent ?? "",
+    }));`);
+    assert.equal(report.error, undefined, report.error);
+    assert.deepEqual(report.rows, [
+      {
+        label: "Web search · completed",
+        toggle: true,
+        detail: "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks",
+      },
+      { label: "run_command · completed", toggle: true, detail: "Run checks across every workspace and collect all failed assertion messages" },
+      { label: "Web search · completed", toggle: false, detail: "" },
+      {
+        label: "Web search · completed",
+        toggle: true,
+        detail: "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks",
+      },
+      { label: "run_command · completed", toggle: true, detail: "Run checks across every workspace and collect all failed assertion messages" },
+      { label: "Web search · completed", toggle: false, detail: "" },
+    ]);
+  },
+);
+
+test("raw fields and content render as separate details in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+  const call = {
+    id: "raw", title: "Read file", name: "read_file", kind: "read", status: "completed",
+    rawInput: { path: "/tmp/a" }, rawOutput: { text: "done" },
+    locations: [{ path: "/tmp/a", line: 3 }], content: [{ type: "text", text: "Visible result" }],
+  };
+  const report = drive(`
+    const report = {};
+    emit("chat-restored", [${JSON.stringify({ ...call, type: "tool_call" })}]);
+    emit("chat-tool", ${JSON.stringify(call)});
+    report.rows = [...document.querySelectorAll("#log .row.tool")].map(snap);`);
+  assert.equal(report.error, undefined, report.error);
+  assert.deepEqual(report.rows[0], report.rows[1]);
+  assert.deepEqual(report.rows[0].pieces.map((p) => p.text), [
+    "/tmp/a:3", "Visible result", 'Input: {"path":"/tmp/a"}', 'Output: {"text":"done"}',
+  ]);
+});
+
+test("a live call gains and loses a disclosure as details change", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+  const report = drive(`
+    const report = {};
+    emit("chat-tool", { id: "t", title: "Read file", kind: "read", status: "pending", locations: [], content: [] });
+    const row = document.querySelector("#log .row.tool");
+    report.initial = snap(row);
+    emit("chat-tool", { id: "t", content: [{ type: "text", text: "first" }] });
+    report.withDetail = snap(row);
+    row.querySelector(".thinking-toggle").click();
+    emit("chat-tool", { id: "t", status: "completed" });
+    report.openAfterUpdate = snap(row);
+    emit("chat-tool", { id: "t", content: [] });
+    report.cleared = snap(row);`);
+  assert.equal(report.error, undefined, report.error);
+  assert.deepEqual([report.initial.open, report.withDetail.open, report.openAfterUpdate.open, report.cleared.open], [null, "false", "true", null]);
+  assert.deepEqual(report.openAfterUpdate.pieces.map((p) => p.text), ["first"]);
+  assert.deepEqual(report.cleared.pieces, []);
+});
+
+test("raw updates retain earlier values when omitted or null", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+  const report = drive(`
+    const report = {};
+    emit("chat-tool", { id: "t", title: "Fetch", kind: "fetch", rawInput: { url: "https://example.com" }, rawOutput: { ok: true } });
+    const row = document.querySelector("#log .row.tool");
+    emit("chat-tool", { id: "t", rawInput: null, rawOutput: null, status: "completed" });
+    report.row = snap(row);`);
+  assert.equal(report.error, undefined, report.error);
+  assert.deepEqual(report.row.pieces.map((p) => p.text), [
+    'Input: {"url":"https://example.com"}', 'Output: {"ok":true}',
+  ]);
+});
