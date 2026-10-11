@@ -1574,9 +1574,9 @@ pub(crate) fn run_frame_loop(
                 {
                     truncated = cut_off;
                     // Heuristic peels that are not the Behavior contract itself
-                    // land on the Thinking row, same door the HTTP lane uses.
+                    // join the Thinking row; they must not replace streamed thought.
                     if let Some(thought) = peeled_thought {
-                        model::think(&live.id, &thought);
+                        model::think_more(&live.id, &thought);
                     }
                     // Here rather than in the worker: this is where core's
                     // parse result first reaches I/O. The Harness logs wakes

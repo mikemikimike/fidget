@@ -10,6 +10,8 @@ const TOGGLED = { streaming: "collapsed", collapsed: "expanded", expanded: "coll
 export function createThinking(draw) {
   const entries = new Map();
   let live = null;
+  // Empty settle collapses the row; peeled planning may still join before the reply.
+  let reopenable = null;
   let next = 1;
 
   function open(text, state, at) {
@@ -19,18 +21,32 @@ export function createThinking(draw) {
   }
 
   function landed() {
-    if (!live) return;
-    // Whatever the user did while it filled, the reply closes it.
-    live.state = "collapsed";
-    draw({ ...live });
-    live = null;
+    if (live) {
+      // Whatever the user did while it filled, the reply closes it.
+      live.state = "collapsed";
+      draw({ ...live });
+      live = null;
+    }
+    reopenable = null;
   }
 
   return {
     thought(text) {
-      if (!text) return landed();
+      if (!text) {
+        if (!live) return;
+        live.state = "collapsed";
+        draw({ ...live });
+        reopenable = live;
+        live = null;
+        return;
+      }
       if (live) {
         live.text = text;
+      } else if (reopenable) {
+        live = reopenable;
+        live.text = text;
+        live.state = "streaming";
+        reopenable = null;
       } else {
         live = open(text, "streaming");
       }
@@ -55,6 +71,7 @@ export function createThinking(draw) {
     clear() {
       entries.clear();
       live = null;
+      reopenable = null;
     },
   };
 }

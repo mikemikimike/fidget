@@ -1802,6 +1802,7 @@ fn classify_truncation(content: &str, marked_thought: bool) -> Truncation {
 /// One door for every Instance, so each thought names its Instance: `Slots`
 /// gives every Instance its own thread and endpoint, so two can think at once.
 static THOUGHT: std::sync::OnceLock<ThoughtDoor> = std::sync::OnceLock::new();
+static THOUGHT_MORE: std::sync::OnceLock<ThoughtDoor> = std::sync::OnceLock::new();
 
 /// The Instance whose turn thought, and the whole thought so far.
 pub type ThoughtDoor = Box<dyn Fn(&str, String) + Send + Sync>;
@@ -1813,11 +1814,26 @@ pub fn on_thought(door: ThoughtDoor) {
     let _ = THOUGHT.set(door);
 }
 
+/// Door for peeled planning that must join thought already streamed.
+pub fn on_thought_more(door: ThoughtDoor) {
+    let _ = THOUGHT_MORE.set(door);
+}
+
 /// Draw `line` as what `instance`'s turn has thought so far, or end that
 /// turn's thinking when it is empty (ADR-0034).
 pub(crate) fn think(instance: &str, line: &str) {
     if let Some(door) = THOUGHT.get() {
         door(instance, line.to_string());
+    }
+}
+
+/// Add peeled planning to what `instance`'s turn has thought so far.
+pub(crate) fn think_more(instance: &str, addition: &str) {
+    if addition.is_empty() {
+        return;
+    }
+    if let Some(door) = THOUGHT_MORE.get() {
+        door(instance, addition.to_string());
     }
 }
 

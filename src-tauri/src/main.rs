@@ -2456,6 +2456,15 @@ fn show_thought(app: &tauri::AppHandle, instance: &str, line: String) {
     let _ = app.emit_to(chat_label(instance), CHAT_THOUGHT_EVENT, &line);
 }
 
+/// Peeled planning joins thought already streamed, then redraws the whole.
+fn show_more_thought(app: &tauri::AppHandle, instance: &str, addition: String) {
+    let whole = session_log::think_more(app, instance, &addition, SystemTime::now());
+    if whole.is_empty() {
+        return;
+    }
+    let _ = app.emit_to(chat_label(instance), CHAT_THOUGHT_EVENT, &whole);
+}
+
 fn handle_inbound_wake(app: &tauri::AppHandle, wake: harness::InboundWake) {
     if let Some(state) = app.try_state::<ChatChannel>() {
         let _ = state.0.send(ChatMsg::InboundWake(wake));
@@ -4824,6 +4833,10 @@ fn main() {
             let thought_to = app.handle().clone();
             model::on_thought(Box::new(move |instance, line| {
                 show_thought(&thought_to, instance, line)
+            }));
+            let more_to = app.handle().clone();
+            model::on_thought_more(Box::new(move |instance, addition| {
+                show_more_thought(&more_to, instance, addition)
             }));
             let director = match settings::director_settings(&settings, secrets.as_ref()) {
                 Ok(director) => director,

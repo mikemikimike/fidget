@@ -87,6 +87,34 @@ impl Log {
         }
     }
 
+    /// Peeled planning joins whatever this turn already thought. Returns the
+    /// whole text Chat should draw. Survives an empty settle: peel can land
+    /// after `end_turn` closed the strip.
+    pub fn think_more(&mut self, instance: &str, addition: &str, at: SystemTime) -> String {
+        if addition.is_empty() {
+            return self
+                .thinking
+                .get(instance)
+                .map(|thinking| thinking.text.clone())
+                .unwrap_or_default();
+        }
+        let (whole, stamped) = match self.thinking.get(instance) {
+            Some(thinking) if !thinking.text.is_empty() => {
+                (join_thought(&thinking.text, addition), thinking.at)
+            }
+            _ => (addition.to_string(), at),
+        };
+        self.thinking.insert(
+            instance.to_string(),
+            Thinking {
+                text: whole.clone(),
+                at: stamped,
+                over: false,
+            },
+        );
+        whole
+    }
+
     /// File this Instance's waiting thinking under the wake that just
     /// arrived, spoken or not.
     pub fn remember_thinking(&mut self, instance: &str) {
@@ -199,8 +227,34 @@ pub fn think(app: &tauri::AppHandle, instance: &str, text: &str, at: SystemTime)
     with_log(app, |log| log.think(instance, text, at));
 }
 
+/// Peeled planning joined to the turn's thought so far. The addition alone
+/// when no session log is managed (probe / tests with no Chat surface).
+pub fn think_more(
+    app: &tauri::AppHandle,
+    instance: &str,
+    addition: &str,
+    at: SystemTime,
+) -> String {
+    let mut whole = None;
+    with_log(app, |log| {
+        whole = Some(log.think_more(instance, addition, at));
+    });
+    whole.unwrap_or_else(|| addition.to_string())
+}
+
 pub fn remember_thinking(app: &tauri::AppHandle, instance: &str) {
     with_log(app, |log| log.remember_thinking(instance));
+}
+
+/// Join peeled planning onto a thought already on the wire.
+fn join_thought(prior: &str, addition: &str) -> String {
+    if prior.ends_with("\n\n") {
+        format!("{prior}{addition}")
+    } else if prior.ends_with('\n') {
+        format!("{prior}\n{addition}")
+    } else {
+        format!("{prior}\n\n{addition}")
+    }
 }
 
 pub fn remember_them(
@@ -555,6 +609,39 @@ mod tests {
 
         let who: Vec<_> = log.replay("buddy-1").iter().map(|t| t.who).collect();
         assert_eq!(who, [Who::Them]);
+    }
+
+    /// Production change that would fail this: peeled planning replacing a
+    /// Harness thought already on the wire, so Chat keeps only the peel.
+    #[test]
+    fn peeled_planning_adds_to_a_thought_already_streamed() {
+        let mut log = Log::new();
+        log.think("buddy-1", "Weighing a nap", UNIX_EPOCH);
+        let whole = log.think_more("buddy-1", "Planning first.", UNIX_EPOCH);
+
+        assert_eq!(whole, "Weighing a nap\n\nPlanning first.");
+        log.remember_them("buddy-1", Some("ok".into()), None, UNIX_EPOCH);
+        assert_eq!(
+            log.replay("buddy-1")[0].said.as_deref(),
+            Some("Weighing a nap\n\nPlanning first.")
+        );
+    }
+
+    /// Production change that would fail this: an empty settle before the peel
+    /// drops the streamed thought, so only the peel is filed.
+    #[test]
+    fn peeled_planning_adds_after_the_turn_stopped_thinking() {
+        let mut log = Log::new();
+        log.think("buddy-1", "Weighing a nap", UNIX_EPOCH);
+        log.think("buddy-1", "", UNIX_EPOCH);
+        let whole = log.think_more("buddy-1", "Planning first.", UNIX_EPOCH);
+
+        assert_eq!(whole, "Weighing a nap\n\nPlanning first.");
+        log.remember_thinking("buddy-1");
+        assert_eq!(
+            log.replay("buddy-1")[0].said.as_deref(),
+            Some("Weighing a nap\n\nPlanning first.")
+        );
     }
 
     /// Production change that would fail this: thinking waiting in one slot
