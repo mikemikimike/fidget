@@ -4,8 +4,9 @@ Every label on `omesser/fidget`, and when it goes on an issue or a pull request.
 `gh label list` is the tracker. This file is the rule. A label added or removed
 on GitHub is updated here in the same change.
 
-`docs/agents/triage-labels.md` maps the five skill role names onto the triage
-rows. `docs/agents/picking-work.md` uses the priority order when it picks.
+`docs/agents/triage-labels.md` holds what the five triage names mean.
+`docs/agents/picking-work.md` holds what the four priority names mean, and the
+order an agent picks in.
 
 ## Apply them
 
@@ -15,66 +16,64 @@ When you create an issue, open a pull request, or take one over:
    whether that row goes on an issue, a pull request, or both. `gh issue
    edit <n> --add-label` on an issue, `gh pr edit <n> --add-label` on a pull
    request.
-2. An issue carries exactly one of `p0`, `p1`, `p2`, `p3`. A pull request
-   carries none of them.
+2. An issue carries exactly one of `p0`, `p1`, `p2`, `p3`.
 3. Carry the issue's area and platform labels onto the pull request that
-   closes it, then add any row the diff matches that the issue lacked.
-4. Triage labels stay on issues. A pull request does not take `needs-triage`,
-   `needs-info`, `ready-for-agent`, `ready-for-human`, or `wontfix`.
-5. Use a name from this file. Create a label only when the user asks for a new
-   one, and add its row in the same change.
+   closes it, then add any row the diff matches that the issue lacked. The
+   pull request's labels are those area and platform rows.
+4. Use a name from this file. A skill that names a label not listed here,
+   such as `wayfinder:map`, still uses that name. Add the row when you create
+   a label, and create one only when the user asks.
 
-Done when every matching row is on the item, a pull request has no triage
-label and no priority label, and `Done-when` is absent.
+Done when every matching row is on the item. On a pull request, that set is
+the area and platform rows: no triage label, no priority label, and no
+`Done-when`.
 
 ## Triage
 
-Issues only. The skill role and the label string are the same name.
-
-| Label | Apply it when |
-|---|---|
-| `needs-triage` | A maintainer still has to decide what the issue is. |
-| `needs-info` | The tracker is waiting on the reporter. |
-| `ready-for-agent` | The issue is fully specified and an agent can take it. |
-| `ready-for-human` | The work needs a person to implement it. |
-| `wontfix` | It will not be actioned. Close it in the same step. |
+Issues only. `needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, and `wontfix`. What each one means is
+`docs/agents/triage-labels.md`.
 
 ## Priority
 
-Issues only. Exactly one of `p0`, `p1`, `p2`, `p3`. The words and the order
-are in `docs/agents/picking-work.md`. `p1` is the default for scoped work.
-`p0` is for work that is broken for users or blocking. `p3` is for work the
-user says waits past `p2`. A pull request carries none of these.
+Issues only. Exactly one of `p0`, `p1`, `p2`, `p3`. What each one means, and
+the order, is `docs/agents/picking-work.md`.
 
 ## Platform
 
-Issues and pull requests. Add each platform the work has to be verified on. A
-change that is the same on every platform gets none of these.
+Issues and pull requests. Add each platform the work has to be verified on.
+Work that behaves the same on every platform gets no platform label for that
+reason.
 
 | Label | Apply it when |
 |---|---|
 | `macos` | The work is macOS-specific. |
 | `linux` | The work is the Linux lane: X11, GTK, portals, packaging. |
-| `windows` | The work is Windows-specific, or the pull request must run the Windows test job. |
+| `windows` | The work is Windows-specific, or a pull request needs the Windows test steps. |
 
-On a pull request, `windows` forces the Windows test job in
-`.github/workflows/tests.yml` when the diff is outside that job's path list.
-Clippy on that job already runs. Add it when the pull request fixes a
-`windows` issue, or changes Windows behavior that path list would skip.
+On a pull request, `windows` is a CI switch, separate from the platform claim.
+The Windows job in `.github/workflows/tests.yml` already runs, and its Clippy
+step always runs. The label forces that job's `cargo test` steps when the
+diff is outside the job's path list. The tracker's own description calls this
+the Windows compile job. Add the label for a `windows` issue's pull request,
+and for a pull request whose Windows behavior that path list would skip.
 
 ## Area
 
-Issues and pull requests. Several may match. Prefer the commit type's word
-where one exists: a `fix` is `bug`, a `feat` is `enhancement`, a `docs` change
-is `docs`, a `test` change is `testing`, a `refactor` is `refactoring`, a
-`perf` change is `performance`.
+Issues and pull requests. Several may match. A `fix` is `bug`, a `feat` is
+`enhancement`, a documentation change is `documentation`, a `refactor` is
+`refactoring`, and a `perf` change is `performance`. A pull request whose
+product is the test takes `testing`. Tests that ship inside a behavior change
+take that behavior's label. A `build` or `ci` change takes `maintenance` when
+it is dependency or tooling upkeep. A `chore` or `revert` takes whichever area
+row the change matches.
 
 | Label | Apply it when |
 |---|---|
 | `bug` | Something that already ships misbehaves. |
 | `enhancement` | A new capability. |
-| `docs` | The product of the change is documentation. |
-| `documentation` | GitHub's default for the same meaning. Already on older items. New work takes `docs` and leaves this off. |
+| `documentation` | Improvements or additions to documentation. |
+| `docs` | The same meaning, with an empty tracker description, already on older items. New work takes `documentation` and leaves this off. |
 | `testing` | Tests and verification scenarios. |
 | `refactoring` | Structure changes, behavior stays. |
 | `performance` | CPU, GPU, memory, idle cost, or a benchmark. |
@@ -82,7 +81,7 @@ is `docs`, a `test` change is `testing`, a `refactor` is `refactoring`, a
 | `harness` | The Harness the user supplies: launch, ACP, permissions, its tools. |
 | `prompting` | What a prompt contains and how it is shaped. |
 | `local models` | Local model inference. |
-| `security` | Secrets, passwords, or the keychain. |
+| `security` | Security: secrets, passwords, the keychain, and the rest of that work. |
 | `research` | Defining or carrying out an investigation. |
 | `accessibility` | A barrier for people with disabilities. |
 | `umbrella` | A parent issue that points at the child issues or pull requests. The parent only. |
@@ -91,9 +90,9 @@ is `docs`, a `test` change is `testing`, a `refactor` is `refactoring`, a
 
 | Label | Surface | Apply it when |
 |---|---|---|
-| `question` | Issue | The issue is itself a question. Waiting on the reporter is `needs-info`, not this label. |
+| `question` | Issue | Further information is requested. The triage wait on the reporter is `needs-info`, and this label can sit beside it. |
 | `duplicate` | Issue or pull request | You close it because another item already tracks the work. Name the survivor in the close comment. |
 | `invalid` | Issue or pull request | You close it because it does not describe a real defect or change. |
-| `good first issue` | Issue | The user asked to invite a newcomer. |
-| `help wanted` | Issue | The user asked for outside help. |
-| `Done-when` | Neither | The label has no description and no items. An acceptance section is prose in the issue body. Leave this label off. |
+| `good first issue` | Issue | The work is a good first change for a newcomer. |
+| `help wanted` | Issue | The work needs extra attention. |
+| `Done-when` | Neither | The label has no description and no items. Leave it off. |

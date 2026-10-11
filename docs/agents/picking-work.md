@@ -57,7 +57,7 @@ Four labels rank the work, `p0` over `p1` over `p2` over `p3`.
 | `p0` | Drop everything: broken for users, or blocking |
 | `p1` | Next up: the default for work that should happen |
 | `p2` | Eventually: real, but nothing waits on it |
-| `p3` | Below `p2`. It waits until the user says otherwise. |
+| `p3` | Below `p2`. |
 
 Take the highest priority available rather than the most interesting issue. When
 two issues share a priority, the operating system decides.
@@ -78,8 +78,7 @@ List the issues for your platform with:
 gh issue list --state open --label macos --json number,title,labels
 ```
 
-On a pull request, `windows` also forces the Windows test job. When that
-applies is `docs/agents/labels.md`.
+What `windows` does on a pull request is `docs/agents/labels.md`.
 
 ## Triage labels
 
