@@ -66,6 +66,11 @@ export function createChatTurns() {
     },
 
     settle(payload) {
+      // Attach notices are not turn outcomes. Handle them before waiting, or a
+      // notice that lands after typed() steals the user's turn (#1496).
+      if (payload.notice) {
+        return { action: "notice", turn: null, note: payload.notice };
+      }
       if (payload.streaming) {
         const turn = waiting.at(-1) ?? null;
         if (!turn) {

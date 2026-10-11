@@ -5137,27 +5137,55 @@ mod tests {
     }
 
     #[test]
-    fn codex_project_config_and_trust_match_after_a_resync() {
-        let root =
-            std::env::temp_dir().join(format!("fidget-codex-restart-{}", uuid::Uuid::new_v4()));
-        sync_codex_project_config(&root, Some("typed"), Some("high")).unwrap();
-        let path = codex_project_config_path(&root);
-        let first = std::fs::read_to_string(&path).unwrap();
-        let trust_first = codex_trust_override(&root);
+    fn codex_project_config_and_trust_match_after_a_restart() {
+        crate::model::tests::with_env(None, None, None, || {
+            crate::dev_flags::seed(&crate::settings::Settings::default());
+            let (fx, mut session) = Fixture::new("hello");
+            session.launch.name = "codex".into();
+            write_completer_model(&fx.dir, "typed");
+            write_effort(&fx.dir, "high");
+            assert_eq!(
+                session.complete(&asking("hi"), &|_| {}),
+                Ok(Reply::whole("Hello"))
+            );
+            let path = codex_project_config_path(&fx.dir);
+            let first = std::fs::read_to_string(&path).unwrap();
+            let trust_first = codex_trust_override(&fx.dir);
+            assert!(first.contains("model = \"typed\""), "{first}");
+            assert!(
+                first.contains("model_reasoning_effort = \"high\""),
+                "{first}"
+            );
+            session.shutdown();
 
-        sync_codex_project_config(&root, Some("typed"), Some("high")).unwrap();
-        let second = std::fs::read_to_string(&path).unwrap();
-        let trust_second = codex_trust_override(&root);
-
-        assert_eq!(first, second);
-        assert_eq!(trust_first, trust_second);
-        assert!(first.contains("model = \"typed\""), "{first}");
-        assert!(
-            first.contains("model_reasoning_effort = \"high\""),
-            "{first}"
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
+            let launch = Launch {
+                name: "codex".into(),
+                argv: vec![
+                    fake_agent_wrapper().to_string_lossy().to_string(),
+                    "script=hello".into(),
+                    format!("count={}", fx.count.display()),
+                ],
+            };
+            let (tx, _forwarded) = mpsc::channel();
+            let session2 = Session::new(
+                launch,
+                Ok(AttachCwd(fx.cwd.clone())),
+                SessionDataDir::at(fx.dir.clone()),
+                Arc::new(Box::new(move |fwd| {
+                    let _ = tx.send(fwd);
+                }) as Forward),
+            )
+            .with_timeout(Duration::from_secs(10));
+            assert_eq!(
+                session2.complete(&asking("again"), &|_| {}),
+                Ok(Reply::whole("Hello"))
+            );
+            let second = std::fs::read_to_string(&path).unwrap();
+            let trust_second = codex_trust_override(&fx.dir);
+            assert_eq!(first, second);
+            assert_eq!(trust_first, trust_second);
+            session2.shutdown();
+        });
     }
 
     #[test]

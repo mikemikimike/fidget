@@ -1043,7 +1043,11 @@ async function start() {
         said(label, outcome.said, "them", payload.at);
         return;
       }
-      // Attach-time notices arrive with no caret. A sticky note survives turns.
+      // Attach notices are not turn settlements; the row stays across turns.
+      if (outcome.action === "notice") {
+        note(outcome.note);
+        return;
+      }
       if (outcome.action === "error" && !outcome.turn) {
         note(outcome.note);
         return;

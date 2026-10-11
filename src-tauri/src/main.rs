@@ -205,6 +205,9 @@ const FRAME_EVENT: &str = "frame";
 struct Pending {
     asks: Vec<(Owner, harness::PermissionAsk)>,
     forms: Vec<(Owner, harness::ElicitationForm)>,
+    /// Sticky attach notes held while that Instance's Chat is closed. Emitted
+    /// once from `chat_ready`. One note per Instance; a later notice replaces.
+    notices: Vec<(String, String)>,
     /// Owners whose Chat has already been asked for. Opening posts to the
     /// main thread, so a second row before that lands would queue a second
     /// focus grab. Keyed by owner because no other Chat draws that owner's
@@ -269,6 +272,25 @@ impl Pending {
                 .filter(move |(owner, _)| draws_in(owner, label))
                 .map(|(_, form)| form),
         )
+    }
+
+    fn hold_notice(&mut self, instance: &str, text: String) {
+        self.notices.retain(|(id, _)| id != instance);
+        self.notices.push((instance.to_string(), text));
+    }
+
+    fn take_notices(&mut self, instance: &str) -> Vec<String> {
+        let mut taken = Vec::new();
+        let mut kept = Vec::new();
+        for (id, text) in self.notices.drain(..) {
+            if id == instance {
+                taken.push(text);
+            } else {
+                kept.push((id, text));
+            }
+        }
+        self.notices = kept;
+        taken
     }
 }
 
@@ -3094,6 +3116,9 @@ struct ChatReply {
     /// The Harness's own words when it failed the turn. Chat draws them as a
     /// Harness error rather than a note, because they are the diagnosis.
     failure: Option<String>,
+    /// Sticky attach note. Not a turn outcome; settle must not pop waiting.
+    #[serde(default)]
+    notice: Option<String>,
     /// The Shell cancelled this caret because a newer wake started (ADR-0016),
     /// named in `happened_cell`'s word for that wake. `said` is `None`; this is
     /// not a turn that produced no Speech (#681). The surface says which wake
@@ -3120,6 +3145,7 @@ fn cancelled_caret(chat_turn: bool, by: &Happened) -> Option<ChatReply> {
         at: None,
         error: None,
         failure: None,
+        notice: None,
         superseded_by: Some(happened_cell(by)),
         streaming: false,
     })
@@ -3192,7 +3218,7 @@ fn chat_ready(
     chat: tauri::State<'_, ChatChannel>,
     pending: tauri::State<'_, PendingAsks>,
 ) {
-    if let Ok(pending) = pending.0.lock() {
+    if let Ok(mut pending) = pending.0.lock() {
         let restored = session_log::restored(&app, &instance);
         if !restored.is_empty() {
             let _ = app.emit_to(chat_label(&instance), CHAT_RESTORED_EVENT, &restored);
@@ -3209,6 +3235,7 @@ fn chat_ready(
                     thought: turn.who == session_log::Who::Thinking,
                     error: None,
                     failure: None,
+                    notice: None,
                     superseded_by: None,
                     streaming: false,
                     at: Some(
@@ -3221,6 +3248,25 @@ fn chat_ready(
             );
         }
         let label = chat_label(&instance);
+        for text in pending.take_notices(&instance) {
+            let _ = app.emit_to(
+                &label,
+                CHAT_EVENT,
+                ChatReply {
+                    said: None,
+                    busy: false,
+                    reacting_to: None,
+                    you: false,
+                    thought: false,
+                    at: None,
+                    error: None,
+                    failure: None,
+                    notice: Some(text),
+                    superseded_by: None,
+                    streaming: false,
+                },
+            );
+        }
         let (asks, forms) = pending.drawn_in(&label);
         for ask in asks {
             let _ = app.emit_to(&label, CHAT_PERMISSION_EVENT, ask);
@@ -4817,22 +4863,30 @@ fn main() {
                         restore_not_applied(&forward_to, &failures)
                     }
                     harness::Forwarded::Notice { instance, text } => {
-                        let _ = forward_to.emit_to(
-                            chat_label(&instance),
-                            CHAT_EVENT,
-                            ChatReply {
-                                said: None,
-                                busy: false,
-                                reacting_to: None,
-                                you: false,
-                                thought: false,
-                                at: None,
-                                error: Some(text),
-                                failure: None,
-                                superseded_by: None,
-                                streaming: false,
-                            },
-                        );
+                        let label = chat_label(&instance);
+                        if forward_to.get_webview_window(&label).is_some() {
+                            let _ = forward_to.emit_to(
+                                &label,
+                                CHAT_EVENT,
+                                ChatReply {
+                                    said: None,
+                                    busy: false,
+                                    reacting_to: None,
+                                    you: false,
+                                    thought: false,
+                                    at: None,
+                                    error: None,
+                                    failure: None,
+                                    notice: Some(text),
+                                    superseded_by: None,
+                                    streaming: false,
+                                },
+                            );
+                        } else if let Some(state) = forward_to.try_state::<PendingAsks>() {
+                            if let Ok(mut pending) = state.0.lock() {
+                                pending.hold_notice(&instance, text);
+                            }
+                        }
                     }
                 }),
             );
@@ -5230,6 +5284,20 @@ mod tests {
             !pending.hold_ask(&b, &ask("6"), true, false),
             "settling A's rows reopened B's"
         );
+    }
+
+    #[test]
+    fn a_closed_chat_holds_an_attach_notice_until_ready() {
+        let mut pending = Pending::default();
+        pending.hold_notice("buddy-a", "first".into());
+        pending.hold_notice("buddy-a", "replaced".into());
+        pending.hold_notice("buddy-b", "other".into());
+        assert_eq!(
+            pending.take_notices("buddy-a"),
+            vec!["replaced".to_string()]
+        );
+        assert!(pending.take_notices("buddy-a").is_empty());
+        assert_eq!(pending.take_notices("buddy-b"), vec!["other".to_string()]);
     }
 
     /// A Chat that opens after the rows arrived replays only its own Instance's
