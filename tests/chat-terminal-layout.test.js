@@ -35,6 +35,12 @@ function paint() {
         <div class="who"><span class="who-label">trump</span><time class="when">11:29</time></div>
         <div class="said">They said hi while I am on the Dock. Fourteen windows, and the Dock is number one.</div>
       </div>
+      <div class="row thinking" id="fold">
+        <button class="who thinking-toggle" type="button">
+          <span class="who-label">thinking</span><time class="when">11:30</time>
+        </button>
+        <div class="said" hidden>folded body</div>
+      </div>
       <div class="row ask" id="ask" data-t="4">
         <div class="head">pick one</div>
         <div class="what">Which window?</div>
@@ -49,9 +55,14 @@ function paint() {
       const line = document.getElementById("line");
       line.focus();
       const row = document.getElementById("turn");
-      const who = row.querySelector(".who").getBoundingClientRect();
+      const when = row.querySelector(".when").getBoundingClientRect();
+      const label = row.querySelector(".who-label").getBoundingClientRect();
       const said = row.querySelector(".said").getBoundingClientRect();
       const rowBox = row.getBoundingClientRect();
+      const fold = document.getElementById("fold");
+      const foldWhen = fold.querySelector(".when").getBoundingClientRect();
+      const foldLabel = fold.querySelector(".who-label").getBoundingClientRect();
+      const foldSaid = fold.querySelector(".said").getBoundingClientRect();
       const ta = line.getBoundingClientRect();
       const field = getComputedStyle(line);
       const bar = document.querySelector(".bar").getBoundingClientRect();
@@ -65,9 +76,16 @@ function paint() {
         outlineOuterBottom: ta.bottom + offset + width,
         barTop: bar.top,
         gutter: getComputedStyle(row, "::before").content,
-        whoBottom: who.bottom,
-        saidTop: said.top,
-        saidIndent: said.left - rowBox.left,
+        whenLeft: when.left - rowBox.left,
+        whenWidth: when.width,
+        timeBeforeTitle: when.right <= label.left + 1,
+        textUnderTitle: label.bottom <= said.top + 1 && Math.abs(said.left - label.left) < 4,
+        foldHidden: fold.querySelector(".said").hidden,
+        foldSameBand: Math.abs(foldWhen.top - foldLabel.top) < 4,
+        foldTimeBeforeTitle: foldWhen.right <= foldLabel.left + 1,
+        foldBodyHidden: foldSaid.height === 0,
+        foldSaidHeight: foldSaid.height,
+        foldSaidDisplay: getComputedStyle(fold.querySelector(".said")).display,
         askGutter: getComputedStyle(ask, "::before").content,
         askPadLeft: parseFloat(getComputedStyle(ask).paddingLeft) || 0,
       });
@@ -116,9 +134,16 @@ test("the terminal log gives the words the width, and the focus ring stays clear
   assert.equal(painted.gutter, "none");
   assert.equal(painted.askGutter, "none");
   assert.ok(painted.askPadLeft < 16, `ask indent ${painted.askPadLeft}`);
-  assert.ok(
-    painted.whoBottom <= painted.saidTop + 1,
-    `speaker bottom ${painted.whoBottom} is beside the text at ${painted.saidTop}`,
+  assert.ok(painted.whenLeft < 2, `time gutter starts at ${painted.whenLeft}`);
+  assert.ok(painted.whenWidth < 72, `time column is ${painted.whenWidth}`);
+  assert.equal(painted.timeBeforeTitle, true);
+  assert.equal(painted.textUnderTitle, true);
+  assert.equal(painted.foldHidden, true);
+  assert.equal(
+    painted.foldBodyHidden,
+    true,
+    `folded body height ${painted.foldSaidHeight} display ${painted.foldSaidDisplay}`,
   );
-  assert.ok(painted.saidIndent < 16, `text indent ${painted.saidIndent}`);
+  assert.equal(painted.foldSameBand, true);
+  assert.equal(painted.foldTimeBeforeTitle, true);
 });

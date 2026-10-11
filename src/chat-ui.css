@@ -128,7 +128,8 @@
 }
 
 /* Terminal log. Port of .v-term from docs/design/chat-mockups.html: a dense
-   monospace log. The speaker sits on its own line, above the words. */
+   monospace log. The clock is a narrow left gutter, the speaker sits beside
+   it, and the words unfold under the speaker. */
 .chat-ui-terminal {
   --chat-panel: #0A0D12;
   --chat-ink: #C6D0DC;
@@ -242,19 +243,40 @@
   gap: 2px;
 }
 
+/* HH:mm is five characters. The track stays that wide so a long speaker
+   cannot open it. A day prefix ellipsizes, and the title keeps the full stamp. */
 .chat-ui-terminal .row {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
+  grid-template-columns: 6.5ch minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: baseline;
+  justify-items: stretch;
 }
 
 .chat-ui-terminal .row::before {
   content: none;
 }
 
-.chat-ui-terminal .row .who {
+.chat-ui-terminal .row > .who {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  align-items: baseline;
+}
+
+.chat-ui-terminal .row .when {
   grid-column: 1;
   grid-row: 1;
-  gap: 6px;
+  max-width: 6.5ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-ui-terminal .row .who-label {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .chat-ui-terminal .who-label {
@@ -271,9 +293,30 @@
   font-size: 11px;
 }
 
-.chat-ui-terminal .row .said {
-  grid-column: 1;
+.chat-ui-terminal .row > .said {
+  grid-column: 2;
   grid-row: 2;
+}
+
+.chat-ui-terminal .row > .phase {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.chat-ui-terminal .row.ask > * {
+  grid-column: 1 / -1;
+}
+
+/* The marker is a grid item in the title cell. Padding keeps the title
+   clear of it. display:contents would drop the button's hit target. */
+.chat-ui-terminal .thinking-toggle::before {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.chat-ui-terminal .thinking-toggle .who-label {
+  grid-row: 1;
+  padding-inline-start: 1.2em;
 }
 
 .chat-ui-terminal .row.you .said {
