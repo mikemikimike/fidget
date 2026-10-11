@@ -1879,9 +1879,7 @@ fn apply_settings_effects(
             }
             SettingsEffect::Raise => {
                 if let Some(window) = &window {
-                    if let Err(why) =
-                        platform::raise_surface(window, platform::settings_surface_raise())
-                    {
+                    if let Err(why) = platform::raise_above_overlay(window) {
                         eprintln!("settings webview raise: {why}");
                     }
                 }
@@ -2211,10 +2209,9 @@ fn build_overlay(
     Ok(())
 }
 
-/// Build one Instance's Chat surface. None of `build_overlay`'s flags:
-/// click-through would swallow the caret click; always-on-top would follow the
-/// user out of the app. Chat stays under the overlay so the Character can perch
-/// on its ledge; click-through lets typing through (#1498).
+/// Build one Instance's Chat surface. No overlay flags: click-through would
+/// swallow the caret click; always-on-top would follow the user out of the app.
+/// Stays under the overlay as a Perch; typing reaches it via key focus (#1498).
 fn build_chat(
     app: &tauri::AppHandle,
     label: &str,
@@ -2260,7 +2257,7 @@ fn build_chat(
             return;
         };
         let level = if focused {
-            platform::raise_surface(window, platform::chat_surface_raise())
+            platform::activate_for_typing(window)
         } else {
             platform::lower_to_normal_level(window)
         };
@@ -2353,7 +2350,7 @@ fn open_chat(app: &tauri::AppHandle, id: &InstanceId, title: String, feet: Optio
         // Both paths: `focused(true)` only orders the window to the front of
         // this application. Activate the process for typing, but keep Chat under
         // the overlay so it stays a Perch (#1498).
-        if let Err(why) = platform::raise_surface(&window, platform::chat_surface_raise()) {
+        if let Err(why) = platform::activate_for_typing(&window) {
             eprintln!("chat: {label} could not be raised: {why}");
         }
     }) {

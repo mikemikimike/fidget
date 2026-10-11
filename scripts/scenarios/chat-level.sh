@@ -8,10 +8,11 @@
 #   Events, and the minimizes through the Accessibility API, not the mouse.
 # Duration: about 30 s, 2 min at most.
 # Grants: Accessibility for the terminal that runs it.
-# Asserts: Chat sits at NSStatusWindowLevel (25) while focused and at the
-#   normal level (0) once Finder is in front. A minimized Chat logs that it is
-#   minimized, which is what lets the quick-message pill back, and logs that
-#   it is not once restored, focused or not.
+# Asserts: Chat stays at the normal window level (0) while focused so it remains
+#   a Perch under the overlay (#1498), and still at 0 once Finder is in front.
+#   A minimized Chat logs that it is minimized, which is what lets the
+#   quick-message pill back, and logs that it is not once restored, focused or
+#   not.
 #
 # Usage: chat-level.sh --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -70,15 +71,15 @@ logged() { [ "$(grep -cE "^chat: chat-[^ ]+ is $1\$" "$log")" -ge "$2" ]; }
 minimize() { "$tools/ax" minimize "$pid" BMO "$1" || fail "could not set minimized to $1"; }
 
 wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-wait_for 15 at_layer 25 || fail "focused Chat is not at layer 25"
-echo "ok: focused Chat floats at layer 25"
+wait_for 15 at_layer 0 || fail "focused Chat is at layer $("$tools/window-layer" "$pid" BMO), not 0"
+echo "ok: focused Chat stays at layer 0 (a Perch under the overlay)"
 
 open -a Finder
-wait_for 5 at_layer 0 || fail "Chat stayed at layer $("$tools/window-layer" "$pid" BMO) behind Finder"
-echo "ok: unfocused Chat drops to layer 0"
+wait_for 5 at_layer 0 || fail "Chat left layer 0 behind Finder: $("$tools/window-layer" "$pid" BMO)"
+echo "ok: unfocused Chat stays at layer 0"
 
 osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true"
-wait_for 5 at_layer 25 || fail "refocused Chat did not float again"
+wait_for 5 at_layer 0 || fail "refocused Chat left layer 0: $("$tools/window-layer" "$pid" BMO)"
 minimize true
 wait_for 5 logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $log"
 minimize false
@@ -86,7 +87,7 @@ wait_for 5 logged "not minimized" 1 || fail "restoring Chat logged nothing; see 
 echo "ok: a focused Chat counts as closed while minimized"
 
 open -a Finder
-wait_for 5 at_layer 0 || fail "Chat did not drop behind Finder"
+wait_for 5 at_layer 0 || fail "Chat did not stay at layer 0 behind Finder"
 minimize true
 wait_for 5 logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $log"
 minimize false

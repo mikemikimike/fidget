@@ -306,9 +306,6 @@ mod windows;
 mod windows_perch;
 
 mod ctrl_c;
-mod surface_raise;
-
-pub use surface_raise::{chat_surface_raise, settings_surface_raise, SurfaceRaise};
 
 /// Children spawned while this is held inherit "ignore Ctrl+C".
 /// Nested holds stay ignored until the last drop. This process listens
@@ -406,9 +403,8 @@ pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> 
 }
 
 /// Give `window` the keyboard at the normal window level. Main thread only.
-///
-/// The overlay stays above, so the Character can perch on Chat's ledge (#1498).
-/// Clicks reach Chat through the overlay's click-through.
+/// The overlay stays above so Chat's ledge stays a Perch (#1498). Typing
+/// reaches Chat via key focus; the overlay still owns opaque pointer hits.
 #[cfg(target_os = "macos")]
 pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> {
     use objc2::msg_send;
@@ -433,14 +429,6 @@ pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> 
     }
 
     Ok(())
-}
-
-/// Apply [`SurfaceRaise`] for a focused or opened surface. Main thread only.
-pub fn raise_surface(window: &tauri::WebviewWindow, kind: SurfaceRaise) -> Result<(), String> {
-    match kind {
-        SurfaceRaise::AboveOverlay => raise_above_overlay(window),
-        SurfaceRaise::KeyAtNormalLevel => activate_for_typing(window),
-    }
 }
 
 /// Nudge the menu bar icon toward the clock on first launch. Main thread only.

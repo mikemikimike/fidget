@@ -953,6 +953,54 @@ mod tests {
         );
     }
 
+    /// Focused Chat must stay a Perch. Layer 0 is NSNormalWindowLevel; layer 25
+    /// is NSStatusWindowLevel's status band, which `perch_eligible` drops.
+    #[test]
+    fn a_focused_chat_is_a_perch() {
+        let ledge = rect(700.0, 400.0, 420.0, 560.0);
+        let feet = Point { x: 900.0, y: 400.0 };
+
+        let mut at_normal = SnapshotAssembler::new(FakeWindowSource {
+            capabilities: seeing_everything(),
+            geometry: WorldGeometry {
+                usable_frames: vec![rect(0.0, 0.0, 1920.0, 1080.0)],
+                windows: vec![window(7, "fidget", ledge)],
+                dock: None,
+            },
+        });
+        assert_eq!(
+            at_normal.assemble(16, Point::default(), Vec::new()).windows,
+            vec![Window { id: 7, rect: ledge }],
+            "Chat at the ordinary application level is a Perch"
+        );
+        assert_eq!(
+            at_normal.standing_on(feet),
+            "a fidget window",
+            "and the Director is told the character is standing on it"
+        );
+
+        let mut at_status = SnapshotAssembler::new(FakeWindowSource {
+            capabilities: seeing_everything(),
+            geometry: WorldGeometry {
+                usable_frames: vec![rect(0.0, 0.0, 1920.0, 1080.0)],
+                windows: vec![elevated(7, "fidget", ledge, 25)],
+                dock: None,
+            },
+        });
+        assert!(
+            at_status
+                .assemble(16, Point::default(), Vec::new())
+                .windows
+                .is_empty(),
+            "Chat raised into the status band leaves the Perch list"
+        );
+        assert_eq!(
+            at_status.standing_on(feet),
+            "nothing",
+            "so focused Chat at NSStatusWindowLevel is nowhere to stand"
+        );
+    }
+
     /// The overlay is the one window of ours the world must never see: it
     /// covers the display, so a sprite that could find a Perch on it would
     /// find one under its own feet and never fall again.
