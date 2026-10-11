@@ -855,6 +855,76 @@ mod tests {
         assert_eq!(frame.behavior, Some("wave".to_string()));
     }
 
+    /// MCP Expression path for a hop: enqueue succeeds and the Engine leaves
+    /// the floor. An undeclared name still reports success and changes nothing
+    /// on screen (`an_undeclared_behavior_is_still_enqueued_and_the_engine_refuses`).
+    #[test]
+    fn play_behavior_jump_leaves_the_ground() {
+        use crate::character::{Behavior, Primitive};
+        use crate::engine::Point;
+
+        let temp = tempfile::tempdir().expect("temp dir is creatable");
+        let source = fake_source(vec![]);
+        let mut roster = crate::roster::Roster::new();
+        let mut character = test_character("Jumper");
+        character.behaviors.insert(
+            "jump".to_string(),
+            Behavior {
+                primitives: vec![Primitive::Jump],
+                then: None,
+                weight: 0,
+                trigger: None,
+            },
+        );
+        let instance_id = roster.spawn(
+            &character,
+            "Jumper".to_string(),
+            Point { x: 100.0, y: 100.0 },
+        );
+        let mut snapshot = test_snapshot();
+        for _ in 0..50 {
+            if let Some(instance) = roster.get_mut(&instance_id) {
+                instance.tick(&snapshot);
+            }
+            snapshot.elapsed_ms = 16;
+        }
+
+        let roster_info = roster
+            .list()
+            .into_iter()
+            .map(|(id, name)| InstanceInfo { id, name })
+            .collect::<Vec<_>>();
+
+        let mut context = DispatchContext {
+            window_source: &source,
+            memory_path: temp.path().join("memory.md"),
+            denylist: DenyList::default(),
+            roster: &roster_info,
+            expression: Some(&mut roster),
+            placement: PlacementQuery::empty(),
+        };
+
+        let result = dispatch("play_behavior", json!({"behavior": "jump"}), &mut context)
+            .expect("dispatch succeeds");
+        assert_eq!(result["success"], true);
+        assert_eq!(result["behavior"], "jump");
+        drop(context);
+
+        let instance = roster
+            .get_mut(&instance_id)
+            .expect("instance still in roster");
+        let launch = instance.tick(&test_snapshot());
+        assert_eq!(launch.behavior.as_deref(), Some("jump"));
+
+        let mut flying = test_snapshot();
+        flying.elapsed_ms = 100;
+        let launched = instance.tick(&flying);
+        assert!(
+            launched.velocity.y < 0.0,
+            "play_behavior jump must leave the floor: {launched:?}"
+        );
+    }
+
     #[test]
     fn omitted_instance_id_with_several_instances_is_failure() {
         let temp = tempfile::tempdir().expect("temp dir is creatable");
