@@ -2587,30 +2587,39 @@ mod tests {
         );
     }
 
-    /// A short declared name must not steal a file-extension suffix mid-sentence.
+    /// A short declared name must not steal a file-extension suffix as period glue.
+    /// Space-then-lowercase (`main.rs now`), newline-then-sentence (`main.rs\nPlease.`),
+    /// and EOF (`main.rs`) all stay whole-sentence speech.
     #[test]
     fn a_file_extension_that_matches_a_short_declared_name_is_not_period_glue() {
-        let reply = "Open main.rs now please.";
         let declared = declares(&["rs", "wave"]);
-        assert_eq!(
-            dialogue_of(reply, &declared),
-            Some(reply.to_string()),
-            "dotted file suffix stays in speech"
-        );
-
-        let woken =
-            directing(Scripted::says(reply), ["rs", "wave"]).wake_and_near_miss(&typed("open"));
-        assert_eq!(woken.peeled_thought, None, "no peel for a file extension");
-        match &woken.wake {
-            Wake::Proposed(proposal) => {
-                assert!(
-                    proposal.behavior.is_empty(),
-                    "talk path, not a proposed rs: {proposal:?}"
-                );
-                assert_eq!(proposal.dialogue.as_deref(), Some(reply));
+        let expect_whole_speech = |reply: &str| {
+            assert_eq!(
+                dialogue_of(reply, &declared),
+                Some(reply.to_string()),
+                "dotted file suffix stays in speech: {reply:?}"
+            );
+            let woken =
+                directing(Scripted::says(reply), ["rs", "wave"]).wake_and_near_miss(&typed("open"));
+            assert_eq!(
+                woken.peeled_thought, None,
+                "no peel for a file extension: {reply:?}"
+            );
+            match &woken.wake {
+                Wake::Proposed(proposal) => {
+                    assert!(
+                        proposal.behavior.is_empty(),
+                        "talk path, not a proposed rs for {reply:?}: {proposal:?}"
+                    );
+                    assert_eq!(proposal.dialogue.as_deref(), Some(reply));
+                }
+                other => panic!("file extension must be whole-sentence speech, not {other:?}"),
             }
-            other => panic!("file extension must be whole-sentence speech, not {other:?}"),
-        }
+        };
+
+        expect_whole_speech("Open main.rs now please.");
+        expect_whole_speech("Open main.rs\nPlease.");
+        expect_whole_speech("Open main.rs");
     }
 
     /// A `behavior:` line that names nothing declared is still a contract cut:
