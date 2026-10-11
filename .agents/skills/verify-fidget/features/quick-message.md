@@ -35,9 +35,9 @@ Preconditions:
 ## Gotchas
 
 - A glance shorter than `HOVER_DELAY_MS` (1500) must not open the pill; do not click (that is Poke) or double-click (Summon).
-- After a Summon (or any path that calls the pill's `summon` dismiss), the pill stays down while the pointer remains on the sprite; only `leaveSprite` clears that latch so a fresh hover can open it again (#1237).
-- After Send, that same latch stays set. The pointer has to leave the sprite and hover again before the pill opens.
-- While Chat is open for that Instance (`sprite.chatting` / `setChatOpen(true)`), hover does not open the pill even after the Summon latch is cleared; close Chat, leave the sprite, then hover again (#1243).
+- After a Summon (or any path that calls the pill's `summon` dismiss), the pill stays down while the pointer remains on the sprite; `leaveSprite` clears that latch so a fresh hover can open it again (#1237). Closing Chat also clears it (`setChatOpen(false)`), because macOS can keep `:hover` after Chat steals focus with no `pointerleave` (#1489).
+- After Send, that same latch stays set until the pointer leaves the sprite (or Chat closes, as above).
+- While Chat is open for that Instance (`sprite.chatting` / `setChatOpen(true)`), hover does not open the pill; after Chat closes, the next enterSprite dwell can open it (#1243, #1489).
 - Auto-hide is 3000ms away from **both** sprite and pill; text in the field blocks auto-hide.
 - Opening Chat from the connect control is `overlay_open_chat`, not `verbs:.*Summon` — do not mark Summon verified from this path.
 - Live X11 screenshots need ImageMagick `import`. Without it, say so and rely on units rather than inventing a parallel harness.
