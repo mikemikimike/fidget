@@ -212,8 +212,17 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
     },
     // A pill already up stays: it may hold a draft, and auto-hide takes an empty one.
     setChatOpen(open) {
-      chatOpen = Boolean(open);
-      if (chatOpen) cancelHover();
+      const next = Boolean(open);
+      if (next === chatOpen) return;
+      chatOpen = next;
+      if (chatOpen) {
+        cancelHover();
+        return;
+      }
+      // Summon/Send latch `yielded` until leaveSprite. Chat stealing focus on
+      // macOS can leave :hover stuck with no pointerleave, so that leave never
+      // runs. Drop the hold when Chat closes so the next enterSprite can arm.
+      yielded = false;
     },
     setBubble(up) {
       if (up === bubbleUp) return;
