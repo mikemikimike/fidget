@@ -49,7 +49,7 @@ export function askSays(ask) {
 
 // No content, so the arguments are the body. An empty payload is no body,
 // by the same check the ask row uses when it draws a fence.
-function inputMarkdown(input) {
+export function inputMarkdown(input) {
   if (input === undefined) {
     return [];
   }

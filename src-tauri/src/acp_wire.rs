@@ -292,8 +292,11 @@ pub enum Event {
         session: String,
         id: String,
         title: Option<String>,
+        name: Option<String>,
         kind: Option<String>,
         status: Option<String>,
+        raw_input: Option<serde_json::Value>,
+        raw_output: Option<serde_json::Value>,
         /// Absent when this update did not carry locations. Empty replaces them.
         locations: Option<Vec<Place>>,
         /// Absent when this update did not carry content. Empty replaces it.
@@ -458,8 +461,16 @@ pub enum Replayed {
     ToolCall {
         id: String,
         title: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
         kind: Option<String>,
         status: Option<String>,
+        #[serde(rename = "rawInput")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        raw_input: Option<Box<serde_json::Value>>,
+        #[serde(rename = "rawOutput")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        raw_output: Option<Box<serde_json::Value>>,
         locations: Vec<Place>,
         content: Vec<ToolPiece>,
     },
@@ -1709,8 +1720,11 @@ enum Heard<'a> {
 struct Tool<'a> {
     id: &'a str,
     title: Option<&'a str>,
+    name: Option<&'a str>,
     kind: Option<String>,
     status: Option<String>,
+    raw_input: Option<&'a serde_json::Value>,
+    raw_output: Option<&'a serde_json::Value>,
     locations: Option<&'a [ToolCallLocation]>,
     content: Option<&'a [ToolCallContent]>,
 }
@@ -1720,8 +1734,11 @@ impl Tool<'_> {
     fn row(self) -> Replayed {
         Replayed::ToolCall {
             title: self.title.unwrap_or_default().to_string(),
+            name: self.name.map(str::to_string),
             kind: self.kind,
             status: self.status,
+            raw_input: self.raw_input.cloned().map(Box::new),
+            raw_output: self.raw_output.cloned().map(Box::new),
             locations: self.locations.map(places).unwrap_or_default(),
             content: self.content.map(pieces).unwrap_or_default(),
             id: self.id.to_string(),
@@ -1732,8 +1749,11 @@ impl Tool<'_> {
     fn fold_into(self, row: &mut Replayed) {
         let Replayed::ToolCall {
             title,
+            name,
             kind,
             status,
+            raw_input,
+            raw_output,
             locations,
             content,
             ..
@@ -1744,11 +1764,20 @@ impl Tool<'_> {
         if let Some(changed) = self.title {
             *title = changed.to_string();
         }
+        if let Some(changed) = self.name {
+            *name = Some(changed.to_string());
+        }
         if let Some(changed) = self.kind {
             *kind = Some(changed);
         }
         if let Some(changed) = self.status {
             *status = Some(changed);
+        }
+        if let Some(changed) = self.raw_input {
+            *raw_input = Some(Box::new(changed.clone()));
+        }
+        if let Some(changed) = self.raw_output {
+            *raw_output = Some(Box::new(changed.clone()));
         }
         if let Some(changed) = self.locations {
             *locations = places(changed);
@@ -1770,16 +1799,22 @@ fn hear(update: &SessionUpdate) -> Heard<'_> {
         SessionUpdate::ToolCall(call) => Heard::ToolCall(Tool {
             id: &call.tool_call_id.0,
             title: Some(&call.title),
+            name: call.name.as_deref(),
             kind: Some(name_of(&call.kind)),
             status: Some(name_of(&call.status)),
+            raw_input: call.raw_input.as_ref(),
+            raw_output: call.raw_output.as_ref(),
             locations: Some(&call.locations),
             content: Some(&call.content),
         }),
         SessionUpdate::ToolCallUpdate(update) => Heard::ToolUpdate(Tool {
             id: &update.tool_call_id.0,
             title: update.fields.title.as_deref(),
+            name: update.fields.name.as_deref(),
             kind: update.fields.kind.as_ref().map(name_of),
             status: update.fields.status.as_ref().map(name_of),
+            raw_input: update.fields.raw_input.as_ref(),
+            raw_output: update.fields.raw_output.as_ref(),
             locations: update.fields.locations.as_deref(),
             content: update.fields.content.as_deref(),
         }),
@@ -2477,8 +2512,11 @@ fn show(
             session: session.0.to_string(),
             id: tool.id.to_string(),
             title: tool.title.map(str::to_string),
+            name: tool.name.map(str::to_string),
             kind: tool.kind,
             status: tool.status,
+            raw_input: tool.raw_input.cloned(),
+            raw_output: tool.raw_output.cloned(),
             locations: tool.locations.map(places),
             content: tool.content.map(pieces),
         }),
@@ -3417,8 +3455,11 @@ mod tests {
                 Replayed::ToolCall {
                     id: "t1".to_string(),
                     title: "Edit main.rs".to_string(),
+                    name: None,
                     kind: Some("edit".to_string()),
                     status: Some("completed".to_string()),
+                    raw_input: None,
+                    raw_output: None,
                     locations: vec![],
                     content: vec![],
                 },
@@ -3472,8 +3513,11 @@ mod tests {
                 Replayed::ToolCall {
                     id: "t1".to_string(),
                     title: "Read file".to_string(),
+                    name: None,
                     kind: Some("read".to_string()),
                     status: Some("pending".to_string()),
+                    raw_input: None,
+                    raw_output: None,
                     locations: vec![],
                     content: vec![],
                 },
@@ -3518,8 +3562,11 @@ mod tests {
                 Replayed::ToolCall {
                     id: "t1".to_string(),
                     title: "Read file".to_string(),
+                    name: None,
                     kind: Some("read".to_string()),
                     status: Some("pending".to_string()),
+                    raw_input: None,
+                    raw_output: None,
                     locations: vec![],
                     content: vec![],
                 },
@@ -3643,8 +3690,11 @@ mod tests {
             vec![Replayed::ToolCall {
                 id: "t1".to_string(),
                 title: "Read file".to_string(),
+                name: None,
                 kind: Some("read".to_string()),
                 status: Some("completed".to_string()),
+                raw_input: None,
+                raw_output: None,
                 locations: vec![Place {
                     path: "/tmp/roster.json".to_string(),
                     line: Some(4),
@@ -3652,6 +3702,43 @@ mod tests {
                 content: vec![ToolPiece::Text {
                     text: "names".to_string(),
                 }],
+            }]
+        );
+    }
+
+    #[test]
+    fn a_tool_call_keeps_raw_fields_and_name_across_live_updates_and_replay() {
+        let updates = vec![
+            wire(serde_json::json!({
+                "sessionUpdate": "tool_call", "toolCallId": "t-raw", "title": "Fetch page",
+                "name": "fetch_page", "kind": "fetch", "rawInput": {"url": "https://example.com"}
+            })),
+            wire(serde_json::json!({
+                "sessionUpdate": "tool_call_update", "toolCallId": "t-raw",
+                "status": "completed", "rawInput": null, "rawOutput": {"body": "done"}
+            })),
+        ];
+        let (_, events) = drive(updates.clone());
+        assert!(
+            matches!(&events[0], Event::ToolCall { name: Some(name), raw_input: Some(input), raw_output: None, .. }
+            if name == "fetch_page" && input == &serde_json::json!({"url": "https://example.com"}))
+        );
+        assert!(
+            matches!(&events[1], Event::ToolCall { name: None, raw_input: None, raw_output: Some(output), .. }
+            if output == &serde_json::json!({"body": "done"}))
+        );
+        assert_eq!(
+            restored_rows(&updates),
+            vec![Replayed::ToolCall {
+                id: "t-raw".to_string(),
+                title: "Fetch page".to_string(),
+                name: Some("fetch_page".to_string()),
+                kind: Some("fetch".to_string()),
+                status: Some("completed".to_string()),
+                raw_input: Some(Box::new(serde_json::json!({"url": "https://example.com"}))),
+                raw_output: Some(Box::new(serde_json::json!({"body": "done"}))),
+                locations: vec![],
+                content: vec![],
             }]
         );
     }
@@ -3703,8 +3790,11 @@ mod tests {
             vec![Replayed::ToolCall {
                 id: "t1".to_string(),
                 title: "Edit main.rs".to_string(),
+                name: None,
                 kind: Some("edit".to_string()),
                 status: Some("completed".to_string()),
+                raw_input: None,
+                raw_output: None,
                 locations: vec![],
                 content: vec![],
             }]

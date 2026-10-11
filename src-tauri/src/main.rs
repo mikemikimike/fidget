@@ -2522,8 +2522,11 @@ fn show_tool(app: &tauri::AppHandle, instance: &str, call: harness::LiveCall) {
         &serde_json::json!({
             "id": call.id,
             "title": call.title,
+            "name": call.name,
             "kind": call.kind,
             "status": call.status,
+            "rawInput": call.raw_input,
+            "rawOutput": call.raw_output,
             "locations": call.locations,
             "content": call.content,
         }),

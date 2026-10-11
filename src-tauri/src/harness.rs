@@ -926,7 +926,7 @@ pub enum Forwarded {
     /// that found the failure returns.
     NotApplied(Vec<ConfigFailure>),
     /// A live tool call for that Instance's Chat. The phase line reads the
-    /// title and status. The row also draws content and locations.
+    /// title and status. The row also draws content, locations, and raw fields.
     Tool {
         instance: String,
         call: LiveCall,
@@ -942,8 +942,11 @@ pub enum Forwarded {
 pub struct LiveCall {
     pub id: String,
     pub title: Option<String>,
+    pub name: Option<String>,
     pub kind: Option<String>,
     pub status: Option<String>,
+    pub raw_input: Option<serde_json::Value>,
+    pub raw_output: Option<serde_json::Value>,
     pub locations: Option<Vec<Place>>,
     pub content: Option<Vec<ToolPiece>>,
 }
@@ -3001,14 +3004,17 @@ fn note_event(
         instance.map_or(Owner::EveryChat, Owner::Instance)
     };
     match event {
-        // The row draws what the call touched. The Action Log stays a
+        // The row draws what the call carried. The Action Log stays a
         // pointer: id, title, kind, and status, not the output.
         Event::ToolCall {
             session,
             id,
             title,
+            name,
             kind,
             status,
+            raw_input,
+            raw_output,
             content,
             locations,
         } => {
@@ -3023,8 +3029,11 @@ fn note_event(
                     call: LiveCall {
                         id,
                         title,
+                        name,
                         kind,
                         status,
+                        raw_input,
+                        raw_output,
                         content,
                         locations,
                     },
@@ -5089,8 +5098,11 @@ mod tests {
                 session: "session-b".to_string(),
                 id: "t1".to_string(),
                 title: Some("Read file".to_string()),
+                name: None,
                 kind: Some("read".to_string()),
                 status: Some("in_progress".to_string()),
+                raw_input: None,
+                raw_output: None,
                 locations: None,
                 content: None,
             },
@@ -5139,8 +5151,11 @@ mod tests {
                 session: "session-b".to_string(),
                 id: "t1".to_string(),
                 title: Some("Read file".to_string()),
+                name: Some("read_file".to_string()),
                 kind: Some("read".to_string()),
                 status: Some("completed".to_string()),
+                raw_input: Some(json!({"path": "/tmp/roster.json"})),
+                raw_output: Some(json!({"count": 3})),
                 locations: Some(locations.clone()),
                 content: Some(content.clone()),
             },
@@ -5151,8 +5166,11 @@ mod tests {
                 assert_eq!(instance, "buddy-b");
                 assert_eq!(call.id, "t1");
                 assert_eq!(call.title.as_deref(), Some("Read file"));
+                assert_eq!(call.name.as_deref(), Some("read_file"));
                 assert_eq!(call.kind.as_deref(), Some("read"));
                 assert_eq!(call.status.as_deref(), Some("completed"));
+                assert_eq!(call.raw_input, Some(json!({"path": "/tmp/roster.json"})));
+                assert_eq!(call.raw_output, Some(json!({"count": 3})));
                 assert_eq!(call.locations, Some(locations));
                 assert_eq!(call.content, Some(content));
             }
@@ -5172,6 +5190,8 @@ mod tests {
         assert_eq!(logged["status"], "completed");
         assert!(logged.get("content").is_none());
         assert!(logged.get("locations").is_none());
+        assert!(logged.get("rawInput").is_none());
+        assert!(logged.get("rawOutput").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -7523,8 +7543,11 @@ mod tests {
                     Replayed::ToolCall {
                         id: text("replayed"),
                         title: text("replayed"),
+                        name: None,
                         kind: Some(text("other")),
                         status: Some(text("failed")),
+                        raw_input: None,
+                        raw_output: None,
                         locations: vec![],
                         content: vec![crate::tool_content::ToolPiece::Text {
                             text: text("no such file")

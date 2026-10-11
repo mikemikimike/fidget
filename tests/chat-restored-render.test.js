@@ -96,6 +96,7 @@ ${steps}
       tools: [...document.querySelectorAll("#log .row.tool")].map((row) => ({
         label: row.querySelector(".who-label").textContent,
         pieces: [...row.querySelectorAll(".said > *")].map((piece) => piece.textContent),
+        spaces: [...row.querySelectorAll(".tool-location, .tool-name")].map((piece) => getComputedStyle(piece).whiteSpace),
       })),
       anchors: document.querySelectorAll("#log a").length,
       opened: window.__invoked.filter((call) => call.name === "open_link").map((call) => call.args.url),
@@ -328,6 +329,7 @@ test(
           "[image image/png]",
           "[link passwd file:///etc/passwd]",
         ],
+        spaces: ["normal", "normal", "normal", "normal"],
       },
     ]);
     assert.deepEqual(report.links, ["https://example.com/spec.md"]);
@@ -360,11 +362,12 @@ test(
     const report = drive(`emit("chat-restored", ${JSON.stringify(history)});`);
     assert.equal(report.error, undefined, report.error);
     assert.deepEqual(report.tools[0].pieces, [
-      "/tmp/a bc.rs:2",
-      "/tmp/x yz.rs (+1/-0) · full diff not drawn",
-      "Terminal t 12",
+      "/tmp/a\nbc.rs:2",
+      "/tmp/x\r\nyz.rs (+1/-0) · full diff not drawn",
+      "Terminal t\n12",
       "kept\nlines",
     ]);
+    assert.deepEqual(report.tools[0].spaces, ["normal", "normal", "normal"]);
   },
 );
 
