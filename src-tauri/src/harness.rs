@@ -5220,6 +5220,110 @@ mod tests {
         assert!(!args.iter().any(|arg| *arg == "-c"), "{args:?}");
     }
 
+    /// Spawns the Codex Command path through a stub that records argv, so `{` `"`
+    /// `=` in the trust `-c` value survive the process boundary.
+    #[test]
+    fn codex_trust_argument_survives_spawned_argv() {
+        let root =
+            std::env::temp_dir().join(format!("fidget-trust-spawn-{}", uuid::Uuid::new_v4()));
+        let data = root.join("data.dir");
+        std::fs::create_dir_all(&data).unwrap();
+        sync_codex_project_config(&data, None, None).unwrap();
+        let out = root.join("argv.txt");
+        let stub = root.join(if cfg!(windows) {
+            "echo-argv.cmd"
+        } else {
+            "echo-argv"
+        });
+        if cfg!(windows) {
+            std::fs::write(
+                &stub,
+                "@echo off\r\n> \"%~dp0argv.txt\" (\r\nfor %%A in (%*) do echo(%%~A\r\n)\r\n",
+            )
+            .unwrap();
+        } else {
+            std::fs::write(
+                &stub,
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FIDGET_ARGV_OUT\"\n",
+            )
+            .unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let launch = Launch {
+            name: "codex".into(),
+            argv: vec![
+                stub.to_string_lossy().to_string(),
+                "-y".into(),
+                "@agentclientprotocol/codex-acp@latest".into(),
+            ],
+        };
+        let mut command = launch.command(&AttachCwd(root.clone()), false);
+        command.env("FIDGET_ARGV_OUT", &out);
+        without_console_window(&mut command);
+        let status = command.status().expect("spawn echo stub");
+        assert!(status.success(), "{status}");
+        let dumped = std::fs::read_to_string(&out)
+            .unwrap_or_else(|_| std::fs::read_to_string(root.join("argv.txt")).unwrap_or_default());
+        let expected = codex_trust_override(&data);
+        assert!(
+            dumped.lines().any(|line| line == expected),
+            "expected exact trust arg among:\n{dumped}"
+        );
+        assert!(
+            expected.contains('{') && expected.contains('"') && expected.contains('='),
+            "{expected}"
+        );
+        let config = std::fs::read_to_string(codex_project_config_path(&data)).unwrap();
+        assert!(
+            !config.lines().any(|line| line.starts_with("model ")),
+            "blank Model must leave no project model key:\n{config}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Same Command path as Codex attach, through `npx.cmd` the way npm installs it.
+    #[cfg(windows)]
+    #[test]
+    fn codex_trust_survives_npx_cmd_spawn() {
+        let root = std::env::temp_dir().join(format!("fidget-npx-trust-{}", uuid::Uuid::new_v4()));
+        let data = root.join("data.dir");
+        std::fs::create_dir_all(&data).unwrap();
+        sync_codex_project_config(&data, None, None).unwrap();
+        std::fs::write(
+            root.join("npx.cmd"),
+            "@echo off\r\n> \"%~dp0echoed.txt\" (\r\nfor %%A in (%*) do echo(%%~A\r\n)\r\n",
+        )
+        .unwrap();
+        let launch = Launch {
+            name: "codex".into(),
+            argv: vec![
+                root.join("npx.cmd").to_string_lossy().to_string(),
+                "-y".into(),
+                "@agentclientprotocol/codex-acp@latest".into(),
+            ],
+        };
+        let mut command = launch.command(&AttachCwd(root.clone()), false);
+        without_console_window(&mut command);
+        let status = command.status().expect("spawn npx.cmd stub");
+        assert!(status.success(), "{status}");
+        let dumped = std::fs::read_to_string(root.join("echoed.txt")).unwrap();
+        let expected = codex_trust_override(&data);
+        assert!(
+            dumped.lines().any(|line| line == expected),
+            "expected exact trust arg among:\n{dumped}"
+        );
+        let config = std::fs::read_to_string(codex_project_config_path(&data)).unwrap();
+        assert!(
+            !config.lines().any(|line| line.starts_with("model ")),
+            "blank Model must leave no project model key:\n{config}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn codex_trust_override_uses_an_inline_table_and_survives_dots() {
         let dir = PathBuf::from("/tmp/ct/data.dir");
