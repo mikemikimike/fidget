@@ -360,6 +360,12 @@ fn codex_trust_override(data_dir: &Path) -> String {
     format!("projects={{\"{escaped}\"={{trust_level=\"trusted\"}}}}")
 }
 
+/// Trust so the data-dir project layer loads; never write `~/.codex`.
+/// Only real `codex-acp` argv takes `-c`; fixture launchers do not.
+fn apply_codex_launch_trust(command: &mut Command, argv: &[String], data_dir: &Path) {
+    let _ = (command, argv, codex_trust_override(data_dir));
+}
+
 fn opencode_fidget_permissions(existing: Option<&str>) -> Option<String> {
     let mut config: Value =
         existing.map_or_else(|| Some(json!({})), |text| serde_json::from_str(text).ok())?;
@@ -2220,13 +2226,7 @@ impl Session {
                 Some(inputs.model.as_str()).filter(|model| !model.trim().is_empty()),
                 inputs.effort.as_deref(),
             );
-            // Trust so the data-dir project layer loads; never write ~/.codex.
-            // Only real `codex-acp` argv takes `-c`; fixture launchers do not.
-            if self.launch.argv.iter().any(|arg| arg.contains("codex-acp")) {
-                command
-                    .arg("-c")
-                    .arg(codex_trust_override(self.data.as_path()));
-            }
+            apply_codex_launch_trust(&mut command, &self.launch.argv, self.data.as_path());
         }
         let spawned = Wire::spawn(
             command,
@@ -5137,7 +5137,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_project_config_and_trust_match_after_a_restart() {
+    fn codex_project_config_matches_after_a_restart() {
         crate::model::tests::with_env(None, None, None, || {
             crate::dev_flags::seed(&crate::settings::Settings::default());
             let (fx, mut session) = Fixture::new("hello");
@@ -5150,7 +5150,6 @@ mod tests {
             );
             let path = codex_project_config_path(&fx.dir);
             let first = std::fs::read_to_string(&path).unwrap();
-            let trust_first = codex_trust_override(&fx.dir);
             assert!(first.contains("model = \"typed\""), "{first}");
             assert!(
                 first.contains("model_reasoning_effort = \"high\""),
@@ -5181,11 +5180,42 @@ mod tests {
                 Ok(Reply::whole("Hello"))
             );
             let second = std::fs::read_to_string(&path).unwrap();
-            let trust_second = codex_trust_override(&fx.dir);
             assert_eq!(first, second);
-            assert_eq!(trust_first, trust_second);
             session2.shutdown();
         });
+    }
+
+    #[test]
+    fn a_codex_acp_launch_carries_the_exact_trust_argument() {
+        let data = PathBuf::from("/tmp/ct/data.dir");
+        let launch = launch(Some("codex")).unwrap();
+        let mut command = launch.command(&tmp_attach(), false);
+        apply_codex_launch_trust(&mut command, &launch.argv, &data);
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let expected = codex_trust_override(&data);
+        assert_eq!(
+            args.windows(2).find(|pair| pair[0] == "-c"),
+            Some([String::from("-c"), expected].as_slice())
+        );
+    }
+
+    #[test]
+    fn a_fixture_codex_launcher_omits_the_trust_argument() {
+        let data = PathBuf::from("/tmp/ct/data.dir");
+        let launch = Launch {
+            name: "codex".into(),
+            argv: vec![
+                fake_agent_wrapper().to_string_lossy().to_string(),
+                "script=hello".into(),
+            ],
+        };
+        let mut command = launch.command(&tmp_attach(), false);
+        apply_codex_launch_trust(&mut command, &launch.argv, &data);
+        let args: Vec<_> = command.get_args().collect();
+        assert!(!args.iter().any(|arg| *arg == "-c"), "{args:?}");
     }
 
     #[test]
