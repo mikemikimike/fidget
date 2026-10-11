@@ -579,10 +579,9 @@ fn contract_visible(answer: &str, behaviors: &[String]) -> bool {
         || unfinished_marked_contract(tail, behaviors)
 }
 
-/// Period glue is only for the thought/speech meld bandaid (`…character.ponder\n`).
-/// Two-letter names collide with file extensions (`main.rs`); shipped Behaviors
-/// start at three (`nap`, `sit`). Marked `behavior:` and bare mid-reply keep
-/// short names.
+/// Period-glue floor: two-letter names collide with file extensions (`main.rs`);
+/// shipped Behaviors start at three (`nap`, `sit`). Marked `behavior:` and bare
+/// mid-reply still accept short names.
 const MIN_PERIOD_GLUE_NAME: usize = 3;
 
 fn glued_declared_behavior<'a>(
