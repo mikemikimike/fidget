@@ -363,7 +363,9 @@ fn codex_trust_override(data_dir: &Path) -> String {
 /// Trust so the data-dir project layer loads; never write `~/.codex`.
 /// Only real `codex-acp` argv takes `-c`; fixture launchers do not.
 fn apply_codex_launch_trust(command: &mut Command, argv: &[String], data_dir: &Path) {
-    let _ = (command, argv, codex_trust_override(data_dir));
+    if argv.iter().any(|arg| arg.contains("codex-acp")) {
+        command.arg("-c").arg(codex_trust_override(data_dir));
+    }
 }
 
 fn opencode_fidget_permissions(existing: Option<&str>) -> Option<String> {
