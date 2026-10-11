@@ -50,13 +50,14 @@ issue was filed. Treat that issue as unscoped and leave it.
 
 ## Priority
 
-Three labels rank the work, `p0` over `p1` over `p2`.
+Four labels rank the work, `p0` over `p1` over `p2` over `p3`.
 
 | Label | Meaning |
 |---|---|
 | `p0` | Drop everything: broken for users, or blocking |
 | `p1` | Next up: the default for work that should happen |
 | `p2` | Eventually: real, but nothing waits on it |
+| `p3` | Below `p2`. |
 
 Take the highest priority available rather than the most interesting issue. When
 two issues share a priority, the operating system decides.
@@ -77,9 +78,7 @@ List the issues for your platform with:
 gh issue list --state open --label macos --json number,title,labels
 ```
 
-On a pull request, the `windows` label does a second job: it forces the Windows
-compile job in `.github/workflows/tests.yml` to run. Applying it to a PR is a CI
-decision, not a claim about which platform the work belongs to.
+What `windows` does on a pull request is `docs/agents/labels.md`.
 
 ## Triage labels
 
