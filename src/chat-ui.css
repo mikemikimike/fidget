@@ -1174,6 +1174,23 @@ body {
   color: var(--chat-ink-2);
 }
 
+/* A tool call's handle keeps the Harness title as sent on one line; the
+   label's hover title and the details hold the rest. */
+.row.tool > .who,
+.row.tool > .thinking-toggle {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.tool-handle {
+  display: inline-block;
+  max-width: calc(100% - 1.2em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 .thinking-toggle:focus-visible {
   outline: 2px solid var(--chat-accent);
   outline-offset: 2px;

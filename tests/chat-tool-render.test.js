@@ -240,57 +240,34 @@ test(
 );
 
 test(
-  "long titles for several tool kinds move into details, while short empty calls are labels",
+  "long titles stay whole on one ellipsized line, with the full text on hover",
   { skip: CHROME_OR_CI, timeout: 60000 },
   () => {
-    const longCalls = [
-      { id: "t-search", title: "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks", kind: "search" },
-      { id: "t-execute", title: "Run checks across every workspace and collect all failed assertion messages", kind: "execute", name: "run_command" },
-    ].map((call) => ({ ...call, status: "completed", locations: [], content: [] }));
-    const plain = {
-      id: "t-plain",
-      title: "Web search",
-      kind: "search",
-      status: "completed",
-      locations: [],
-      content: [],
-    };
+    const title = "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks";
+    const call = { id: "t-search", title, kind: "search", status: "completed", locations: [], content: [] };
     const report = drive(`
     const report = {};
-    emit("chat-restored", ${JSON.stringify([...longCalls, plain].map((call) => ({ ...call, type: "tool_call" })))});
-    for (const call of ${JSON.stringify(longCalls)}) emit("chat-tool", call);
-    emit("chat-tool", ${JSON.stringify(plain)});
-    report.rows = [...document.querySelectorAll("#log .row.tool")].map((row) => ({
-      label: row.querySelector(".who-label").textContent,
-      toggle: !!row.querySelector(".thinking-toggle"),
-      detail: row.querySelector(".said")?.textContent ?? "",
-    }));`);
+    emit("chat-restored", [${JSON.stringify({ ...call, type: "tool_call" })}]);
+    emit("chat-tool", ${JSON.stringify(call)});
+    report.rows = [...document.querySelectorAll("#log .row.tool")].map((row) => {
+      const label = row.querySelector(".who-label");
+      return {
+        label: label.textContent,
+        hover: label.title,
+        toggle: !!row.querySelector(".thinking-toggle"),
+        nowrap: getComputedStyle(label).whiteSpace,
+        cut: label.scrollWidth > label.clientWidth,
+        oneLine: label.getClientRects().length === 1,
+      };
+    });`);
     assert.equal(report.error, undefined, report.error);
-    assert.deepEqual(report.rows, [
-      {
-        label: "Web search · completed",
-        toggle: true,
-        detail: "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks",
-      },
-      { label: "run_command · completed", toggle: true, detail: "Run checks across every workspace and collect all failed assertion messages" },
-      { label: "Web search · completed", toggle: false, detail: "" },
-      {
-        label: "Web search · completed",
-        toggle: true,
-        detail: "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks",
-      },
-      { label: "run_command · completed", toggle: true, detail: "Run checks across every workspace and collect all failed assertion messages" },
-      { label: "Web search · completed", toggle: false, detail: "" },
-    ]);
+    const row = { label: `${title} · completed`, hover: `${title} · completed`, toggle: false, nowrap: "nowrap", cut: true, oneLine: true };
+    assert.deepEqual(report.rows, [row, row]);
   },
 );
 
-test("raw fields and content render as separate details in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
-  const call = {
-    id: "raw", title: "Read file", name: "read_file", kind: "read", status: "completed",
-    rawInput: { path: "/tmp/a" }, rawOutput: { text: "done" },
-    locations: [{ path: "/tmp/a", line: 3 }], content: [{ type: "text", text: "Visible result" }],
-  };
+test("an empty call is a plain label in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+  const call = { id: "t-plain", title: "", name: "web_search", kind: "search", status: "completed", locations: [], content: [] };
   const report = drive(`
     const report = {};
     emit("chat-restored", [${JSON.stringify({ ...call, type: "tool_call" })}]);
@@ -298,9 +275,31 @@ test("raw fields and content render as separate details in live and replay", { s
     report.rows = [...document.querySelectorAll("#log .row.tool")].map(snap);`);
   assert.equal(report.error, undefined, report.error);
   assert.deepEqual(report.rows[0], report.rows[1]);
-  assert.deepEqual(report.rows[0].pieces.map((p) => p.text), [
-    "/tmp/a:3", "Visible result", 'Input: {"path":"/tmp/a"}', 'Output: {"text":"done"}',
+  assert.equal(report.rows[0].label, "web_search · completed");
+  assert.equal(report.rows[0].open, null);
+  assert.deepEqual(report.rows[0].pieces, []);
+});
+
+test("raw fields render as json fences beside content in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+  const call = {
+    id: "raw", title: "Read file", name: "read_file", kind: "read", status: "completed",
+    rawInput: { path: "/tmp/a" }, rawOutput: { text: "done\u202e" },
+    locations: [{ path: "/tmp/a", line: 3 }], content: [{ type: "text", text: "Visible result" }],
+  };
+  const report = drive(`
+    const report = {};
+    emit("chat-restored", [${JSON.stringify({ ...call, type: "tool_call" })}]);
+    emit("chat-tool", ${JSON.stringify(call)});
+    report.rows = [...document.querySelectorAll("#log .row.tool")].map(snap);
+    report.fences = [...document.querySelectorAll("#log .row.tool .tool-piece pre code")].map((code) => code.textContent);`);
+  assert.equal(report.error, undefined, report.error);
+  assert.deepEqual(report.rows[0], report.rows[1]);
+  assert.deepEqual(report.rows[0].pieces.map((p) => p.className), [
+    "tool-piece tool-location", "tool-piece", "tool-piece tool-input", "tool-piece tool-output",
   ]);
+  const input = JSON.stringify({ path: "/tmp/a" }, null, 2);
+  const output = JSON.stringify({ text: "done" }, null, 2);
+  assert.deepEqual(report.fences.map((f) => f.trimEnd()), [input, output, input, output]);
 });
 
 test("a live call gains and loses a disclosure as details change", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
@@ -330,8 +329,8 @@ test("raw updates retain earlier values when omitted or null", { skip: CHROME_OR
     emit("chat-tool", { id: "t", rawInput: null, rawOutput: null, status: "completed" });
     report.row = snap(row);`);
   assert.equal(report.error, undefined, report.error);
-  assert.deepEqual(report.row.pieces.map((p) => p.text), [
-    'Input: {"url":"https://example.com"}', 'Output: {"ok":true}',
+  assert.deepEqual(report.row.pieces.map((p) => p.text.trimEnd()), [
+    JSON.stringify({ url: "https://example.com" }, null, 2), JSON.stringify({ ok: true }, null, 2),
   ]);
 });
 
@@ -346,10 +345,10 @@ test("a call with blank display pieces stays a plain label", { skip: CHROME_OR_C
   assert.deepEqual(report.row.pieces, []);
 });
 
-test("normalized and unprefixed titles keep their actions in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+test("multi-line and tabbed titles keep their text as sent in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
   const calls = [
-    { id: "multiline", title: "Read\nroster\tfile", kind: "read", status: "completed", content: [], locations: [] },
-    { id: "unprefixed", title: "Compare deployment records across staging and production before restart", kind: "other", status: "completed", content: [], locations: [] },
+    { id: "multiline", title: "Read\nroster file", kind: "read", status: "completed", content: [], locations: [] },
+    { id: "tabbed", title: "Read\troster file", kind: "read", status: "completed", content: [], locations: [] },
   ];
   const report = drive(`
     const report = {};
@@ -357,13 +356,11 @@ test("normalized and unprefixed titles keep their actions in live and replay", {
     for (const call of ${JSON.stringify(calls)}) emit("chat-tool", call);
     report.rows = [...document.querySelectorAll("#log .row.tool")].map((row) => ({
       label: row.querySelector(".who-label").textContent,
-      detail: row.querySelector(".said")?.textContent,
+      oneLine: row.querySelector(".who-label").getClientRects().length === 1,
+      detail: row.querySelector(".said")?.textContent ?? null,
     }));`);
   assert.equal(report.error, undefined, report.error);
-  assert.deepEqual(report.rows, [
-    { label: "Read roster file · completed", detail: "Read\nroster\tfile" },
-    { label: "Compare deployment records… · completed", detail: calls[1].title },
-    { label: "Read roster file · completed", detail: "Read\nroster\tfile" },
-    { label: "Compare deployment records… · completed", detail: calls[1].title },
-  ]);
+  const multi = { label: "Read\nroster file · completed", oneLine: true, detail: "Read\nroster file" };
+  const tab = { label: "Read\troster file · completed", oneLine: true, detail: null };
+  assert.deepEqual(report.rows, [multi, tab, multi, tab]);
 });
