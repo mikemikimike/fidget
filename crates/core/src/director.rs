@@ -563,9 +563,14 @@ fn glued_declared_behavior<'a>(
                 from = dot + 1;
                 continue;
             }
+            // Glue at EOF/|/\n, or space then uppercase speech — not `main.rs now`.
             let name_ends_here = match bytes.get(name_end) {
                 None => true,
-                Some(b) => *b == b'|' || b.is_ascii_whitespace(),
+                Some(b'|') | Some(b'\n') | Some(b'\r') => true,
+                Some(b) if b.is_ascii_whitespace() => {
+                    matches!(bytes.get(name_end + 1), Some(c) if c.is_ascii_uppercase())
+                }
+                _ => false,
             };
             if name_ends_here && best.as_ref().is_none_or(|(at, _, _)| dot < *at) {
                 best = Some((
