@@ -10,6 +10,10 @@ Issues live in GitHub Issues on `omesser/fidget`, via the `gh` CLI. See `docs/ag
 
 The five canonical triage roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
 
+### Labels
+
+Every tracker label, and which of them go on an issue or a pull request. See `docs/agents/labels.md`.
+
 ### Picking work
 
 `Todo` on the project board, highest priority first, matching the OS
