@@ -391,7 +391,10 @@ impl<C: Completer> ModelDirector<C> {
             // Parsed exactly as a whole reply is. The cap ended the turn, not
             // the contract. The fact that it was cut off rides out beside them.
             Ok(reply) => {
-                let (wake, near_miss, peeled_thought) = self.parsed(&reply.text);
+                // The Completer has the opening; later turns stay short
+                // even if this reply failed to parse.
+                self.opened.store(true, Ordering::SeqCst);
+                let (wake, near_miss, peeled_thought) = proposal_for(&self.behaviors, &reply.text);
                 Woken {
                     wake,
                     near_miss,
@@ -426,24 +429,13 @@ impl<C: Completer> ModelDirector<C> {
 
         // Once we've seen the contract, parse the whole answer to extract speech
         if contract_found {
-            match self.proposal(&answer).0 {
+            match proposal_for(&self.behaviors, &answer).0 {
                 Wake::Proposed(proposal) => proposal.dialogue,
                 Wake::Failed => None,
             }
         } else {
             None
         }
-    }
-
-    fn parsed(&self, reply: &str) -> (Wake, Option<String>, Option<String>) {
-        // The Completer has the opening; later turns stay short
-        // even if this reply failed to parse.
-        self.opened.store(true, Ordering::SeqCst);
-        self.proposal(reply)
-    }
-
-    fn proposal(&self, reply: &str) -> (Wake, Option<String>, Option<String>) {
-        proposal_for(&self.behaviors, reply)
     }
 
     /// What this Character declared, for a Shell reporting a near miss
@@ -472,22 +464,10 @@ fn proposal_for(behaviors: &[String], reply: &str) -> (Wake, Option<String>, Opt
                     None,
                     peeled,
                 ),
-                None if parsed.proposal.behavior.eq_ignore_ascii_case("say") => {
-                    match parsed.proposal.dialogue {
-                        Some(line) => (
-                            Wake::Proposed(BehaviorProposal {
-                                behavior: String::new(),
-                                dialogue: Some(line),
-                            }),
-                            None,
-                            peeled,
-                        ),
-                        None => (Wake::Failed, None, peeled),
-                    }
-                }
-                // A marked near miss already cut planning and the marker out of
-                // dialogue. A bare near miss still speaks the whole reply.
-                None if parsed.marked => {
+                // `say` and a marked near miss share the empty-behavior Proposed
+                // shape; only the near-miss name differs.
+                None if parsed.proposal.behavior.eq_ignore_ascii_case("say") || parsed.marked => {
+                    let say = parsed.proposal.behavior.eq_ignore_ascii_case("say");
                     let wake = match parsed.proposal.dialogue {
                         Some(line) => Wake::Proposed(BehaviorProposal {
                             behavior: String::new(),
@@ -495,8 +475,17 @@ fn proposal_for(behaviors: &[String], reply: &str) -> (Wake, Option<String>, Opt
                         }),
                         None => Wake::Failed,
                     };
-                    (wake, Some(parsed.proposal.behavior), peeled)
+                    (
+                        wake,
+                        if say {
+                            None
+                        } else {
+                            Some(parsed.proposal.behavior)
+                        },
+                        peeled,
+                    )
                 }
+                // A bare near miss still speaks the whole reply.
                 None => (
                     spoken_or_failed(&reply),
                     Some(parsed.proposal.behavior),
