@@ -441,6 +441,28 @@ test("no pill opens while Chat is up, and a fresh hover opens it once Chat is go
   assert.equal(qm.visible, true);
 });
 
+// Summon latches `yielded` until leaveSprite. After Chat steals focus, macOS
+// can keep :hover without pointerleave, so leave never runs. Closing Chat must
+// still let the stuck hover open the pill (#1489).
+test("closing Chat clears the Summon hold under a stuck hover", () => {
+  const { qm, advance } = harness();
+
+  qm.enterSprite();
+  advance(500);
+  qm.summon();
+  qm.setChatOpen(true);
+  for (let tick = 0; tick < 3; tick += 1) {
+    qm.enterSprite();
+    advance(HOVER_DELAY_MS);
+  }
+  assert.equal(qm.visible, false, "Chat is up, so the pill stays down");
+
+  qm.setChatOpen(false);
+  qm.enterSprite();
+  advance(HOVER_DELAY_MS);
+  assert.equal(qm.visible, true, "Chat is gone, so the stuck hover can open the pill");
+});
+
 test("a dwell under way when Chat opens does not open the pill", () => {
   const { qm, advance } = harness();
 
