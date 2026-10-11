@@ -408,6 +408,7 @@ impl<C: Completer> ModelDirector<C> {
     /// reply uses. This is the only shaping: extracting speech from the parsed reply.
     fn speech_so_far(&self, answer: &str) -> Option<String> {
         let answer = answer.trim_end_matches('\r');
+        let answer = unglue_declared_behavior(answer, &self.behaviors);
         let (lines, tail) = answer.split_at(answer.rfind('\n').map_or(0, |at| at + 1));
 
         // Contract is found if complete lines parse successfully, OR the tail
@@ -417,7 +418,7 @@ impl<C: Completer> ModelDirector<C> {
 
         // Once we've seen the contract, parse the whole answer to extract speech
         if contract_found {
-            match self.proposal(answer).0 {
+            match self.proposal(&answer).0 {
                 Wake::Proposed(proposal) => proposal.dialogue,
                 Wake::Failed => None,
             }
@@ -448,7 +449,8 @@ impl<C: Completer> ModelDirector<C> {
 /// near miss when it names something else. The one parse a live reply and a
 /// restored one both go through.
 fn proposal_for(behaviors: &[String], reply: &str) -> (Wake, Option<String>) {
-    match parse_proposal(reply) {
+    let reply = unglue_declared_behavior(reply, behaviors);
+    match parse_proposal(&reply) {
         // The declared spelling, not the model's: a name written
         // at the start of a line comes back capitalised, and the
         // Engine looks a Behavior up by the name its Character declared.
@@ -472,10 +474,81 @@ fn proposal_for(behaviors: &[String], reply: &str) -> (Wake, Option<String>) {
             },
             // `parse_proposal` has already ruled the name a single
             // token, so this is the near miss and not prose.
-            None => (spoken_or_failed(reply), Some(proposal.behavior)),
+            None => (spoken_or_failed(&reply), Some(proposal.behavior)),
         },
-        Err(_) => (spoken_or_failed(reply), None),
+        Err(_) => (spoken_or_failed(&reply), None),
     }
+}
+
+fn unglue_declared_behavior(reply: &str, behaviors: &[String]) -> String {
+    if behaviors.is_empty() || parse_proposal(reply).is_ok() {
+        return reply.to_string();
+    }
+    let Some((_dot, name_end, name)) = glued_declared_behavior(reply, behaviors) else {
+        return reply.to_string();
+    };
+    let rest = &reply[name_end..];
+    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+    if rest.is_empty() {
+        name
+    } else if rest.starts_with('|') || rest.starts_with('\n') {
+        format!("{name}{rest}")
+    } else {
+        format!("{name}\n{rest}")
+    }
+}
+
+fn glued_declared_behavior<'a>(
+    reply: &'a str,
+    behaviors: &'a [String],
+) -> Option<(usize, usize, String)> {
+    let bytes = reply.as_bytes();
+    let mut best: Option<(usize, usize, String)> = None;
+    for behavior in behaviors {
+        let mut from = 0;
+        while let Some(rel) = find_ignore_ascii_case(&reply[from..], &format!(".{}", behavior)) {
+            let dot = from + rel;
+            let name_at = dot + 1;
+            let name_end = name_at + behavior.len();
+            if name_end > reply.len() {
+                break;
+            }
+            if !reply[name_at..name_end].eq_ignore_ascii_case(behavior) {
+                from = dot + 1;
+                continue;
+            }
+            let name_ends_here = match bytes.get(name_end) {
+                None => true,
+                Some(b) => *b == b'|' || b.is_ascii_whitespace(),
+            };
+            if name_ends_here && best.as_ref().is_none_or(|(at, _, _)| dot < *at) {
+                best = Some((
+                    dot,
+                    name_end,
+                    declared(behaviors, &reply[name_at..name_end])
+                        .unwrap_or_else(|| behavior.clone()),
+                ));
+            }
+            from = dot + 1;
+        }
+    }
+    best
+}
+
+fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
+    let needle = needle.as_bytes();
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .position(|window| {
+            window
+                .iter()
+                .zip(needle)
+                .all(|(a, b)| a.eq_ignore_ascii_case(b))
+        })
 }
 
 /// The Character's own spelling of `name`, when it declared one.
@@ -2307,10 +2380,6 @@ mod tests {
         assert_eq!(drawn("  "), None);
     }
 
-    /// A Harness that puts planning on the message channel sometimes glues a
-    /// declared Behavior to the end of that sentence (`…character.ponder\n`).
-    /// The period is the marker: cut the preamble, keep the spoken line.
-    /// Action-log turns from cursor-agent, 2026-10-11.
     #[test]
     fn a_declared_behavior_glued_after_a_period_is_not_spoken_with_the_preamble() {
         let declared = declares(&["ponder", "walk", "settle", "mutter"]);
@@ -2705,7 +2774,6 @@ mod tests {
                 "I'll be right back.\n\nnap\n\nSee you soon.",
                 Some("I'll be right back.\n\n\nSee you soon."),
             ),
-            // Planning glued to the Behavior (cursor-agent message channel).
             (
                 "Looking around, then answering.nap\nBack in five.",
                 Some("Back in five."),
