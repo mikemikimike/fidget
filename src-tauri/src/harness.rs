@@ -292,55 +292,61 @@ fn codex_fidget_config(
     Some(config.to_string())
 }
 
-/// Drop top-level Codex CLI pins that blank Fidget rows must not inherit.
-///
-/// A blank Model row means the Harness account default, not a stale
-/// `~/.codex/config.toml` `model = "…"`. Session `set_config_option` cannot
-/// clear a pin, so the attach home rewrites the file without those keys.
-fn scrub_codex_config_toml(text: &str, scrub_model: bool, scrub_effort: bool) -> String {
-    let mut out = String::with_capacity(text.len());
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        let drop = match trimmed.split_once('=') {
-            Some((key, _)) => {
-                let key = key.trim();
-                (scrub_model && key == "model") || (scrub_effort && key == "model_reasoning_effort")
-            }
-            None => false,
-        };
-        if drop {
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
+/// `<data_dir>/.codex/config.toml` — Codex project layer when attach cwd is the data dir.
+fn codex_project_config_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(".codex").join("config.toml")
 }
 
-/// Codex home for an attach whose Model row is blank: copy auth, rewrite
-/// config without the CLI model pin, leave the user's `~/.codex` alone.
-fn prepare_codex_attach_home(
-    dest: &Path,
-    source: &Path,
-    scrub_model: bool,
-    scrub_effort: bool,
-) -> std::io::Result<PathBuf> {
-    std::fs::create_dir_all(dest)?;
-    let auth = source.join("auth.json");
-    if auth.is_file() {
-        std::fs::copy(&auth, dest.join("auth.json"))?;
+fn codex_project_config_lock() -> &'static Mutex<()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    &LOCK
+}
+
+/// Write or clear Fidget-owned top-level keys; leave every other key alone.
+fn sync_codex_project_config(
+    data_dir: &Path,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> std::io::Result<()> {
+    let _guard = codex_project_config_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let path = codex_project_config_path(data_dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
-    let config_path = source.join("config.toml");
-    let text = if config_path.is_file() {
-        std::fs::read_to_string(&config_path)?
+    let text = if path.is_file() {
+        std::fs::read_to_string(&path)?
     } else {
         String::new()
     };
-    std::fs::write(
-        dest.join("config.toml"),
-        scrub_codex_config_toml(&text, scrub_model, scrub_effort),
-    )?;
-    Ok(dest.to_path_buf())
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
+    match model.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => doc["model"] = toml_edit::value(value),
+        None => {
+            doc.as_table_mut().remove("model");
+        }
+    }
+    match effort.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => doc["model_reasoning_effort"] = toml_edit::value(value),
+        None => {
+            doc.as_table_mut().remove("model_reasoning_effort");
+        }
+    }
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, doc.to_string())?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
+/// Launch `-c` so Codex trusts the data dir and loads its project layer.
+/// Inline table only: dotted `projects."<path>"` splits on dots in the path.
+fn codex_trust_override(data_dir: &Path) -> String {
+    let path = data_dir.to_string_lossy();
+    let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("projects={{\"{escaped}\"={{trust_level=\"trusted\"}}}}")
 }
 
 fn opencode_fidget_permissions(existing: Option<&str>) -> Option<String> {
@@ -2088,6 +2094,15 @@ impl Session {
             state.last_applied = Some(applied.clone());
         }
         self.settle_notices(&applied, failed);
+        if self.launch.name == "codex" {
+            if let Err(why) = sync_codex_project_config(
+                self.data.as_path(),
+                Some(inputs.model.as_str()).filter(|model| !model.trim().is_empty()),
+                inputs.effort.as_deref(),
+            ) {
+                eprintln!("harness: codex project config: {why}");
+            }
+        }
         Ok(id)
     }
 
@@ -2184,8 +2199,24 @@ impl Session {
         let owners = Arc::clone(&self.owners);
         let serving = Arc::clone(&self.serving_instance);
         let mut command = self.launch.command(cwd, mcp_stdio().is_some());
-        if let Some(home) = self.codex_home_when_model_blank() {
-            command.env("CODEX_HOME", home);
+        if self.launch.name == "codex" {
+            let inputs = self.open_inputs();
+            if let Err(why) = sync_codex_project_config(
+                self.data.as_path(),
+                Some(inputs.model.as_str()).filter(|model| !model.trim().is_empty()),
+                inputs.effort.as_deref(),
+            ) {
+                eprintln!("harness: codex project config: {why}");
+            }
+            // Trust at launch so `<data_dir>/.codex/config.toml` is loaded when
+            // attach cwd is the data dir. Never write trust into ~/.codex.
+            // Typed rows still reach every cwd through session/set_config_option.
+            // Only the real codex-acp argv takes `-c`; fixture launchers do not.
+            if self.launch.argv.iter().any(|arg| arg.contains("codex-acp")) {
+                command
+                    .arg("-c")
+                    .arg(codex_trust_override(self.data.as_path()));
+            }
         }
         let spawned = Wire::spawn(
             command,
@@ -2253,24 +2284,6 @@ impl Session {
         }
     }
 
-    /// When Codex is attached and the Model row is blank, point the child at a
-    /// private `CODEX_HOME` whose config.toml has no CLI model pin. A typed
-    /// Model row keeps the user's real `~/.codex` and uses set_config_option.
-    fn codex_home_when_model_blank(&self) -> Option<PathBuf> {
-        if self.launch.name != "codex" {
-            return None;
-        }
-        let inputs = self.open_inputs();
-        if !inputs.model.trim().is_empty() {
-            return None;
-        }
-        let source = std::env::var_os("CODEX_HOME")
-            .map(PathBuf::from)
-            .or_else(|| fidget_core::memory::home_dir().map(|home| home.join(".codex")))?;
-        let dest = self.data.as_path().join("codex-home");
-        prepare_codex_attach_home(&dest, &source, true, inputs.effort.is_none()).ok()
-    }
-
     /// `session/load` when the Harness can and the file names this Harness,
     /// else `session/new`. Either way the file ends up naming what is open.
     fn open_session(
@@ -2335,6 +2348,15 @@ impl Session {
             }
         };
         let id = opened.id;
+        if let Some(model) = opened.foreign_model.as_deref() {
+            let notice = format!(
+                "Codex is on `{model}`, which is not in its available models. \
+                 Fidget left Model blank, so this comes from `model` in ~/.codex/config.toml \
+                 (or a selected profile). Set Model in Fidget, or clear that pin."
+            );
+            self.update_inspect(|inspect| inspect.last_error = Some(notice.clone()));
+            eprintln!("harness: {notice}");
+        }
         let mut failures = Vec::new();
         let (replaced, first_open) = {
             let mut state = self.state.lock().map_err(|_| LOST.to_string())?;
@@ -5017,69 +5039,66 @@ mod tests {
         session.shutdown();
     }
 
-    /// Blank Fidget model must not inherit a CLI `model = "gpt-6-sol"` pin
-    /// (#1496). The attach home keeps projects and drops only the pins blank
-    /// rows refuse to force.
     #[test]
-    fn scrub_codex_config_drops_blank_row_pins_and_keeps_the_rest() {
-        let raw = "\
-model = \"gpt-6-sol\"
-model_reasoning_effort = \"high\"
-[projects.\"/tmp/demo\"]
-trust_level = \"trusted\"
-";
-        let scrubbed = scrub_codex_config_toml(raw, true, true);
+    fn sync_codex_project_config_sets_clears_and_keeps_other_keys() {
+        let root = std::env::temp_dir().join(format!("fidget-codex-proj-{}", uuid::Uuid::new_v4()));
+        let path = codex_project_config_path(&root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "model = \"old\"\nkeep_me = true\n[table]\nx = 1\n").unwrap();
+
+        sync_codex_project_config(&root, Some("gpt-5"), Some("high")).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("model = \"gpt-5\""), "{written}");
         assert!(
-            !scrubbed.contains("gpt-6-sol"),
-            "model pin stayed: {scrubbed}"
+            written.contains("model_reasoning_effort = \"high\""),
+            "{written}"
         );
+        assert!(written.contains("keep_me = true"), "{written}");
+        assert!(written.contains("[table]"), "{written}");
+
+        sync_codex_project_config(&root, None, None).unwrap();
+        let cleared = std::fs::read_to_string(&path).unwrap();
+        assert!(!cleared.contains("model "), "{cleared}");
+        assert!(!cleared.contains("model_reasoning_effort"), "{cleared}");
+        assert!(cleared.contains("keep_me = true"), "{cleared}");
+        assert!(cleared.contains("[table]"), "{cleared}");
+
+        // Nested profile model keys are not top-level Fidget keys.
+        std::fs::write(&path, "[profiles.p]\nmodel = \"from-profile\"\n").unwrap();
+        sync_codex_project_config(&root, Some("typed"), None).unwrap();
+        let profiled = std::fs::read_to_string(&path).unwrap();
+        assert!(profiled.contains("model = \"typed\""), "{profiled}");
         assert!(
-            !scrubbed.contains("model_reasoning_effort"),
-            "effort pin stayed: {scrubbed}"
+            profiled.contains("model = \"from-profile\""),
+            "profile pin must stay: {profiled}"
         );
+
+        // Re-sync after an edit must not clobber unrelated keys.
+        sync_codex_project_config(&root, Some("typed"), Some("medium")).unwrap();
+        let again = std::fs::read_to_string(&path).unwrap();
+        assert!(again.contains("model = \"from-profile\""), "{again}");
         assert!(
-            scrubbed.contains("[projects.\"/tmp/demo\"]"),
-            "project trust was dropped: {scrubbed}"
+            again.contains("model_reasoning_effort = \"medium\""),
+            "{again}"
         );
-        assert!(
-            scrub_codex_config_toml(raw, true, false).contains("model_reasoning_effort = \"high\""),
-            "effort stays when the effort row is set"
-        );
-        assert!(
-            scrub_codex_config_toml(raw, false, true).contains("model = \"gpt-6-sol\""),
-            "model stays when the Model row is set"
-        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The attach home copies auth and writes a scrubbed config next to it,
-    /// and never rewrites the source `~/.codex` tree.
     #[test]
-    fn prepare_codex_attach_home_scrubs_without_touching_source() {
-        let root = std::env::temp_dir().join(format!("fidget-codex-home-{}", uuid::Uuid::new_v4()));
-        let source = root.join("source");
-        let dest = root.join("dest");
-        std::fs::create_dir_all(&source).unwrap();
-        std::fs::write(source.join("auth.json"), r#"{"token":"keep"}"#).unwrap();
-        std::fs::write(
-            source.join("config.toml"),
-            "model = \"gpt-6-sol\"\nmodel_reasoning_effort = \"high\"\n",
-        )
-        .unwrap();
-        let home = prepare_codex_attach_home(&dest, &source, true, true).unwrap();
-        assert_eq!(home, dest);
+    fn codex_trust_override_uses_an_inline_table_and_survives_dots() {
+        let dir = PathBuf::from("/tmp/ct/data.dir");
+        let arg = codex_trust_override(&dir);
         assert_eq!(
-            std::fs::read_to_string(dest.join("auth.json")).unwrap(),
-            r#"{"token":"keep"}"#
+            arg,
+            r#"projects={"/tmp/ct/data.dir"={trust_level="trusted"}}"#
         );
-        let config = std::fs::read_to_string(dest.join("config.toml")).unwrap();
-        assert!(!config.contains("gpt-6-sol"), "{config}");
-        assert!(!config.contains("model_reasoning_effort"), "{config}");
-        assert_eq!(
-            std::fs::read_to_string(source.join("config.toml")).unwrap(),
-            "model = \"gpt-6-sol\"\nmodel_reasoning_effort = \"high\"\n",
-            "source config.toml must stay for the Codex CLI"
+        let win = PathBuf::from("C:\\Users\\demo\\.local\\share\\fidget");
+        let win_arg = codex_trust_override(&win);
+        assert!(
+            win_arg.contains(r#"C:\\Users\\demo\\.local\\share\\fidget"#),
+            "{win_arg}"
         );
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Detach takes the token back out of `.cursor/mcp.json` and leaves the

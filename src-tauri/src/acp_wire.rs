@@ -25,8 +25,8 @@ use agent_client_protocol::schema::v1::{
     Meta, NewSessionRequest, Plan, PromptRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
     SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-    SessionId, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, StopReason,
-    TextContent, ToolCallContent, ToolCallLocation,
+    SessionConfigSelectOptions, SessionId, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, StopReason, TextContent, ToolCallContent, ToolCallLocation,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Responder};
@@ -427,6 +427,8 @@ pub struct Opened {
     pub history: Vec<Replayed>,
     /// What the model and effort set at open did on the wire.
     pub applied: Applied,
+    /// Blank Fidget Model: current session model when it is outside availableModels.
+    pub foreign_model: Option<String>,
 }
 
 /// One entry of a `session/load` replay, in the order the session sent it.
@@ -1354,18 +1356,18 @@ async fn serve(
                     effort.as_deref(),
                 )
                 .await
-                .map(|(id, listed, applied)| {
+                .map(|(id, listed, applied, foreign_model)| {
                     options.insert(id.clone(), listed);
-                    (id, applied)
+                    (id, applied, foreign_model)
                 });
                 // ACP replays a loaded conversation as updates before it
                 // answers, even a load that then fails and falls back to
                 // `session/new`. Every update queued for either id is history,
                 // never work between turns. Only a load that answered keeps it.
-                let loaded = matches!(&opened, Ok((id, _)) if loading.as_ref() == Some(id));
+                let loaded = matches!(&opened, Ok((id, _, _)) if loading.as_ref() == Some(id));
                 let replayed = |id: &SessionId| {
                     loading.as_ref() == Some(id)
-                        || matches!(&opened, Ok((opened, _)) if opened == id)
+                        || matches!(&opened, Ok((opened, _, _)) if opened == id)
                 };
                 let mut history = Restore::default();
                 while let Ok(message) = incoming.try_recv() {
@@ -1389,10 +1391,11 @@ async fn serve(
                     );
                 }
                 let history = history.finish();
-                let _ = reply.send(opened.map(|(id, applied)| Opened {
+                let _ = reply.send(opened.map(|(id, applied, foreign_model)| Opened {
                     id: id.0.to_string(),
                     history,
                     applied,
+                    foreign_model,
                 }));
             }
             Step::Command(Msg::Prompt {
@@ -1959,7 +1962,7 @@ async fn open(
     claude_mcp_approval: bool,
     model: &str,
     effort: Option<&str>,
-) -> Result<(SessionId, Vec<SessionConfigOption>, Applied), OpenError> {
+) -> Result<(SessionId, Vec<SessionConfigOption>, Applied, Option<String>), OpenError> {
     let servers = || -> Vec<McpServer> { mcp.iter().map(mcp_server).collect() };
     let approval = || claude_mcp_meta(claude_mcp_approval && mcp.is_some());
     let loaded = if let Some(id) = load {
@@ -2003,7 +2006,14 @@ async fn open(
             })?,
     };
     match apply_completer(cx, &session_id, model, effort, options.unwrap_or_default()).await {
-        Ok((listed, applied)) => Ok((session_id, listed, applied)),
+        Ok((listed, applied)) => {
+            let foreign_model = if model.trim().is_empty() {
+                model_outside_available(&listed)
+            } else {
+                None
+            };
+            Ok((session_id, listed, applied, foreign_model))
+        }
         Err(error) => {
             if created && !matches!(error, OpenError::Lost) {
                 let _ = cx
@@ -2014,6 +2024,33 @@ async fn open(
             Err(error)
         }
     }
+}
+
+/// Current model id when the select lists options and that id is not among them.
+fn model_outside_available(options: &[SessionConfigOption]) -> Option<String> {
+    let option = options
+        .iter()
+        .find(|option| option.category.as_ref() == Some(&SessionConfigOptionCategory::Model))?;
+    let SessionConfigKind::Select(select) = &option.kind else {
+        return None;
+    };
+    let current = select.current_value.0.as_ref();
+    if current.is_empty() {
+        return None;
+    }
+    let listed = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(options) => options
+            .iter()
+            .any(|option| option.value.0.as_ref() == current),
+        SessionConfigSelectOptions::Grouped(groups) => groups.iter().any(|group| {
+            group
+                .options
+                .iter()
+                .any(|option| option.value.0.as_ref() == current)
+        }),
+        _ => false,
+    };
+    (!listed).then(|| current.to_string())
 }
 
 /// Set the model, then the effort. A model change can replace the effort options,

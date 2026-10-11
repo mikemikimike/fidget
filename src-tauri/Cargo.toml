@@ -85,6 +85,8 @@ getrandom = "0.4"
 # Counting the lines a tool call's diff added and removed, as git does. A line
 # diff is not worth hand-rolling, and `text` is the only feature used.
 similar = {version = "3.2", default-features = false, features = ["text"]}
+# Project-layer Codex config under the data dir (#1497). Same pin as core.
+toml_edit = {version = "0.25", default-features = false, features = ["parse", "display"]}
 
 [target.'cfg(unix)'.dependencies]
 # Process-group teardown for an `npx` Harness: `getpgid` / `killpg`.
