@@ -50,6 +50,21 @@ pub fn lower_to_normal_level(window: &tauri::WebviewWindow) -> Result<(), String
     Ok(())
 }
 
+/// Give `window` the keyboard in the normal z-order band, under the overlay.
+pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let hwnd = hwnd(window)?;
+    // SAFETY: hwnd is the live HWND from Tauri. Leave the topmost band first so
+    // Chat stays under the overlay, then foreground it for typing.
+    unsafe {
+        if SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SETTINGS_RAISE_POS_FLAGS) == 0 {
+            return Err("Failed to keep the window out of the topmost band".to_string());
+        }
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

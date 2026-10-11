@@ -280,9 +280,10 @@ struct PendingAsks(Mutex<Pending>);
 struct MinimizedChats(Mutex<HashSet<String>>);
 
 impl MinimizedChats {
-    /// `Some(true)` floats Chat above the overlay, `Some(false)` drops it to a
-    /// normal level. No event says "minimized", so focus and resize re-read it.
-    /// See `set` for macOS.
+    /// `Some(true)` means Chat took focus and needs the keyboard, `Some(false)`
+    /// means it lost focus. Chat stays at the normal window level so it remains
+    /// a Perch under the overlay (#1498). No event says "minimized", so focus
+    /// and resize re-read it. See `set` for macOS.
     fn note(
         &self,
         label: &str,
@@ -1878,7 +1879,9 @@ fn apply_settings_effects(
             }
             SettingsEffect::Raise => {
                 if let Some(window) = &window {
-                    if let Err(why) = platform::raise_above_overlay(window) {
+                    if let Err(why) =
+                        platform::raise_surface(window, platform::settings_surface_raise())
+                    {
                         eprintln!("settings webview raise: {why}");
                     }
                 }
@@ -2210,7 +2213,8 @@ fn build_overlay(
 
 /// Build one Instance's Chat surface. None of `build_overlay`'s flags:
 /// click-through would swallow the caret click; always-on-top would follow the
-/// user out of the app. Chat floats over the bubble only while it has focus.
+/// user out of the app. Chat stays under the overlay so the Character can perch
+/// on its ledge; click-through lets typing through (#1498).
 fn build_chat(
     app: &tauri::AppHandle,
     label: &str,
@@ -2252,11 +2256,11 @@ fn build_chat(
                 .as_ref()
                 .is_some_and(|window| window.is_minimized().unwrap_or(false))
         };
-        let (Some(floats), Some(window)) = (chats.note(&label, event, minimized), &window) else {
+        let (Some(focused), Some(window)) = (chats.note(&label, event, minimized), &window) else {
             return;
         };
-        let level = if floats {
-            platform::raise_above_overlay(window)
+        let level = if focused {
+            platform::raise_surface(window, platform::chat_surface_raise())
         } else {
             platform::lower_to_normal_level(window)
         };
@@ -2347,9 +2351,9 @@ fn open_chat(app: &tauri::AppHandle, id: &InstanceId, title: String, feet: Optio
             },
         };
         // Both paths: `focused(true)` only orders the window to the front of
-        // this application. The raise activates the process, which a Summon has
-        // to do, and lifts Chat over the overlay so the bubble cannot cover it.
-        if let Err(why) = platform::raise_above_overlay(&window) {
+        // this application. Activate the process for typing, but keep Chat under
+        // the overlay so it stays a Perch (#1498).
+        if let Err(why) = platform::raise_surface(&window, platform::chat_surface_raise()) {
             eprintln!("chat: {label} could not be raised: {why}");
         }
     }) {
