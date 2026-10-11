@@ -294,6 +294,20 @@ impl Pending {
     }
 }
 
+/// Hold always so `chat_ready` can replay when a window existed but was not listening.
+/// Return the text to emit now when a Chat window is already open.
+fn route_attach_notice(
+    pending: &mut Pending,
+    instance: &str,
+    text: String,
+    window_open: bool,
+) -> Option<String> {
+    if !window_open {
+        pending.hold_notice(instance, text.clone());
+    }
+    window_open.then_some(text)
+}
+
 struct PendingAsks(Mutex<Pending>);
 
 /// Chats the user minimized, by label. Each Chat's window events and, on macOS,
@@ -4864,7 +4878,15 @@ fn main() {
                     }
                     harness::Forwarded::Notice { instance, text } => {
                         let label = chat_label(&instance);
-                        if forward_to.get_webview_window(&label).is_some() {
+                        let window_open = forward_to.get_webview_window(&label).is_some();
+                        let emit = if let Some(state) = forward_to.try_state::<PendingAsks>() {
+                            state.0.lock().ok().and_then(|mut pending| {
+                                route_attach_notice(&mut pending, &instance, text, window_open)
+                            })
+                        } else {
+                            window_open.then_some(text)
+                        };
+                        if let Some(text) = emit {
                             let _ = forward_to.emit_to(
                                 &label,
                                 CHAT_EVENT,
@@ -4882,10 +4904,6 @@ fn main() {
                                     streaming: false,
                                 },
                             );
-                        } else if let Some(state) = forward_to.try_state::<PendingAsks>() {
-                            if let Ok(mut pending) = state.0.lock() {
-                                pending.hold_notice(&instance, text);
-                            }
                         }
                     }
                 }),
@@ -5298,6 +5316,20 @@ mod tests {
         );
         assert!(pending.take_notices("buddy-a").is_empty());
         assert_eq!(pending.take_notices("buddy-b"), vec!["other".to_string()]);
+    }
+
+    #[test]
+    fn an_open_chat_still_holds_an_attach_notice_for_ready_replay() {
+        let mut pending = Pending::default();
+        assert_eq!(
+            route_attach_notice(&mut pending, "buddy-a", "late".into(), true),
+            Some("late".to_string())
+        );
+        assert_eq!(
+            pending.take_notices("buddy-a"),
+            vec!["late".to_string()],
+            "a window that is not listening yet still needs the held note"
+        );
     }
 
     /// A Chat that opens after the rows arrived replays only its own Instance's
