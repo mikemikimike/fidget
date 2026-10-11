@@ -410,11 +410,15 @@ impl<C: Completer> ModelDirector<C> {
         let answer = answer.trim_end_matches('\r');
         let answer = unglue_declared_behavior(answer, &self.behaviors);
         let (lines, tail) = answer.split_at(answer.rfind('\n').map_or(0, |at| at + 1));
+        let tail = tail.trim();
 
-        // Contract is found if complete lines parse successfully, OR the tail
-        // has a '|' and matches the contract pattern (inline speech like "wave | hi")
+        // Complete lines that parse, or an unfinished first line that is already
+        // a contract: `wave | hi`, or `behavior: nap` naming a declared Behavior.
+        // A bare prefix (`s` of `stroll`) is not a contract — that would flash
+        // near-miss prose while the name is still streaming.
         let contract_found = parse_proposal(lines).is_ok()
-            || (tail.contains('|') && contract_line(tail.trim()).is_some());
+            || (tail.contains('|') && contract_line(tail).is_some())
+            || unfinished_marked_contract(tail, &self.behaviors);
 
         // Once we've seen the contract, parse the whole answer to extract speech
         if contract_found {
@@ -774,16 +778,19 @@ pub fn parse_proposal(reply: &str) -> Result<BehaviorProposal, ParseError> {
     // First contract-shaped line, not line one: a Harness may put its own
     // text ahead of the answer, and nothing on the ACP wire marks it. Trimmed
     // only to test the line: a padded line still names a Behavior.
-    let (at, (name, inline)) = lines
+    let (at, (name, inline, marked)) = lines
         .iter()
         .enumerate()
         .find_map(|(at, line)| contract_line(line.trim()).map(|found| (at, found)))
         .ok_or(ParseError)?;
 
-    // Everything that is not the action line, as it was written. The lines
-    // are normalised to find the name, never to rebuild the speech: trimming
-    // them would cost every consumer its paragraphs to spare the bubble.
-    let mut said: Vec<&str> = lines[..at].to_vec();
+    // A `behavior:` line marks the act. Prose before it is planning, not speech
+    // (#1492). A bare name mid-reply still keeps lines either side (#609).
+    let mut said: Vec<&str> = if marked {
+        Vec::new()
+    } else {
+        lines[..at].to_vec()
+    };
     said.extend(inline.filter(|line| !line.is_empty()));
     said.extend_from_slice(&lines[at + 1..]);
 
@@ -807,16 +814,40 @@ pub fn parse_proposal(reply: &str) -> Result<BehaviorProposal, ParseError> {
     })
 }
 
-/// `line` read as the contract's one line: a Behavior name on its own, or a
-/// name and its spoken line either side of a `|`. `None` when the whole line
-/// is not that shape.
-fn contract_line(line: &str) -> Option<(&str, Option<&str>)> {
-    let (name, inline) = match line.split_once('|') {
+/// `line` read as the contract's one line: optional `behavior:` then a name
+/// on its own, or a name and its spoken line either side of a `|`. The bool
+/// is whether the marker was present. `None` when the whole line is not that
+/// shape.
+fn contract_line(line: &str) -> Option<(&str, Option<&str>, bool)> {
+    let (body, marked) = match behavior_marker_body(line) {
+        Some(body) => (body, true),
+        None => (line, false),
+    };
+    let (name, inline) = match body.split_once('|') {
         Some((name, said)) => (name.trim(), Some(said.trim())),
-        None => (line, None),
+        None => (body, None),
     };
     let name = name.trim_end_matches(['.', ':']);
-    identifier(name).then_some((name, inline))
+    identifier(name).then_some((name, inline, marked))
+}
+
+/// Body after a leading `behavior:` marker, when the line opens with one.
+fn behavior_marker_body(line: &str) -> Option<&str> {
+    const MARK: &str = "behavior:";
+    let line = line.trim();
+    if line.len() < MARK.len() || !line[..MARK.len()].eq_ignore_ascii_case(MARK) {
+        return None;
+    }
+    Some(line[MARK.len()..].trim_start())
+}
+
+/// Unfinished first line is a marked contract naming something this Character
+/// (or `say`) can propose. Partial names stay silent until they match.
+fn unfinished_marked_contract(tail: &str, behaviors: &[String]) -> bool {
+    let Some((name, _, true)) = contract_line(tail) else {
+        return false;
+    };
+    name.eq_ignore_ascii_case("say") || declared(behaviors, name).is_some()
 }
 
 /// True if `name` is a single token. The Engine still rejects unknown names.
@@ -1754,6 +1785,31 @@ mod tests {
         assert_eq!(proposal.dialogue.as_deref(), Some("I'll rest now."));
     }
 
+    /// The `behavior:` marker is the act. Planning above it is not spoken
+    /// (#1492). A bare name mid-reply still keeps prose (#609).
+    #[test]
+    fn a_behavior_marker_drops_planning_above_it() {
+        let marked = parse_proposal(
+            "Checking whether anything on screen shows Grok usage, then answering in character.\n\
+             behavior: ponder\n\
+             I cast Doomsday. Not... accounting. Your 'usage' is invisible to me.",
+        )
+        .expect("marked contract");
+        assert_eq!(marked.behavior, "ponder");
+        assert_eq!(
+            marked.dialogue.as_deref(),
+            Some("I cast Doomsday. Not... accounting. Your 'usage' is invisible to me.")
+        );
+
+        let bare = parse_proposal("behavior: wave\nHello").expect("marker on line one");
+        assert_eq!(bare.behavior, "wave");
+        assert_eq!(bare.dialogue.as_deref(), Some("Hello"));
+
+        let inline = parse_proposal("Behavior: nap | sleepy").expect("case and pipe");
+        assert_eq!(inline.behavior, "nap");
+        assert_eq!(inline.dialogue.as_deref(), Some("sleepy"));
+    }
+
     /// Production change that would fail this: rebuilding the dialogue from
     /// the trimmed, blank-stripped list instead of from `reply.lines()`.
     /// That applies a bubble ceiling in a parser that has no idea a bubble exists.
@@ -2061,7 +2117,7 @@ mod tests {
             "(no personality)",
             "always in character",
             "You may propose one of these behaviors: wave",
-            "Reply with the behavior name on the first line.",
+            "Reply with behavior: <name> on the first line",
             "Propose nothing else.",
             "use the tools you have",
         ] {
@@ -2080,7 +2136,7 @@ mod tests {
             "Vary",
             "React to this moment",
             "You may propose one of these behaviors: wave",
-            "Reply with the behavior name on the first line.",
+            "Reply with behavior: <name> on the first line",
             "Propose nothing else.",
             "use the tools you have",
         ] {
@@ -2104,7 +2160,7 @@ mod tests {
             "the opening invites tool use: {opening}"
         );
         assert!(
-            opening.find("Reply with the behavior name on the first line.")
+            opening.find("Reply with behavior: <name> on the first line")
                 < opening.find("use the tools you have"),
             "the reply contract comes before the invitation: {opening}"
         );
@@ -2429,6 +2485,12 @@ mod tests {
             }
             other => panic!("glued ponder should propose, not {other:?}"),
         }
+
+        assert_eq!(
+            drawn("Checking the screen, then answering.\nbehavior: ponder\nI cast Doomsday."),
+            Some("I cast Doomsday.".to_string()),
+            "marked contract drops planning above it"
+        );
     }
 
     /// Every desktop line filled, as one wake sends it.
@@ -2757,7 +2819,7 @@ mod tests {
     #[test]
     fn streamed_speech_holds_the_contract_line_back_and_grows_into_the_parsed_line() {
         let banner = format!("{PI_BANNER}\nwave\nHello!");
-        let rows: [(&str, Option<&str>); 20] = [
+        let rows: [(&str, Option<&str>); 21] = [
             ("stroll\nhey there", Some("hey there")),
             ("wave", None),
             ("nap | sleepy", Some("sleepy")),
@@ -2779,6 +2841,10 @@ mod tests {
             ),
             (
                 "Looking around, then answering.nap\nBack in five.",
+                Some("Back in five."),
+            ),
+            (
+                "Looking around.\nbehavior: nap\nBack in five.",
                 Some("Back in five."),
             ),
             ("\n\nwave\n\nHello\n\n", Some("Hello")),

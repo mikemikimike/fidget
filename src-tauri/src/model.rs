@@ -4237,7 +4237,7 @@ pub(crate) mod tests {
     const FORMAT_ENDS: &str = "Propose nothing else.\n";
 
     const VOICE_NOTE: &str = "Those quoted lines are how this character sounds, \
-        not a format to copy: your own reply still begins with a behavior name.";
+        not a format to copy: your own reply still begins with behavior: and a name.";
 
     /// `prompt` said under `framing`. A rewrite of the built prompt rather
     /// than a second builder, so the harness cannot drift from production.
