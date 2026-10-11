@@ -302,6 +302,7 @@ jobs:
         with:
           files: |
             src-tauri/src/main.rs
+            src-tauri/src/harness.rs
             src-tauri/src/platform.rs
             src-tauri/src/platform/windows/**
             src-tauri/tests/windows_subsystem.rs

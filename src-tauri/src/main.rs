@@ -205,8 +205,8 @@ const FRAME_EVENT: &str = "frame";
 struct Pending {
     asks: Vec<(Owner, harness::PermissionAsk)>,
     forms: Vec<(Owner, harness::ElicitationForm)>,
-    /// Sticky attach notes held while that Instance's Chat is closed. Emitted
-    /// once from `chat_ready`. One note per Instance; a later notice replaces.
+    /// Sticky attach notes held for `chat_ready` replay (window missing or not
+    /// listening yet). One note per Instance; a later notice replaces.
     notices: Vec<(String, String)>,
     /// Owners whose Chat has already been asked for. Opening posts to the
     /// main thread, so a second row before that lands would queue a second
