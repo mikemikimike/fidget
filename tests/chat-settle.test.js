@@ -17,6 +17,8 @@ function play(turns, payloads) {
       log.push(outcome.note);
     } else if (outcome.action === "error") {
       log.push(outcome.note);
+    } else if (outcome.action === "notice") {
+      log.push(outcome.note);
     } else if (outcome.action === "preempted") {
       log.push(outcome.note);
     }
@@ -116,13 +118,12 @@ test("a Harness error is the Shell's line as sent, under no second prefix", () =
   assert.deepEqual(log, ["harness not authenticated: run `claude /login`"]);
 });
 
-test("an attach-time error with no caret is still a note that outlives a later turn", () => {
+test("an attach-time notice with no caret is still a note that outlives a later turn", () => {
   const turns = createChatTurns();
   const attach = turns.settle({
-    said: null,
-    error: "Codex is on `gpt-6-sol`, which is not in its available models.",
+    notice: "Codex is on `gpt-6-sol`, which is not in its available models.",
   });
-  assert.equal(attach.action, "error");
+  assert.equal(attach.action, "notice");
   assert.equal(attach.turn, null);
   assert.match(attach.note, /gpt-6-sol/);
 
@@ -130,4 +131,22 @@ test("an attach-time error with no caret is still a note that outlives a later t
   const after = turns.settle({ said: "Hello" });
   assert.equal(after.action, "speech");
   assert.equal(after.said, "Hello");
+});
+
+// Attach opens inside the first turn, so typed() lands before the notice.
+test("a notice after typed() leaves the waiting turn for the reply", () => {
+  const turns = createChatTurns();
+  turns.typed();
+
+  const notice = turns.settle({
+    notice: "Codex is on `gpt-6-sol`, which is not in its available models.",
+  });
+  assert.equal(notice.action, "notice");
+  assert.equal(notice.turn, null);
+  assert.match(notice.note, /gpt-6-sol/);
+
+  const reply = turns.settle({ said: "Hello" });
+  assert.equal(reply.action, "speech");
+  assert.equal(reply.said, "Hello");
+  assert.ok(reply.turn, "the typed turn must still be waiting for Hello");
 });
