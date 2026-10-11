@@ -2582,6 +2582,32 @@ mod tests {
         );
     }
 
+    /// A short declared name must not steal a file-extension suffix mid-sentence.
+    #[test]
+    fn a_file_extension_that_matches_a_short_declared_name_is_not_period_glue() {
+        let reply = "Open main.rs now please.";
+        let declared = declares(&["rs", "wave"]);
+        assert_eq!(
+            dialogue_of(reply, &declared),
+            Some(reply.to_string()),
+            "dotted file suffix stays in speech"
+        );
+
+        let woken =
+            directing(Scripted::says(reply), ["rs", "wave"]).wake_and_near_miss(&typed("open"));
+        assert_eq!(woken.peeled_thought, None, "no peel for a file extension");
+        match &woken.wake {
+            Wake::Proposed(proposal) => {
+                assert!(
+                    proposal.behavior.is_empty(),
+                    "talk path, not a proposed rs: {proposal:?}"
+                );
+                assert_eq!(proposal.dialogue.as_deref(), Some(reply));
+            }
+            other => panic!("file extension must be whole-sentence speech, not {other:?}"),
+        }
+    }
+
     /// A `behavior:` line that names nothing declared is still a contract cut:
     /// planning and the marker are not spoken; after-marker dialogue is.
     #[test]
