@@ -284,8 +284,8 @@ pub struct Woken {
     /// got. Written into the remembered reply by `marked`, never spoken and
     /// never parsed.
     pub truncated: bool,
-    /// Planning cut from the reply by a heuristic peel, for the Thinking row
-    /// (ADR-0034). Never speech. `None` when nothing was peeled.
+    /// Planning cut from the reply by a heuristic peel, for the Thinking row.
+    /// Never speech. `None` when nothing was peeled.
     pub peeled_thought: Option<String>,
 }
 
@@ -394,12 +394,12 @@ impl<C: Completer> ModelDirector<C> {
                 // The Completer has the opening; later turns stay short
                 // even if this reply failed to parse.
                 self.opened.store(true, Ordering::SeqCst);
-                let (wake, near_miss, peeled_thought) = proposal_for(&self.behaviors, &reply.text);
+                let resolved = resolve_reply(&self.behaviors, &reply.text);
                 Woken {
-                    wake,
-                    near_miss,
+                    wake: resolved.wake,
+                    near_miss: resolved.near_miss,
                     truncated: reply.truncated,
-                    peeled_thought,
+                    peeled_thought: resolved.peeled_thought,
                 }
             }
             Err(_) => Woken {
@@ -416,25 +416,13 @@ impl<C: Completer> ModelDirector<C> {
     /// reply uses. This is the only shaping: extracting speech from the parsed reply.
     fn speech_so_far(&self, answer: &str) -> Option<String> {
         let answer = answer.trim_end_matches('\r');
-        let (answer, _) = unglue_declared_behavior(answer, &self.behaviors);
-        let (lines, tail) = answer.split_at(answer.rfind('\n').map_or(0, |at| at + 1));
-        let tail = tail.trim();
-
-        // Complete lines that parse, or an unfinished first line that is already
-        // a contract (`wave | hi`, or `behavior: nap` for a declared name). A bare
-        // prefix is not — that would flash near-miss prose while streaming.
-        let contract_found = parse_proposal(lines).is_ok()
-            || (tail.contains('|') && contract_line(tail).is_some())
-            || unfinished_marked_contract(tail, &self.behaviors);
-
-        // Once we've seen the contract, parse the whole answer to extract speech
-        if contract_found {
-            match proposal_for(&self.behaviors, &answer).0 {
-                Wake::Proposed(proposal) => proposal.dialogue,
-                Wake::Failed => None,
-            }
-        } else {
-            None
+        let prepared = prepare_reply(answer, &self.behaviors);
+        if !contract_visible(&prepared.text, &self.behaviors) {
+            return None;
+        }
+        match resolve_prepared(&self.behaviors, prepared).wake {
+            Wake::Proposed(proposal) => proposal.dialogue,
+            Wake::Failed => None,
         }
     }
 
@@ -445,79 +433,60 @@ impl<C: Completer> ModelDirector<C> {
     }
 }
 
-/// What `reply` proposes for a Character that declares `behaviors`, the near
-/// miss when it names something else, and any planning peeled for Thinking.
-fn proposal_for(behaviors: &[String], reply: &str) -> (Wake, Option<String>, Option<String>) {
-    let (reply, glued_peel) = unglue_declared_behavior(reply, behaviors);
-    match parse_contract(&reply) {
-        // The declared spelling, not the model's: a name written
-        // at the start of a line comes back capitalised, and the
-        // Engine looks a Behavior up by the name its Character declared.
-        Ok(parsed) => {
-            let peeled = merge_peel(glued_peel, parsed.peeled_thought);
-            match declared(behaviors, &parsed.proposal.behavior) {
-                Some(behavior) => (
-                    Wake::Proposed(BehaviorProposal {
-                        behavior,
-                        dialogue: parsed.proposal.dialogue,
-                    }),
-                    None,
-                    peeled,
-                ),
-                // `say` and a marked near miss share the empty-behavior Proposed
-                // shape; only the near-miss name differs.
-                None if parsed.proposal.behavior.eq_ignore_ascii_case("say") || parsed.marked => {
-                    let say = parsed.proposal.behavior.eq_ignore_ascii_case("say");
-                    let wake = match parsed.proposal.dialogue {
-                        Some(line) => Wake::Proposed(BehaviorProposal {
-                            behavior: String::new(),
-                            dialogue: Some(line),
-                        }),
-                        None => Wake::Failed,
-                    };
-                    (
-                        wake,
-                        if say {
-                            None
-                        } else {
-                            Some(parsed.proposal.behavior)
-                        },
-                        peeled,
-                    )
-                }
-                // A bare near miss still speaks the whole reply.
-                None => (
-                    spoken_or_failed(&reply),
-                    Some(parsed.proposal.behavior),
-                    peeled,
-                ),
-            }
-        }
-        Err(_) => (spoken_or_failed(&reply), None, glued_peel),
-    }
+/// Wake, near miss, and planning peel for one Character reply.
+struct ResolvedReply {
+    wake: Wake,
+    near_miss: Option<String>,
+    peeled_thought: Option<String>,
 }
 
-/// Planning on the message channel sometimes ends `…character.ponder\n` with
-/// no newline before the Behavior. The period marks the glue. Peel the
-/// preamble for Thinking; leave a Behavior already on its own line alone.
-fn unglue_declared_behavior(reply: &str, behaviors: &[String]) -> (String, Option<String>) {
+/// Unglued text plus a contract parse reused when the reply was not rewritten.
+struct PreparedReply {
+    text: String,
+    glued_peel: Option<String>,
+    /// `None` when the text was rewritten and must be parsed again.
+    cached: Option<Result<ParsedContract, ParseError>>,
+}
+
+/// Unglue (if needed) + parse the Behavior contract + resolve wake/near-miss/peel.
+/// The only full parse path for a Character reply against declared behaviors.
+fn resolve_reply(behaviors: &[String], reply: &str) -> ResolvedReply {
+    resolve_prepared(behaviors, prepare_reply(reply, behaviors))
+}
+
+/// Period-glue rewrite when a declared Behavior is stuck after a period, else
+/// the original text. Reuses the first contract parse when nothing is rewritten.
+fn prepare_reply(reply: &str, behaviors: &[String]) -> PreparedReply {
     if behaviors.is_empty() {
-        return (reply.to_string(), None);
+        return PreparedReply {
+            text: reply.to_string(),
+            glued_peel: None,
+            cached: None,
+        };
     }
     // Prefer a glued declared Behavior over a later bare near-miss line
-    // (`hi`, `Hmm.`) that would otherwise make `parse_proposal` succeed.
-    let try_unglue = match parse_proposal(reply) {
-        Ok(proposal) => {
-            declared(behaviors, &proposal.behavior).is_none()
-                && !proposal.behavior.eq_ignore_ascii_case("say")
+    // (`hi`, `Hmm.`) that would otherwise make the first parse succeed.
+    let first = parse_contract(reply);
+    let try_unglue = match &first {
+        Ok(parsed) => {
+            declared(behaviors, &parsed.proposal.behavior).is_none()
+                && !parsed.proposal.behavior.eq_ignore_ascii_case("say")
         }
         Err(_) => true,
     };
     if !try_unglue {
-        return (reply.to_string(), None);
+        return PreparedReply {
+            text: reply.to_string(),
+            glued_peel: None,
+            cached: Some(first),
+        };
     }
     let Some((dot, name_end, name)) = glued_declared_behavior(reply, behaviors) else {
-        return (reply.to_string(), None);
+        return PreparedReply {
+            text: reply.to_string(),
+            glued_peel: None,
+            cached: Some(first),
+        };
     };
     let peel = reply[..dot].trim();
     let peel = (!peel.is_empty()).then(|| peel.to_string());
@@ -530,7 +499,84 @@ fn unglue_declared_behavior(reply: &str, behaviors: &[String]) -> (String, Optio
     } else {
         format!("{name}\n{rest}")
     };
-    (rewritten, peel)
+    PreparedReply {
+        text: rewritten,
+        glued_peel: peel,
+        cached: None,
+    }
+}
+
+/// Resolve wake/near-miss/peel from already-prepared text. Does not unglue again.
+fn resolve_prepared(behaviors: &[String], prepared: PreparedReply) -> ResolvedReply {
+    let parsed = match prepared.cached {
+        Some(result) => result,
+        None => parse_contract(&prepared.text),
+    };
+    match parsed {
+        // The declared spelling, not the model's: a name written
+        // at the start of a line comes back capitalised, and the
+        // Engine looks a Behavior up by the name its Character declared.
+        Ok(parsed) => {
+            let peeled = merge_peel(prepared.glued_peel, parsed.peeled_thought);
+            match declared(behaviors, &parsed.proposal.behavior) {
+                Some(behavior) => ResolvedReply {
+                    wake: Wake::Proposed(BehaviorProposal {
+                        behavior,
+                        dialogue: parsed.proposal.dialogue,
+                    }),
+                    near_miss: None,
+                    peeled_thought: peeled,
+                },
+                None => {
+                    let say = parsed.proposal.behavior.eq_ignore_ascii_case("say");
+                    // `say` and a marked near miss share the empty-behavior
+                    // Proposed shape; only the near-miss name differs.
+                    if say || parsed.marked {
+                        let wake = match parsed.proposal.dialogue {
+                            Some(line) => Wake::Proposed(BehaviorProposal {
+                                behavior: String::new(),
+                                dialogue: Some(line),
+                            }),
+                            None => Wake::Failed,
+                        };
+                        ResolvedReply {
+                            wake,
+                            near_miss: if say {
+                                None
+                            } else {
+                                Some(parsed.proposal.behavior)
+                            },
+                            peeled_thought: peeled,
+                        }
+                    } else {
+                        // A bare near miss still speaks the whole reply.
+                        ResolvedReply {
+                            wake: spoken_or_failed(&prepared.text),
+                            near_miss: Some(parsed.proposal.behavior),
+                            peeled_thought: peeled,
+                        }
+                    }
+                }
+            }
+        }
+        Err(_) => ResolvedReply {
+            wake: spoken_or_failed(&prepared.text),
+            near_miss: None,
+            peeled_thought: prepared.glued_peel,
+        },
+    }
+}
+
+/// Whether streaming may show speech yet. Runs on already-unglued text.
+fn contract_visible(answer: &str, behaviors: &[String]) -> bool {
+    let (lines, tail) = answer.split_at(answer.rfind('\n').map_or(0, |at| at + 1));
+    let tail = tail.trim();
+    // Complete lines that parse, or an unfinished first line that is already
+    // a contract (`wave | hi`, or `behavior: nap` for a declared name). A bare
+    // prefix is not — that would flash near-miss prose while streaming.
+    parse_contract(lines).is_ok()
+        || (tail.contains('|') && contract_line(tail).is_some())
+        || unfinished_marked_contract(tail, behaviors)
 }
 
 /// Period glue is only for the thought/speech meld bandaid (`…character.ponder\n`).
@@ -687,7 +733,7 @@ fn declared(behaviors: &[String], name: &str) -> Option<String> {
 /// Behavior line is read against what `behaviors` declares. `None` when the
 /// character said nothing, as a reply that names only a Behavior does.
 pub fn dialogue_of(reply: &str, behaviors: &[String]) -> Option<String> {
-    match proposal_for(behaviors, reply).0 {
+    match resolve_reply(behaviors, reply).wake {
         Wake::Proposed(proposal) => proposal.dialogue,
         Wake::Failed => None,
     }
