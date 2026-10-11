@@ -345,3 +345,25 @@ test("a call with blank display pieces stays a plain label", { skip: CHROME_OR_C
   assert.equal(report.row.hidden, null);
   assert.deepEqual(report.row.pieces, []);
 });
+
+test("normalized and unprefixed titles keep their actions in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+  const calls = [
+    { id: "multiline", title: "Read\nroster\tfile", kind: "read", status: "completed", content: [], locations: [] },
+    { id: "unprefixed", title: "Compare deployment records across staging and production before restart", kind: "other", status: "completed", content: [], locations: [] },
+  ];
+  const report = drive(`
+    const report = {};
+    emit("chat-restored", ${JSON.stringify(calls.map((call) => ({ ...call, type: "tool_call" })))});
+    for (const call of ${JSON.stringify(calls)}) emit("chat-tool", call);
+    report.rows = [...document.querySelectorAll("#log .row.tool")].map((row) => ({
+      label: row.querySelector(".who-label").textContent,
+      detail: row.querySelector(".said")?.textContent,
+    }));`);
+  assert.equal(report.error, undefined, report.error);
+  assert.deepEqual(report.rows, [
+    { label: "Read roster file · completed", detail: "Read\nroster\tfile" },
+    { label: "Compare deployment records… · completed", detail: calls[1].title },
+    { label: "Read roster file · completed", detail: "Read\nroster\tfile" },
+    { label: "Compare deployment records… · completed", detail: calls[1].title },
+  ]);
+});

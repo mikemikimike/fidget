@@ -884,15 +884,24 @@ function foldShut(cls, title, body, draw) {
 
 const TOOL_TITLE_LIMIT = 48;
 
-function longToolTitle(entry) {
-  return oneLine(entry.title || "").trim().length > TOOL_TITLE_LIMIT;
+function toolTitle(entry) {
+  const full = stripUnsafe(entry.title || "");
+  const compact = full.replace(/[\r\n\t]+/g, " ").trim();
+  const long = compact.length > TOOL_TITLE_LIMIT;
+  return { full, compact, long, detailed: !!compact && (long || compact !== full) };
 }
 
-function toolLabel(entry) {
-  const title = oneLine(entry.title || "").trim();
-  const long = longToolTitle(entry);
-  const prefix = long ? title.match(/^([^:]{1,32}):\s/)?.[1] : null;
-  const handle = long ? prefix || entry.name || entry.kind || "Tool call" : title || entry.name || entry.kind || "Tool call";
+function toolExcerpt(title) {
+  const head = title.slice(0, 33);
+  const wordEnd = head.lastIndexOf(" ");
+  return `${(wordEnd > 16 ? head.slice(0, wordEnd) : head.slice(0, 32)).trimEnd()}…`;
+}
+
+function toolLabel(entry, title) {
+  const prefix = title.long ? title.compact.match(/^([^:]{1,32}):\s/)?.[1] : null;
+  const handle = title.long
+    ? prefix || entry.name || toolExcerpt(title.compact)
+    : title.compact || entry.name || entry.kind || "Tool call";
   return [handle, entry.status].filter(Boolean).join(" · ");
 }
 
@@ -923,11 +932,11 @@ function toolPiece(piece) {
   return line;
 }
 
-function toolDetails(entry) {
+function toolDetails(entry, titleShape) {
   const details = [];
-  if (longToolTitle(entry)) {
+  if (titleShape.detailed) {
     const title = el("tool-piece");
-    title.textContent = stripUnsafe(entry.title);
+    title.textContent = titleShape.full;
     details.push(title);
   }
   const places = (entry.locations || []).filter((at) => oneLine(at.path).trim()).map((at) => {
@@ -947,12 +956,13 @@ function toolDetails(entry) {
 }
 
 function paintTool(row, entry) {
-  const details = toolDetails(entry);
+  const title = toolTitle(entry);
+  const details = toolDetails(entry, title);
   const priorToggle = row.querySelector(".thinking-toggle");
   const wasOpen = priorToggle?.getAttribute("aria-expanded") === "true";
   const wasFocused = document.activeElement === priorToggle;
   const label = el("who-label");
-  label.textContent = toolLabel(entry);
+  label.textContent = toolLabel(entry, title);
   if (!details.length) {
     const heading = el("who");
     heading.append(label);
