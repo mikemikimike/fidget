@@ -544,6 +544,12 @@ fn unglue_declared_behavior(reply: &str, behaviors: &[String]) -> (String, Optio
     (rewritten, peel)
 }
 
+/// Period glue is only for the thought/speech meld bandaid (`…character.ponder\n`).
+/// Two-letter names collide with file extensions (`main.rs`); shipped Behaviors
+/// start at three (`nap`, `sit`). Marked `behavior:` and bare mid-reply keep
+/// short names.
+const MIN_PERIOD_GLUE_NAME: usize = 3;
+
 fn glued_declared_behavior<'a>(
     reply: &'a str,
     behaviors: &'a [String],
@@ -551,6 +557,9 @@ fn glued_declared_behavior<'a>(
     let bytes = reply.as_bytes();
     let mut best: Option<(usize, usize, String)> = None;
     for behavior in behaviors {
+        if behavior.len() < MIN_PERIOD_GLUE_NAME {
+            continue;
+        }
         let mut from = 0;
         while let Some(rel) = find_ignore_ascii_case(&reply[from..], &format!(".{}", behavior)) {
             let dot = from + rel;
