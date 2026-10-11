@@ -284,6 +284,9 @@ pub struct Woken {
     /// got. Written into the remembered reply by `marked`, never spoken and
     /// never parsed.
     pub truncated: bool,
+    /// Planning cut from the reply by a heuristic peel, for the Thinking row
+    /// (ADR-0034). Never speech. `None` when nothing was peeled.
+    pub peeled_thought: Option<String>,
 }
 
 /// Result of one model call.
@@ -388,17 +391,19 @@ impl<C: Completer> ModelDirector<C> {
             // Parsed exactly as a whole reply is. The cap ended the turn, not
             // the contract. The fact that it was cut off rides out beside them.
             Ok(reply) => {
-                let (wake, near_miss) = self.parsed(&reply.text);
+                let (wake, near_miss, peeled_thought) = self.parsed(&reply.text);
                 Woken {
                     wake,
                     near_miss,
                     truncated: reply.truncated,
+                    peeled_thought,
                 }
             }
             Err(_) => Woken {
                 wake: Wake::Failed,
                 near_miss: None,
                 truncated: false,
+                peeled_thought: None,
             },
         }
     }
@@ -408,14 +413,13 @@ impl<C: Completer> ModelDirector<C> {
     /// reply uses. This is the only shaping: extracting speech from the parsed reply.
     fn speech_so_far(&self, answer: &str) -> Option<String> {
         let answer = answer.trim_end_matches('\r');
-        let answer = unglue_declared_behavior(answer, &self.behaviors);
+        let (answer, _) = unglue_declared_behavior(answer, &self.behaviors);
         let (lines, tail) = answer.split_at(answer.rfind('\n').map_or(0, |at| at + 1));
         let tail = tail.trim();
 
         // Complete lines that parse, or an unfinished first line that is already
-        // a contract: `wave | hi`, or `behavior: nap` naming a declared Behavior.
-        // A bare prefix (`s` of `stroll`) is not a contract — that would flash
-        // near-miss prose while the name is still streaming.
+        // a contract (`wave | hi`, or `behavior: nap` for a declared name). A bare
+        // prefix is not — that would flash near-miss prose while streaming.
         let contract_found = parse_proposal(lines).is_ok()
             || (tail.contains('|') && contract_line(tail).is_some())
             || unfinished_marked_contract(tail, &self.behaviors);
@@ -431,14 +435,14 @@ impl<C: Completer> ModelDirector<C> {
         }
     }
 
-    fn parsed(&self, reply: &str) -> (Wake, Option<String>) {
+    fn parsed(&self, reply: &str) -> (Wake, Option<String>, Option<String>) {
         // The Completer has the opening; later turns stay short
         // even if this reply failed to parse.
         self.opened.store(true, Ordering::SeqCst);
         self.proposal(reply)
     }
 
-    fn proposal(&self, reply: &str) -> (Wake, Option<String>) {
+    fn proposal(&self, reply: &str) -> (Wake, Option<String>, Option<String>) {
         proposal_for(&self.behaviors, reply)
     }
 
@@ -449,60 +453,95 @@ impl<C: Completer> ModelDirector<C> {
     }
 }
 
-/// What `reply` proposes for a Character that declares `behaviors`, and the
-/// near miss when it names something else. The one parse a live reply and a
-/// restored one both go through.
-fn proposal_for(behaviors: &[String], reply: &str) -> (Wake, Option<String>) {
-    let reply = unglue_declared_behavior(reply, behaviors);
-    match parse_proposal(&reply) {
+/// What `reply` proposes for a Character that declares `behaviors`, the near
+/// miss when it names something else, and any planning peeled for Thinking.
+fn proposal_for(behaviors: &[String], reply: &str) -> (Wake, Option<String>, Option<String>) {
+    let (reply, glued_peel) = unglue_declared_behavior(reply, behaviors);
+    match parse_contract(&reply) {
         // The declared spelling, not the model's: a name written
         // at the start of a line comes back capitalised, and the
         // Engine looks a Behavior up by the name its Character declared.
-        Ok(proposal) => match declared(behaviors, &proposal.behavior) {
-            Some(behavior) => (
-                Wake::Proposed(BehaviorProposal {
-                    behavior,
-                    dialogue: proposal.dialogue,
-                }),
-                None,
-            ),
-            None if proposal.behavior.eq_ignore_ascii_case("say") => match proposal.dialogue {
-                Some(line) => (
+        Ok(parsed) => {
+            let peeled = merge_peel(glued_peel, parsed.peeled_thought);
+            match declared(behaviors, &parsed.proposal.behavior) {
+                Some(behavior) => (
                     Wake::Proposed(BehaviorProposal {
-                        behavior: String::new(),
-                        dialogue: Some(line),
+                        behavior,
+                        dialogue: parsed.proposal.dialogue,
                     }),
                     None,
+                    peeled,
                 ),
-                None => (Wake::Failed, None),
-            },
-            // `parse_proposal` has already ruled the name a single
-            // token, so this is the near miss and not prose.
-            None => (spoken_or_failed(&reply), Some(proposal.behavior)),
-        },
-        Err(_) => (spoken_or_failed(&reply), None),
+                None if parsed.proposal.behavior.eq_ignore_ascii_case("say") => {
+                    match parsed.proposal.dialogue {
+                        Some(line) => (
+                            Wake::Proposed(BehaviorProposal {
+                                behavior: String::new(),
+                                dialogue: Some(line),
+                            }),
+                            None,
+                            peeled,
+                        ),
+                        None => (Wake::Failed, None, peeled),
+                    }
+                }
+                // A marked near miss already cut planning and the marker out of
+                // dialogue. A bare near miss still speaks the whole reply.
+                None if parsed.marked => {
+                    let wake = match parsed.proposal.dialogue {
+                        Some(line) => Wake::Proposed(BehaviorProposal {
+                            behavior: String::new(),
+                            dialogue: Some(line),
+                        }),
+                        None => Wake::Failed,
+                    };
+                    (wake, Some(parsed.proposal.behavior), peeled)
+                }
+                None => (
+                    spoken_or_failed(&reply),
+                    Some(parsed.proposal.behavior),
+                    peeled,
+                ),
+            }
+        }
+        Err(_) => (spoken_or_failed(&reply), None, glued_peel),
     }
 }
 
 /// Planning on the message channel sometimes ends `…character.ponder\n` with
-/// no newline before the Behavior. The period marks the glue. Drop the
-/// preamble; leave a Behavior already on its own line alone.
-fn unglue_declared_behavior(reply: &str, behaviors: &[String]) -> String {
-    if behaviors.is_empty() || parse_proposal(reply).is_ok() {
-        return reply.to_string();
+/// no newline before the Behavior. The period marks the glue. Peel the
+/// preamble for Thinking; leave a Behavior already on its own line alone.
+fn unglue_declared_behavior(reply: &str, behaviors: &[String]) -> (String, Option<String>) {
+    if behaviors.is_empty() {
+        return (reply.to_string(), None);
     }
-    let Some((_dot, name_end, name)) = glued_declared_behavior(reply, behaviors) else {
-        return reply.to_string();
+    // Prefer a glued declared Behavior over a later bare near-miss line
+    // (`hi`, `Hmm.`) that would otherwise make `parse_proposal` succeed.
+    let try_unglue = match parse_proposal(reply) {
+        Ok(proposal) => {
+            declared(behaviors, &proposal.behavior).is_none()
+                && !proposal.behavior.eq_ignore_ascii_case("say")
+        }
+        Err(_) => true,
     };
+    if !try_unglue {
+        return (reply.to_string(), None);
+    }
+    let Some((dot, name_end, name)) = glued_declared_behavior(reply, behaviors) else {
+        return (reply.to_string(), None);
+    };
+    let peel = reply[..dot].trim();
+    let peel = (!peel.is_empty()).then(|| peel.to_string());
     let rest = &reply[name_end..];
     let rest = rest.strip_prefix(' ').unwrap_or(rest);
-    if rest.is_empty() {
+    let rewritten = if rest.is_empty() {
         name
     } else if rest.starts_with('|') || rest.starts_with('\n') {
         format!("{name}{rest}")
     } else {
         format!("{name}\n{rest}")
-    }
+    };
+    (rewritten, peel)
 }
 
 fn glued_declared_behavior<'a>(
@@ -540,6 +579,85 @@ fn glued_declared_behavior<'a>(
         }
     }
     best
+}
+
+fn merge_peel(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(format!("{a}\n{b}")),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+/// One parse of the Behavior contract: proposal, whether `behavior:` marked
+/// it, and planning peeled above a marked line for Thinking.
+struct ParsedContract {
+    proposal: BehaviorProposal,
+    marked: bool,
+    peeled_thought: Option<String>,
+}
+
+fn parse_contract(reply: &str) -> Result<ParsedContract, ParseError> {
+    let cleaned = strip_harness_banners(reply);
+    let lines: Vec<&str> = cleaned.lines().collect();
+    // First contract-shaped line, not line one: a Harness may put its own
+    // text ahead of the answer, and nothing on the ACP wire marks it. Trimmed
+    // only to test the line: a padded line still names a Behavior.
+    let (at, (name, inline, marked)) = lines
+        .iter()
+        .enumerate()
+        .find_map(|(at, line)| contract_line(line.trim()).map(|found| (at, found)))
+        .ok_or(ParseError)?;
+
+    // A `behavior:` line marks the act. Prose before it is planning for the
+    // Thinking row (#1492). A bare name mid-reply still keeps lines either side (#609).
+    let peeled_thought = if marked {
+        let above: Vec<&str> = lines[..at].to_vec();
+        above
+            .iter()
+            .position(|line| !line.trim().is_empty())
+            .map(|first| {
+                let last = above
+                    .iter()
+                    .rposition(|line| !line.trim().is_empty())
+                    .unwrap_or(first);
+                above[first..=last].join("\n")
+            })
+    } else {
+        None
+    };
+
+    let mut said: Vec<&str> = if marked {
+        Vec::new()
+    } else {
+        lines[..at].to_vec()
+    };
+    said.extend(inline.filter(|line| !line.is_empty()));
+    said.extend_from_slice(&lines[at + 1..]);
+
+    // Blank lines are the model's own paragraph breaks; only the ones at the
+    // ends are dropped, as the contract line's padding. A name cut from the
+    // middle leaves the padding either side of it behind, as one wider gap.
+    let dialogue = said
+        .iter()
+        .position(|line| !line.trim().is_empty())
+        .map(|first| {
+            let last = said
+                .iter()
+                .rposition(|line| !line.trim().is_empty())
+                .unwrap_or(first);
+            said[first..=last].join("\n")
+        });
+
+    Ok(ParsedContract {
+        proposal: BehaviorProposal {
+            behavior: name.to_string(),
+            dialogue,
+        },
+        marked,
+        peeled_thought,
+    })
 }
 
 fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
@@ -773,51 +891,11 @@ fn strip_harness_banners(reply: &str) -> String {
 /// else as the spoken line. Public for `harness probe`. The rest of the
 /// model path is crate-private.
 pub fn parse_proposal(reply: &str) -> Result<BehaviorProposal, ParseError> {
-    let cleaned = strip_harness_banners(reply);
-    let lines: Vec<&str> = cleaned.lines().collect();
-    // First contract-shaped line, not line one: a Harness may put its own
-    // text ahead of the answer, and nothing on the ACP wire marks it. Trimmed
-    // only to test the line: a padded line still names a Behavior.
-    let (at, (name, inline, marked)) = lines
-        .iter()
-        .enumerate()
-        .find_map(|(at, line)| contract_line(line.trim()).map(|found| (at, found)))
-        .ok_or(ParseError)?;
-
-    // A `behavior:` line marks the act. Prose before it is planning, not speech
-    // (#1492). A bare name mid-reply still keeps lines either side (#609).
-    let mut said: Vec<&str> = if marked {
-        Vec::new()
-    } else {
-        lines[..at].to_vec()
-    };
-    said.extend(inline.filter(|line| !line.is_empty()));
-    said.extend_from_slice(&lines[at + 1..]);
-
-    // Blank lines are the model's own paragraph breaks; only the ones at the
-    // ends are dropped, as the contract line's padding. A name cut from the
-    // middle leaves the padding either side of it behind, as one wider gap.
-    let dialogue = said
-        .iter()
-        .position(|line| !line.trim().is_empty())
-        .map(|first| {
-            let last = said
-                .iter()
-                .rposition(|line| !line.trim().is_empty())
-                .unwrap_or(first);
-            said[first..=last].join("\n")
-        });
-
-    Ok(BehaviorProposal {
-        behavior: name.to_string(),
-        dialogue,
-    })
+    Ok(parse_contract(reply)?.proposal)
 }
 
-/// `line` read as the contract's one line: optional `behavior:` then a name
-/// on its own, or a name and its spoken line either side of a `|`. The bool
-/// is whether the marker was present. `None` when the whole line is not that
-/// shape.
+/// `line` as the contract: optional `behavior:` then a name, or `name | said`.
+/// The bool is whether the marker was present. `None` when it is not that shape.
 fn contract_line(line: &str) -> Option<(&str, Option<&str>, bool)> {
     let (body, marked) = match behavior_marker_body(line) {
         Some(body) => (body, true),
@@ -1785,8 +1863,8 @@ mod tests {
         assert_eq!(proposal.dialogue.as_deref(), Some("I'll rest now."));
     }
 
-    /// The `behavior:` marker is the act. Planning above it is not spoken
-    /// (#1492). A bare name mid-reply still keeps prose (#609).
+    /// The `behavior:` marker is the act. Planning above it is Thinking, not
+    /// speech (#1492). A bare name mid-reply still keeps prose (#609).
     #[test]
     fn a_behavior_marker_drops_planning_above_it() {
         let marked = parse_proposal(
@@ -2441,7 +2519,7 @@ mod tests {
 
     #[test]
     fn a_declared_behavior_glued_after_a_period_is_not_spoken_with_the_preamble() {
-        let declared = declares(&["ponder", "walk", "settle", "mutter"]);
+        let declared = declares(&["ponder", "walk", "settle", "mutter", "wave"]);
         let drawn = |reply: &str| dialogue_of(reply, &declared);
 
         assert_eq!(
@@ -2489,8 +2567,100 @@ mod tests {
         assert_eq!(
             drawn("Checking the screen, then answering.\nbehavior: ponder\nI cast Doomsday."),
             Some("I cast Doomsday.".to_string()),
-            "marked contract drops planning above it"
+            "marked contract keeps only speech after the marker"
         );
+
+        // A later one-word line must not win as a bare near-miss over glued `wave`.
+        let woken = directing(Scripted::says("I waved.wave\nhi"), ["wave", "ponder"])
+            .wake_and_near_miss(&typed("wave"));
+        assert_eq!(woken.near_miss, None);
+        match &woken.wake {
+            Wake::Proposed(proposal) => {
+                assert_eq!(proposal.behavior, "wave");
+                assert_eq!(proposal.dialogue.as_deref(), Some("hi"));
+            }
+            other => panic!("glued wave before a bare hi should propose wave, not {other:?}"),
+        }
+        assert_eq!(
+            woken.peeled_thought.as_deref(),
+            Some("I waved"),
+            "heuristic peel goes to Thinking, not the bit bucket"
+        );
+    }
+
+    /// A `behavior:` line that names nothing declared is still a contract cut:
+    /// planning and the marker are not spoken; after-marker dialogue is.
+    #[test]
+    fn a_marked_near_miss_does_not_speak_the_marker_or_planning() {
+        let woken = directing(
+            Scripted::says("Planning first.\nbehavior: dance\nHi there."),
+            ["wave", "ponder"],
+        )
+        .wake_and_near_miss(&typed("hi"));
+
+        assert_eq!(woken.near_miss.as_deref(), Some("dance"));
+        match &woken.wake {
+            Wake::Proposed(proposal) => {
+                assert!(proposal.behavior.is_empty(), "{proposal:?}");
+                assert_eq!(proposal.dialogue.as_deref(), Some("Hi there."));
+            }
+            other => panic!("marked near miss with speech should still speak, not {other:?}"),
+        }
+        assert_eq!(woken.peeled_thought.as_deref(), Some("Planning first."));
+
+        let silent = directing(Scripted::says("Planning only.\nbehavior: dance"), ["wave"])
+            .wake_and_near_miss(&typed("hi"));
+        assert_eq!(silent.near_miss.as_deref(), Some("dance"));
+        assert!(
+            matches!(silent.wake, Wake::Failed),
+            "marked near miss with nothing after the marker fails the turn"
+        );
+        assert_eq!(silent.peeled_thought.as_deref(), Some("Planning only."));
+    }
+
+    /// Heuristic peels that are not the Behavior contract itself are Thinking
+    /// (ADR-0034), never dropped. Only the contract line may be omitted.
+    #[test]
+    fn peeled_planning_is_handed_back_for_the_thinking_row() {
+        let marked = directing(
+            Scripted::says(
+                "Checking the screen, then answering.\nbehavior: ponder\nI cast Doomsday.",
+            ),
+            ["ponder"],
+        )
+        .wake_and_near_miss(&typed("any?"));
+        assert_eq!(
+            marked.peeled_thought.as_deref(),
+            Some("Checking the screen, then answering.")
+        );
+        match marked.wake {
+            Wake::Proposed(proposal) => {
+                assert_eq!(proposal.behavior, "ponder");
+                assert_eq!(proposal.dialogue.as_deref(), Some("I cast Doomsday."));
+            }
+            other => panic!("marked ponder should propose, not {other:?}"),
+        }
+
+        let glued = directing(
+            Scripted::says(
+                "Checking whether anything on screen shows Grok usage, then answering in character.ponder\nI cast Doomsday.",
+            ),
+            ["ponder"],
+        )
+        .wake_and_near_miss(&typed("any?"));
+        assert_eq!(
+            glued.peeled_thought.as_deref(),
+            Some(
+                "Checking whether anything on screen shows Grok usage, then answering in character"
+            ),
+        );
+        match glued.wake {
+            Wake::Proposed(proposal) => {
+                assert_eq!(proposal.behavior, "ponder");
+                assert_eq!(proposal.dialogue.as_deref(), Some("I cast Doomsday."));
+            }
+            other => panic!("glued ponder should propose, not {other:?}"),
+        }
     }
 
     /// Every desktop line filled, as one wake sends it.
@@ -2819,7 +2989,7 @@ mod tests {
     #[test]
     fn streamed_speech_holds_the_contract_line_back_and_grows_into_the_parsed_line() {
         let banner = format!("{PI_BANNER}\nwave\nHello!");
-        let rows: [(&str, Option<&str>); 21] = [
+        let rows: [(&str, Option<&str>); 23] = [
             ("stroll\nhey there", Some("hey there")),
             ("wave", None),
             ("nap | sleepy", Some("sleepy")),
@@ -2846,6 +3016,11 @@ mod tests {
             (
                 "Looking around.\nbehavior: nap\nBack in five.",
                 Some("Back in five."),
+            ),
+            ("I waved.wave\nhi", Some("hi")),
+            (
+                "Planning first.\nbehavior: dance\nHi there.",
+                Some("Hi there."),
             ),
             ("\n\nwave\n\nHello\n\n", Some("Hello")),
             ("wave\n   \n\n", None),

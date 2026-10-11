@@ -1815,7 +1815,7 @@ pub fn on_thought(door: ThoughtDoor) {
 
 /// Draw `line` as what `instance`'s turn has thought so far, or end that
 /// turn's thinking when it is empty (ADR-0034).
-fn think(instance: &str, line: &str) {
+pub(crate) fn think(instance: &str, line: &str) {
     if let Some(door) = THOUGHT.get() {
         door(instance, line.to_string());
     }

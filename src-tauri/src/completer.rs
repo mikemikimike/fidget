@@ -133,6 +133,8 @@ pub struct Answered {
     /// The cap ended this turn, so what was said is as far as the model got.
     /// The line the Chat surface remembers is marked with it.
     pub truncated: bool,
+    /// Planning peeled from the reply for the Thinking row (ADR-0034).
+    pub peeled_thought: Option<String>,
 }
 
 impl Default for Slot {
@@ -270,6 +272,7 @@ impl Slots {
                 wake: Wake::Failed,
                 near_miss: None,
                 truncated: false,
+                peeled_thought: None,
             });
             let _ = tx.send(Delivered {
                 epoch,
@@ -278,6 +281,7 @@ impl Slots {
                     context,
                     near_miss: woken.near_miss,
                     truncated: woken.truncated,
+                    peeled_thought: woken.peeled_thought,
                 })),
             });
         });
@@ -735,6 +739,41 @@ pub(crate) mod tests {
             "",
             "a near miss is still played as speech"
         );
+    }
+
+    /// Peeled planning rides with the Answered so the frame loop can hand it
+    /// to the thought door (ADR-0034) before the reply is remembered.
+    #[test]
+    fn take_carries_peeled_thought_from_a_marked_contract() {
+        struct SaysMarked;
+        impl Completer for SaysMarked {
+            fn complete(&self, _: &WakeRequest, said: &dyn Fn(&str)) -> Result<Reply, String> {
+                let reply = "Planning first.\nbehavior: nap\nHi there.";
+                said(reply);
+                Ok(Reply::whole(reply))
+            }
+        }
+
+        let mut slots = Slots::new();
+        let id = "fidget".to_string();
+        let director = Arc::new(ModelDirector::new(
+            SaysMarked,
+            ["stroll", "nap"],
+            id.clone(),
+            "cat",
+            false,
+        ));
+        slots.wake(&id, director, wake_context());
+
+        let answered = polled(&mut slots, &id).expect("the call answers");
+        assert_eq!(answered.peeled_thought.as_deref(), Some("Planning first."));
+        assert_eq!(behavior_of(&answered.wake), "nap");
+        match &answered.wake {
+            Wake::Proposed(proposal) => {
+                assert_eq!(proposal.dialogue.as_deref(), Some("Hi there."));
+            }
+            other => panic!("marked nap should propose, not {other:?}"),
+        }
     }
 
     /// The Wake and its Context cannot be separated, so nothing downstream can
