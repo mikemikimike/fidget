@@ -115,3 +115,19 @@ test("a Harness error is the Shell's line as sent, under no second prefix", () =
 
   assert.deepEqual(log, ["harness not authenticated: run `claude /login`"]);
 });
+
+test("an attach-time error with no caret is still a note that outlives a later turn", () => {
+  const turns = createChatTurns();
+  const attach = turns.settle({
+    said: null,
+    error: "Codex is on `gpt-6-sol`, which is not in its available models.",
+  });
+  assert.equal(attach.action, "error");
+  assert.equal(attach.turn, null);
+  assert.match(attach.note, /gpt-6-sol/);
+
+  turns.typed();
+  const after = turns.settle({ said: "Hello" });
+  assert.equal(after.action, "speech");
+  assert.equal(after.said, "Hello");
+});

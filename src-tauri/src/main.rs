@@ -4816,6 +4816,24 @@ fn main() {
                     harness::Forwarded::NotApplied(failures) => {
                         restore_not_applied(&forward_to, &failures)
                     }
+                    harness::Forwarded::Notice { instance, text } => {
+                        let _ = forward_to.emit_to(
+                            chat_label(&instance),
+                            CHAT_EVENT,
+                            ChatReply {
+                                said: None,
+                                busy: false,
+                                reacting_to: None,
+                                you: false,
+                                thought: false,
+                                at: None,
+                                error: Some(text),
+                                failure: None,
+                                superseded_by: None,
+                                streaming: false,
+                            },
+                        );
+                    }
                 }),
             );
             // The other lane's thoughts, through the same door. Only one lane

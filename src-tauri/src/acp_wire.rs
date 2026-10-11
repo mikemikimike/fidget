@@ -2027,7 +2027,7 @@ async fn open(
 }
 
 /// Current model id when the select lists options and that id is not among them.
-fn model_outside_available(options: &[SessionConfigOption]) -> Option<String> {
+pub(crate) fn model_outside_available(options: &[SessionConfigOption]) -> Option<String> {
     let option = options
         .iter()
         .find(|option| option.category.as_ref() == Some(&SessionConfigOptionCategory::Model))?;
@@ -3242,6 +3242,70 @@ mod tests {
                 "Reading the roster.\n\nChecking the desk.\nWeighing a nap against the desk.\nCounting the windows.\nNaming the display.\nPicking a spot.",
             ]
         );
+    }
+
+    fn model_options(body: serde_json::Value) -> Vec<SessionConfigOption> {
+        serde_json::from_value(body).expect("model options JSON")
+    }
+
+    #[test]
+    fn model_outside_available_covers_listed_unlisted_grouped_and_empty() {
+        let listed = model_options(serde_json::json!([{
+            "id": "llm", "name": "Model", "category": "model", "type": "select",
+            "currentValue": "some-model",
+            "options": [
+                {"value": "default-model", "name": "Default"},
+                {"value": "some-model", "name": "Some"}
+            ]
+        }]));
+        assert_eq!(model_outside_available(&listed), None);
+
+        let unlisted = model_options(serde_json::json!([{
+            "id": "llm", "name": "Model", "category": "model", "type": "select",
+            "currentValue": "gpt-6-sol",
+            "options": [
+                {"value": "default-model", "name": "Default"},
+                {"value": "some-model", "name": "Some"}
+            ]
+        }]));
+        assert_eq!(
+            model_outside_available(&unlisted).as_deref(),
+            Some("gpt-6-sol")
+        );
+
+        let grouped = model_options(serde_json::json!([{
+            "id": "llm", "name": "Model", "category": "model", "type": "select",
+            "currentValue": "gpt-6-sol",
+            "options": [
+                {"group": "chatgpt", "name": "ChatGPT", "options": [
+                    {"value": "default-model", "name": "Default"},
+                    {"value": "some-model", "name": "Some"}
+                ]}
+            ]
+        }]));
+        assert_eq!(
+            model_outside_available(&grouped).as_deref(),
+            Some("gpt-6-sol")
+        );
+
+        let grouped_listed = model_options(serde_json::json!([{
+            "id": "llm", "name": "Model", "category": "model", "type": "select",
+            "currentValue": "some-model",
+            "options": [
+                {"group": "chatgpt", "name": "ChatGPT", "options": [
+                    {"value": "some-model", "name": "Some"}
+                ]}
+            ]
+        }]));
+        assert_eq!(model_outside_available(&grouped_listed), None);
+
+        let empty_current = model_options(serde_json::json!([{
+            "id": "llm", "name": "Model", "category": "model", "type": "select",
+            "currentValue": "",
+            "options": [{"value": "some-model", "name": "Some"}]
+        }]));
+        assert_eq!(model_outside_available(&empty_current), None);
+        assert_eq!(model_outside_available(&[]), None);
     }
 
     /// Nothing on the Chat surface knows when a Harness stopped thinking. A turn

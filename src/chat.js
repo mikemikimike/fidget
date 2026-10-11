@@ -1043,6 +1043,11 @@ async function start() {
         said(label, outcome.said, "them", payload.at);
         return;
       }
+      // Attach-time notices arrive with no caret. A sticky note survives turns.
+      if (outcome.action === "error" && !outcome.turn) {
+        note(outcome.note);
+        return;
+      }
       const turn = outcome.turn;
       if (!turn.them) {
         turn.them = said(`${them} · ${payload.reacting_to || "unprompted"}`, "", "them", payload.at);
