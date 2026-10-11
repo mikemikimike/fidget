@@ -151,8 +151,8 @@ const DRAWN = {
   pieces: [
     { className: "tool-piece tool-location", text: "/Users/oded/src/main.rs:12" },
     { className: "tool-piece tool-location", text: "/tmp/page.html" },
-    { className: "tool-piece", text: "/Users/oded/src/main.rs (+3/-1) · full diff not drawn" },
-    { className: "tool-piece", text: "Terminal term-7" },
+    { className: "tool-piece tool-name", text: "/Users/oded/src/main.rs (+3/-1) · full diff not drawn" },
+    { className: "tool-piece tool-name", text: "Terminal term-7" },
     { className: "tool-piece", text: "wrote [x](https://evil.example) and **2** hunks" },
     { className: "tool-piece", text: "spec" },
   ],
@@ -240,7 +240,7 @@ test(
 );
 
 test(
-  "long titles stay whole on one ellipsized line, with the full text on hover",
+  "a cut-off title stays on one line and opens whole from a focusable disclosure",
   { skip: CHROME_OR_CI, timeout: 60000 },
   () => {
     const title = "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks";
@@ -249,20 +249,24 @@ test(
     const report = {};
     emit("chat-restored", [${JSON.stringify({ ...call, type: "tool_call" })}]);
     emit("chat-tool", ${JSON.stringify(call)});
+    emit("chat-tool", { id: "t-short", title: "Web search", kind: "search", status: "completed", locations: [], content: [] });
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
     report.rows = [...document.querySelectorAll("#log .row.tool")].map((row) => {
       const label = row.querySelector(".who-label");
       return {
         label: label.textContent,
         hover: label.title,
-        toggle: !!row.querySelector(".thinking-toggle"),
+        toggle: row.querySelector(".thinking-toggle")?.tagName ?? null,
+        detail: row.querySelector(".said")?.textContent ?? null,
         nowrap: getComputedStyle(label).whiteSpace,
         cut: label.scrollWidth > label.clientWidth,
         oneLine: label.getClientRects().length === 1,
       };
     });`);
     assert.equal(report.error, undefined, report.error);
-    const row = { label: `${title} · completed`, hover: `${title} · completed`, toggle: false, nowrap: "nowrap", cut: true, oneLine: true };
-    assert.deepEqual(report.rows, [row, row]);
+    const row = { label: `${title} · completed`, hover: `${title} · completed`, toggle: "BUTTON", detail: title, nowrap: "nowrap", cut: true, oneLine: true };
+    const short = { label: "Web search · completed", hover: "Web search · completed", toggle: null, detail: null, nowrap: "nowrap", cut: false, oneLine: true };
+    assert.deepEqual(report.rows, [row, row, short]);
   },
 );
 

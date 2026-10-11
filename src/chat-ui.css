@@ -1182,6 +1182,12 @@ body {
   min-width: 0;
 }
 
+/* Paths and ids the Harness chose: their own line breaks fold to spaces. */
+.tool-location,
+.tool-name {
+  white-space: normal;
+}
+
 .tool-handle {
   display: inline-block;
   max-width: calc(100% - 1.2em);

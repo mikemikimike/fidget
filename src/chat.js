@@ -899,23 +899,18 @@ function cleanTool(value) {
   return value;
 }
 
-// A path or an id the Harness chose, on one line with nothing that reorders it.
-function oneLine(text) {
-  return String(text ?? "").replace(/[\r\n\t]+/g, " ");
-}
-
 // One line per thing a tool call carried (ADR-0028). Text is drawn as
 // written. A mark is Markdown, so its links open. Live and replay share this.
 function toolPiece(piece) {
-  const line = el("tool-piece");
+  const line = el(piece.type === "diff" || piece.type === "terminal" ? "tool-piece tool-name" : "tool-piece");
   switch (piece.type) {
     case "diff":
-      line.textContent = `${oneLine(piece.path)} (+${piece.added}/-${piece.removed}${
+      line.textContent = `${piece.path} (+${piece.added}/-${piece.removed}${
         piece.approximate ? ", approximate" : ""
       }) · full diff not drawn`;
       break;
     case "terminal":
-      line.textContent = `Terminal ${oneLine(piece.id)}`;
+      line.textContent = `Terminal ${piece.id}`;
       break;
     case "mark":
       drawThought(line, piece.markdown);
@@ -926,18 +921,18 @@ function toolPiece(piece) {
   return line;
 }
 
-// A multi-line title cannot show its lines in a one-line handle, so the
-// details carry it whole. Raw input and output draw as the ask card's fence.
-function toolDetails(entry) {
+// A title the handle cannot show whole (cut off, or multi-line) goes into the
+// details too. Raw input and output draw as the ask card's fence.
+function toolDetails(entry, cut) {
   const details = [];
-  if (/[\r\n]/.test(entry.title || "")) {
+  if (entry.title && (cut || /[\r\n]/.test(entry.title))) {
     const title = el("tool-piece");
     title.textContent = entry.title;
     details.push(title);
   }
-  const places = (entry.locations || []).filter((at) => oneLine(at.path).trim()).map((at) => {
+  const places = (entry.locations || []).filter((at) => String(at.path ?? "").trim()).map((at) => {
     const line = el("tool-piece tool-location");
-    const path = oneLine(at.path);
+    const path = at.path;
     line.textContent = at.line == null ? path : `${path}:${at.line}`;
     return line;
   });
@@ -953,14 +948,30 @@ function toolDetails(entry) {
   return details;
 }
 
-function paintTool(row, entry) {
-  const details = toolDetails(entry);
+// Whether the handle cuts the title off is a layout fact, so it is measured
+// once the row is laid out and again whenever the handle changes width.
+const toolFit = new ResizeObserver((seen) => {
+  for (const { target } of seen) {
+    const row = target.closest(".row.tool");
+    if (!row?.toolEntry) continue;
+    const cut = target.scrollWidth > target.clientWidth;
+    if (cut !== Boolean(row.toolCut)) paintTool(row, row.toolEntry, cut);
+  }
+});
+
+function paintTool(row, entry, cut = Boolean(row.toolCut)) {
+  row.toolEntry = entry;
+  row.toolCut = cut;
+  const details = toolDetails(entry, cut);
   const priorToggle = row.querySelector(".thinking-toggle");
   const wasOpen = priorToggle?.getAttribute("aria-expanded") === "true";
   const wasFocused = document.activeElement === priorToggle;
+  const priorLabel = row.querySelector(".tool-handle");
+  if (priorLabel) toolFit.unobserve(priorLabel);
   const label = el("who-label tool-handle");
   label.textContent = toolLabel(entry);
   label.title = label.textContent;
+  toolFit.observe(label);
   if (!details.length) {
     const heading = el("who");
     heading.append(label);
