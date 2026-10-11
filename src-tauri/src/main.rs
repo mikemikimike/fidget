@@ -302,9 +302,7 @@ fn route_attach_notice(
     text: String,
     window_open: bool,
 ) -> Option<String> {
-    if !window_open {
-        pending.hold_notice(instance, text.clone());
-    }
+    pending.hold_notice(instance, text.clone());
     window_open.then_some(text)
 }
 
