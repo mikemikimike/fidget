@@ -334,3 +334,14 @@ test("raw updates retain earlier values when omitted or null", { skip: CHROME_OR
     'Input: {"url":"https://example.com"}', 'Output: {"ok":true}',
   ]);
 });
+
+test("a call with blank display pieces stays a plain label", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+  const report = drive(`
+    const report = {};
+    emit("chat-tool", { id: "blank", title: "Read file", kind: "read", content: [{ type: "text", text: "" }], locations: [{ path: "" }] });
+    report.row = snap(document.querySelector("#log .row.tool"));`);
+  assert.equal(report.error, undefined, report.error);
+  assert.equal(report.row.open, null);
+  assert.equal(report.row.hidden, null);
+  assert.deepEqual(report.row.pieces, []);
+});

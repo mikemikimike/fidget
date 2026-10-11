@@ -864,16 +864,15 @@ function newSession(why) {
 // A loaded session's replay (#1393), above everything else in the log, in the
 // order the session holds it. No stamps: the replay carries no time. Replies
 // are not turns, so a typed question waiting below never takes one as its
-// answer. Prompts, thinking, and tool calls fold shut, as live thinking does
-// once its turn lands. A plan is drawn as steps in the log, never into the
+// answer. Prompts and thinking fold shut; tool calls fold when they have
+// details. A plan is drawn as steps in the log, never into the
 // live plan above the composer. The reply label is an `.i-name`, which
 // `showWho` fills if the opening has not landed yet. Replaces any block
 // already drawn: a window that listens before the load lands hears it live and
 // again from `chat_ready`.
 let restoredBlock = [];
 
-// Starts folded. Replay passes `restored …`. A live tool call does not: it
-// belongs to this session, not the block above the composer.
+// Starts folded for replayed prompts and thoughts.
 function foldShut(cls, title, body, draw) {
   const row = foldRow(cls, title);
   draw(row.querySelector(".said"), body);
@@ -883,8 +882,18 @@ function foldShut(cls, title, body, draw) {
   return row;
 }
 
+const TOOL_TITLE_LIMIT = 48;
+
+function longToolTitle(entry) {
+  return oneLine(entry.title || "").trim().length > TOOL_TITLE_LIMIT;
+}
+
 function toolLabel(entry) {
-  return [entry.title || entry.kind || "Tool call", entry.status].filter(Boolean).join(" · ");
+  const title = oneLine(entry.title || "").trim();
+  const long = longToolTitle(entry);
+  const prefix = long ? title.match(/^([^:]{1,32}):\s/)?.[1] : null;
+  const handle = long ? prefix || entry.name || entry.kind || "Tool call" : title || entry.name || entry.kind || "Tool call";
+  return [handle, entry.status].filter(Boolean).join(" · ");
 }
 
 // A path or an id the Harness chose, on one line with nothing that reorders it.
@@ -914,14 +923,57 @@ function toolPiece(piece) {
   return line;
 }
 
-function drawTool(body, entry) {
-  const places = entry.locations.map((at) => {
+function toolDetails(entry) {
+  const details = [];
+  if (longToolTitle(entry)) {
+    const title = el("tool-piece");
+    title.textContent = stripUnsafe(entry.title);
+    details.push(title);
+  }
+  const places = (entry.locations || []).filter((at) => oneLine(at.path).trim()).map((at) => {
     const line = el("tool-piece tool-location");
     const path = oneLine(at.path);
     line.textContent = at.line == null ? path : `${path}:${at.line}`;
     return line;
   });
-  body.replaceChildren(...places, ...entry.content.map(toolPiece));
+  details.push(...places, ...(entry.content || []).map(toolPiece).filter((piece) => piece.textContent.trim()));
+  for (const [key, label] of [["rawInput", "Input"], ["rawOutput", "Output"]]) {
+    if (entry[key] == null) continue;
+    const line = el("tool-piece");
+    line.textContent = `${label}: ${stripUnsafe(JSON.stringify(entry[key]))}`;
+    details.push(line);
+  }
+  return details;
+}
+
+function paintTool(row, entry) {
+  const details = toolDetails(entry);
+  const priorToggle = row.querySelector(".thinking-toggle");
+  const wasOpen = priorToggle?.getAttribute("aria-expanded") === "true";
+  const wasFocused = document.activeElement === priorToggle;
+  const label = el("who-label");
+  label.textContent = toolLabel(entry);
+  if (!details.length) {
+    const heading = el("who");
+    heading.append(label);
+    row.replaceChildren(heading);
+    return;
+  }
+  const toggle = el("who thinking-toggle", "button");
+  toggle.type = "button";
+  toggle.append(label);
+  const body = el("said");
+  body.append(...details);
+  row.replaceChildren(toggle, body);
+  fold(row, wasOpen);
+  toggle.addEventListener("click", () => fold(row, toggle.getAttribute("aria-expanded") !== "true"));
+  if (wasFocused) toggle.focus();
+}
+
+function toolRow(cls, entry) {
+  const row = el(`row thinking ${cls}`);
+  paintTool(row, entry);
+  return row;
 }
 
 function hearTool(payload) {
@@ -929,25 +981,27 @@ function hearTool(payload) {
     return;
   }
   const held = toolRows.get(payload.id);
-  const prior = held?.entry ?? { title: "", kind: null, status: null, locations: [], content: [] };
+  const prior = held?.entry ?? { title: "", name: null, kind: null, status: null, rawInput: null, rawOutput: null, locations: [], content: [] };
   const entry = {
     title: payload.title ?? prior.title,
+    name: payload.name ?? prior.name,
     kind: payload.kind ?? prior.kind,
     status: payload.status ?? prior.status,
+    rawInput: payload.rawInput ?? prior.rawInput,
+    rawOutput: payload.rawOutput ?? prior.rawOutput,
     locations: payload.locations ?? prior.locations,
     content: payload.content ?? prior.content,
   };
   const row = held?.row;
   if (!row) {
-    const created = foldShut("tool", toolLabel(entry), entry, drawTool);
+    const created = toolRow("tool", entry);
     toolRows.set(payload.id, { row: created, entry });
     add(created);
     lowerCaret();
     return;
   }
   toolRows.set(payload.id, { row, entry });
-  row.querySelector(".who-label").textContent = toolLabel(entry);
-  drawTool(row.querySelector(".said"), entry);
+  paintTool(row, entry);
 }
 
 const RESTORED_ROWS = {
@@ -966,7 +1020,7 @@ const RESTORED_ROWS = {
   },
   prompt: (entry) => foldShut("restored prompt", "Prompt", entry.text, drawThought),
   thought: (entry) => foldShut("restored thought", "Thinking", entry.text, drawThought),
-  tool_call: (entry) => foldShut("restored tool", toolLabel(entry), entry, drawTool),
+  tool_call: (entry) => toolRow("restored tool", entry),
   plan: (entry) => {
     const row = el("row restored plan-steps");
     const label = el("who-label");
