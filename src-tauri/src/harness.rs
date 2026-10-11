@@ -5262,6 +5262,7 @@ mod tests {
             ],
         };
         let mut command = launch.command(&AttachCwd(root.clone()), false);
+        apply_codex_launch_trust(&mut command, &launch.argv, &data);
         command.env("FIDGET_ARGV_OUT", &out);
         without_console_window(&mut command);
         let status = command.status().expect("spawn echo stub");
@@ -5307,6 +5308,7 @@ mod tests {
             ],
         };
         let mut command = launch.command(&AttachCwd(root.clone()), false);
+        apply_codex_launch_trust(&mut command, &launch.argv, &data);
         without_console_window(&mut command);
         let status = command.status().expect("spawn npx.cmd stub");
         assert!(status.success(), "{status}");
