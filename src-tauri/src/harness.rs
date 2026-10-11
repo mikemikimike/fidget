@@ -5236,9 +5236,10 @@ mod tests {
             "echo-argv"
         });
         if cfg!(windows) {
+            // `for %%A in (%*)` splits on `=`; shift keeps each CreateProcess arg.
             std::fs::write(
                 &stub,
-                "@echo off\r\n> \"%~dp0argv.txt\" (\r\nfor %%A in (%*) do echo(%%~A\r\n)\r\n",
+                "@echo off\r\nset \"OUT=%~dp0argv.txt\"\r\nbreak> \"%OUT%\"\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\n>>\"%OUT%\" echo(%~1\r\nshift\r\ngoto loop\r\n:done\r\n",
             )
             .unwrap();
         } else {
@@ -5296,7 +5297,7 @@ mod tests {
         sync_codex_project_config(&data, None, None).unwrap();
         std::fs::write(
             root.join("npx.cmd"),
-            "@echo off\r\n> \"%~dp0echoed.txt\" (\r\nfor %%A in (%*) do echo(%%~A\r\n)\r\n",
+            "@echo off\r\nset \"OUT=%~dp0echoed.txt\"\r\nbreak> \"%OUT%\"\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\n>>\"%OUT%\" echo(%~1\r\nshift\r\ngoto loop\r\n:done\r\n",
         )
         .unwrap();
         let launch = Launch {
