@@ -339,8 +339,9 @@ def self_check():
         assert "One character ships with Fidget" in page, "the cast count is not the package count"
         assert "<figcaption>Solo</figcaption>" in page
         page = render(readme, scratch, rust, shell, release)
-        assert "<b>Download for macOS</b><span>v9</span><span>Apple Silicon · .dmg</span>" in page, \
-            "the release tag is not above the format"
+        assert '<p class="download-label">Download for</p>' in page, "the Download for label is above the buttons"
+        assert "<b>macOS</b><span>v9</span><span>Apple Silicon · .dmg</span>" in page, \
+            "the release tag is above the format"
         assert "<b>Windows</b><span>x86_64 · installer</span>" in page, "a button without its asset named a version"
 
     assert downloads(release) == {
