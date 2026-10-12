@@ -176,11 +176,11 @@
     <div>
       <h1>{{headline}}</h1>
       <p class="lede">{{lede}}</p>
-      <p class="download-label">Download for</p>
-      <div class="get" id="get">
-        <a class="btn" href="{{download_macos}}" aria-label="Download for macOS"><b>macOS</b>{{version_macos}}<span>Apple Silicon · .dmg</span></a>
-        <a class="btn" href="{{download_windows}}" aria-label="Download for Windows"><b>Windows</b>{{version_windows}}<span>x86_64 · installer</span></a>
-        <a class="btn" href="{{download_linux}}" aria-label="Download for Linux"><b>Linux</b>{{version_linux}}<span>x86_64 · AppImage</span></a>
+      <p class="download-label" id="download-label">Download for</p>
+      <div class="get" id="get" role="group" aria-labelledby="download-label">
+        <a class="btn" href="{{download_macos}}"><b>macOS</b>{{version_macos}}<span>Apple Silicon · .dmg</span></a>
+        <a class="btn" href="{{download_windows}}"><b>Windows</b>{{version_windows}}<span>x86_64 · installer</span></a>
+        <a class="btn" href="{{download_linux}}"><b>Linux</b>{{version_linux}}<span>x86_64 · AppImage</span></a>
       </div>
       <p class="note">{{notes}} <a href="https://github.com/omesser/fidget#get-it">Install steps</a></p>
     </div>
