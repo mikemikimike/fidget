@@ -190,6 +190,18 @@ const PRIMITIVES: [(&str, Primitive); 10] = [
     ("jump", Primitive::Jump),
 ];
 
+/// Primitives Chat and MCP may ask for by Behavior name via `play_behavior`.
+/// Off the table: `land`/`hold` (Engine landing / perch grip), `talk` (Engine
+/// plays during speech), `idle` (ambient; not an ask).
+pub(super) const ASKABLE_PRIMITIVES: &[(&str, Primitive)] = &[
+    ("walk", Primitive::Walk),
+    ("sit", Primitive::Sit),
+    ("sleep", Primitive::Sleep),
+    ("react", Primitive::React),
+    ("chase", Primitive::Chase),
+    ("jump", Primitive::Jump),
+];
+
 /// A named frame sequence and how it plays.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Animation {
@@ -798,31 +810,29 @@ mod tests {
         );
     }
 
+    /// Every Primitive Chat or MCP can ask for by name is playable when the
+    /// package declares none. Land, Hold, idle, and talk stay off the table.
     #[test]
     fn undeclared_askable_primitives_get_default_behaviors() {
         let character = load_manifest(&declaring(&REQUIRED_ANIMATIONS)).expect("package is valid");
-        assert!(character.behaviors.contains_key("sit"), "sit is askable");
-        assert!(
-            character.behaviors.contains_key("sleep"),
-            "sleep is askable"
-        );
-        assert!(
-            character.behaviors.contains_key("react"),
-            "react is askable"
-        );
-        assert!(
-            character.behaviors.contains_key("chase"),
-            "chase is askable"
-        );
-        assert!(character.behaviors.contains_key("walk"), "walk is askable");
-        for name in ["sit", "sleep", "react", "chase", "walk"] {
-            assert_eq!(
-                character.behaviors[name].weight, 0,
-                "{name} stays weight 0 until art earns it"
+        for &(name, primitive) in ASKABLE_PRIMITIVES {
+            let behavior = character
+                .behaviors
+                .get(name)
+                .unwrap_or_else(|| panic!("every Character can be asked for {name}"));
+            assert_eq!(behavior.primitives, vec![primitive]);
+            assert_eq!(behavior.weight, 0, "{name} stays ambient-off until earned");
+        }
+        for name in ["land", "hold", "idle", "talk"] {
+            assert!(
+                !character.behaviors.contains_key(name),
+                "{name} is not an askable default"
             );
         }
     }
 
+    /// A Behavior that already plays a Primitive covers that ask. The engine
+    /// must not inject a second Behavior named after the Primitive.
     #[test]
     fn a_behavior_playing_a_primitive_keeps_the_default_from_being_added() {
         let manifest = format!(
@@ -839,6 +849,12 @@ mod tests {
             !character.behaviors.contains_key("sit"),
             "sit default not added when nap plays it"
         );
+        let chase = character
+            .behaviors
+            .get("chase")
+            .expect("chase is still uncovered");
+        assert_eq!(chase.primitives, vec![Primitive::Chase]);
+        assert_eq!(chase.weight, 0);
     }
 
     #[test]
@@ -1553,17 +1569,18 @@ mod tests {
             "the prompt reaches the Director verbatim: {:?}",
             character.personality
         );
+        let askable: Vec<String> = ASKABLE_PRIMITIVES
+            .iter()
+            .map(|(name, _)| (*name).to_string())
+            .collect();
         assert_eq!(
             character.behaviors.keys().cloned().collect::<Vec<_>>(),
-            vec![
-                "chase".to_string(),
-                "jump".to_string(),
-                "react".to_string(),
-                "sit".to_string(),
-                "sleep".to_string(),
-                "walk".to_string()
-            ],
-            "prose declares nothing; the engine supplies default primitives: {:?}",
+            {
+                let mut names = askable;
+                names.sort();
+                names
+            },
+            "prose declares nothing; the engine supplies every askable Primitive: {:?}",
             character.behaviors
         );
         assert_eq!(

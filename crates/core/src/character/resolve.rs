@@ -7,8 +7,8 @@ use crate::overlay::AlphaMask;
 
 use super::manifest::{DeclaredAnimation, DeclaredBehavior};
 use super::{
-    Animation, Art, Behavior, PackageBytes, Primitive, ALPHA_THRESHOLD, MAX_CHARACTER_PIXELS,
-    MAX_FRAME_SIDE, SHOWN_LOOP_BEHAVIORS,
+    Animation, Art, Behavior, PackageBytes, ALPHA_THRESHOLD, MAX_CHARACTER_PIXELS, MAX_FRAME_SIDE,
+    SHOWN_LOOP_BEHAVIORS,
 };
 
 /// Check every declared Animation against package art and decode what passes.
@@ -201,22 +201,11 @@ fn art_size(bytes: &[u8]) -> Result<(u32, u32), String> {
     Ok((info.width, info.height))
 }
 
-/// Primitive Behaviors every Character gets when the package leaves them out.
-/// Adds a weight-0 Behavior for each askable Primitive (jump, sit, sleep, react,
-/// chase, walk) when no Behavior declares that name and no declared Behavior
-/// already plays that Primitive. Excluded: land/hold (Engine plays on landing/drag),
-/// talk (Engine plays during speech), idle (ambient state, not user-askable).
+/// Weight-0 Behaviors for each `ASKABLE_PRIMITIVES` entry whose name is free
+/// and whose Primitive no declared Behavior already plays. Author entries win.
+/// Exclusions (land/hold/talk/idle) live on that table's comment.
 fn ensure_default_behaviors(declared: &mut BTreeMap<String, DeclaredBehavior>) {
-    let candidates = [
-        ("jump", Primitive::Jump),
-        ("sit", Primitive::Sit),
-        ("sleep", Primitive::Sleep),
-        ("react", Primitive::React),
-        ("chase", Primitive::Chase),
-        ("walk", Primitive::Walk),
-    ];
-
-    for (name, primitive) in candidates {
+    for &(name, primitive) in super::ASKABLE_PRIMITIVES {
         if declared.contains_key(name) {
             continue;
         }
