@@ -86,9 +86,6 @@ export function createChatTurns() {
       }
       const turn = waiting.at(-1) ?? null;
       if (!turn) {
-        if (payload.error) {
-          return { action: "error", turn: null, note: payload.error };
-        }
         return { action: "orphan", turn: null, said: payload.said ?? "" };
       }
       waiting.pop();

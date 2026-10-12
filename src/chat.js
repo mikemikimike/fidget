@@ -1048,10 +1048,6 @@ async function start() {
         note(outcome.note);
         return;
       }
-      if (outcome.action === "error" && !outcome.turn) {
-        note(outcome.note);
-        return;
-      }
       const turn = outcome.turn;
       if (!turn.them) {
         turn.them = said(`${them} · ${payload.reacting_to || "unprompted"}`, "", "them", payload.at);
