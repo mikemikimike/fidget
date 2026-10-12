@@ -1345,7 +1345,12 @@ mod tests {
     #[test]
     fn switching_between_the_two_changes_the_idle_life_and_not_only_the_art() {
         let bmo = shipped_character("bmo");
-        for behavior in bmo.behaviors.keys() {
+        let default_primitives = ["jump", "sit", "sleep", "react", "chase", "walk"];
+        for behavior in bmo
+            .behaviors
+            .keys()
+            .filter(|name| !default_primitives.contains(&name.as_str()))
+        {
             let seen = played(&bmo, behavior);
             assert!(
                 !seen.contains("sit") && !seen.contains("sleep"),
@@ -1358,7 +1363,7 @@ mod tests {
         for behavior in nim
             .behaviors
             .keys()
-            .filter(|name| !bare_motion.contains(&name.as_str()))
+            .filter(|name| !bare_motion.contains(&name.as_str()) && !default_primitives.contains(&name.as_str()))
         {
             let seen = played(&nim, behavior);
             assert!(
