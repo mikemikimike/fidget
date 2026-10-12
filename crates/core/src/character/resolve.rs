@@ -201,13 +201,41 @@ fn art_size(bytes: &[u8]) -> Result<(u32, u32), String> {
     Ok((info.width, info.height))
 }
 
+/// Weight-0 Behaviors for each `ASKABLE_PRIMITIVES` entry whose name is free
+/// and whose Primitive no declared Behavior already plays. Author entries win.
+/// Exclusions (land/hold/talk/idle) live on that table's comment.
+fn ensure_default_behaviors(declared: &mut BTreeMap<String, DeclaredBehavior>) {
+    for &(name, primitive) in super::ASKABLE_PRIMITIVES {
+        if declared.contains_key(name) {
+            continue;
+        }
+        let already_played = declared
+            .values()
+            .any(|behavior| behavior.primitives.contains(&primitive));
+        if already_played {
+            continue;
+        }
+        declared.insert(
+            name.to_string(),
+            DeclaredBehavior {
+                primitives: vec![primitive],
+                then: None,
+                weight: 0,
+                trigger: None,
+            },
+        );
+    }
+}
+
 /// Check that every Behavior can be played to an end. A chain that returns to
 /// a Behavior already run would hold the sprite forever. The walk is iterative
 /// and remembers what it walked, so a deep package is rejected rather than crashing the stack.
 pub(super) fn resolve_behaviors(
-    declared: BTreeMap<String, DeclaredBehavior>,
+    mut declared: BTreeMap<String, DeclaredBehavior>,
     errors: &mut Vec<String>,
 ) -> BTreeMap<String, Behavior> {
+    ensure_default_behaviors(&mut declared);
+
     for (name, declaration) in &declared {
         if let Some(next) = &declaration.then {
             if !declared.contains_key(next) {

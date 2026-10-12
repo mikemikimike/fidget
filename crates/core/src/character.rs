@@ -190,6 +190,18 @@ const PRIMITIVES: [(&str, Primitive); 10] = [
     ("jump", Primitive::Jump),
 ];
 
+/// Primitives Chat and MCP may ask for by Behavior name via `play_behavior`.
+/// Off the table: `land`/`hold` (Engine landing / perch grip), `talk` (Engine
+/// plays during speech), `idle` (ambient; not an ask).
+pub(super) const ASKABLE_PRIMITIVES: &[(&str, Primitive)] = &[
+    ("walk", Primitive::Walk),
+    ("sit", Primitive::Sit),
+    ("sleep", Primitive::Sleep),
+    ("react", Primitive::React),
+    ("chase", Primitive::Chase),
+    ("jump", Primitive::Jump),
+];
+
 /// A named frame sequence and how it plays.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Animation {
@@ -726,6 +738,123 @@ mod tests {
             idle.looping,
             "an Animation repeats unless it says otherwise"
         );
+    }
+
+    /// Jump is a primitive Behavior every Character can be asked to play.
+    /// A package that never writes `[behaviors.jump]` still gets one at load,
+    /// weight zero until dedicated art earns ambient use (same policy as #490).
+    #[test]
+    fn an_undeclared_jump_is_still_playable() {
+        use crate::engine::{BehaviorProposal, Engine, Point, WorldSnapshot};
+
+        let character = load_manifest(&declaring(&REQUIRED_ANIMATIONS)).expect("package is valid");
+        let jump = character
+            .behaviors
+            .get("jump")
+            .expect("every Character can be asked to jump");
+        assert_eq!(jump.primitives, vec![Primitive::Jump]);
+        assert_eq!(jump.weight, 0, "ambient off until the package earns it");
+
+        let ground = WorldSnapshot {
+            displays: vec![crate::engine::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1000.0,
+                height: 800.0,
+            }],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        let mut engine =
+            Engine::new(Point { x: 100.0, y: 0.0 }).with_behaviors(character.behaviors.clone());
+        for _ in 0..40 {
+            engine.tick(&ground);
+        }
+
+        let proposed = WorldSnapshot {
+            proposal: Some(BehaviorProposal {
+                behavior: "jump".to_string(),
+                dialogue: None,
+            }),
+            ..ground.clone()
+        };
+        let launch = engine.tick(&proposed);
+        assert_eq!(
+            launch.behavior.as_deref(),
+            Some("jump"),
+            "the proposal was taken: {launch:?}"
+        );
+        let launched = engine.tick(&ground);
+        assert!(
+            launched.velocity.y < 0.0,
+            "off the floor upward: {launched:?}"
+        );
+    }
+
+    /// An author who writes jump keeps their weight; the engine default must
+    /// not overwrite a Character that already hops on its own.
+    #[test]
+    fn a_declared_jump_keeps_its_weight() {
+        let manifest = format!(
+            "{}[behaviors.jump]\nplay = [\"jump\"]\nweight = 7\n",
+            declaring(&REQUIRED_ANIMATIONS)
+        );
+        let character = load_manifest(&manifest).expect("package is valid");
+        assert_eq!(
+            character.behaviors["jump"].weight, 7,
+            "author-declared jump wins over the engine default"
+        );
+        assert_eq!(
+            character.behaviors["jump"].primitives,
+            vec![Primitive::Jump]
+        );
+    }
+
+    /// Every Primitive Chat or MCP can ask for by name is playable when the
+    /// package declares none. Land, Hold, idle, and talk stay off the table.
+    #[test]
+    fn undeclared_askable_primitives_get_default_behaviors() {
+        let character = load_manifest(&declaring(&REQUIRED_ANIMATIONS)).expect("package is valid");
+        for &(name, primitive) in ASKABLE_PRIMITIVES {
+            let behavior = character
+                .behaviors
+                .get(name)
+                .unwrap_or_else(|| panic!("every Character can be asked for {name}"));
+            assert_eq!(behavior.primitives, vec![primitive]);
+            assert_eq!(behavior.weight, 0, "{name} stays ambient-off until earned");
+        }
+        for name in ["land", "hold", "idle", "talk"] {
+            assert!(
+                !character.behaviors.contains_key(name),
+                "{name} is not an askable default"
+            );
+        }
+    }
+
+    /// A Behavior that already plays a Primitive covers that ask. The engine
+    /// must not inject a second Behavior named after the Primitive.
+    #[test]
+    fn a_behavior_playing_a_primitive_keeps_the_default_from_being_added() {
+        let manifest = format!(
+            "{}[behaviors.nap]\nplay = [\"sit\", \"sleep\"]\nweight = 10\n",
+            declaring(&REQUIRED_ANIMATIONS)
+        );
+        let character = load_manifest(&manifest).expect("package is valid");
+        assert!(character.behaviors.contains_key("nap"), "nap is declared");
+        assert!(
+            !character.behaviors.contains_key("sleep"),
+            "sleep default not added when nap plays it"
+        );
+        assert!(
+            !character.behaviors.contains_key("sit"),
+            "sit default not added when nap plays it"
+        );
+        let chase = character
+            .behaviors
+            .get("chase")
+            .expect("chase is still uncovered");
+        assert_eq!(chase.primitives, vec![Primitive::Chase]);
+        assert_eq!(chase.weight, 0);
     }
 
     #[test]
@@ -1440,9 +1569,18 @@ mod tests {
             "the prompt reaches the Director verbatim: {:?}",
             character.personality
         );
-        assert!(
-            character.behaviors.is_empty(),
-            "describing a jump declares nothing: {:?}",
+        let askable: Vec<String> = ASKABLE_PRIMITIVES
+            .iter()
+            .map(|(name, _)| (*name).to_string())
+            .collect();
+        assert_eq!(
+            character.behaviors.keys().cloned().collect::<Vec<_>>(),
+            {
+                let mut names = askable;
+                names.sort();
+                names
+            },
+            "prose declares nothing; the engine supplies every askable Primitive: {:?}",
             character.behaviors
         );
         assert_eq!(
