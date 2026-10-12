@@ -1715,22 +1715,17 @@ pub(crate) fn run_frame_loop(
                     let dialogue =
                         chat_dialogue(parsed_dialogue.as_deref(), frame.dialogue.as_deref());
                     let remembered = dialogue.map(|line| director::marked(line, truncated));
-                    session_log::remember_them(
+                    session_log::remember_reply(
                         &app,
                         &live.id,
                         remembered.clone(),
                         reacting_to.clone(),
+                        session_log::Failed {
+                            error: error.clone(),
+                            failure: failure.clone(),
+                        },
                         SystemTime::now(),
                     );
-                    if remembered.is_none() && (error.is_some() || failure.is_some()) {
-                        session_log::remember_failed(
-                            &app,
-                            &live.id,
-                            error.clone(),
-                            failure.clone(),
-                            SystemTime::now(),
-                        );
-                    }
                     let _ = app.emit_to(
                         chat_label(&live.id),
                         CHAT_EVENT,

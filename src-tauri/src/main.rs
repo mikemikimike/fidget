@@ -3230,6 +3230,28 @@ fn chat_send(
     }));
 }
 
+/// A kept turn as Chat hears it on opening, with the error of a turn that failed.
+fn replayed_reply(turn: session_log::Turn) -> ChatReply {
+    ChatReply {
+        said: turn.said,
+        busy: false,
+        reacting_to: turn.reacting_to,
+        you: turn.who == session_log::Who::You,
+        thought: turn.who == session_log::Who::Thinking,
+        error: turn.error,
+        failure: turn.failure,
+        notice: None,
+        superseded_by: None,
+        streaming: false,
+        at: Some(
+            turn.at
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        ),
+    }
+}
+
 /// A Chat surface reporting that it is listening. Events only reach windows
 /// that existed, so this session's turns wait here too, Speech as well as
 /// permission asks that arrived before this window existed.
@@ -3246,28 +3268,7 @@ fn chat_ready(
             let _ = app.emit_to(chat_label(&instance), CHAT_RESTORED_EVENT, &restored);
         }
         for turn in session_log::replay(&app, &instance) {
-            let _ = app.emit_to(
-                chat_label(&instance),
-                CHAT_EVENT,
-                ChatReply {
-                    said: turn.said,
-                    busy: false,
-                    reacting_to: turn.reacting_to,
-                    you: turn.who == session_log::Who::You,
-                    thought: turn.who == session_log::Who::Thinking,
-                    error: turn.error,
-                    failure: turn.failure,
-                    notice: None,
-                    superseded_by: None,
-                    streaming: false,
-                    at: Some(
-                        turn.at
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64,
-                    ),
-                },
-            );
+            let _ = app.emit_to(chat_label(&instance), CHAT_EVENT, replayed_reply(turn));
         }
         let label = chat_label(&instance);
         for text in pending.take_notices(&instance) {
@@ -5176,6 +5177,30 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    /// Production change that would fail this: `chat_ready` dropping a kept
+    /// turn's error, so Chat shows the typed line waiting forever (#1510).
+    #[test]
+    fn a_replayed_failed_turn_reaches_chat_with_its_error() {
+        let mut log = session_log::Log::new();
+        log.remember_reply(
+            "buddy-1",
+            None,
+            None,
+            session_log::Failed {
+                error: Some("usage".into()),
+                failure: Some("Grok Build usage balance exhausted".into()),
+            },
+            UNIX_EPOCH,
+        );
+        let reply = super::replayed_reply(log.replay("buddy-1").remove(0));
+        assert_eq!(reply.said, None);
+        assert!(!reply.you);
+        assert_eq!(reply.error.as_deref(), Some("usage"));
+        assert_eq!(
+            reply.failure.as_deref(),
+            Some("Grok Build usage balance exhausted")
+        );
+    }
     fn row(id: &str, character: &str) -> InstanceRow {
         InstanceRow {
             id: id.into(),

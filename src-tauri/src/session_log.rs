@@ -21,6 +21,14 @@ pub enum Who {
     Thinking,
 }
 
+/// Why a turn failed, as `ChatReply` carries it: `error` for the note,
+/// `failure` for the Harness's own words.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Failed {
+    pub error: Option<String>,
+    pub failure: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Turn {
     pub who: Who,
@@ -165,15 +173,28 @@ impl Log {
             });
     }
 
-    /// A turn that ended in an error instead of a line. Its thinking goes
-    /// in above it, as a line's does.
-    pub fn remember_failed(
+    /// One turn's answer, filed once. A turn with no line that failed is
+    /// kept as its error, so a Chat opened later does not wait on it forever.
+    pub fn remember_reply(
         &mut self,
         instance: &str,
-        error: Option<String>,
-        failure: Option<String>,
+        said: Option<String>,
+        reacting_to: Option<String>,
+        failed: Failed,
         at: SystemTime,
     ) {
+        match said {
+            None if failed.error.is_some() || failed.failure.is_some() => {
+                self.remember_failed(instance, failed, at)
+            }
+            said => self.remember_them(instance, said, reacting_to, at),
+        }
+    }
+
+    /// A turn that ended in an error instead of a line. Its thinking goes
+    /// in above it, as a line's does.
+    fn remember_failed(&mut self, instance: &str, failed: Failed, at: SystemTime) {
+        let Failed { error, failure } = failed;
         self.remember_thinking(instance);
         self.turns
             .entry(instance.to_string())
@@ -290,26 +311,18 @@ fn join_thought(prior: &str, addition: &str) -> String {
     }
 }
 
-pub fn remember_them(
+/// The answer to a Chat turn: its line, or the error that came instead.
+pub fn remember_reply(
     app: &tauri::AppHandle,
     instance: &str,
     said: Option<String>,
     reacting_to: Option<String>,
+    failed: Failed,
     at: SystemTime,
 ) {
     with_log(app, |log| {
-        log.remember_them(instance, said, reacting_to, at)
+        log.remember_reply(instance, said, reacting_to, failed, at)
     });
-}
-
-pub fn remember_failed(
-    app: &tauri::AppHandle,
-    instance: &str,
-    error: Option<String>,
-    failure: Option<String>,
-    at: SystemTime,
-) {
-    with_log(app, |log| log.remember_failed(instance, error, failure, at));
 }
 
 pub fn restore(app: &tauri::AppHandle, instance: &str, history: Vec<Replayed>) {
@@ -376,19 +389,45 @@ mod tests {
         assert_eq!(turns[0].reacting_to.as_deref(), Some("when poked"));
     }
 
+    /// Production change that would fail this: filing a reply's error over
+    /// the line it did say.
+    #[test]
+    fn a_reply_with_a_line_keeps_the_line_not_the_error() {
+        let mut log = Log::new();
+        log.remember_reply(
+            "buddy-1",
+            Some("partial".into()),
+            None,
+            Failed {
+                error: Some("usage".into()),
+                failure: None,
+            },
+            UNIX_EPOCH,
+        );
+
+        let turns = log.replay("buddy-1");
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].said.as_deref(), Some("partial"));
+        assert_eq!(turns[0].error, None);
+    }
+
     /// Production change that would fail this: a failed turn leaving no row,
     /// so a Chat opened afterwards shows the typed line waiting forever (#1510).
     #[test]
     fn a_failed_turn_is_still_there_when_chat_opens_later() {
         let mut log = Log::new();
         log.remember_you("buddy-1", "hi", UNIX_EPOCH);
-        log.remember_failed(
+        log.remember_reply(
             "buddy-1",
-            Some("usage".into()),
-            Some(
-                "API error (status 402 Payment Required): Grok Build usage balance exhausted"
-                    .into(),
-            ),
+            None,
+            None,
+            Failed {
+                error: Some("usage".into()),
+                failure: Some(
+                    "API error (status 402 Payment Required): Grok Build usage balance exhausted"
+                        .into(),
+                ),
+            },
             UNIX_EPOCH,
         );
 
