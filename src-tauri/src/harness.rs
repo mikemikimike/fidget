@@ -3210,7 +3210,7 @@ fn note_event(
             forward(Forwarded::Settled { request, option })
         }
         // Forwarded and not logged. The Action Log points at the Harness's own
-        // session dump rather than copying it (CONTEXT.md), and a reply is not
+        // session dump rather than copying it (GLOSSARY.md), and a reply is not
         // copied there either (ADR-0034).
         Event::InboundWake { session, speech } => {
             if let Some(instance) = instance_of(&session) {
@@ -5458,7 +5458,7 @@ mod tests {
 
     /// A thought is forwarded to the Chat surface of the Instance whose session
     /// thought it, and written nowhere. The Action Log points at the Harness's
-    /// own session dump rather than copying it (CONTEXT.md). Replies are not in
+    /// own session dump rather than copying it (GLOSSARY.md). Replies are not in
     /// it either (ADR-0034).
     #[test]
     fn a_thought_reaches_its_instances_surface_and_not_the_action_log() {
@@ -5653,7 +5653,7 @@ mod tests {
 
     /// The steps go to the reader on the Chat surface, and the Action Log
     /// keeps the count. The log points at the Harness's own session dump
-    /// rather than copying it (CONTEXT.md). The step text is that copy.
+    /// rather than copying it (GLOSSARY.md). The step text is that copy.
     #[test]
     fn a_plan_reaches_the_surface_and_the_action_log_keeps_the_count() {
         let dir = std::env::temp_dir().join(format!("fidget-plan-{}", uuid::Uuid::new_v4()));

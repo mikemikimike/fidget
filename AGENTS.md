@@ -36,12 +36,12 @@ collide with this repository's rules, and this repository's rules win.
 
 ### Domain docs
 
-Single-context. Vocabulary is `CONTEXT.md`. v1 scope and requirements are
+Single-context. Vocabulary is `GLOSSARY.md`. v1 scope and requirements are
 `docs/SPEC.md`. Decisions live in `docs/adr/` at the repo root. See
 `docs/agents/domain.md`.
 
 Before editing `docs/research/`, an ADR, `docs/SPEC.md`, `DESIGN.md` or
-`CONTEXT.md`, check where that writing belongs. Research is anchored to the
+`GLOSSARY.md`, check where that writing belongs. Research is anchored to the
 tree it read and does not follow `main`. See `docs/agents/docs.md`.
 
 ## Taking over the GUI

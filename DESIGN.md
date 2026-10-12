@@ -6,7 +6,7 @@ on your windows, and has a personality. When you summon it, it reaches an agent
 Harness you supply and does real work on your machine.
 
 This document records what was decided, why, and what was rejected. Vocabulary
-is defined in [CONTEXT.md](./CONTEXT.md) and used precisely here.
+is defined in [GLOSSARY.md](./GLOSSARY.md) and used precisely here.
 
 ## State
 

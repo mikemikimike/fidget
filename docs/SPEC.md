@@ -1,6 +1,6 @@
 # Fidget v1 — specification
 
-Vocabulary is defined in [CONTEXT.md](../CONTEXT.md) and used precisely throughout.
+Vocabulary is defined in [GLOSSARY.md](../GLOSSARY.md) and used precisely throughout.
 Decisions and their rejected alternatives are recorded in [DESIGN.md](../DESIGN.md)
 and in [docs/adr/](./adr/). This document does not re-argue them.
 

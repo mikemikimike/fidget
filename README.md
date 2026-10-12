@@ -286,7 +286,7 @@ Linux support is full on normal desktops (X11 or XWayland under GNOME/KDE). Rare
 
 **Design and decisions:**
 
-- [CONTEXT.md](./CONTEXT.md) - vocabulary
+- [GLOSSARY.md](./GLOSSARY.md) - vocabulary
 - [DESIGN.md](./DESIGN.md) - design decisions (the chat window ships; the [chat mockups](https://omesser.github.io/fidget/chat-mockups.html) are a Dated page, a frozen proposal, not what ships)
 - [docs/SPEC.md](./docs/SPEC.md) - v1 scope
 - [docs/adr/](./docs/adr/) - ADRs
