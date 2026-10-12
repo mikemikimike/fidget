@@ -339,7 +339,13 @@ def self_check():
         assert "One character ships with Fidget" in page, "the cast count is not the package count"
         assert "<figcaption>Solo</figcaption>" in page
         page = render(readme, scratch, rust, shell, release)
-        assert "<b>Download for macOS</b><span>v9</span><span>Apple Silicon · .dmg</span>" in page, \
+        assert '<p class="download-label" id="download-label">Download for</p>' in page, \
+            "the Download for label lacks an id"
+        assert '<div class="get" id="get" role="group" aria-labelledby="download-label">' in page, \
+            "#get is not an aria group labeled by download-label"
+        assert page.index('id="download-label"') < page.index('id="get"'), \
+            "the Download for label is not before #get"
+        assert "<b>macOS</b><span>v9</span><span>Apple Silicon · .dmg</span>" in page, \
             "the release tag is not above the format"
         assert "<b>Windows</b><span>x86_64 · installer</span>" in page, "a button without its asset named a version"
 

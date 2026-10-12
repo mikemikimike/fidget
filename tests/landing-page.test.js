@@ -39,11 +39,11 @@ function releaseFile(name, assets) {
 }
 
 const buttons = (page) =>
-  [...page.match(/<div class="get" id="get">([\s\S]*?)<\/div>/)[1].matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  [...page.match(/<div class="get" id="get"[^>]*>([\s\S]*?)<\/div>/)[1].matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
 // The lines under each button's OS name: the release tag when the button links
 // that release's asset, then its format.
 const lines = (page) =>
-  [...page.match(/<div class="get" id="get">([\s\S]*?)<\/div>/)[1].matchAll(/<a [^>]*>([\s\S]*?)<\/a>/g)]
+  [...page.match(/<div class="get" id="get"[^>]*>([\s\S]*?)<\/div>/)[1].matchAll(/<a [^>]*>([\s\S]*?)<\/a>/g)]
     .map((m) => [...m[1].matchAll(/<span[^>]*>([^<]*)<\/span>/g)].map((s) => s[1]));
 
 let scratch;
