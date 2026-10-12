@@ -488,7 +488,7 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
-    use fidget_core::character::{self, Character};
+    use fidget_core::character::{self, Character, Primitive};
     use fidget_core::director::{Context, StaticDirector};
     use fidget_core::engine::{BehaviorProposal, Engine, Point, Rect, WorldSnapshot};
     use fidget_core::overlay::{AlphaMask, SpriteRect};
@@ -615,6 +615,43 @@ mod tests {
         assert!(
             launched.velocity.y < 0.0,
             "off the floor upward: {launched:?}"
+        );
+    }
+
+    /// BMO declares no Behavior that plays sleep, sit, or react. Soft Open:
+    /// those asks must still resolve to playable weight-0 Behaviors.
+    #[test]
+    fn bmo_can_be_asked_to_sleep_sit_and_react() {
+        let character = shipped_character("bmo");
+        for (name, primitive) in [
+            ("sleep", Primitive::Sleep),
+            ("sit", Primitive::Sit),
+            ("react", Primitive::React),
+        ] {
+            let behavior = character
+                .behaviors
+                .get(name)
+                .unwrap_or_else(|| panic!("BMO must expose {name} so asking is not a near miss"));
+            assert_eq!(behavior.primitives, vec![primitive]);
+            assert_eq!(behavior.weight, 0, "{name} stays ambient-off until earned");
+        }
+    }
+
+    /// Buddy Bot's `nap` already plays sleep, so sleep must not be injected.
+    /// Chase is never played; asking for chase must still work.
+    #[test]
+    fn buddy_bot_can_be_asked_to_chase_and_does_not_get_a_second_sleep() {
+        let character = shipped_character("buddy-bot");
+        let chase = character
+            .behaviors
+            .get("chase")
+            .expect("Buddy Bot must expose chase so asking is not a near miss");
+        assert_eq!(chase.primitives, vec![Primitive::Chase]);
+        assert_eq!(chase.weight, 0, "chase stays ambient-off until earned");
+        assert!(
+            !character.behaviors.contains_key("sleep"),
+            "nap already plays sleep; no injected sleep Behavior: {:?}",
+            character.behaviors.keys().collect::<Vec<_>>()
         );
     }
 
@@ -1339,17 +1376,35 @@ mod tests {
         }
     }
 
-    /// Nothing a Character declares decides when it sits. BMO never settles;
-    /// Nim does except on bare `walk`/`jump`, which are lone motion and leave
-    /// it on its feet.
+    /// Behavior names the package's manifest declares (not engine-injected).
+    fn manifest_behavior_names(name: &str) -> BTreeSet<String> {
+        let files = read(&shipped(name)).unwrap_or_else(|why| panic!("{why}"));
+        let text = std::str::from_utf8(
+            files
+                .get(CHARACTER_MANIFEST_FILE)
+                .unwrap_or_else(|| panic!("{name} ships a manifest")),
+        )
+        .unwrap_or_else(|why| panic!("{name} manifest is UTF-8: {why}"));
+        text.lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                let rest = line.strip_prefix("[behaviors.")?;
+                let key = rest.strip_suffix(']')?;
+                Some(key.trim_matches('"').to_string())
+            })
+            .collect()
+    }
+
+    /// BMO never settles; Nim does except on bare walk/jump. Skip only Behaviors
+    /// the manifest does not declare so declared walk/jump stay checked.
     #[test]
     fn switching_between_the_two_changes_the_idle_life_and_not_only_the_art() {
         let bmo = shipped_character("bmo");
-        let default_primitives = ["jump", "sit", "sleep", "react", "chase", "walk"];
+        let bmo_declared = manifest_behavior_names("bmo");
         for behavior in bmo
             .behaviors
             .keys()
-            .filter(|name| !default_primitives.contains(&name.as_str()))
+            .filter(|name| bmo_declared.contains(*name))
         {
             let seen = played(&bmo, behavior);
             assert!(
@@ -1359,10 +1414,13 @@ mod tests {
         }
 
         let nim = shipped_character("nim");
+        let nim_declared = manifest_behavior_names("nim");
         let bare_motion = ["walk", "jump"];
-        for behavior in nim.behaviors.keys().filter(|name| {
-            !bare_motion.contains(&name.as_str()) && !default_primitives.contains(&name.as_str())
-        }) {
+        for behavior in nim
+            .behaviors
+            .keys()
+            .filter(|name| nim_declared.contains(*name) && !bare_motion.contains(&name.as_str()))
+        {
             let seen = played(&nim, behavior);
             assert!(
                 seen.contains("sit") || seen.contains("sleep"),
