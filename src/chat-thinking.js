@@ -43,7 +43,6 @@ export function createThinking(draw) {
       if (live) {
         live.text = text;
       } else if (reopenable && text.startsWith(reopenable.text)) {
-        // Same-turn peel: wire sends the whole thought so far.
         live = reopenable;
         live.text = text;
         live.state = "streaming";
