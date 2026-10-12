@@ -118,8 +118,6 @@ test("a Harness error is the Shell's line as sent, under no second prefix", () =
   assert.deepEqual(log, ["harness not authenticated: run `claude /login`"]);
 });
 
-// #1496 ships notices on payload.notice. An error with no caret stays orphan
-// like main; turning it into action "error" was scope creep on that path.
 test("an error with no waiting turn is orphan, not a note", () => {
   const turns = createChatTurns();
   const outcome = turns.settle({
