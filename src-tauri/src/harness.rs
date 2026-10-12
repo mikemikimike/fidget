@@ -292,6 +292,87 @@ fn codex_fidget_config(
     Some(config.to_string())
 }
 
+/// `<data_dir>/.codex/config.toml` — Codex project layer when attach cwd is the data dir.
+fn codex_project_config_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(".codex").join("config.toml")
+}
+
+fn codex_project_config_lock() -> &'static Mutex<()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    &LOCK
+}
+
+/// Write or clear Fidget-owned top-level keys; leave every other key alone.
+/// An unparsable file is left untouched so a typo cannot wipe user keys.
+fn sync_codex_project_config(
+    data_dir: &Path,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> std::io::Result<()> {
+    let _guard = codex_project_config_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let path = codex_project_config_path(data_dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let text = if path.is_file() {
+        std::fs::read_to_string(&path)?
+    } else {
+        String::new()
+    };
+    let mut doc = text.parse::<toml_edit::DocumentMut>().map_err(|why| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{}: {why}", path.display()),
+        )
+    })?;
+    match model.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => doc["model"] = toml_edit::value(value),
+        None => {
+            doc.as_table_mut().remove("model");
+        }
+    }
+    match effort.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => doc["model_reasoning_effort"] = toml_edit::value(value),
+        None => {
+            doc.as_table_mut().remove("model_reasoning_effort");
+        }
+    }
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, doc.to_string())?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
+/// Persist Codex project-layer keys; log and keep going when the file is bad.
+fn apply_codex_project_config(data_dir: &Path, model: Option<&str>, effort: Option<&str>) {
+    if let Err(why) = sync_codex_project_config(data_dir, model, effort) {
+        eprintln!("harness: codex project config: {why}");
+    }
+}
+
+/// Launch `-c` so Codex trusts the data dir and loads its project layer.
+/// Inline table only: dotted `projects."<path>"` splits on dots in the path.
+/// Prefer TOML literal strings so Windows `.cmd` spawn does not double `"`.
+fn codex_trust_override(data_dir: &Path) -> String {
+    let path = data_dir.to_string_lossy();
+    if path.contains('\'') {
+        let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("projects={{\"{escaped}\"={{trust_level=\"trusted\"}}}}")
+    } else {
+        format!("projects={{'{path}'={{trust_level='trusted'}}}}")
+    }
+}
+
+/// Trust so the data-dir project layer loads; never write `~/.codex`.
+/// Only real `codex-acp` argv takes `-c`; fixture launchers do not.
+fn apply_codex_launch_trust(command: &mut Command, argv: &[String], data_dir: &Path) {
+    if argv.iter().any(|arg| arg.contains("codex-acp")) {
+        command.arg("-c").arg(codex_trust_override(data_dir));
+    }
+}
+
 fn opencode_fidget_permissions(existing: Option<&str>) -> Option<String> {
     let mut config: Value =
         existing.map_or_else(|| Some(json!({})), |text| serde_json::from_str(text).ok())?;
@@ -925,6 +1006,11 @@ pub enum Forwarded {
     /// A model or effort did not take. Settings restores `restored` before the wake
     /// that found the failure returns.
     NotApplied(Vec<ConfigFailure>),
+    /// A sticky Chat note for that Instance. Drawn once; turns do not clear it.
+    Notice {
+        instance: String,
+        text: String,
+    },
     /// A live tool call for that Instance's Chat. The phase line reads the
     /// title and status. The row also draws content, locations, and raw fields.
     Tool {
@@ -2040,6 +2126,13 @@ impl Session {
             state.last_applied = Some(applied.clone());
         }
         self.settle_notices(&applied, failed);
+        if self.launch.name == "codex" {
+            apply_codex_project_config(
+                self.data.as_path(),
+                Some(inputs.model.as_str()).filter(|model| !model.trim().is_empty()),
+                inputs.effort.as_deref(),
+            );
+        }
         Ok(id)
     }
 
@@ -2135,8 +2228,18 @@ impl Session {
         let asked = Arc::clone(&self.asked);
         let owners = Arc::clone(&self.owners);
         let serving = Arc::clone(&self.serving_instance);
+        let mut command = self.launch.command(cwd, mcp_stdio().is_some());
+        if self.launch.name == "codex" {
+            let inputs = self.open_inputs();
+            apply_codex_project_config(
+                self.data.as_path(),
+                Some(inputs.model.as_str()).filter(|model| !model.trim().is_empty()),
+                inputs.effort.as_deref(),
+            );
+            apply_codex_launch_trust(&mut command, &self.launch.argv, self.data.as_path());
+        }
         let spawned = Wire::spawn(
-            self.launch.command(cwd, mcp_stdio().is_some()),
+            command,
             self.attach_timeout(),
             Box::new(move |event| note_event(&data, &forward, &asked, &owners, &serving, event)),
         );
@@ -2265,6 +2368,20 @@ impl Session {
             }
         };
         let id = opened.id;
+        if self.launch.name == "codex" {
+            if let Some(model) = opened.foreign_model.as_deref() {
+                let notice = format!(
+                    "Codex is on `{model}`, which is not in its available models. \
+                     Fidget left Model blank, so this comes from `model` in ~/.codex/config.toml \
+                     (or a selected profile). Set Model in Fidget, or clear that pin."
+                );
+                eprintln!("harness: {notice}");
+                (self.forward)(Forwarded::Notice {
+                    instance: key.instance.clone(),
+                    text: notice,
+                });
+            }
+        }
         let mut failures = Vec::new();
         let (replaced, first_open) = {
             let mut state = self.state.lock().map_err(|_| LOST.to_string())?;
@@ -3950,6 +4067,17 @@ mod tests {
                 effort_option("thought_level", "thought"),
                 model_option(),
             ])),
+            "completer-foreign-model" => Some(json!([{
+                "id": "llm",
+                "name": "Model",
+                "category": "model",
+                "type": "select",
+                "currentValue": "gpt-6-sol",
+                "options": [
+                    {"value": "default-model", "name": "Default"},
+                    {"value": "some-model", "name": "Some"}
+                ]
+            }])),
             "completer-thought" => Some(json!([effort_option("thought_level", "thought")])),
             "completer-both" | "completer-both-plain" => Some(json!([
                 model_option(),
@@ -4719,6 +4847,7 @@ mod tests {
                         | Forwarded::Heard { .. }
                         | Forwarded::InboundWake(_)
                         | Forwarded::Restored(_)
+                        | Forwarded::Notice { .. }
                         | Forwarded::AttachSettled,
                     ) => {}
                     other => panic!("expected an ask, got {:?}", other.map(|_| "settled")),
@@ -4730,7 +4859,11 @@ mod tests {
             loop {
                 match self.forwarded.recv_timeout(Duration::from_secs(5)) {
                     Ok(Forwarded::Form { form, .. }) => return form,
-                    Ok(Forwarded::Restored(_) | Forwarded::AttachSettled) => {}
+                    Ok(
+                        Forwarded::Restored(_)
+                        | Forwarded::Notice { .. }
+                        | Forwarded::AttachSettled,
+                    ) => {}
                     other => panic!("expected a form, got {:?}", other.map(|_| "other")),
                 }
             }
@@ -4753,7 +4886,11 @@ mod tests {
             loop {
                 match self.forwarded.recv_timeout(Duration::from_secs(5)) {
                     Ok(Forwarded::Settled { request, option }) => return (request, option),
-                    Ok(Forwarded::Restored(_) | Forwarded::AttachSettled) => {}
+                    Ok(
+                        Forwarded::Restored(_)
+                        | Forwarded::Notice { .. }
+                        | Forwarded::AttachSettled,
+                    ) => {}
                     other => panic!("expected a settlement, got {:?}", other.map(|_| "ask")),
                 }
             }
@@ -4769,6 +4906,7 @@ mod tests {
                         | Forwarded::Thought { .. }
                         | Forwarded::Tool { .. }
                         | Forwarded::Heard { .. }
+                        | Forwarded::Notice { .. }
                         | Forwarded::Restored(_),
                     ) => {}
                     other => panic!("expected AttachSettled, got {other:?}"),
@@ -4951,6 +5089,281 @@ mod tests {
         );
         assert_eq!(fx.count("mcp=http"), expected_acp_server);
         session.shutdown();
+    }
+
+    #[test]
+    fn sync_codex_project_config_sets_clears_and_keeps_other_keys() {
+        let root = std::env::temp_dir().join(format!("fidget-codex-proj-{}", uuid::Uuid::new_v4()));
+        let path = codex_project_config_path(&root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "model = \"old\"\nkeep_me = true\n[table]\nx = 1\n").unwrap();
+
+        sync_codex_project_config(&root, Some("gpt-5"), Some("high")).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("model = \"gpt-5\""), "{written}");
+        assert!(
+            written.contains("model_reasoning_effort = \"high\""),
+            "{written}"
+        );
+        assert!(written.contains("keep_me = true"), "{written}");
+        assert!(written.contains("[table]"), "{written}");
+
+        sync_codex_project_config(&root, None, None).unwrap();
+        let cleared = std::fs::read_to_string(&path).unwrap();
+        assert!(!cleared.contains("model "), "{cleared}");
+        assert!(!cleared.contains("model_reasoning_effort"), "{cleared}");
+        assert!(cleared.contains("keep_me = true"), "{cleared}");
+        assert!(cleared.contains("[table]"), "{cleared}");
+
+        // Nested profile model keys are not top-level Fidget keys.
+        std::fs::write(&path, "[profiles.p]\nmodel = \"from-profile\"\n").unwrap();
+        sync_codex_project_config(&root, Some("typed"), None).unwrap();
+        let profiled = std::fs::read_to_string(&path).unwrap();
+        assert!(profiled.contains("model = \"typed\""), "{profiled}");
+        assert!(
+            profiled.contains("model = \"from-profile\""),
+            "profile pin must stay: {profiled}"
+        );
+
+        // Re-sync after an edit must not clobber unrelated keys.
+        sync_codex_project_config(&root, Some("typed"), Some("medium")).unwrap();
+        let again = std::fs::read_to_string(&path).unwrap();
+        assert!(again.contains("model = \"from-profile\""), "{again}");
+        assert!(
+            again.contains("model_reasoning_effort = \"medium\""),
+            "{again}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sync_codex_project_config_leaves_an_unparsable_file_alone() {
+        let root = std::env::temp_dir().join(format!("fidget-codex-bad-{}", uuid::Uuid::new_v4()));
+        let path = codex_project_config_path(&root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let before = "keep_me = true\n[[[broken\n[mcp_servers.x]\ncommand = \"x\"\n";
+        std::fs::write(&path, before).unwrap();
+
+        let err = sync_codex_project_config(&root, Some("typed"), None).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn codex_project_config_matches_after_a_restart() {
+        crate::model::tests::with_env(None, None, None, || {
+            crate::dev_flags::seed(&crate::settings::Settings::default());
+            let (fx, mut session) = Fixture::new("hello");
+            session.launch.name = "codex".into();
+            write_completer_model(&fx.dir, "typed");
+            write_effort(&fx.dir, "high");
+            assert_eq!(
+                session.complete(&asking("hi"), &|_| {}),
+                Ok(Reply::whole("Hello"))
+            );
+            let path = codex_project_config_path(&fx.dir);
+            let first = std::fs::read_to_string(&path).unwrap();
+            assert!(first.contains("model = \"typed\""), "{first}");
+            assert!(
+                first.contains("model_reasoning_effort = \"high\""),
+                "{first}"
+            );
+            session.shutdown();
+
+            let launch = Launch {
+                name: "codex".into(),
+                argv: vec![
+                    fake_agent_wrapper().to_string_lossy().to_string(),
+                    "script=hello".into(),
+                    format!("count={}", fx.count.display()),
+                ],
+            };
+            let (tx, _forwarded) = mpsc::channel();
+            let session2 = Session::new(
+                launch,
+                Ok(AttachCwd(fx.cwd.clone())),
+                SessionDataDir::at(fx.dir.clone()),
+                Arc::new(Box::new(move |fwd| {
+                    let _ = tx.send(fwd);
+                }) as Forward),
+            )
+            .with_timeout(Duration::from_secs(10));
+            assert_eq!(
+                session2.complete(&asking("again"), &|_| {}),
+                Ok(Reply::whole("Hello"))
+            );
+            let second = std::fs::read_to_string(&path).unwrap();
+            assert_eq!(first, second);
+            session2.shutdown();
+        });
+    }
+
+    #[test]
+    fn a_codex_acp_launch_carries_the_exact_trust_argument() {
+        let data = PathBuf::from("/tmp/ct/data.dir");
+        let launch = launch(Some("codex")).unwrap();
+        let mut command = launch.command(&tmp_attach(), false);
+        apply_codex_launch_trust(&mut command, &launch.argv, &data);
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let expected = codex_trust_override(&data);
+        assert_eq!(
+            args.windows(2).find(|pair| pair[0] == "-c"),
+            Some([String::from("-c"), expected].as_slice())
+        );
+    }
+
+    #[test]
+    fn a_fixture_codex_launcher_omits_the_trust_argument() {
+        let data = PathBuf::from("/tmp/ct/data.dir");
+        let launch = Launch {
+            name: "codex".into(),
+            argv: vec![
+                fake_agent_wrapper().to_string_lossy().to_string(),
+                "script=hello".into(),
+            ],
+        };
+        let mut command = launch.command(&tmp_attach(), false);
+        apply_codex_launch_trust(&mut command, &launch.argv, &data);
+        let args: Vec<_> = command.get_args().collect();
+        assert!(!args.iter().any(|arg| *arg == "-c"), "{args:?}");
+    }
+
+    /// Writes a launcher that records argv the way `npx.cmd` hands it to node.
+    fn write_codex_argv_echo_stub(dir: &Path, stub_name: &str) -> PathBuf {
+        let stub = dir.join(stub_name);
+        if cfg!(windows) {
+            std::fs::write(
+                dir.join("argv.js"),
+                "const fs = require('fs');\nfs.writeFileSync(process.env.FIDGET_ARGV_OUT, process.argv.slice(2).join('\\n') + '\\n');\n",
+            )
+            .unwrap();
+            std::fs::write(&stub, "@echo off\r\nnode \"%~dp0argv.js\" %*\r\n").unwrap();
+        } else {
+            std::fs::write(
+                &stub,
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FIDGET_ARGV_OUT\"\n",
+            )
+            .unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        stub
+    }
+
+    /// Spawns the Codex Command path through a stub that records argv, so `{` `'`
+    /// `=` in the trust `-c` value survive the process boundary.
+    #[test]
+    fn codex_trust_argument_survives_spawned_argv() {
+        let root =
+            std::env::temp_dir().join(format!("fidget-trust-spawn-{}", uuid::Uuid::new_v4()));
+        let data = root.join("data.dir");
+        std::fs::create_dir_all(&data).unwrap();
+        sync_codex_project_config(&data, None, None).unwrap();
+        let out = root.join("argv.txt");
+        let stub = write_codex_argv_echo_stub(
+            &root,
+            if cfg!(windows) {
+                "echo-argv.cmd"
+            } else {
+                "echo-argv"
+            },
+        );
+        let launch = Launch {
+            name: "codex".into(),
+            argv: vec![
+                stub.to_string_lossy().to_string(),
+                "-y".into(),
+                "@agentclientprotocol/codex-acp@latest".into(),
+            ],
+        };
+        let mut command = launch.command(&AttachCwd(root.clone()), false);
+        apply_codex_launch_trust(&mut command, &launch.argv, &data);
+        command.env("FIDGET_ARGV_OUT", &out);
+        without_console_window(&mut command);
+        let status = command.status().expect("spawn echo stub");
+        assert!(status.success(), "{status}");
+        let dumped = std::fs::read_to_string(&out).unwrap();
+        let expected = codex_trust_override(&data);
+        assert!(
+            dumped.lines().any(|line| line == expected),
+            "expected exact trust arg among:\n{dumped}"
+        );
+        assert!(
+            expected.contains('{') && expected.contains('\'') && expected.contains('='),
+            "{expected}"
+        );
+        let config = std::fs::read_to_string(codex_project_config_path(&data)).unwrap();
+        assert!(
+            !config.lines().any(|line| line.starts_with("model ")),
+            "blank Model must leave no project model key:\n{config}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Same Command path as Codex attach, through `npx.cmd` the way npm installs it.
+    #[cfg(windows)]
+    #[test]
+    fn codex_trust_survives_npx_cmd_spawn() {
+        let root = std::env::temp_dir().join(format!("fidget-npx-trust-{}", uuid::Uuid::new_v4()));
+        let data = root.join("data.dir");
+        std::fs::create_dir_all(&data).unwrap();
+        sync_codex_project_config(&data, None, None).unwrap();
+        let out = root.join("echoed.txt");
+        let stub = write_codex_argv_echo_stub(&root, "npx.cmd");
+        let launch = Launch {
+            name: "codex".into(),
+            argv: vec![
+                stub.to_string_lossy().to_string(),
+                "-y".into(),
+                "@agentclientprotocol/codex-acp@latest".into(),
+            ],
+        };
+        let mut command = launch.command(&AttachCwd(root.clone()), false);
+        apply_codex_launch_trust(&mut command, &launch.argv, &data);
+        command.env("FIDGET_ARGV_OUT", &out);
+        without_console_window(&mut command);
+        let status = command.status().expect("spawn npx.cmd stub");
+        assert!(status.success(), "{status}");
+        let dumped = std::fs::read_to_string(&out).unwrap();
+        let expected = codex_trust_override(&data);
+        assert!(
+            dumped.lines().any(|line| line == expected),
+            "expected exact trust arg among:\n{dumped}"
+        );
+        let config = std::fs::read_to_string(codex_project_config_path(&data)).unwrap();
+        assert!(
+            !config.lines().any(|line| line.starts_with("model ")),
+            "blank Model must leave no project model key:\n{config}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn codex_trust_override_uses_an_inline_table_and_survives_dots() {
+        let dir = PathBuf::from("/tmp/ct/data.dir");
+        assert_eq!(
+            codex_trust_override(&dir),
+            "projects={'/tmp/ct/data.dir'={trust_level='trusted'}}"
+        );
+        let win = PathBuf::from(r"C:\Users\demo\.local\share\fidget");
+        assert_eq!(
+            codex_trust_override(&win),
+            r"projects={'C:\Users\demo\.local\share\fidget'={trust_level='trusted'}}"
+        );
+        let odd = PathBuf::from("/tmp/o'brian/data.dir");
+        assert_eq!(
+            codex_trust_override(&odd),
+            r#"projects={"/tmp/o'brian/data.dir"={trust_level="trusted"}}"#
+        );
     }
 
     /// Detach takes the token back out of `.cursor/mcp.json` and leaves the
@@ -6707,6 +7120,62 @@ mod tests {
         assert_eq!(fx.count("prompt"), 1);
         assert!(config_lines(&fx).is_empty(), "{:?}", config_lines(&fx));
         session.shutdown();
+    }
+
+    /// Blank Codex Model with a foreign current id forwards a sticky Chat notice.
+    #[test]
+    fn a_foreign_codex_model_forwards_a_chat_notice_that_survives_the_first_turn() {
+        crate::model::tests::with_env(None, None, None, || {
+            crate::dev_flags::seed(&crate::settings::Settings::default());
+            let (fx, mut session) = Fixture::new("completer-foreign-model");
+            session.launch.name = "codex".into();
+            write_completer_model(&fx.dir, "");
+            assert_eq!(
+                session.complete(&asking("hi"), &|_| {}),
+                Ok(Reply::whole("Hello"))
+            );
+            let notice =
+                std::iter::from_fn(|| fx.forwarded.try_recv().ok()).find_map(|fwd| match fwd {
+                    Forwarded::Notice { instance, text } => Some((instance, text)),
+                    _ => None,
+                });
+            let (instance, text) = notice.expect("Codex foreign model must forward Notice");
+            assert_eq!(instance, "buddy-1");
+            assert!(text.contains("`gpt-6-sol`"), "{text}");
+            assert!(text.contains("~/.codex/config.toml"), "{text}");
+            // Turns overwrite last_error; the notice must not live there.
+            assert_eq!(session.inspect().last_error, None);
+            assert_eq!(
+                session.complete(&asking("again"), &|_| {}),
+                Ok(Reply::whole("Hello"))
+            );
+            assert!(
+                std::iter::from_fn(|| fx.forwarded.try_recv().ok())
+                    .all(|fwd| !matches!(fwd, Forwarded::Notice { .. })),
+                "notice is once per open, not every turn"
+            );
+            session.shutdown();
+        });
+    }
+
+    #[test]
+    fn a_foreign_model_on_another_harness_is_not_worded_as_codex() {
+        crate::model::tests::with_env(None, None, None, || {
+            crate::dev_flags::seed(&crate::settings::Settings::default());
+            let (fx, mut session) = Fixture::new("completer-foreign-model");
+            session.launch.name = "claude".into();
+            write_completer_model(&fx.dir, "");
+            assert_eq!(
+                session.complete(&asking("hi"), &|_| {}),
+                Ok(Reply::whole("Hello"))
+            );
+            assert!(
+                std::iter::from_fn(|| fx.forwarded.try_recv().ok())
+                    .all(|fwd| !matches!(fwd, Forwarded::Notice { .. })),
+                "non-Codex must not get the Codex ~/.codex notice"
+            );
+            session.shutdown();
+        });
     }
 
     #[test]

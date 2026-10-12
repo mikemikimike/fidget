@@ -1117,6 +1117,11 @@ async function start() {
         said(label, outcome.said, "them", payload.at);
         return;
       }
+      // Attach notices are not turn settlements; the row stays across turns.
+      if (outcome.action === "notice") {
+        note(outcome.note);
+        return;
+      }
       const turn = outcome.turn;
       if (!turn.them) {
         turn.them = said(`${them} · ${payload.reacting_to || "unprompted"}`, "", "them", payload.at);
