@@ -1722,6 +1722,15 @@ pub(crate) fn run_frame_loop(
                         reacting_to.clone(),
                         SystemTime::now(),
                     );
+                    if remembered.is_none() && (error.is_some() || failure.is_some()) {
+                        session_log::remember_failed(
+                            &app,
+                            &live.id,
+                            error.clone(),
+                            failure.clone(),
+                            SystemTime::now(),
+                        );
+                    }
                     let _ = app.emit_to(
                         chat_label(&live.id),
                         CHAT_EVENT,

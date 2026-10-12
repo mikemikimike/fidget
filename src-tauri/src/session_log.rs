@@ -28,6 +28,10 @@ pub struct Turn {
     pub reacting_to: Option<String>,
     /// When the line was said, not when Chat later opened. Replay stamps from this.
     pub at: SystemTime,
+    /// A turn that failed: why, as `ChatReply` carries it. Kept so a Chat
+    /// opened after the failure still shows it (#1510).
+    pub error: Option<String>,
+    pub failure: Option<String>,
 }
 
 /// The thinking of an Instance's turn on the wire, waiting here until that
@@ -64,6 +68,8 @@ impl Log {
                 said: Some(text.into()),
                 reacting_to: None,
                 at,
+                error: None,
+                failure: None,
             });
     }
 
@@ -127,6 +133,8 @@ impl Log {
                     said: Some(thinking.text),
                     reacting_to: None,
                     at: thinking.at,
+                    error: None,
+                    failure: None,
                 });
         }
     }
@@ -152,6 +160,31 @@ impl Log {
                 said: Some(said),
                 reacting_to,
                 at,
+                error: None,
+                failure: None,
+            });
+    }
+
+    /// A turn that ended in an error instead of a line. Its thinking goes
+    /// in above it, as a line's does.
+    pub fn remember_failed(
+        &mut self,
+        instance: &str,
+        error: Option<String>,
+        failure: Option<String>,
+        at: SystemTime,
+    ) {
+        self.remember_thinking(instance);
+        self.turns
+            .entry(instance.to_string())
+            .or_default()
+            .push(Turn {
+                who: Who::Them,
+                said: None,
+                reacting_to: None,
+                at,
+                error,
+                failure,
             });
     }
 
@@ -269,6 +302,16 @@ pub fn remember_them(
     });
 }
 
+pub fn remember_failed(
+    app: &tauri::AppHandle,
+    instance: &str,
+    error: Option<String>,
+    failure: Option<String>,
+    at: SystemTime,
+) {
+    with_log(app, |log| log.remember_failed(instance, error, failure, at));
+}
+
 pub fn restore(app: &tauri::AppHandle, instance: &str, history: Vec<Replayed>) {
     with_log(app, |log| log.restore(instance, history));
 }
@@ -331,6 +374,33 @@ mod tests {
         assert_eq!(turns[0].who, Who::Them);
         assert_eq!(turns[0].said.as_deref(), Some("hello from the bubble"));
         assert_eq!(turns[0].reacting_to.as_deref(), Some("when poked"));
+    }
+
+    /// Production change that would fail this: a failed turn leaving no row,
+    /// so a Chat opened afterwards shows the typed line waiting forever (#1510).
+    #[test]
+    fn a_failed_turn_is_still_there_when_chat_opens_later() {
+        let mut log = Log::new();
+        log.remember_you("buddy-1", "hi", UNIX_EPOCH);
+        log.remember_failed(
+            "buddy-1",
+            Some("usage".into()),
+            Some(
+                "API error (status 402 Payment Required): Grok Build usage balance exhausted"
+                    .into(),
+            ),
+            UNIX_EPOCH,
+        );
+
+        let turns = log.replay("buddy-1");
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[1].who, Who::Them);
+        assert_eq!(turns[1].said, None);
+        assert_eq!(turns[1].error.as_deref(), Some("usage"));
+        assert_eq!(
+            turns[1].failure.as_deref(),
+            Some("API error (status 402 Payment Required): Grok Build usage balance exhausted")
+        );
     }
 
     /// Production change that would fail this: replaying Instance A's Speech
