@@ -76,7 +76,7 @@ pub fn app_instructions(
     format!(
         "You may propose one of these behaviors: {declared}\n\
          \n\
-         Reply with the behavior name on the first line.\n\
+         Reply with behavior: <name> on the first line.\n\
          An optional spoken line may follow on the next line.\n\
          Propose nothing else.\n\
          \n\

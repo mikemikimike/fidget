@@ -209,7 +209,7 @@ Dated transcripts belong on the issue that ran the probe. Update the README's [H
 
 **xAI keys:** a 403 is xAI refusing the key; a bad body is a 400. Keys are granted per endpoint in [console.x.ai](https://console.x.ai), and `/v1/responses` and `/v1/chat/completions` are separate ACLs. A team that requires mTLS wants `https://mtls.api.x.ai`. The Completer retries chat-completions if Responses returns 403 or 404.
 
-**Streaming:** the Completer asks for `stream: true`. The Behavior name is the first line, so the fidget can start moving before the dialogue arrives. Closing a streaming connection also stops the generation, which a whole-reply request does not. A server that rejects the field, or ignores it, still works: the parser handles both shapes.
+**Streaming:** the Completer asks for `stream: true`. The contract line is `behavior: <name>` (a bare name still parses), so the fidget can start moving before the dialogue arrives. Closing a streaming connection also stops the generation, which a whole-reply request does not. A server that rejects the field, or ignores it, still works: the parser handles both shapes.
 
 ### Proactive model calls
 

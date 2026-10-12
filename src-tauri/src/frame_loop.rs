@@ -1569,9 +1569,15 @@ pub(crate) fn run_frame_loop(
                     context,
                     near_miss,
                     truncated: cut_off,
+                    peeled_thought,
                 }) = arrived
                 {
                     truncated = cut_off;
+                    // Heuristic peels that are not the Behavior contract itself
+                    // join the Thinking row; they must not replace streamed thought.
+                    if let Some(thought) = peeled_thought {
+                        model::think_more(&live.id, &thought);
+                    }
                     // Here rather than in the worker: this is where core's
                     // parse result first reaches I/O. The Harness logs wakes
                     // that never got a reply, so every line here has a prompt to join.

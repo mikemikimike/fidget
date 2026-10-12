@@ -108,3 +108,33 @@ test("a replaced session leaves nothing streaming", () => {
 
   assert.deepEqual(entries().at(-1), { id: 2, text: "Fresh session", state: "streaming", at: undefined });
 });
+
+test("peeled planning after the strip settled rejoins the same Thinking row", () => {
+  const { thinking, entries } = logged();
+
+  thinking.thought("Weighing a nap");
+  thinking.thought("");
+  thinking.thought("Weighing a nap\n\nPlanning first.");
+
+  assert.deepEqual(entries(), [
+    {
+      id: 1,
+      text: "Weighing a nap\n\nPlanning first.",
+      state: "streaming",
+      at: undefined,
+    },
+  ]);
+});
+
+test("a new turn's thought after settle without landed opens its own row", () => {
+  const { thinking, entries } = logged();
+
+  thinking.thought("Weighing a nap");
+  thinking.thought("");
+  thinking.thought("Checking the desk first");
+
+  assert.deepEqual(entries(), [
+    { id: 1, text: "Weighing a nap", state: "collapsed", at: undefined },
+    { id: 2, text: "Checking the desk first", state: "streaming", at: undefined },
+  ]);
+});
