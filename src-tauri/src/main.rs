@@ -2087,6 +2087,9 @@ fn instance_title(rows: &[InstanceRow], id: &str) -> String {
 /// WebView2's pump thread and building a second webview there deadlocks.
 #[tauri::command]
 async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
+    if dev_flags::TRACE_BUBBLE.is_on() {
+        eprintln!("bubble: open-chat invoked instance={id}");
+    }
     let title = app
         .try_state::<SettingsState>()
         .and_then(|state| {
