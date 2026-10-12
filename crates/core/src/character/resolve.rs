@@ -202,17 +202,40 @@ fn art_size(bytes: &[u8]) -> Result<(u32, u32), String> {
 }
 
 /// Primitive Behaviors every Character gets when the package leaves them out.
-/// Author-declared entries win; weight stays 0 so ambient Directors stay off
-/// until dedicated art earns a non-zero share (same #490 / BMO policy as jump art).
+/// Adds a weight-0 Behavior for each askable Primitive (jump, sit, sleep, react,
+/// chase, walk) when no Behavior declares that name and no declared Behavior
+/// already plays that Primitive. Excluded: land/hold (Engine plays on landing/drag),
+/// talk (Engine plays during speech), idle (ambient state, not user-askable).
 fn ensure_default_behaviors(declared: &mut BTreeMap<String, DeclaredBehavior>) {
-    declared
-        .entry("jump".to_string())
-        .or_insert(DeclaredBehavior {
-            primitives: vec![Primitive::Jump],
-            then: None,
-            weight: 0,
-            trigger: None,
-        });
+    let candidates = [
+        ("jump", Primitive::Jump),
+        ("sit", Primitive::Sit),
+        ("sleep", Primitive::Sleep),
+        ("react", Primitive::React),
+        ("chase", Primitive::Chase),
+        ("walk", Primitive::Walk),
+    ];
+
+    for (name, primitive) in candidates {
+        if declared.contains_key(name) {
+            continue;
+        }
+        let already_played = declared
+            .values()
+            .any(|behavior| behavior.primitives.contains(&primitive));
+        if already_played {
+            continue;
+        }
+        declared.insert(
+            name.to_string(),
+            DeclaredBehavior {
+                primitives: vec![primitive],
+                then: None,
+                weight: 0,
+                trigger: None,
+            },
+        );
+    }
 }
 
 /// Check that every Behavior can be played to an end. A chain that returns to

@@ -571,9 +571,8 @@ mod tests {
     }
 
     /// The default Character is what a new user talks to. Asking it to jump
-    /// must leave the ground. Jump is an engine-level default Behavior (and
-    /// Buddy Bot also declares it explicitly); without it the Director treats
-    /// the name as a near miss and speaks it.
+    /// must leave the ground. Jump is an engine-level default Behavior; without
+    /// it the Director treats the name as a near miss and speaks it.
     #[test]
     fn asking_the_default_character_to_jump_leaves_the_ground() {
         let character = shipped_character(DEFAULT_CHARACTER);

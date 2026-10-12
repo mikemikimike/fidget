@@ -799,6 +799,49 @@ mod tests {
     }
 
     #[test]
+    fn undeclared_askable_primitives_get_default_behaviors() {
+        let character = load_manifest(&declaring(&REQUIRED_ANIMATIONS)).expect("package is valid");
+        assert!(character.behaviors.contains_key("sit"), "sit is askable");
+        assert!(
+            character.behaviors.contains_key("sleep"),
+            "sleep is askable"
+        );
+        assert!(
+            character.behaviors.contains_key("react"),
+            "react is askable"
+        );
+        assert!(
+            character.behaviors.contains_key("chase"),
+            "chase is askable"
+        );
+        assert!(character.behaviors.contains_key("walk"), "walk is askable");
+        for name in ["sit", "sleep", "react", "chase", "walk"] {
+            assert_eq!(
+                character.behaviors[name].weight, 0,
+                "{name} stays weight 0 until art earns it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_behavior_playing_a_primitive_keeps_the_default_from_being_added() {
+        let manifest = format!(
+            "{}[behaviors.nap]\nplay = [\"sit\", \"sleep\"]\nweight = 10\n",
+            declaring(&REQUIRED_ANIMATIONS)
+        );
+        let character = load_manifest(&manifest).expect("package is valid");
+        assert!(character.behaviors.contains_key("nap"), "nap is declared");
+        assert!(
+            !character.behaviors.contains_key("sleep"),
+            "sleep default not added when nap plays it"
+        );
+        assert!(
+            !character.behaviors.contains_key("sit"),
+            "sit default not added when nap plays it"
+        );
+    }
+
+    #[test]
     fn a_loaded_character_carries_exactly_the_art_its_animations_name() {
         let character = load_manifest(&declaring(&REQUIRED_ANIMATIONS)).expect("package is valid");
 
@@ -1512,8 +1555,15 @@ mod tests {
         );
         assert_eq!(
             character.behaviors.keys().cloned().collect::<Vec<_>>(),
-            vec!["jump".to_string()],
-            "prose declares nothing; the engine still supplies the jump primitive: {:?}",
+            vec![
+                "chase".to_string(),
+                "jump".to_string(),
+                "react".to_string(),
+                "sit".to_string(),
+                "sleep".to_string(),
+                "walk".to_string()
+            ],
+            "prose declares nothing; the engine supplies default primitives: {:?}",
             character.behaviors
         );
         assert_eq!(
