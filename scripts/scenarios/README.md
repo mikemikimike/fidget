@@ -34,6 +34,29 @@ sideways.
 layer 0 while focused (a Perch under the overlay), and that minimizing Chat,
 focused or not, logs the change that lets the quick-message pill back.
 
+`chat-perch.sh` checks all four macOS acceptance cases from #1502: focused
+Chat stays at layer 0, the Character perches on its ledge, the composer accepts
+a click and typing, and the bubble's chat button works while overlapping Chat.
+Every click is preceded by an Accessibility check of its owning process and
+window. The bubble check requires a new `bubble: open-chat invoked instance=…`
+line for that Character after the click; an already-focused Chat cannot pass it.
+The line is emitted only with `FIDGET_TRACE_BUBBLE=1`.
+
+Prepare before requesting the screen:
+
+```sh
+cargo build -p fidget -p fidget-verify
+cargo test -p fidget --no-run
+bash scripts/scenarios/chat-perch.sh --prepare
+cargo run -p fidget-verify -- scenario chat-perch
+```
+
+After the owner's go-ahead, run `cargo run -p fidget-verify -- scenario
+chat-perch --go`. It uses an isolated HOME and captures two regions. Those
+regions can include desktop content above Chat; inspect them before publishing.
+`node --test tests/chat-perch-trace.test.js` tests the log assertion without
+launching an app, including stale and wrong-Character events.
+
 `question-bubble.sh` takes the same two binaries. Its fixture asks a permission
 question on the first turn, then the scenario pokes the sprite at the position
 the frame trace logs. It checks that no question cue shows before the Poke, and
