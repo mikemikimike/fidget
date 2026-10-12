@@ -2028,18 +2028,10 @@ fn default_pi_project_mcp() -> bool {
 /// is on. A missing endpoint or a file we cannot edit fails the Apply before
 /// the Harness moves.
 fn sync_pi_project_mcp(settings: &Settings) -> Result<(), String> {
-    let launch = crate::harness::from_settings(settings.harness_source().as_deref());
-    let pi = launch.as_ref().is_some_and(|launch| launch.name == "pi");
-    if !pi || !settings.pi_project_mcp {
+    if !settings.pi_project_mcp {
         return Ok(());
     }
-    if crate::mcp_http::endpoint().is_none() {
-        return Err(
-            "Pi's project file was left alone: this launch has no MCP endpoint".to_string(),
-        );
-    }
-    let dir = crate::harness::attach_dir(&settings.harness_cwd)?;
-    crate::pi_mcp::sync_project_file(&dir)
+    crate::harness::sync_pi_project_mcp(settings.harness_source().as_deref(), &settings.harness_cwd)
 }
 
 /// Everything settings owns. Defaults are the v1 first-run answers.

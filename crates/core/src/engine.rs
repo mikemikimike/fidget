@@ -24,6 +24,13 @@ pub struct Point {
     pub y: f64,
 }
 
+/// A sprite's current feet and the width needed to place it beside others.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpriteFootprint {
+    pub feet: Point,
+    pub width: f64,
+}
+
 /// One visible window: which one it is, and where.
 ///
 /// The id is what says the window under the sprite this tick is the one it was standing on last tick, which geometry cannot say.
@@ -418,8 +425,7 @@ pub struct Engine {
 /// `floors` are the usable frames at the same indexes as `monitors`, so the
 /// feet do not land behind the Dock.
 pub fn bring_landings(
-    feet: &[Point],
-    widths: &[f64],
+    sprites: &[SpriteFootprint],
     monitors: &[Rect],
     floors: &[Rect],
     cursor: Point,
@@ -427,23 +433,29 @@ pub fn bring_landings(
     let on = display_index_for((cursor.x, cursor.y), monitors)?;
     let monitor = monitors[on];
     let floor = floors.get(on).copied().unwrap_or(monitor);
-    let mut landings = vec![None; feet.len()];
+    let mut landings = vec![None; sprites.len()];
 
-    let mut arrivals: Vec<usize> = feet
+    let mut arrivals: Vec<usize> = sprites
         .iter()
         .enumerate()
-        .filter(|(_, at)| !stands_on((at.x, at.y), &monitor))
+        .filter(|(_, sprite)| !stands_on((sprite.feet.x, sprite.feet.y), &monitor))
         .map(|(index, _)| index)
         .collect();
     if arrivals.is_empty() {
         return Some(landings);
     }
-    arrivals.sort_by(|&a, &b| feet[a].x.total_cmp(&feet[b].x).then(a.cmp(&b)));
+    arrivals.sort_by(|&a, &b| {
+        sprites[a]
+            .feet
+            .x
+            .total_cmp(&sprites[b].feet.x)
+            .then(a.cmp(&b))
+    });
 
     let (left, right) = foot_bounds(&floor);
     let spans: Vec<f64> = arrivals
         .iter()
-        .map(|&index| sprite_span(widths.get(index).copied().unwrap_or(0.0)))
+        .map(|&index| sprite_span(sprites[index].width))
         .collect();
     // Centre the row on the cursor, then shift it until it sits inside the
     // inset. A row wider than the display piles up at the far inset.
@@ -464,11 +476,10 @@ pub fn bring_landings(
             x += (span + spans[slot + 1]) / 2.0;
         }
     }
-    let stayers: Vec<(f64, f64)> = feet
+    let stayers: Vec<(f64, f64)> = sprites
         .iter()
-        .enumerate()
-        .filter(|(_, at)| stands_on((at.x, at.y), &monitor))
-        .map(|(index, at)| (at.x, sprite_span(widths.get(index).copied().unwrap_or(0.0))))
+        .filter(|sprite| stands_on((sprite.feet.x, sprite.feet.y), &monitor))
+        .map(|sprite| (sprite.feet.x, sprite_span(sprite.width)))
         .collect();
     // A right-click lands on whoever is already here. Slide the arrivals off
     // them; if the display cannot hold that, keep the overlap.
@@ -488,13 +499,12 @@ pub fn bring_landings(
 /// `desktop.fullscreen` shares `monitors`' indexes. Everyone else stays put, so
 /// a sprite already moved plans nothing next time; when every display is taken, nobody moves.
 pub fn bring_off_fullscreen(
-    feet: &[Point],
-    widths: &[f64],
+    sprites: &[SpriteFootprint],
     monitors: &[Rect],
     floors: &[Rect],
     desktop: &Desktop,
 ) -> Vec<Option<Point>> {
-    let mut landings = vec![None; feet.len()];
+    let mut landings = vec![None; sprites.len()];
     let Some(target) = desktop
         .first_free_display()
         .and_then(|index| monitors.get(index))
@@ -510,22 +520,18 @@ pub fn bring_off_fullscreen(
     // Bring to the first free display, among only the stranded and those already there.
     // They are the arrivals and the stayers it lays out. Anyone on another
     // free display is not in it, so is not swept along.
-    let picked: Vec<usize> = (0..feet.len())
+    let picked: Vec<usize> = (0..sprites.len())
         .filter(|&index| {
-            let at = &feet[index];
+            let at = &sprites[index].feet;
             stranded(at) || stands_on((at.x, at.y), target)
         })
         .collect();
-    let picked_feet: Vec<Point> = picked.iter().map(|&index| feet[index]).collect();
-    let picked_widths: Vec<f64> = picked
-        .iter()
-        .map(|&index| widths.get(index).copied().unwrap_or(0.0))
-        .collect();
+    let picked_sprites: Vec<SpriteFootprint> = picked.iter().map(|&index| sprites[index]).collect();
     let centre = Point {
         x: target.x + target.width / 2.0,
         y: target.y + target.height / 2.0,
     };
-    if let Some(planned) = bring_landings(&picked_feet, &picked_widths, monitors, floors, centre) {
+    if let Some(planned) = bring_landings(&picked_sprites, monitors, floors, centre) {
         for (index, landing) in picked.into_iter().zip(planned) {
             landings[index] = landing;
         }
@@ -1696,6 +1702,14 @@ mod tests {
     use super::*;
     use crate::character::DEFAULT_WEIGHT;
     use crate::window_source::DOCK_PERCH_ID;
+
+    fn footprints(feet: &[Point], widths: &[f64]) -> Vec<SpriteFootprint> {
+        assert_eq!(feet.len(), widths.len());
+        feet.iter()
+            .zip(widths)
+            .map(|(&feet, &width)| SpriteFootprint { feet, width })
+            .collect()
+    }
 
     fn one_display() -> Rect {
         Rect {
@@ -7644,8 +7658,7 @@ mod tests {
 
         assert_eq!(
             bring_landings(
-                &feet,
-                &[128.0, 128.0],
+                &footprints(&feet, &[128.0, 128.0]),
                 &[primary, second],
                 &[primary, second],
                 cursor
@@ -7657,6 +7670,61 @@ mod tests {
                 }),
                 Some(Point {
                     x: 2436.0,
+                    y: 982.0
+                }),
+            ])
+        );
+    }
+
+    #[test]
+    fn bring_landings_keeps_each_width_with_its_sprite_after_sorting() {
+        let primary = monitor(0.0, 0.0, 1920.0, 1080.0);
+        let second = monitor(1920.0, 0.0, 1512.0, 982.0);
+        let sprites = [
+            SpriteFootprint {
+                feet: Point {
+                    x: 400.0,
+                    y: 1080.0,
+                },
+                width: 80.0,
+            },
+            SpriteFootprint {
+                feet: Point {
+                    x: 100.0,
+                    y: 1080.0,
+                },
+                width: 160.0,
+            },
+            SpriteFootprint {
+                feet: Point {
+                    x: 250.0,
+                    y: 1080.0,
+                },
+                width: 120.0,
+            },
+        ];
+
+        assert_eq!(
+            bring_landings(
+                &sprites,
+                &[primary, second],
+                &[primary, second],
+                Point {
+                    x: 2500.0,
+                    y: 400.0
+                },
+            ),
+            Some(vec![
+                Some(Point {
+                    x: 2620.0,
+                    y: 982.0
+                }),
+                Some(Point {
+                    x: 2380.0,
+                    y: 982.0
+                }),
+                Some(Point {
+                    x: 2520.0,
                     y: 982.0
                 }),
             ])
@@ -7682,8 +7750,7 @@ mod tests {
 
         assert_eq!(
             bring_landings(
-                &feet,
-                &[128.0, 128.0],
+                &footprints(&feet, &[128.0, 128.0]),
                 &[primary, second],
                 &[primary, second],
                 Point {
@@ -7710,11 +7777,13 @@ mod tests {
 
         assert_eq!(
             bring_landings(
-                &[Point {
-                    x: 400.0,
-                    y: 1080.0
-                }],
-                &[128.0],
+                &footprints(
+                    &[Point {
+                        x: 400.0,
+                        y: 1080.0
+                    }],
+                    &[128.0]
+                ),
                 &[upper, lower],
                 &[upper, lower],
                 Point {
@@ -7751,8 +7820,7 @@ mod tests {
 
         assert_eq!(
             bring_landings(
-                &on_the_floor,
-                &[128.0],
+                &footprints(&on_the_floor, &[128.0]),
                 &[upper, lower],
                 &[upper, lower],
                 Point { x: 500.0, y: 200.0 },
@@ -7762,8 +7830,7 @@ mod tests {
         );
         assert_eq!(
             bring_landings(
-                &perched,
-                &[128.0],
+                &footprints(&perched, &[128.0]),
                 &[upper, second],
                 &[upper, second],
                 cursor_on_second,
@@ -7783,8 +7850,7 @@ mod tests {
 
         assert_eq!(
             bring_landings(
-                &away,
-                &[128.0],
+                &footprints(&away, &[128.0]),
                 &[home, full],
                 &[home, usable],
                 Point {
@@ -7812,8 +7878,7 @@ mod tests {
 
         assert_eq!(
             bring_landings(
-                &on_the_right,
-                &[128.0],
+                &footprints(&on_the_right, &[128.0]),
                 &[left, right],
                 &[left, right],
                 Point {
@@ -7829,8 +7894,7 @@ mod tests {
     fn bring_landings_does_nothing_when_no_display_was_reported() {
         assert_eq!(
             bring_landings(
-                &[Point { x: 10.0, y: 10.0 }],
-                &[128.0],
+                &footprints(&[Point { x: 10.0, y: 10.0 }], &[128.0]),
                 &[],
                 &[],
                 Point { x: 10.0, y: 10.0 },
@@ -7865,8 +7929,7 @@ mod tests {
 
         assert_eq!(
             bring_off_fullscreen(
-                &feet,
-                &[128.0, 128.0, 128.0],
+                &footprints(&feet, &[128.0, 128.0, 128.0]),
                 &monitors,
                 &monitors,
                 &Desktop {
@@ -7893,11 +7956,13 @@ mod tests {
 
         assert_eq!(
             bring_off_fullscreen(
-                &[Point {
-                    x: 960.0,
-                    y: 1080.0,
-                }],
-                &[128.0],
+                &footprints(
+                    &[Point {
+                        x: 960.0,
+                        y: 1080.0,
+                    }],
+                    &[128.0]
+                ),
                 &[primary, second],
                 &[primary, second],
                 &Desktop {
@@ -7917,11 +7982,13 @@ mod tests {
 
         assert_eq!(
             bring_off_fullscreen(
-                &[Point {
-                    x: 2500.0,
-                    y: 982.0,
-                }],
-                &[128.0],
+                &footprints(
+                    &[Point {
+                        x: 2500.0,
+                        y: 982.0,
+                    }],
+                    &[128.0]
+                ),
                 &[primary, second],
                 &[primary, second],
                 &Desktop {
