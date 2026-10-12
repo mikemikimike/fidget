@@ -125,3 +125,16 @@ test("peeled planning after the strip settled rejoins the same Thinking row", ()
     },
   ]);
 });
+
+test("a new turn's thought after settle without landed opens its own row", () => {
+  const { thinking, entries } = logged();
+
+  thinking.thought("Weighing a nap");
+  thinking.thought("");
+  thinking.thought("Checking the desk first");
+
+  assert.deepEqual(entries(), [
+    { id: 1, text: "Weighing a nap", state: "collapsed", at: undefined },
+    { id: 2, text: "Checking the desk first", state: "streaming", at: undefined },
+  ]);
+});
