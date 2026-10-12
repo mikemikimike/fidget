@@ -4,9 +4,9 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-This repo is single-context: one `CONTEXT.md` and one `docs/adr/`, both at the root.
+This repo is single-context: one `GLOSSARY.md` and one `docs/adr/`, both at the root.
 
-- **`CONTEXT.md`** — the vocabulary.
+- **`GLOSSARY.md`** — the vocabulary.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in.
 - **`docs/agents/docs.md`** — where writing belongs (ADR vs SPEC vs DESIGN vs issue).
 
@@ -14,7 +14,7 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## Use the glossary's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
+When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `GLOSSARY.md`. Don't drift to synonyms the glossary explicitly avoids.
 
 If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 

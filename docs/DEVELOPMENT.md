@@ -502,7 +502,7 @@ A `workflow_dispatch` package build leaves the tap alone. To reconcile a tag tha
 ## Further Reading
 
 - [README](../README.md): what it does, how to run, platform support
-- [CONTEXT.md](../CONTEXT.md): vocabulary
+- [GLOSSARY.md](../GLOSSARY.md): vocabulary
 - [DESIGN.md](../DESIGN.md): design decisions
 - [docs/SPEC.md](./SPEC.md): v1 scope and requirements
 - [docs/harness.md](./harness.md): Completers, Director environment, local model servers, and the MCP server

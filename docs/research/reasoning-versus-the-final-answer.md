@@ -37,7 +37,7 @@ never into the reply. A bigger cap is not the fix.
 
 **Shipped since.** [ADR-0034](../adr/0034-harness-thinking-is-a-row-in-the-chat-log.md) superseded ADR-0025. A Harness thought is a Thinking row in the Chat log, open while the turn thinks and collapsed once the answer lands. It is kept like a reply, and it never joins the answer. This note stays anchored at `66c1bab8`.
 
-Vocabulary is `CONTEXT.md`: Director, Character Prompt, Completer, Harness,
+Vocabulary is `GLOSSARY.md`: Director, Character Prompt, Completer, Harness,
 Behavior, Speech, Action Log.
 
 ---

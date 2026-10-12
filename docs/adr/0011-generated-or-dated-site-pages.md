@@ -72,7 +72,7 @@ generator enumerates and copies named files, never a source directory wholesale.
 
 - **A real landing page** — what the app is, screenshots, install links. Two
   front doors that drift.
-- **Mirroring `docs/SPEC.md`, the ADRs and `CONTEXT.md`:** github.com renders
+- **Mirroring `docs/SPEC.md`, the ADRs and `GLOSSARY.md`:** github.com renders
   them, and Jekyll does not run here, so a mirror needs a build step in order to
   be worse.
 - **A downloads page:** GitHub Releases is that page and it updates itself.

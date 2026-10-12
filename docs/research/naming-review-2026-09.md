@@ -2,11 +2,11 @@
 
 Shipped: the product rename to Fidget landed in #1079, after this review.
 
-Systematic review of codebase naming against `CONTEXT.md` glossary and ADRs.
+Systematic review of codebase naming against `GLOSSARY.md` glossary and ADRs.
 
 ## Executive Summary
 
-The codebase follows `CONTEXT.md` vocabulary with high fidelity. No mechanical
+The codebase follows `GLOSSARY.md` vocabulary with high fidelity. No mechanical
 renames are recommended at this time.
 
 **One open product decision** (#466) concerns user-facing Settings UI copy, which
@@ -27,7 +27,7 @@ Reviewed:
 
 ### ✅ Do now: None
 
-No mechanical renames identified. The codebase accurately uses CONTEXT.md terms:
+No mechanical renames identified. The codebase accurately uses GLOSSARY.md terms:
 
 - **Director**: Correctly named for the role (lines 110-115). `ModelDirector`
   and `StaticDirector` are implementation variants, not violations.
@@ -47,12 +47,12 @@ No mechanical renames identified. The codebase accurately uses CONTEXT.md terms:
 - Settings section renamed to "AI" (not "Director" or "AI Completer")
 - Toggle label: "AI on" (clear what it means)
 - HTTP field labels: "Model", "API key" (not "Director" or "Completer")
-- CONTEXT.md clarifies: Director = role, Completer = trait (HTTP|Harness umbrella)
+- GLOSSARY.md clarifies: Director = role, Completer = trait (HTTP|Harness umbrella)
 
 ### ⚪ Leave (Intentional / Not Churny)
 
 1. **`ModelDirector` and `StaticDirector`**:
-   - Both are Directors per CONTEXT.md. The prefix distinguishes implementation.
+   - Both are Directors per GLOSSARY.md. The prefix distinguishes implementation.
    - Renaming would churn 200+ call sites for no clarity gain.
 
 2. **`session_log.rs`**:
@@ -70,14 +70,14 @@ No mechanical renames identified. The codebase accurately uses CONTEXT.md terms:
    - Not our own domain language; correctly describes source material.
 
 5. **Documentation and comments use "mascot"**:
-   - CONTEXT.md line 14 says avoid "mascot" for **Character**.
+   - GLOSSARY.md line 14 says avoid "mascot" for **Character**.
    - Docs/comments correctly use "desktop mascot" to describe the *product category*,
      not to name our Character concept.
    - No code names use "mascot".
 
 ## Glossary Coverage
 
-Terms from `CONTEXT.md` Language section:
+Terms from `GLOSSARY.md` Language section:
 
 | Term | Code Usage | Status |
 |------|-----------|--------|
@@ -122,10 +122,10 @@ Terms from `CONTEXT.md` Language section:
 | Chat surface | chat window, `chat.js` | ✅ |
 | Chat UI | visual design, `chat-ui.css` | ✅ |
 
-## Avoided Terms (per CONTEXT.md)
+## Avoided Terms (per GLOSSARY.md)
 
-| Term | Avoid per CONTEXT | Found in Code? | Notes |
-|------|-------------------|----------------|-------|
+| Term | Avoid per GLOSSARY | Found in Code? | Notes |
+|------|--------------------|----------------|-------|
 | Pet | Yes (for Character) | No | Only in import tooling for external pets |
 | Mascot | Yes (for Character) | No | Only in docs/comments about product category |
 | Avatar | Yes (for Character) | No | Not found |
@@ -150,7 +150,7 @@ Terms from `CONTEXT.md` Language section:
 
 ## Methodology
 
-- Read `CONTEXT.md` Language section in full
+- Read `GLOSSARY.md` Language section in full
 - Read `docs/SPEC.md` and relevant ADRs
 - Surveyed all Rust modules in `crates/core` and `src-tauri`
 - Grep'd for avoided terms across codebase

@@ -25,7 +25,7 @@ line. Prompt caching buys nearly nothing at this prompt size.
 - Date of the research half: **September 4, 2026**. Where a source looks dated, it is called out.
 - Claims are marked **[vendor]**, **[community]** or **[inference]** throughout.
 
-Vocabulary is `CONTEXT.md`: Director, Character Prompt, Completer, Harness, Character Instance, Behavior, Pace, Thinking ellipsis.
+Vocabulary is `GLOSSARY.md`: Director, Character Prompt, Completer, Harness, Character Instance, Behavior, Pace, Thinking ellipsis.
 
 ---
 
@@ -350,7 +350,7 @@ The connection pool lives on the `Agent` (`ureq` exposes `max_idle_connections`,
 
 **[vendor] The interactive budget.** Nielsen's three thresholds are unchanged since 1993 and explicitly restated as current: **0.1 s** feels instantaneous and needs no feedback, **1 s** keeps the user's flow of thought, **10 s** is the limit of held attention, after which "users will want to perform other tasks while waiting" and will need to reorient on return (https://www.nngroup.com/articles/response-times-3-important-limits/, https://www.nngroup.com/articles/website-response-times/). **[community]** A practitioner target of TTFT < 500 ms at p95 for interactive LLM products, and the advice to watch p95/p99 rather than the mean, comes from a third-party analysis rather than a vendor (https://tianpan.co/blog/2026/03/10/llm-latency-decomposition-ttft-vs-throughput).
 
-**[inference] Where this repo sits against those numbers.** The Cue is the 0.1 s layer and it is already right: `CONTEXT.md` specifies a procedural visual and a synthesized sound per interaction, drawn by the webview with no model involved (#277). The Director then aims at the 1–10 s band. Streaming to the first line plausibly lands a Poke reaction inside 1 s on a fast tier; today's non-streaming path with a 20 s timeout can exceed the 10 s attention limit outright, and the deferred-wake behaviour in §1.2 makes that *worse* by adding the remainder of an in-flight call before the new prompt is even sent.
+**[inference] Where this repo sits against those numbers.** The Cue is the 0.1 s layer and it is already right: `GLOSSARY.md` specifies a procedural visual and a synthesized sound per interaction, drawn by the webview with no model involved (#277). The Director then aims at the 1–10 s band. Streaming to the first line plausibly lands a Poke reaction inside 1 s on a fast tier; today's non-streaming path with a 20 s timeout can exceed the 10 s attention limit outright, and the deferred-wake behaviour in §1.2 makes that *worse* by adding the remainder of an in-flight call before the new prompt is even sent.
 
 **[inference] The `thinking` flag is already the documented masking mechanism, and its tuning matches the research.** The `thinking` local (`frame_loop.rs:952-958`) computes it as "a call is in flight, and that call is reactive (or this tick started a reactive one), and Do Not Disturb is off":
 
@@ -364,7 +364,7 @@ The connection pool lives on the `Agent` (`ureq` exposes `max_idle_connections`,
                     && !instance.do_not_disturb();
 ```
 
-`CONTEXT.md`'s Thinking ellipsis entry gives it a 250 ms grace before appearing and a ≥600 ms hold once shown, with proactive wakes staying invisible — which is Nielsen's rule applied correctly in both directions: below ~250 ms no feedback is needed, and a spinner that flashes for 50 ms is worse than none. **Two findings about it:**
+`GLOSSARY.md`'s Thinking ellipsis entry gives it a 250 ms grace before appearing and a ≥600 ms hold once shown, with proactive wakes staying invisible — which is Nielsen's rule applied correctly in both directions: below ~250 ms no feedback is needed, and a spinner that flashes for 50 ms is worse than none. **Two findings about it:**
 
 1. **[inference] Streaming changes what it should mean:** Today `thinking` is on for the whole call. With streaming and first-line application, the natural split is: ellipsis from send until the Behavior name arrives, then the sprite is already moving and the ellipsis should give way to the `talk` Animation while the line streams in. The flag's condition would key off "no first line yet" rather than "call in flight". That is a genuine improvement in what the user is told, not just a faster version of the same thing.
 2. **[inference] The condition is a symptom of the design gap in §1:** It reaches into `live.in_flight` and inspects `ctx.happened` to reconstruct whether the current call was reactive — information the slot could simply carry. Under the `Slots` sketch this becomes `slots.thinking(&id) && !instance.do_not_disturb()`, with reactive-ness stored alongside the epoch. Worth noting because it is evidence the current two-field (`pending` + `in_flight`) split leaks: three separate places (`frame_loop.rs:769`, `frame_loop.rs:939`, `frame_loop.rs:952-958`) each reassemble state that one slot could hold.

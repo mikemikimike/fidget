@@ -18,12 +18,12 @@ inspect surface, not two.
 
 ## The vocabulary this contradicts
 
-`CONTEXT.md` said the Character Prompt is "never authored by hand". That clause
+`GLOSSARY.md` said the Character Prompt is "never authored by hand". That clause
 is now false and is amended: the Character Prompt is *assembled* and never
 hand-authored as a whole, and two of its layers are authored. An `Instance
 Prompt` entry is added beside it.
 
-`CONTEXT.md` also said Instances "differ in personality and behavior, never in
+`GLOSSARY.md` also said Instances "differ in personality and behavior, never in
 what they know". This layer is what that clause was always describing, not a
 second thing beside it. Until now the clause was a promise with no mechanism:
 two Instances of one Character were identical in voice, differing only in name
