@@ -261,7 +261,7 @@ Draw every Animation facing right. The renderer mirrors it for leftward travel u
 
 #### Behaviors
 
-A Behavior is a named sequence of Primitives that the Static Director picks by weight, or that a model proposes. A Character composes Behaviors from Primitives and cannot define new ones.
+A Behavior is a named sequence of Primitives that the Static Director picks by weight, or that a model proposes. A Character composes Behaviors from Primitives and cannot define new ones. Every Character gets `jump` at weight 0 unless the package declares its own.
 
 | Key | Required | Value | Default |
 |---|---|---|---|

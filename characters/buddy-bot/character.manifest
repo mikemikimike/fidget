@@ -250,11 +250,3 @@ when = "idle over 1m"
 play = ["sit", "sleep"]
 weight = 40
 when = "idle over 2m"
-
-# Declared so Chat, Quick Message, and MCP play_behavior can ask for a hop.
-# Weight zero until dedicated jump art: fall is the trust-fall tumble strip and
-# reads wrong on the way up (same reason BMO keeps jump at zero; #490).
-[behaviors.jump]
-play = ["jump"]
-weight = 0
-when = "idle over 10s"
