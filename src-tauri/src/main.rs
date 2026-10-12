@@ -76,7 +76,7 @@ use fidget_core::character::{Character, Primitive};
 use fidget_core::director::{
     app_instructions, happened_cell, Happened, ModelDirector, Pace, Recency, Seeded, StaticDirector,
 };
-use fidget_core::engine::{Cue, Point, State, Verb};
+use fidget_core::engine::{Cue, Point, SpriteFootprint, State, Verb};
 use fidget_core::input::Pointer;
 use fidget_core::memory;
 use fidget_core::overlay::{display_index_for, SpriteRect};
@@ -3475,30 +3475,66 @@ fn bring_roster_to_display(
     floors: &[Rect],
     cursor: Point,
 ) {
-    stand_roster(roster, widths, |feet, widths| {
-        fidget_core::engine::bring_landings(feet, widths, monitors, floors, cursor)
-            .unwrap_or_default()
-    });
+    stand_roster(
+        roster,
+        widths,
+        monitors,
+        floors,
+        BringTarget::Cursor(cursor),
+    );
 }
 
-/// Stand each Instance named in `widths` where `plan` lands it. `plan` gets
-/// their feet and widths in that order and answers at the same indexes.
+/// Move only the Instances stranded on a fullscreen display.
+fn bring_roster_off_fullscreen(
+    roster: &mut Roster,
+    widths: &[(InstanceId, f64)],
+    monitors: &[Rect],
+    floors: &[Rect],
+    desktop: &fidget_core::visibility::Desktop,
+) {
+    stand_roster(
+        roster,
+        widths,
+        monitors,
+        floors,
+        BringTarget::OffFullscreen(desktop),
+    );
+}
+
+enum BringTarget<'a> {
+    Cursor(Point),
+    OffFullscreen(&'a fidget_core::visibility::Desktop),
+}
+
+/// Place the selected Instances from one snapshot of their feet and widths.
 fn stand_roster(
     roster: &mut Roster,
     widths: &[(InstanceId, f64)],
-    plan: impl FnOnce(&[Point], &[f64]) -> Vec<Option<Point>>,
+    monitors: &[Rect],
+    floors: &[Rect],
+    target: BringTarget<'_>,
 ) {
     let mut ids = Vec::new();
-    let mut feet = Vec::new();
-    let mut spans = Vec::new();
+    let mut sprites = Vec::new();
     for (id, width) in widths {
         if let Some(instance) = roster.get(id) {
             ids.push(id);
-            feet.push(instance.feet());
-            spans.push(*width);
+            sprites.push(SpriteFootprint {
+                feet: instance.feet(),
+                width: *width,
+            });
         }
     }
-    for (id, landing) in ids.into_iter().zip(plan(&feet, &spans)) {
+    let landings = match target {
+        BringTarget::Cursor(cursor) => {
+            fidget_core::engine::bring_landings(&sprites, monitors, floors, cursor)
+                .unwrap_or_default()
+        }
+        BringTarget::OffFullscreen(desktop) => {
+            fidget_core::engine::bring_off_fullscreen(&sprites, monitors, floors, desktop)
+        }
+    };
+    for (id, landing) in ids.into_iter().zip(landings) {
         if let (Some(at), Some(instance)) = (landing, roster.get_mut(id)) {
             instance.stand_at(at);
         }
@@ -6282,20 +6318,23 @@ mod tests {
         };
         let held = roster.spawn(&character, "Held".to_string(), held_at);
         let widths = [(free.clone(), 128.0)];
-        let bring_off = |feet: &[Point], widths: &[f64]| {
-            fidget_core::engine::bring_off_fullscreen(
-                feet,
-                widths,
-                &[PRIMARY, SECOND],
-                &[PRIMARY, SECOND],
-                &fidget_core::visibility::Desktop {
-                    fullscreen: vec![false, true],
-                },
-            )
+        let desktop = fidget_core::visibility::Desktop {
+            fullscreen: vec![false, true],
         };
-
-        stand_roster(&mut roster, &widths, bring_off);
-        stand_roster(&mut roster, &widths, bring_off);
+        bring_roster_off_fullscreen(
+            &mut roster,
+            &widths,
+            &[PRIMARY, SECOND],
+            &[PRIMARY, SECOND],
+            &desktop,
+        );
+        bring_roster_off_fullscreen(
+            &mut roster,
+            &widths,
+            &[PRIMARY, SECOND],
+            &[PRIMARY, SECOND],
+            &desktop,
+        );
 
         assert_eq!(
             roster.get(&free).expect("free").feet(),

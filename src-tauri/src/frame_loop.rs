@@ -8,7 +8,7 @@ use fidget_core::director::{self, Context, Happened, Lately, Wake};
 use fidget_core::dispatch::{
     dispatch, DenyList, DispatchContext, FeetAt, InstanceInfo, PlacementQuery,
 };
-use fidget_core::engine::{bring_off_fullscreen, BehaviorProposal, State, Verb};
+use fidget_core::engine::{BehaviorProposal, State, Verb};
 use fidget_core::input::press_target;
 #[cfg(not(unix))]
 use fidget_core::overlay::DrawTrail;
@@ -27,13 +27,13 @@ use super::chat_surface::{CHAT_APPEARANCE_EVENT, CHAT_EVENT, CHAT_STATUS_EVENT, 
 use super::session_log;
 use super::settings::{ChatAppearance, SettingsOp};
 use super::{
-    apply_menu_action, cancelled_caret, chat_is_up, chat_label, close_chat, completer,
-    describe_menu, dev_flags, harness, mcp_http, mcp_resources, menu, model, note_happened,
-    open_chat, overlay_label, paced, place_overlays, platform, publish_instances,
+    apply_menu_action, bring_roster_off_fullscreen, cancelled_caret, chat_is_up, chat_label,
+    close_chat, completer, describe_menu, dev_flags, harness, mcp_http, mcp_resources, menu, model,
+    note_happened, open_chat, overlay_label, paced, place_overlays, platform, publish_instances,
     push_chat_opening, push_chat_openings, remember_instances, spawn_live, sprite_width,
-    stand_roster, switch_instance, tray, ChatMsg, ChatReply, ChatStatus, ChatStatusPush,
-    DirectorRun, Drawn, FrameExtras, InstanceState, MenuChannel, MenuHold, MenuSignal, Placed,
-    Placement, SpritePlacement, Traced, TrayHandle, ENGINE_TICK, FRAME_EVENT, MENU_HOLD_TIMEOUT,
+    switch_instance, tray, ChatMsg, ChatReply, ChatStatus, ChatStatusPush, DirectorRun, Drawn,
+    FrameExtras, InstanceState, MenuChannel, MenuHold, MenuSignal, Placed, Placement,
+    SpritePlacement, Traced, TrayHandle, ENGINE_TICK, FRAME_EVENT, MENU_HOLD_TIMEOUT,
     SENSE_INTERVAL,
 };
 
@@ -1475,15 +1475,13 @@ pub(crate) fn run_frame_loop(
                     .filter(|live| !live.pointer.grabbing())
                     .map(|live| (live.id.clone(), sprite_width(&live.character)))
                     .collect();
-                stand_roster(&mut roster, &widths, |feet, widths| {
-                    bring_off_fullscreen(
-                        feet,
-                        widths,
-                        &displays.frames,
-                        &displays.usable_frames,
-                        &desktop,
-                    )
-                });
+                bring_roster_off_fullscreen(
+                    &mut roster,
+                    &widths,
+                    &displays.frames,
+                    &displays.usable_frames,
+                    &desktop,
+                );
             }
 
             let mut placed: Vec<Placed> = Vec::with_capacity(lives.len());

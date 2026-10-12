@@ -447,12 +447,20 @@ pub(crate) fn project_dir_label(raw: &str) -> String {
     attach_cwd_display(&AttachCwd::resolve(&crate::model::env_or_file(CWD, raw)))
 }
 
-/// The directory spawn will use. The data directory is created, because a
-/// first launch has not got it yet and that folder is ours. A user path is
-/// not created.
-pub(crate) fn attach_dir(raw: &str) -> Result<std::path::PathBuf, String> {
-    let cwd = AttachCwd::resolve(&crate::model::env_or_file(CWD, raw))
-        .map_err(|error| error.to_string())?;
+/// Keep Pi's project MCP file in step with the attachment being selected.
+pub(crate) fn sync_pi_project_mcp(source: Option<&str>, cwd_row: &str) -> Result<(), String> {
+    let Some(target) = Target::from_settings(source, cwd_row) else {
+        return Ok(());
+    };
+    if target.launch.name != "pi" {
+        return Ok(());
+    }
+    if crate::mcp_http::endpoint().is_none() {
+        return Err(
+            "Pi's project file was left alone: this launch has no MCP endpoint".to_string(),
+        );
+    }
+    let cwd = target.cwd.map_err(|error| error.to_string())?;
     if cwd.as_path() == fidget_core::memory::data_dir() {
         std::fs::create_dir_all(cwd.as_path())
             .map_err(|error| format!("{}: {error}", cwd.as_path().display()))?;
@@ -461,7 +469,7 @@ pub(crate) fn attach_dir(raw: &str) -> Result<std::path::PathBuf, String> {
         SpawnError::Failed(why) => why,
         _ => "missing".to_string(),
     })?;
-    Ok(cwd.as_path().to_path_buf())
+    crate::pi_mcp::sync_project_file(cwd.as_path())
 }
 
 impl AttachCwd {
@@ -5845,6 +5853,40 @@ mod tests {
                 "same Launch plus a different cwd must rebuild"
             );
             assert_eq!(reattach(Some(&other), Some(other.clone())), Reattach::Stand);
+        });
+    }
+
+    #[test]
+    fn pi_project_sync_uses_the_resolved_directory_and_leaves_other_harnesses_alone() {
+        let (calls, _rx) = mpsc::channel();
+        assert!(crate::mcp_http::serve(calls).is_some());
+        crate::model::tests::with_env(None, None, None, || {
+            let dir = std::env::temp_dir().join(format!("fidget-pi-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join(".mcp.json");
+            let original = r#"{"mcpServers":{"other":{"command":"echo"}}}"#;
+            std::fs::write(&path, original).unwrap();
+            std::env::set_var(CWD, &dir);
+
+            sync_pi_project_mcp(Some("hermes"), "ignored-relative-row").unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+
+            sync_pi_project_mcp(Some("pi"), "ignored-relative-row").unwrap();
+            let config: Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(
+                config,
+                json!({"mcpServers": {
+                    "other": {"command": "echo"},
+                    "fidget": {
+                        "url": "${FIDGET_MCP_URL}",
+                        "auth": "bearer",
+                        "bearerTokenEnv": "FIDGET_MCP_TOKEN",
+                        "lifecycle": "eager"
+                    }
+                }})
+            );
+            std::fs::remove_dir_all(dir).unwrap();
         });
     }
 
