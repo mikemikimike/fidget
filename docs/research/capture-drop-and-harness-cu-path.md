@@ -25,7 +25,7 @@ screenshot in response to user act, per-act consent), and Ambient Capture
 deferred Capture entirely, both tiers, while allowing Free sensing to proceed.
 
 **Fact.** fidget ships Free sensing: `list_windows` and `describe_screen`
-query window metadata from the OS without touching pixels. GLOSSARY.md defines
+query window metadata from the OS without touching pixels. CONTEXT.md defines
 Free sensing as "OS metadata: frontmost app, window geometry, idle, etc."
 
 **Fact.** ADR-0005's "ask Harness for screenshot" hook is unwired. As of

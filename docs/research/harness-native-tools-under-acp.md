@@ -42,7 +42,7 @@ Following `reasoning-versus-the-final-answer.md` and
 - **[Inference]** — my reasoning from those facts. Sound or not, it is mine.
 - **[Assumption]** — not verified. Each one names what would verify it.
 
-Vocabulary is `GLOSSARY.md`: Harness, Completer, Director, Functional Layer,
+Vocabulary is `CONTEXT.md`: Harness, Completer, Director, Functional Layer,
 Executor, Sensing, Instance, Behavior, Speech.
 
 `file:line` citations are against `e070216`. Third-party source read on
