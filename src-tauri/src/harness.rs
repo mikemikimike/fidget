@@ -354,10 +354,15 @@ fn apply_codex_project_config(data_dir: &Path, model: Option<&str>, effort: Opti
 
 /// Launch `-c` so Codex trusts the data dir and loads its project layer.
 /// Inline table only: dotted `projects."<path>"` splits on dots in the path.
+/// Prefer TOML literal strings so Windows `.cmd` spawn does not double `"`.
 fn codex_trust_override(data_dir: &Path) -> String {
     let path = data_dir.to_string_lossy();
-    let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("projects={{\"{escaped}\"={{trust_level=\"trusted\"}}}}")
+    if path.contains('\'') {
+        let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("projects={{\"{escaped}\"={{trust_level=\"trusted\"}}}}")
+    } else {
+        format!("projects={{'{path}'={{trust_level='trusted'}}}}")
+    }
 }
 
 /// Trust so the data-dir project layer loads; never write `~/.codex`.
