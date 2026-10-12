@@ -5220,28 +5220,16 @@ mod tests {
         assert!(!args.iter().any(|arg| *arg == "-c"), "{args:?}");
     }
 
-    /// Spawns the Codex Command path through a stub that records argv, so `{` `"`
-    /// `=` in the trust `-c` value survive the process boundary.
-    #[test]
-    fn codex_trust_argument_survives_spawned_argv() {
-        let root =
-            std::env::temp_dir().join(format!("fidget-trust-spawn-{}", uuid::Uuid::new_v4()));
-        let data = root.join("data.dir");
-        std::fs::create_dir_all(&data).unwrap();
-        sync_codex_project_config(&data, None, None).unwrap();
-        let out = root.join("argv.txt");
-        let stub = root.join(if cfg!(windows) {
-            "echo-argv.cmd"
-        } else {
-            "echo-argv"
-        });
+    /// Writes a launcher that records argv the way `npx.cmd` hands it to node.
+    fn write_codex_argv_echo_stub(dir: &Path, stub_name: &str) -> PathBuf {
+        let stub = dir.join(stub_name);
         if cfg!(windows) {
-            // `for %%A in (%*)` splits on `=`; shift keeps each CreateProcess arg.
             std::fs::write(
-                &stub,
-                "@echo off\r\nset \"OUT=%~dp0argv.txt\"\r\nbreak> \"%OUT%\"\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\n>>\"%OUT%\" echo(%~1\r\nshift\r\ngoto loop\r\n:done\r\n",
+                dir.join("argv.js"),
+                "const fs = require('fs');\nfs.writeFileSync(process.env.FIDGET_ARGV_OUT, process.argv.slice(2).join('\\n') + '\\n');\n",
             )
             .unwrap();
+            std::fs::write(&stub, "@echo off\r\nnode \"%~dp0argv.js\" %*\r\n").unwrap();
         } else {
             std::fs::write(
                 &stub,
@@ -5254,6 +5242,27 @@ mod tests {
                 std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
             }
         }
+        stub
+    }
+
+    /// Spawns the Codex Command path through a stub that records argv, so `{` `'`
+    /// `=` in the trust `-c` value survive the process boundary.
+    #[test]
+    fn codex_trust_argument_survives_spawned_argv() {
+        let root =
+            std::env::temp_dir().join(format!("fidget-trust-spawn-{}", uuid::Uuid::new_v4()));
+        let data = root.join("data.dir");
+        std::fs::create_dir_all(&data).unwrap();
+        sync_codex_project_config(&data, None, None).unwrap();
+        let out = root.join("argv.txt");
+        let stub = write_codex_argv_echo_stub(
+            &root,
+            if cfg!(windows) {
+                "echo-argv.cmd"
+            } else {
+                "echo-argv"
+            },
+        );
         let launch = Launch {
             name: "codex".into(),
             argv: vec![
@@ -5268,15 +5277,14 @@ mod tests {
         without_console_window(&mut command);
         let status = command.status().expect("spawn echo stub");
         assert!(status.success(), "{status}");
-        let dumped = std::fs::read_to_string(&out)
-            .unwrap_or_else(|_| std::fs::read_to_string(root.join("argv.txt")).unwrap_or_default());
+        let dumped = std::fs::read_to_string(&out).unwrap();
         let expected = codex_trust_override(&data);
         assert!(
             dumped.lines().any(|line| line == expected),
             "expected exact trust arg among:\n{dumped}"
         );
         assert!(
-            expected.contains('{') && expected.contains('"') && expected.contains('='),
+            expected.contains('{') && expected.contains('\'') && expected.contains('='),
             "{expected}"
         );
         let config = std::fs::read_to_string(codex_project_config_path(&data)).unwrap();
@@ -5295,25 +5303,23 @@ mod tests {
         let data = root.join("data.dir");
         std::fs::create_dir_all(&data).unwrap();
         sync_codex_project_config(&data, None, None).unwrap();
-        std::fs::write(
-            root.join("npx.cmd"),
-            "@echo off\r\nset \"OUT=%~dp0echoed.txt\"\r\nbreak> \"%OUT%\"\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\n>>\"%OUT%\" echo(%~1\r\nshift\r\ngoto loop\r\n:done\r\n",
-        )
-        .unwrap();
+        let out = root.join("echoed.txt");
+        let stub = write_codex_argv_echo_stub(&root, "npx.cmd");
         let launch = Launch {
             name: "codex".into(),
             argv: vec![
-                root.join("npx.cmd").to_string_lossy().to_string(),
+                stub.to_string_lossy().to_string(),
                 "-y".into(),
                 "@agentclientprotocol/codex-acp@latest".into(),
             ],
         };
         let mut command = launch.command(&AttachCwd(root.clone()), false);
         apply_codex_launch_trust(&mut command, &launch.argv, &data);
+        command.env("FIDGET_ARGV_OUT", &out);
         without_console_window(&mut command);
         let status = command.status().expect("spawn npx.cmd stub");
         assert!(status.success(), "{status}");
-        let dumped = std::fs::read_to_string(root.join("echoed.txt")).unwrap();
+        let dumped = std::fs::read_to_string(&out).unwrap();
         let expected = codex_trust_override(&data);
         assert!(
             dumped.lines().any(|line| line == expected),
@@ -5330,16 +5336,19 @@ mod tests {
     #[test]
     fn codex_trust_override_uses_an_inline_table_and_survives_dots() {
         let dir = PathBuf::from("/tmp/ct/data.dir");
-        let arg = codex_trust_override(&dir);
         assert_eq!(
-            arg,
-            r#"projects={"/tmp/ct/data.dir"={trust_level="trusted"}}"#
+            codex_trust_override(&dir),
+            "projects={'/tmp/ct/data.dir'={trust_level='trusted'}}"
         );
-        let win = PathBuf::from("C:\\Users\\demo\\.local\\share\\fidget");
-        let win_arg = codex_trust_override(&win);
-        assert!(
-            win_arg.contains(r#"C:\\Users\\demo\\.local\\share\\fidget"#),
-            "{win_arg}"
+        let win = PathBuf::from(r"C:\Users\demo\.local\share\fidget");
+        assert_eq!(
+            codex_trust_override(&win),
+            r"projects={'C:\Users\demo\.local\share\fidget'={trust_level='trusted'}}"
+        );
+        let odd = PathBuf::from("/tmp/o'brian/data.dir");
+        assert_eq!(
+            codex_trust_override(&odd),
+            r#"projects={"/tmp/o'brian/data.dir"={trust_level="trusted"}}"#
         );
     }
 
