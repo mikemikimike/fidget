@@ -497,6 +497,19 @@ test("quick-message thinking holds until reply even when Engine has not raised t
   assert.equal(surface(), "thinking", "held until dialogue or abandon");
 });
 
+test("a quick-message turn that ends with no line clears its thinking", () => {
+  const { machine, advance, placement, surface } = machineHarness();
+
+  machine.aiTurnStarted();
+  machine.frame(placement({ thinking: true }));
+  assert.equal(surface(), "thinking", "the turn is in flight");
+  // The Harness failed the turn (402, usage exhausted): the Engine drops the
+  // flag and no dialogue comes.
+  machine.frame(placement({ thinking: false }));
+  advance(THINKING_MIN_HOLD_MS);
+  assert.equal(surface(), null, "the dots end with the turn");
+});
+
 // --- #178: one overlay owns the bubble; the rest draw the art only. ---
 // The Shell nulls `dialogue`, `thinking` and `cue` on every overlay but the
 // owner's, so the placements below are what a losing overlay is really handed.
