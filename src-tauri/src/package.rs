@@ -1360,11 +1360,9 @@ mod tests {
 
         let nim = shipped_character("nim");
         let bare_motion = ["walk", "jump"];
-        for behavior in nim
-            .behaviors
-            .keys()
-            .filter(|name| !bare_motion.contains(&name.as_str()) && !default_primitives.contains(&name.as_str()))
-        {
+        for behavior in nim.behaviors.keys().filter(|name| {
+            !bare_motion.contains(&name.as_str()) && !default_primitives.contains(&name.as_str())
+        }) {
             let seen = played(&nim, behavior);
             assert!(
                 seen.contains("sit") || seen.contains("sleep"),
