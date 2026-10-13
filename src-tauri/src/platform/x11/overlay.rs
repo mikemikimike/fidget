@@ -150,7 +150,7 @@ fn apply_input_mask(
     let mut cache = PIXMAP_CACHE.lock().unwrap();
     let shape_changed = cache
         .get(&window)
-        .map_or(true, |cached| cached.shape != current_shape);
+        .is_none_or(|cached| cached.shape != current_shape);
 
     let (pixmap, _gc) = if shape_changed {
         FULL_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -463,7 +463,7 @@ mod tests {
         let cached = PIXMAP_CACHE.lock().unwrap();
         let shape_changed = cached
             .get(&window1)
-            .map_or(true, |c| c.shape != shape2);
+            .is_none_or(|c| c.shape != shape2);
         drop(cached);
 
         assert!(shape_changed, "Frame change should trigger rebuild");
@@ -502,7 +502,7 @@ mod tests {
         let cached = PIXMAP_CACHE.lock().unwrap();
         let shape_changed = cached
             .get(&window1)
-            .map_or(true, |c| c.shape != shape2);
+            .is_none_or(|c| c.shape != shape2);
         drop(cached);
 
         assert!(shape_changed, "Facing change should trigger rebuild");
@@ -541,7 +541,7 @@ mod tests {
         let cached = PIXMAP_CACHE.lock().unwrap();
         let shape_changed = cached
             .get(&window1)
-            .map_or(true, |c| c.shape != shape2);
+            .is_none_or(|c| c.shape != shape2);
         drop(cached);
 
         assert!(shape_changed, "Scale change should trigger rebuild");
@@ -570,7 +570,9 @@ mod tests {
             });
 
         let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached.get(&window1).map_or(true, |c| c.shape != shape);
+        let shape_changed = cached
+            .get(&window1)
+            .is_none_or(|c| c.shape != shape);
         drop(cached);
 
         assert!(
