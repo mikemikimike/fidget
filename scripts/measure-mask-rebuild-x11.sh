@@ -310,8 +310,8 @@ case "$scenario" in
     fi
     ;;
   walk)
-    if [ "$full_rebuild" -gt 0 ]; then
-      pct=$(awk "BEGIN {printf \"%.0f\", 100.0 * $full_rebuild / $update_count}")
+    if [ "$full_rebuilds" -gt 0 ]; then
+      pct=$(awk "BEGIN {printf \"%.0f\", 100.0 * $full_rebuilds / $update_count}")
       echo "Full rebuilds: ${pct}% of updates"
       if [ "$pct" -lt 20 ]; then
         echo "✓ Optimization working: majority reuse cached pixmap"
