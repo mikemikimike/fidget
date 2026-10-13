@@ -449,21 +449,19 @@ mod tests {
 
         // Simulate shape changes in cache
         let window1 = 1;
-        PIXMAP_CACHE
-            .lock()
-            .unwrap()
-            .insert(window1, CachedPixmap {
+        PIXMAP_CACHE.lock().unwrap().insert(
+            window1,
+            CachedPixmap {
                 pixmap: 100,
                 gc: 200,
                 shape: shape1.clone(),
-            });
+            },
+        );
         FULL_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
 
         // Check that shape2 differs from cached shape1
         let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached
-            .get(&window1)
-            .is_none_or(|c| c.shape != shape2);
+        let shape_changed = cached.get(&window1).is_none_or(|c| c.shape != shape2);
         drop(cached);
 
         assert!(shape_changed, "Frame change should trigger rebuild");
@@ -490,19 +488,17 @@ mod tests {
         };
 
         let window1 = 1;
-        PIXMAP_CACHE
-            .lock()
-            .unwrap()
-            .insert(window1, CachedPixmap {
+        PIXMAP_CACHE.lock().unwrap().insert(
+            window1,
+            CachedPixmap {
                 pixmap: 100,
                 gc: 200,
                 shape: shape1.clone(),
-            });
+            },
+        );
 
         let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached
-            .get(&window1)
-            .is_none_or(|c| c.shape != shape2);
+        let shape_changed = cached.get(&window1).is_none_or(|c| c.shape != shape2);
         drop(cached);
 
         assert!(shape_changed, "Facing change should trigger rebuild");
@@ -529,19 +525,17 @@ mod tests {
         };
 
         let window1 = 1;
-        PIXMAP_CACHE
-            .lock()
-            .unwrap()
-            .insert(window1, CachedPixmap {
+        PIXMAP_CACHE.lock().unwrap().insert(
+            window1,
+            CachedPixmap {
                 pixmap: 100,
                 gc: 200,
                 shape: shape1.clone(),
-            });
+            },
+        );
 
         let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached
-            .get(&window1)
-            .is_none_or(|c| c.shape != shape2);
+        let shape_changed = cached.get(&window1).is_none_or(|c| c.shape != shape2);
         drop(cached);
 
         assert!(shape_changed, "Scale change should trigger rebuild");
@@ -560,19 +554,17 @@ mod tests {
         };
 
         let window1 = 1;
-        PIXMAP_CACHE
-            .lock()
-            .unwrap()
-            .insert(window1, CachedPixmap {
+        PIXMAP_CACHE.lock().unwrap().insert(
+            window1,
+            CachedPixmap {
                 pixmap: 100,
                 gc: 200,
                 shape: shape.clone(),
-            });
+            },
+        );
 
         let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached
-            .get(&window1)
-            .is_none_or(|c| c.shape != shape);
+        let shape_changed = cached.get(&window1).is_none_or(|c| c.shape != shape);
         drop(cached);
 
         assert!(
@@ -605,24 +597,24 @@ mod tests {
         let window2 = 2;
 
         // Cache shape1 for window1
-        PIXMAP_CACHE
-            .lock()
-            .unwrap()
-            .insert(window1, CachedPixmap {
+        PIXMAP_CACHE.lock().unwrap().insert(
+            window1,
+            CachedPixmap {
                 pixmap: 100,
                 gc: 200,
                 shape: shape1.clone(),
-            });
+            },
+        );
 
         // Cache shape2 for window2
-        PIXMAP_CACHE
-            .lock()
-            .unwrap()
-            .insert(window2, CachedPixmap {
+        PIXMAP_CACHE.lock().unwrap().insert(
+            window2,
+            CachedPixmap {
                 pixmap: 300,
                 gc: 400,
                 shape: shape2.clone(),
-            });
+            },
+        );
 
         let cache = PIXMAP_CACHE.lock().unwrap();
 
