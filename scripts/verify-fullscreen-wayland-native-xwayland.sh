@@ -142,10 +142,16 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 
   if grep -qE " -> wl_surface@[0-9]+\\.attach\\(wl_buffer@" "$NATIVE_LOG" 2> /dev/null; then
     surface_with_attach=$(grep -E " -> wl_surface@[0-9]+\\.attach" "$NATIVE_LOG" | grep -oE "wl_surface@[0-9]+" | head -1)
-    if [ -n "$surface_with_attach" ] && grep -qE " -> $surface_with_attach\\.commit\\(\\)" "$NATIVE_LOG" 2> /dev/null; then
-      log_info "Native client attached buffer and committed"
-      commit_found=true
-      break
+    if [ -n "$surface_with_attach" ]; then
+      attach_line=$(grep -n " -> $surface_with_attach\\.attach" "$NATIVE_LOG" 2> /dev/null | head -1 | cut -d: -f1)
+      if [ -n "$attach_line" ]; then
+        commit_after=$(grep -n " -> $surface_with_attach\\.commit" "$NATIVE_LOG" 2> /dev/null | awk -F: -v attach="$attach_line" '$1 > attach {print $1; exit}')
+        if [ -n "$commit_after" ]; then
+          log_info "Native client attached buffer and committed"
+          commit_found=true
+          break
+        fi
+      fi
     fi
   fi
   sleep 0.5
