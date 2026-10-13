@@ -1106,7 +1106,7 @@ pub(crate) fn run_frame_loop(
                     continue;
                 }
                 let at = SystemTime::now();
-                session_log::remember_you(&app, &live.id, &line.text, at);
+                session_log::log_you(&app, &live.id, &line.text, at);
                 // The Chat surface draws a line it typed itself. A quick
                 // message is typed on the overlay, so an open window is told
                 // or the question only appears the next time Chat opens.
@@ -1709,16 +1709,16 @@ pub(crate) fn run_frame_loop(
                     .flatten();
                 if answering_chat || unasked {
                     let reacting_to = unasked.then(|| reacting_to.clone()).flatten();
-                    // The mark goes into the remembered line once, here:
+                    // The mark goes into the logged line once, here:
                     // the Chat surface draws the record. The bubble keeps
                     // the model's words; the parser has already read them (#610).
                     let dialogue =
                         chat_dialogue(parsed_dialogue.as_deref(), frame.dialogue.as_deref());
-                    let remembered = dialogue.map(|line| director::marked(line, truncated));
-                    session_log::remember_reply(
+                    let logged = dialogue.map(|line| director::marked(line, truncated));
+                    session_log::log_reply(
                         &app,
                         &live.id,
-                        remembered.clone(),
+                        logged.clone(),
                         reacting_to.clone(),
                         session_log::Failed {
                             error: error.clone(),
@@ -1730,7 +1730,7 @@ pub(crate) fn run_frame_loop(
                         chat_label(&live.id),
                         CHAT_EVENT,
                         ChatReply {
-                            said: remembered,
+                            said: logged,
                             busy: false,
                             reacting_to,
                             you: false,
@@ -1745,7 +1745,7 @@ pub(crate) fn run_frame_loop(
                     );
                 } else if applied {
                     // A wake with no line still thought what its window showed.
-                    session_log::remember_thinking(&app, &live.id);
+                    session_log::log_thinking(&app, &live.id);
                 }
 
                 let became_perched = live.last_state.is_some()
