@@ -689,6 +689,7 @@ pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
     x11::cleanup_overlay_window(window)
 }
 
+#[allow(dead_code)]
 #[cfg(not(all(unix, not(target_os = "macos"))))]
 pub fn cleanup_overlay_window(_window: &tauri::WebviewWindow) {}
 
