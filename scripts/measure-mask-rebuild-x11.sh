@@ -69,8 +69,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ $# -gt 0 ]; then scenario="$1"; shift; fi
-if [ $# -gt 0 ]; then duration="$1"; shift; fi
+if [ $# -gt 0 ]; then
+  scenario="$1"
+  shift
+fi
+if [ $# -gt 0 ]; then
+  duration="$1"
+  shift
+fi
 
 case "$scenario" in
   idle | walk | fast | large) ;;
@@ -90,9 +96,9 @@ esac
 log=$(mktemp -t fidget-mask-measure-XXXXXX.log)
 cleanup() {
   if [ -n "${app_pid:-}" ]; then
-    kill -TERM "$app_pid" 2>/dev/null || true
+    kill -TERM "$app_pid" 2> /dev/null || true
     # Wait for graceful shutdown (event-driven, no fixed sleep)
-    wait "$app_pid" 2>/dev/null || true
+    wait "$app_pid" 2> /dev/null || true
   fi
   rm -f "$log"
 }
@@ -121,14 +127,14 @@ app_pid=$!
 
 echo -n "Waiting for overlay ready..."
 for _ in $(seq 60); do
-  if grep -q 'overlay: [0-9]* display' "$log" 2>/dev/null; then
+  if grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
     echo " ready"
     break
   fi
   sleep 0.5
 done
 
-if ! grep -q 'overlay: [0-9]* display' "$log" 2>/dev/null; then
+if ! grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
   echo " TIMEOUT"
   echo "App failed to start. Log tail:"
   tail -20 "$log"
@@ -171,18 +177,18 @@ measure_end=$(date +%s)
 measure_elapsed=$((measure_end - measure_start))
 
 # Stop app gracefully
-kill -TERM "$app_pid" 2>/dev/null || true
-wait "$app_pid" 2>/dev/null || true
+kill -TERM "$app_pid" 2> /dev/null || true
+wait "$app_pid" 2> /dev/null || true
 app_pid=""
 
 echo ""
 echo "=== Results (${measure_elapsed}s measurement window) ==="
 echo ""
 
-if ! grep -q 'mask_rebuild:' "$log" 2>/dev/null; then
+if ! grep -q 'mask_rebuild:' "$log" 2> /dev/null; then
   rebuild_lines=0
 else
-  rebuild_lines=$(grep -c 'mask_rebuild:' "$log" 2>/dev/null)
+  rebuild_lines=$(grep -c 'mask_rebuild:' "$log" 2> /dev/null)
 fi
 
 if [ "$rebuild_lines" -eq 0 ]; then
@@ -205,11 +211,11 @@ if [ "$rebuild_lines" -eq 0 ]; then
 fi
 
 # Parse rebuild lines: extract time and position-only flag
-grep 'mask_rebuild:' "$log" | \
+grep 'mask_rebuild:' "$log" |
   sed -n 's/.*mask_rebuild: \([0-9]*\)x\([0-9]*\) @\([0-9]*\)x scale, \([0-9]*\) opaque pixels, \([0-9.]*\) ms\(.*\)/\1 \2 \3 \4 \5 \6/p' \
-  > /tmp/mask_rebuild_parsed.$$
+    > /tmp/mask_rebuild_parsed.$$
 
-position_only=$(grep -c '(position-only)' /tmp/mask_rebuild_parsed.$$ 2>/dev/null || echo "0")
+position_only=$(grep -c '(position-only)' /tmp/mask_rebuild_parsed.$$ 2> /dev/null || echo "0")
 full_rebuilds=$((rebuild_lines - position_only))
 
 echo "Total mask rebuilds: $rebuild_lines"
@@ -246,7 +252,7 @@ rm -f /tmp/mask_rebuild_parsed.$$
 echo ""
 echo "Opaque pixel count:"
 if [ -f /tmp/mask_rebuild_parsed.$$ ]; then
-  awk '{print $4}' /tmp/mask_rebuild_parsed.$$ | sort -n | uniq -c | \
+  awk '{print $4}' /tmp/mask_rebuild_parsed.$$ | sort -n | uniq -c |
     awk '{printf "  %d pixels: %d rebuild(s)\n", $2, $1}'
 fi
 
