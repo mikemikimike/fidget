@@ -298,7 +298,11 @@ fn apply_input_mask(
             scale,
             opaque_count,
             rebuild_elapsed as f64 / 1_000_000.0,
-            if shape_changed { "" } else { " (position-only)" }
+            if shape_changed {
+                ""
+            } else {
+                " (position-only)"
+            }
         );
     }
 
@@ -425,5 +429,3 @@ mod tests {
         assert_eq!(position_only, 0);
     }
 }
-
-
