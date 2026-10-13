@@ -689,10 +689,6 @@ pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
     x11::cleanup_overlay_window(window)
 }
 
-#[allow(dead_code)]
-#[cfg(not(all(unix, not(target_os = "macos"))))]
-pub fn cleanup_overlay_window(_window: &tauri::WebviewWindow) {}
-
 /// Update the input region for the overlay window based on the sprite's alpha mask.
 /// X11 and Windows then union hotspot rects so a control drawn outside the
 /// art still receives clicks. macOS uses `set_ignore_cursor_events`.

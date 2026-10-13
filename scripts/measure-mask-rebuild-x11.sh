@@ -310,13 +310,13 @@ case "$scenario" in
     fi
     ;;
   walk)
-    if [ "$position_only" -gt 0 ]; then
-      pct=$(awk "BEGIN {printf \"%.0f\", 100.0 * $position_only / $update_count}")
-      echo "Position-only updates: ${pct}% of total"
-      if [ "$pct" -gt 80 ]; then
+    if [ "$full_rebuild" -gt 0 ]; then
+      pct=$(awk "BEGIN {printf \"%.0f\", 100.0 * $full_rebuild / $update_count}")
+      echo "Full rebuilds: ${pct}% of updates"
+      if [ "$pct" -lt 20 ]; then
         echo "✓ Optimization working: majority reuse cached pixmap"
       else
-        echo "⚠ Lower than expected position-only ratio"
+        echo "⚠ Higher than expected rebuild ratio"
         echo "  Walking with consistent animation should show mostly position-only"
       fi
     fi
@@ -326,7 +326,7 @@ case "$scenario" in
     ;;
   fast | large)
     echo "Fast/large scenarios test rebuild cost at different opaque counts and FPS."
-    echo "Position-only ratio depends on how often animation frames repeat."
+    echo "Full rebuild ratio depends on how often animation frames repeat."
     ;;
 esac
 

@@ -26,6 +26,9 @@ static MASK_UPDATE_NANOS: AtomicU64 = AtomicU64::new(0);
 static FULL_REBUILD_COUNT: AtomicU64 = AtomicU64::new(0);
 static POSITION_ONLY_COUNT: AtomicU64 = AtomicU64::new(0);
 
+static WINDOW_ID_MAP: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct MaskShape {
     opaque: Vec<bool>,
@@ -69,6 +72,12 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     let Some(conn) = super::connection::connection() else {
         return Err("Failed to get X11 connection".to_string());
     };
+
+    // Record X window ID for cleanup (Destroyed event fires after handle is invalid)
+    WINDOW_ID_MAP
+        .lock()
+        .unwrap()
+        .insert(window.label().to_string(), x_window);
 
     set_ewmh_states(conn, x_window)?;
     Ok(())
@@ -349,19 +358,33 @@ fn clear_input_region(conn: &RustConnection, window: u32) -> Result<(), String> 
 
 /// Free cached X11 pixmap and GC for a destroyed overlay window.
 pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
-    let raw_window_handle = match window.window_handle() {
-        Ok(handle) => handle,
-        Err(_) => return,
-    };
-
-    let x_window = match raw_window_handle.as_raw() {
-        RawWindowHandle::Xlib(xlib_window) => xlib_window.window as u32,
-        RawWindowHandle::Xcb(xcb_window) => xcb_window.window.get(),
-        _ => return,
-    };
-
     let Some(conn) = super::connection::connection() else {
+        eprintln!("cleanup_overlay_window: failed to get X11 connection");
         return;
+    };
+
+    let label = window.label().to_string();
+
+    // Destroyed fires after the window leaves Tauri's list, so window_handle() fails.
+    // Use the X window ID we recorded at setup instead.
+    let x_window = {
+        let mut map = WINDOW_ID_MAP.lock().unwrap();
+        match map.remove(&label) {
+            Some(id) => {
+                eprintln!(
+                    "cleanup_overlay_window: freeing pixmap for window {} (X ID {})",
+                    label, id
+                );
+                id
+            }
+            None => {
+                eprintln!(
+                    "cleanup_overlay_window: no recorded X window ID for {}",
+                    label
+                );
+                return;
+            }
+        }
     };
 
     free_cached_pixmap(conn, x_window);
@@ -626,11 +649,10 @@ mod tests {
     }
 
     #[test]
-    fn ignoring_frame_change_fails() {
+    fn window2_same_shape_as_window1_rebuilds() {
         let mut cache = HashMap::new();
-        let window1 = 1;
 
-        let shape1 = MaskShape {
+        let shape = MaskShape {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
@@ -638,30 +660,21 @@ mod tests {
             scale: 1,
         };
 
-        let shape2_frame_changed = MaskShape {
-            opaque: vec![true, true, false],
-            width: 3,
-            height: 1,
-            facing: 1,
-            scale: 1,
-        };
+        let window1 = 1;
+        let window2 = 2;
 
         cache.insert(
             window1,
             CachedPixmap {
                 pixmap: 100,
                 gc: 200,
-                shape: shape1.clone(),
+                shape: shape.clone(),
             },
         );
 
-        assert_ne!(
-            shape1.opaque, shape2_frame_changed.opaque,
-            "Test setup: shapes must differ"
-        );
         assert!(
-            should_rebuild_mask(&cache, window1, &shape2_frame_changed),
-            "Ignoring frame change should fail this test"
+            should_rebuild_mask(&cache, window2, &shape),
+            "Window 2 with same shape as cached window 1 must rebuild (per-window cache)"
         );
     }
 
