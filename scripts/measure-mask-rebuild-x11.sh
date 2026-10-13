@@ -33,7 +33,7 @@ Environment:
 
 Output:
   - Full rebuilds vs position-only rebuilds
-  - Rebuilds per update (should be close to 1.0 after optimization)
+  - Full rebuild ratio (full_rebuilds / total_updates, lower is better)
   - Average CPU time per rebuild
   - Peak rebuild time
 
@@ -266,9 +266,9 @@ echo "  Full rebuilds: $full_rebuilds (mask/facing/scale changed, pixmap regener
 echo "  Position-only: $position_only (reused cached pixmap)"
 echo ""
 
-# Metric: rebuilds per update (should be ~1.0 after optimization)
-rebuilds_per_update=$(awk "BEGIN {printf \"%.2f\", ($full_rebuilds + $position_only) / $update_count}")
-echo "Rebuilds per update: $rebuilds_per_update (ideal: 1.00)"
+# Metric: full rebuild ratio (lower is better)
+rebuild_ratio=$(awk "BEGIN {printf \"%.2f\", $full_rebuilds / $update_count}")
+echo "Full rebuild ratio: $rebuild_ratio (lower is better; 0.00 = all reuse)"
 if [ "$measure_elapsed" -gt 0 ]; then
   echo "Rate: $(awk "BEGIN {printf \"%.1f\", $update_count / $measure_elapsed}") updates/sec"
 fi
