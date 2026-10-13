@@ -66,7 +66,7 @@ impl Log {
     /// Thinking still waiting here belongs to a turn nothing filed: one that
     /// was cancelled, or one this line cuts off mid-thought. Either way the
     /// typed line drops it.
-    pub fn remember_you(&mut self, instance: &str, text: impl Into<String>, at: SystemTime) {
+    pub fn log_you(&mut self, instance: &str, text: impl Into<String>, at: SystemTime) {
         self.thinking.remove(instance);
         self.turns
             .entry(instance.to_string())
@@ -131,7 +131,7 @@ impl Log {
 
     /// File this Instance's waiting thinking under the wake that just
     /// arrived, spoken or not.
-    pub fn remember_thinking(&mut self, instance: &str) {
+    pub fn log_thinking(&mut self, instance: &str) {
         if let Some(thinking) = self.thinking.remove(instance) {
             self.turns
                 .entry(instance.to_string())
@@ -149,14 +149,14 @@ impl Log {
 
     /// The turn's thinking goes in above it. A wake with no words holds
     /// nothing else (ADR-0018).
-    pub fn remember_them(
+    pub fn log_them(
         &mut self,
         instance: &str,
         said: Option<String>,
         reacting_to: Option<String>,
         at: SystemTime,
     ) {
-        self.remember_thinking(instance);
+        self.log_thinking(instance);
         let Some(said) = said else {
             return;
         };
@@ -175,7 +175,7 @@ impl Log {
 
     /// One turn's answer, filed once. A turn with no line that failed is
     /// kept as its error, so a Chat opened later does not wait on it forever.
-    pub fn remember_reply(
+    pub fn log_reply(
         &mut self,
         instance: &str,
         said: Option<String>,
@@ -185,17 +185,17 @@ impl Log {
     ) {
         match said {
             None if failed.error.is_some() || failed.failure.is_some() => {
-                self.remember_failed(instance, failed, at)
+                self.log_failed(instance, failed, at)
             }
-            said => self.remember_them(instance, said, reacting_to, at),
+            said => self.log_them(instance, said, reacting_to, at),
         }
     }
 
     /// A turn that ended in an error instead of a line. Its thinking goes
     /// in above it, as a line's does.
-    fn remember_failed(&mut self, instance: &str, failed: Failed, at: SystemTime) {
+    fn log_failed(&mut self, instance: &str, failed: Failed, at: SystemTime) {
         let Failed { error, failure } = failed;
-        self.remember_thinking(instance);
+        self.log_thinking(instance);
         self.turns
             .entry(instance.to_string())
             .or_default()
@@ -268,13 +268,8 @@ fn with_log(app: &tauri::AppHandle, f: impl FnOnce(&mut Log)) {
     }
 }
 
-pub fn remember_you(
-    app: &tauri::AppHandle,
-    instance: &str,
-    text: impl Into<String>,
-    at: SystemTime,
-) {
-    with_log(app, |log| log.remember_you(instance, text, at));
+pub fn log_you(app: &tauri::AppHandle, instance: &str, text: impl Into<String>, at: SystemTime) {
+    with_log(app, |log| log.log_you(instance, text, at));
 }
 
 pub fn think(app: &tauri::AppHandle, instance: &str, text: &str, at: SystemTime) {
@@ -296,8 +291,8 @@ pub fn think_more(
     whole.unwrap_or_else(|| addition.to_string())
 }
 
-pub fn remember_thinking(app: &tauri::AppHandle, instance: &str) {
-    with_log(app, |log| log.remember_thinking(instance));
+pub fn log_thinking(app: &tauri::AppHandle, instance: &str) {
+    with_log(app, |log| log.log_thinking(instance));
 }
 
 /// Join peeled planning onto a thought already on the wire.
@@ -312,7 +307,7 @@ fn join_thought(prior: &str, addition: &str) -> String {
 }
 
 /// The answer to a Chat turn: its line, or the error that came instead.
-pub fn remember_reply(
+pub fn log_reply(
     app: &tauri::AppHandle,
     instance: &str,
     said: Option<String>,
@@ -321,7 +316,7 @@ pub fn remember_reply(
     at: SystemTime,
 ) {
     with_log(app, |log| {
-        log.remember_reply(instance, said, reacting_to, failed, at)
+        log.log_reply(instance, said, reacting_to, failed, at)
     });
 }
 
@@ -375,7 +370,7 @@ mod tests {
     #[test]
     fn a_spoken_line_is_still_there_when_chat_opens_later() {
         let mut log = Log::new();
-        log.remember_them(
+        log.log_them(
             "buddy-1",
             Some("hello from the bubble".into()),
             Some("when poked".into()),
@@ -394,7 +389,7 @@ mod tests {
     #[test]
     fn a_reply_with_a_line_keeps_the_line_not_the_error() {
         let mut log = Log::new();
-        log.remember_reply(
+        log.log_reply(
             "buddy-1",
             Some("partial".into()),
             None,
@@ -416,8 +411,8 @@ mod tests {
     #[test]
     fn a_failed_turn_is_still_there_when_chat_opens_later() {
         let mut log = Log::new();
-        log.remember_you("buddy-1", "hi", UNIX_EPOCH);
-        log.remember_reply(
+        log.log_you("buddy-1", "hi", UNIX_EPOCH);
+        log.log_reply(
             "buddy-1",
             None,
             None,
@@ -447,13 +442,13 @@ mod tests {
     #[test]
     fn replay_is_the_instance_that_said_it() {
         let mut log = Log::new();
-        log.remember_them(
+        log.log_them(
             "a",
             Some("from A".into()),
             Some("unprompted".into()),
             UNIX_EPOCH,
         );
-        log.remember_them(
+        log.log_them(
             "b",
             Some("from B".into()),
             Some("when summoned".into()),
@@ -471,7 +466,7 @@ mod tests {
     #[test]
     fn a_wake_with_no_speech_is_not_held() {
         let mut log = Log::new();
-        log.remember_them("buddy-1", None, None, UNIX_EPOCH);
+        log.log_them("buddy-1", None, None, UNIX_EPOCH);
         assert!(log.replay("buddy-1").is_empty());
     }
 
@@ -480,14 +475,14 @@ mod tests {
     #[test]
     fn typed_and_spoken_stay_in_order() {
         let mut log = Log::new();
-        log.remember_them(
+        log.log_them(
             "buddy-1",
             Some("unprompted hi".into()),
             Some("unprompted".into()),
             UNIX_EPOCH,
         );
-        log.remember_you("buddy-1", "what are you standing on?", UNIX_EPOCH);
-        log.remember_them(
+        log.log_you("buddy-1", "what are you standing on?", UNIX_EPOCH);
+        log.log_them(
             "buddy-1",
             Some("the desktop floor".into()),
             None,
@@ -509,7 +504,7 @@ mod tests {
     #[test]
     fn restored_history_stands_apart_once_until_the_session_goes() {
         let mut log = Log::new();
-        log.remember_you("buddy-1", "are you back?", UNIX_EPOCH);
+        log.log_you("buddy-1", "are you back?", UNIX_EPOCH);
         let reply = |text: &str| Replayed::Reply {
             text: text.to_string(),
         };
@@ -539,8 +534,8 @@ mod tests {
     #[test]
     fn forgetting_one_instance_leaves_the_others_conversation() {
         let mut log = Log::new();
-        log.remember_you("saved", "before the edit", UNIX_EPOCH);
-        log.remember_you("other", "still talking", UNIX_EPOCH);
+        log.log_you("saved", "before the edit", UNIX_EPOCH);
+        log.log_you("other", "still talking", UNIX_EPOCH);
 
         log.forget("saved");
 
@@ -553,7 +548,7 @@ mod tests {
     #[test]
     fn retarget_forgets_the_old_session() {
         let mut log = Log::new();
-        log.remember_you("buddy-1", "old session", UNIX_EPOCH);
+        log.log_you("buddy-1", "old session", UNIX_EPOCH);
         log.forget("buddy-1");
         assert!(log.replay("buddy-1").is_empty());
     }
@@ -564,8 +559,8 @@ mod tests {
     #[test]
     fn a_switched_buddy_does_not_forget_the_others() {
         let mut log = Log::new();
-        log.remember_you("switched", "before the switch", UNIX_EPOCH);
-        log.remember_you("untouched", "still this session", UNIX_EPOCH);
+        log.log_you("switched", "before the switch", UNIX_EPOCH);
+        log.log_you("untouched", "still this session", UNIX_EPOCH);
 
         log.forget("switched");
 
@@ -580,8 +575,8 @@ mod tests {
         let mut log = Log::new();
         let first = UNIX_EPOCH + Duration::from_secs(1_000);
         let second = first + Duration::from_secs(20 * 60);
-        log.remember_you("buddy-1", "typed twenty minutes ago", first);
-        log.remember_them("buddy-1", Some("answered later".into()), None, second);
+        log.log_you("buddy-1", "typed twenty minutes ago", first);
+        log.log_them("buddy-1", Some("answered later".into()), None, second);
 
         let turns = log.replay("buddy-1");
         assert_eq!(turns.len(), 2);
@@ -599,7 +594,7 @@ mod tests {
     fn thinking_is_kept_above_the_reply_it_led_to() {
         let mut log = Log::new();
         let first = UNIX_EPOCH + Duration::from_secs(1_000);
-        log.remember_you("buddy-1", "what are you standing on?", first);
+        log.log_you("buddy-1", "what are you standing on?", first);
         log.think("buddy-1", "Reading", first);
         log.think(
             "buddy-1",
@@ -607,7 +602,7 @@ mod tests {
             first + Duration::from_secs(2),
         );
         log.think("buddy-1", "", first + Duration::from_secs(3));
-        log.remember_them(
+        log.log_them(
             "buddy-1",
             Some("the desktop floor".into()),
             None,
@@ -642,7 +637,7 @@ mod tests {
         log.think("buddy-1", "Should I nap?", UNIX_EPOCH);
         log.think("buddy-1", "", UNIX_EPOCH);
         log.think("buddy-1", "Checking the desk", later);
-        log.remember_them("buddy-1", Some("on it".into()), None, later);
+        log.log_them("buddy-1", Some("on it".into()), None, later);
 
         let turns = log.replay("buddy-1");
         assert_eq!(turns[0].who, Who::Thinking);
@@ -657,7 +652,7 @@ mod tests {
     fn thinking_is_kept_when_the_turn_said_nothing() {
         let mut log = Log::new();
         log.think("buddy-1", "Weighing a nap", UNIX_EPOCH);
-        log.remember_them("buddy-1", None, None, UNIX_EPOCH);
+        log.log_them("buddy-1", None, None, UNIX_EPOCH);
 
         let turns = log.replay("buddy-1");
         assert_eq!(turns.len(), 1);
@@ -672,8 +667,8 @@ mod tests {
         let mut log = Log::new();
         log.think("buddy-1", "Should I nap?", UNIX_EPOCH);
         log.think("buddy-1", "", UNIX_EPOCH);
-        log.remember_thinking("buddy-1");
-        log.remember_them("buddy-1", Some("hi".into()), None, UNIX_EPOCH);
+        log.log_thinking("buddy-1");
+        log.log_them("buddy-1", Some("hi".into()), None, UNIX_EPOCH);
 
         let who: Vec<_> = log.replay("buddy-1").iter().map(|t| t.who).collect();
         assert_eq!(who, [Who::Thinking, Who::Them]);
@@ -686,8 +681,8 @@ mod tests {
         let mut log = Log::new();
         log.think("buddy-1", "Half a thought", UNIX_EPOCH);
         log.think("buddy-1", "", UNIX_EPOCH);
-        log.remember_you("buddy-1", "next question", UNIX_EPOCH);
-        log.remember_them("buddy-1", Some("answer".into()), None, UNIX_EPOCH);
+        log.log_you("buddy-1", "next question", UNIX_EPOCH);
+        log.log_them("buddy-1", Some("answer".into()), None, UNIX_EPOCH);
 
         let who: Vec<_> = log.replay("buddy-1").iter().map(|t| t.who).collect();
         assert_eq!(who, [Who::You, Who::Them]);
@@ -700,8 +695,8 @@ mod tests {
     fn a_typed_line_drops_thinking_cut_off_mid_stream() {
         let mut log = Log::new();
         log.think("buddy-1", "Half a thought", UNIX_EPOCH);
-        log.remember_you("buddy-1", "next question", UNIX_EPOCH);
-        log.remember_them("buddy-1", Some("answer".into()), None, UNIX_EPOCH);
+        log.log_you("buddy-1", "next question", UNIX_EPOCH);
+        log.log_them("buddy-1", Some("answer".into()), None, UNIX_EPOCH);
 
         let who: Vec<_> = log.replay("buddy-1").iter().map(|t| t.who).collect();
         assert_eq!(who, [Who::You, Who::Them]);
@@ -714,7 +709,7 @@ mod tests {
         let mut log = Log::new();
         log.think("buddy-1", "From the old session", UNIX_EPOCH);
         log.forget("buddy-1");
-        log.remember_them("buddy-1", Some("fresh".into()), None, UNIX_EPOCH);
+        log.log_them("buddy-1", Some("fresh".into()), None, UNIX_EPOCH);
 
         let who: Vec<_> = log.replay("buddy-1").iter().map(|t| t.who).collect();
         assert_eq!(who, [Who::Them]);
@@ -729,7 +724,7 @@ mod tests {
         let whole = log.think_more("buddy-1", "Planning first.", UNIX_EPOCH);
 
         assert_eq!(whole, "Weighing a nap\n\nPlanning first.");
-        log.remember_them("buddy-1", Some("ok".into()), None, UNIX_EPOCH);
+        log.log_them("buddy-1", Some("ok".into()), None, UNIX_EPOCH);
         assert_eq!(
             log.replay("buddy-1")[0].said.as_deref(),
             Some("Weighing a nap\n\nPlanning first.")
@@ -746,7 +741,7 @@ mod tests {
         let whole = log.think_more("buddy-1", "Planning first.", UNIX_EPOCH);
 
         assert_eq!(whole, "Weighing a nap\n\nPlanning first.");
-        log.remember_thinking("buddy-1");
+        log.log_thinking("buddy-1");
         assert_eq!(
             log.replay("buddy-1")[0].said.as_deref(),
             Some("Weighing a nap\n\nPlanning first.")
@@ -763,9 +758,9 @@ mod tests {
         log.think("buddy-b", "B checks the desk", UNIX_EPOCH);
         log.think("buddy-a", "A reads the roster twice", UNIX_EPOCH);
         log.think("buddy-b", "", UNIX_EPOCH);
-        log.remember_them("buddy-b", Some("B answers".into()), None, UNIX_EPOCH);
+        log.log_them("buddy-b", Some("B answers".into()), None, UNIX_EPOCH);
         log.think("buddy-a", "", UNIX_EPOCH);
-        log.remember_them("buddy-a", Some("A answers".into()), None, UNIX_EPOCH);
+        log.log_them("buddy-a", Some("A answers".into()), None, UNIX_EPOCH);
 
         let kept = |instance| {
             log.replay(instance)
@@ -795,9 +790,9 @@ mod tests {
     fn one_instances_typed_line_or_new_session_keeps_anothers_thinking() {
         let mut log = Log::new();
         log.think("buddy-b", "B checks the desk", UNIX_EPOCH);
-        log.remember_you("buddy-a", "hello A", UNIX_EPOCH);
+        log.log_you("buddy-a", "hello A", UNIX_EPOCH);
         log.forget("buddy-a");
-        log.remember_them("buddy-b", Some("B answers".into()), None, UNIX_EPOCH);
+        log.log_them("buddy-b", Some("B answers".into()), None, UNIX_EPOCH);
 
         let who: Vec<_> = log.replay("buddy-b").iter().map(|t| t.who).collect();
         assert_eq!(who, [Who::Thinking, Who::Them]);

@@ -1106,7 +1106,7 @@ pub(crate) fn run_frame_loop(
                     continue;
                 }
                 let at = SystemTime::now();
-                session_log::remember_you(&app, &live.id, &line.text, at);
+                session_log::log_you(&app, &live.id, &line.text, at);
                 // The Chat surface draws a line it typed itself. A quick
                 // message is typed on the overlay, so an open window is told
                 // or the question only appears the next time Chat opens.
@@ -1715,7 +1715,7 @@ pub(crate) fn run_frame_loop(
                     let dialogue =
                         chat_dialogue(parsed_dialogue.as_deref(), frame.dialogue.as_deref());
                     let remembered = dialogue.map(|line| director::marked(line, truncated));
-                    session_log::remember_reply(
+                    session_log::log_reply(
                         &app,
                         &live.id,
                         remembered.clone(),
@@ -1745,7 +1745,7 @@ pub(crate) fn run_frame_loop(
                     );
                 } else if applied {
                     // A wake with no line still thought what its window showed.
-                    session_log::remember_thinking(&app, &live.id);
+                    session_log::log_thinking(&app, &live.id);
                 }
 
                 let became_perched = live.last_state.is_some()

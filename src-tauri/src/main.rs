@@ -5185,7 +5185,7 @@ mod tests {
     #[test]
     fn a_replayed_failed_turn_reaches_chat_with_its_error() {
         let mut log = session_log::Log::new();
-        log.remember_reply(
+        log.log_reply(
             "buddy-1",
             None,
             None,
