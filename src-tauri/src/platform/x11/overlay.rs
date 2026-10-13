@@ -147,7 +147,7 @@ fn apply_input_mask(
     let mut cache = CACHED_PIXMAP.lock().unwrap();
     let shape_changed = cache
         .as_ref()
-        .map_or(true, |cached| cached.shape != current_shape);
+        .is_none_or(|cached| cached.shape != current_shape);
 
     let (pixmap, _gc) = if shape_changed {
         // Shape changed: need to rebuild the pixmap
@@ -336,7 +336,7 @@ pub fn mask_rebuild_stats() -> (u64, u64, u64) {
     let total = MASK_REBUILD_COUNT.load(Ordering::Relaxed);
     let position_only = POSITION_ONLY_REBUILD_COUNT.load(Ordering::Relaxed);
     let total_nanos = MASK_REBUILD_NANOS.load(Ordering::Relaxed);
-    let avg_nanos = if total > 0 { total_nanos / total } else { 0 };
+    let avg_nanos = total_nanos.checked_div(total).unwrap_or(0);
     (total, position_only, avg_nanos)
 }
 
