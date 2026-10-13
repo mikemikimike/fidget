@@ -21,6 +21,14 @@ pub enum Who {
     Thinking,
 }
 
+/// Why a turn failed, as `ChatReply` carries it: `error` for the note,
+/// `failure` for the Harness's own words.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Failed {
+    pub error: Option<String>,
+    pub failure: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Turn {
     pub who: Who,
@@ -28,6 +36,10 @@ pub struct Turn {
     pub reacting_to: Option<String>,
     /// When the line was said, not when Chat later opened. Replay stamps from this.
     pub at: SystemTime,
+    /// A turn that failed: why, as `ChatReply` carries it. Kept so a Chat
+    /// opened after the failure still shows it (#1510).
+    pub error: Option<String>,
+    pub failure: Option<String>,
 }
 
 /// The thinking of an Instance's turn on the wire, waiting here until that
@@ -64,6 +76,8 @@ impl Log {
                 said: Some(text.into()),
                 reacting_to: None,
                 at,
+                error: None,
+                failure: None,
             });
     }
 
@@ -127,6 +141,8 @@ impl Log {
                     said: Some(thinking.text),
                     reacting_to: None,
                     at: thinking.at,
+                    error: None,
+                    failure: None,
                 });
         }
     }
@@ -152,6 +168,44 @@ impl Log {
                 said: Some(said),
                 reacting_to,
                 at,
+                error: None,
+                failure: None,
+            });
+    }
+
+    /// One turn's answer, filed once. A turn with no line that failed is
+    /// kept as its error, so a Chat opened later does not wait on it forever.
+    pub fn remember_reply(
+        &mut self,
+        instance: &str,
+        said: Option<String>,
+        reacting_to: Option<String>,
+        failed: Failed,
+        at: SystemTime,
+    ) {
+        match said {
+            None if failed.error.is_some() || failed.failure.is_some() => {
+                self.remember_failed(instance, failed, at)
+            }
+            said => self.remember_them(instance, said, reacting_to, at),
+        }
+    }
+
+    /// A turn that ended in an error instead of a line. Its thinking goes
+    /// in above it, as a line's does.
+    fn remember_failed(&mut self, instance: &str, failed: Failed, at: SystemTime) {
+        let Failed { error, failure } = failed;
+        self.remember_thinking(instance);
+        self.turns
+            .entry(instance.to_string())
+            .or_default()
+            .push(Turn {
+                who: Who::Them,
+                said: None,
+                reacting_to: None,
+                at,
+                error,
+                failure,
             });
     }
 
@@ -257,15 +311,17 @@ fn join_thought(prior: &str, addition: &str) -> String {
     }
 }
 
-pub fn remember_them(
+/// The answer to a Chat turn: its line, or the error that came instead.
+pub fn remember_reply(
     app: &tauri::AppHandle,
     instance: &str,
     said: Option<String>,
     reacting_to: Option<String>,
+    failed: Failed,
     at: SystemTime,
 ) {
     with_log(app, |log| {
-        log.remember_them(instance, said, reacting_to, at)
+        log.remember_reply(instance, said, reacting_to, failed, at)
     });
 }
 
@@ -331,6 +387,59 @@ mod tests {
         assert_eq!(turns[0].who, Who::Them);
         assert_eq!(turns[0].said.as_deref(), Some("hello from the bubble"));
         assert_eq!(turns[0].reacting_to.as_deref(), Some("when poked"));
+    }
+
+    /// Production change that would fail this: filing a reply's error over
+    /// the line it did say.
+    #[test]
+    fn a_reply_with_a_line_keeps_the_line_not_the_error() {
+        let mut log = Log::new();
+        log.remember_reply(
+            "buddy-1",
+            Some("partial".into()),
+            None,
+            Failed {
+                error: Some("usage".into()),
+                failure: None,
+            },
+            UNIX_EPOCH,
+        );
+
+        let turns = log.replay("buddy-1");
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].said.as_deref(), Some("partial"));
+        assert_eq!(turns[0].error, None);
+    }
+
+    /// Production change that would fail this: a failed turn leaving no row,
+    /// so a Chat opened afterwards shows the typed line waiting forever (#1510).
+    #[test]
+    fn a_failed_turn_is_still_there_when_chat_opens_later() {
+        let mut log = Log::new();
+        log.remember_you("buddy-1", "hi", UNIX_EPOCH);
+        log.remember_reply(
+            "buddy-1",
+            None,
+            None,
+            Failed {
+                error: Some("usage".into()),
+                failure: Some(
+                    "API error (status 402 Payment Required): Grok Build usage balance exhausted"
+                        .into(),
+                ),
+            },
+            UNIX_EPOCH,
+        );
+
+        let turns = log.replay("buddy-1");
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[1].who, Who::Them);
+        assert_eq!(turns[1].said, None);
+        assert_eq!(turns[1].error.as_deref(), Some("usage"));
+        assert_eq!(
+            turns[1].failure.as_deref(),
+            Some("API error (status 402 Payment Required): Grok Build usage balance exhausted")
+        );
     }
 
     /// Production change that would fail this: replaying Instance A's Speech

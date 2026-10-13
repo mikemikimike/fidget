@@ -80,9 +80,13 @@ export function createBubbleMachine(io) {
   let thinking = false;
   let thinkingPrev = false;
   let wasInterrupted = false;
-  // Latched when a quick-message send starts the AI turn; cleared by dialogue, abandon, or hide-all.
-  // Without it, frame() would clear thinking before the Engine raises the flag.
+  // Latched when a quick-message send starts the AI turn; cleared by dialogue, abandon, hide-all,
+  // or the Engine's flag falling once it has risen. Without the latch, frame() would clear
+  // thinking before the Engine raises the flag.
   let aiTurnPending = false;
+  // The Engine raised thinking for the pending turn. A turn that ends with no line (a failed
+  // turn, an empty answer) still lowers the flag, and that fall ends the pending turn.
+  let aiTurnSeen = false;
 
   function hideThinkingNow() {
     if (graceTimer !== null) {
@@ -154,6 +158,9 @@ export function createBubbleMachine(io) {
         }
       }
 
+      if (aiTurnPending && placement.thinking) aiTurnSeen = true;
+      else if (aiTurnPending && aiTurnSeen) aiTurnPending = false;
+
       thinking = Boolean(placement.thinking && placement.visible) || aiTurnPending;
       const thinkingRose = thinking && !thinkingPrev;
       thinkingPrev = thinking;
@@ -188,9 +195,10 @@ export function createBubbleMachine(io) {
     },
 
     // Quick-message accepted a send: the AI turn starts; show thinking now, no grace.
-    // Cleared by dialogue/ask, aiTurnAbandoned, or hideAllNow — not by Engine thinking:false.
+    // Cleared by dialogue/ask, aiTurnAbandoned, hideAllNow, or Engine thinking falling after it rose.
     aiTurnStarted() {
       aiTurnPending = true;
+      aiTurnSeen = false;
       thinking = true;
       if (speechTimer !== null) {
         cancel(speechTimer);
