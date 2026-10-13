@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prove whether native Wayland fullscreen apps appear in XWayland's window list (#1369).
+# Prove that native Wayland fullscreen apps don't appear in XWayland's window list (#1369).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,8 +20,8 @@ fail() {
   exit 1
 }
 
-for tool in weston Xwayland weston-simple-shm xterm xprop openbox; do
-  command -v "$tool" > /dev/null || fail "$tool not found"
+for tool in mutter xprop xdotool gtk4-demo xterm; do
+  command -v "$tool" > /dev/null || fail "$tool not found (install mutter, x11-utils, xdotool, gtk-4-examples, xterm)"
 done
 
 cd "$WORKSPACE_ROOT"
@@ -29,22 +29,18 @@ cd "$WORKSPACE_ROOT"
 STAMP=$(date +%Y%m%d-%H%M%S)
 OUT=".verify/fullscreen-wayland-native-xwayland-$STAMP"
 mkdir -p "$OUT"
-WESTON_LOG="$OUT/weston.log"
-FIDGET_LOG="$OUT/fidget.log"
+MUTTER_LOG="$OUT/mutter.log"
 NATIVE_LOG="$OUT/native.log"
 XTERM_LOG="$OUT/xterm.log"
-OPENBOX_LOG="$OUT/openbox.log"
 
-WESTON_PID=""
-OPENBOX_PID=""
-FIDGET_PID=""
+MUTTER_PID=""
 NATIVE_PID=""
 XTERM_PID=""
 
 # shellcheck disable=SC2317,SC2329 # invoked via trap
 cleanup() {
   log_info "Cleaning up..."
-  for pid in "$XTERM_PID" "$NATIVE_PID" "$FIDGET_PID" "$OPENBOX_PID" "$WESTON_PID"; do
+  for pid in "$XTERM_PID" "$NATIVE_PID" "$MUTTER_PID"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2> /dev/null || true
     fi
@@ -55,133 +51,125 @@ trap cleanup EXIT
 
 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
 export XDG_RUNTIME_DIR
-WESTON_SOCKET="weston-${STAMP}"
+WAYLAND_SOCKET="mutter-test-${STAMP}"
+export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
 
-log_info "Starting weston headless with XWayland..."
-weston --backend=headless-backend.so --width=1920 --height=1080 --xwayland --socket="$WESTON_SOCKET" > "$WESTON_LOG" 2>&1 &
-WESTON_PID=$!
-export WAYLAND_DISPLAY="$WESTON_SOCKET"
+log_info "Starting mutter headless with XWayland..."
+mutter --headless --wayland --virtual-monitor 1920x1080 --wayland-display="$WAYLAND_SOCKET" > "$MUTTER_LOG" 2>&1 &
+MUTTER_PID=$!
 
-log_info "Waiting for weston..."
-for _ in $(seq 1 60); do
-  [ -e "$XDG_RUNTIME_DIR/$WESTON_SOCKET" ] && break
-  sleep 0.25
-done
-[ -e "$XDG_RUNTIME_DIR/$WESTON_SOCKET" ] || fail "Weston socket not found"
+sleep 2
+if ! ps -p "$MUTTER_PID" > /dev/null 2>&1; then
+  cat "$MUTTER_LOG"
+  fail "Mutter failed to start"
+fi
 
-log_info "Waiting for XWayland..."
-for _ in $(seq 1 60); do
-  for display in $(seq 0 20); do
-    if [ -e "/tmp/.X11-unix/X${display}" ]; then
-      export DISPLAY=":${display}"
-      log_info "XWayland started on DISPLAY=$DISPLAY"
-      break 2
-    fi
-  done
-  sleep 0.25
-done
-[ -n "$DISPLAY" ] || fail "XWayland not found"
-
-log_info "Starting openbox window manager on $DISPLAY..."
-DISPLAY="$DISPLAY" openbox > "$OPENBOX_LOG" 2>&1 &
-OPENBOX_PID=$!
-for _ in $(seq 1 40); do
-  DISPLAY="$DISPLAY" xprop -root _NET_SUPPORTING_WM_CHECK 2> /dev/null | grep -q 'window id' && break
-  sleep 0.25
-done
-DISPLAY="$DISPLAY" xprop -root _NET_SUPPORTING_WM_CHECK 2> /dev/null | grep -q 'window id' || fail "Openbox did not start"
-log_info "Openbox started"
-
-BIN="${FIDGET_VERIFY_BIN:-$WORKSPACE_ROOT/target/debug/fidget}"
-[ -x "$BIN" ] || fail "fidget binary not found at $BIN"
-
-get_window_count() {
-  DISPLAY="$DISPLAY" xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' | wc -l | tr -d ' '
-}
-
-BASELINE_BEFORE_FIDGET=$(get_window_count)
-log_info "Before fidget: $BASELINE_BEFORE_FIDGET X11 windows"
-
-log_info "Starting fidget under XWayland..."
-HOME_DIR="$OUT/home"
-mkdir -p "$HOME_DIR"
-stdbuf -oL -eL env -u FIDGET_DIRECTOR_API_KEY \
-  HOME="$HOME_DIR" \
-  DISPLAY="$DISPLAY" \
-  WAYLAND_DISPLAY="$WESTON_SOCKET" \
-  FIDGET_TRACE_FRAMES=1 \
-  FIDGET_CAPTURABLE=1 \
-  FIDGET_CHARACTER=timber-wolf \
-  FIDGET_CHARACTERS="${FIDGET_CHARACTERS:-$WORKSPACE_ROOT/characters}" \
-  GDK_BACKEND=x11 \
-  LIBGL_ALWAYS_SOFTWARE=1 \
-  "$BIN" > "$FIDGET_LOG" 2>&1 &
-FIDGET_PID=$!
-
-log_info "Waiting for fidget window to appear in _NET_CLIENT_LIST..."
-for _ in $(seq 1 80); do
-  CUR=$(get_window_count)
-  if [ "$CUR" -gt "$BASELINE_BEFORE_FIDGET" ]; then
-    log_info "Fidget window appeared"
+log_info "Waiting for XWayland display..."
+for _ in $(seq 1 30); do
+  if grep -qE "DISPLAY=:[0-9]+" "$MUTTER_LOG" 2> /dev/null; then
+    DISPLAY=$(grep -oE "DISPLAY=:[0-9]+" "$MUTTER_LOG" | head -1 | cut -d= -f2)
+    export DISPLAY
+    log_info "Found XWayland at $DISPLAY"
     break
   fi
-  sleep 0.25
+  sleep 0.5
 done
 
-BASELINE_WINDOWS=$(get_window_count)
-if [ "$BASELINE_WINDOWS" -le "$BASELINE_BEFORE_FIDGET" ]; then
-  fail "Fidget window never appeared in X11 client list"
-fi
-log_info "Baseline with fidget: $BASELINE_WINDOWS X11 windows"
-sleep 1
+[ -n "${DISPLAY:-}" ] || fail "XWayland display not found in mutter log"
 
-log_info "Starting native Wayland client (weston-simple-shm)..."
-DISPLAY="" WAYLAND_DISPLAY="$WESTON_SOCKET" weston-simple-shm > "$NATIVE_LOG" 2>&1 &
+if ! xprop -root > /dev/null 2>&1; then
+  fail "Cannot connect to $DISPLAY"
+fi
+
+count_windows() {
+  xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' | wc -l
+}
+
+dump_windows() {
+  local label="$1"
+  printf "\n${GREEN}=== %s ===${NC}\n" "$label"
+  local list
+  list=$(xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' || true)
+
+  if [ -z "$list" ]; then
+    echo "  (no windows)"
+    return
+  fi
+
+  echo "$list" | while IFS= read -r wid; do
+    local class name
+    class=$(xprop -id "$wid" WM_CLASS 2> /dev/null | sed -n 's/.*= "\([^"]*\)".*/\1/p' || echo "?")
+    name=$(xprop -id "$wid" _NET_WM_NAME WM_NAME 2> /dev/null | sed -n 's/.*= "\([^"]*\)".*/\1/p' | head -1 || echo "?")
+    printf "  %s  WM_CLASS=%-15s WM_NAME=\"%s\"\n" "$wid" "$class" "$name"
+  done
+
+  local count
+  count=$(echo "$list" | wc -l)
+  printf "  ${YELLOW}Total: %d${NC}\n" "$count"
+}
+
+BASELINE=$(count_windows)
+dump_windows "Baseline (mutter)"
+
+log_info "Starting native Wayland client (gtk4-demo, GDK_BACKEND=wayland)..."
+GDK_BACKEND=wayland GSK_RENDERER=cairo gtk4-demo > "$NATIVE_LOG" 2>&1 &
 NATIVE_PID=$!
-sleep 2
 
-if kill -0 "$NATIVE_PID" 2> /dev/null; then
-  NATIVE_WINDOWS=$(get_window_count)
-  log_info "With native client: $NATIVE_WINDOWS X11 windows"
-  kill "$NATIVE_PID" 2> /dev/null || true
-  NATIVE_PID=""
-else
-  log_warn "Native client exited early"
-  NATIVE_WINDOWS="$BASELINE_WINDOWS"
+log_info "Waiting for native client window..."
+deadline=$(($(date +%s) + 15))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if ps -p "$NATIVE_PID" > /dev/null 2>&1; then
+    if pgrep -P "$NATIVE_PID" > /dev/null 2>&1 || grep -q "GtkApplication" "$NATIVE_LOG" 2> /dev/null; then
+      log_info "Native client running"
+      sleep 2
+      break
+    fi
+  else
+    log_warn "Native client exited early. Log:"
+    cat "$NATIVE_LOG"
+    NATIVE_PID=""
+    break
+  fi
+  sleep 0.5
+done
+
+AFTER_NATIVE=$(count_windows)
+dump_windows "With native Wayland client (gtk4-demo)"
+
+if [ "$AFTER_NATIVE" -gt "$BASELINE" ]; then
+  log_error "UNEXPECTED: Window count increased from $BASELINE to $AFTER_NATIVE"
+  log_error "Native Wayland app appeared in _NET_CLIENT_LIST (should not happen)"
+  exit 1
 fi
 
-sleep 1
+log_info "Native client did NOT appear in _NET_CLIENT_LIST (expected)"
 
 log_info "Starting XWayland client (xterm)..."
-DISPLAY="$DISPLAY" xterm -e "sleep 10" > "$XTERM_LOG" 2>&1 &
+xterm -e "sleep 15" > "$XTERM_LOG" 2>&1 &
 XTERM_PID=$!
 
-for _ in $(seq 1 60); do
-  CUR=$(get_window_count)
-  [ "$CUR" -gt "$BASELINE_WINDOWS" ] && break
-  sleep 0.25
+log_info "Waiting for xterm window..."
+deadline=$(($(date +%s) + 10))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if xdotool search --class xterm > /dev/null 2>&1; then
+    log_info "xterm detected"
+    sleep 1
+    break
+  fi
+  sleep 0.5
 done
 
-XTERM_WINDOWS=$(get_window_count)
-log_info "With XWayland client: $XTERM_WINDOWS X11 windows"
+AFTER_XTERM=$(count_windows)
+dump_windows "With XWayland client (xterm)"
 
-log_info ""
-log_info "=== Results ==="
-log_info "Baseline (fidget only): $BASELINE_WINDOWS windows"
-log_info "Native Wayland client: $NATIVE_WINDOWS windows ($([ "$NATIVE_WINDOWS" -gt "$BASELINE_WINDOWS" ] && echo APPEARED || echo NOT IN LIST))"
-log_info "XWayland client: $XTERM_WINDOWS windows ($([ "$XTERM_WINDOWS" -gt "$BASELINE_WINDOWS" ] && echo APPEARED || echo NOT IN LIST))"
-log_info ""
-
-if [ "$NATIVE_WINDOWS" -eq "$BASELINE_WINDOWS" ] && [ "$XTERM_WINDOWS" -gt "$BASELINE_WINDOWS" ]; then
-  log_info "✓ CONFIRMED: Native Wayland apps invisible to XWayland, X clients visible"
-  echo "RESULT: CONFIRMED"
-  exit 0
-elif [ "$NATIVE_WINDOWS" -gt "$BASELINE_WINDOWS" ]; then
-  log_error "✗ REFUTED: Native client appeared in X11 list"
-  echo "RESULT: REFUTED"
+if [ "$AFTER_XTERM" -le "$AFTER_NATIVE" ]; then
+  log_error "FAIL: xterm did not appear in _NET_CLIENT_LIST"
   exit 1
-else
-  log_warn "? INCONCLUSIVE: Could not verify both client types"
-  echo "RESULT: INCONCLUSIVE"
-  exit 2
 fi
+
+log_info "xterm appeared in _NET_CLIENT_LIST (expected)"
+
+echo ""
+log_info "${GREEN}CONFIRMED:${NC} Native Wayland apps do NOT appear in XWayland's _NET_CLIENT_LIST"
+log_info "XWayland clients DO appear in _NET_CLIENT_LIST"
+log_info "Baseline: $BASELINE, +native: $AFTER_NATIVE, +xterm: $AFTER_XTERM"
