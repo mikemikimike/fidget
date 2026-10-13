@@ -41,7 +41,7 @@ FIDGET_PID=""
 NATIVE_PID=""
 XTERM_PID=""
 
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317
 cleanup() {
   log_info "Cleaning up..."
   for pid in "$XTERM_PID" "$NATIVE_PID" "$FIDGET_PID" "$OPENBOX_PID" "$WESTON_PID"; do
