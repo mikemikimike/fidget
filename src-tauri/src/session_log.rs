@@ -13,7 +13,7 @@ use fidget_core::director::{dialogue_of, typed_line};
 
 use crate::harness::Replayed;
 
-/// Whose row a remembered turn is.
+/// Whose row a logged turn is.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Who {
     You,
@@ -43,7 +43,7 @@ pub struct Turn {
 }
 
 /// The thinking of an Instance's turn on the wire, waiting here until that
-/// Instance's wake is remembered.
+/// Instance's wake is logged.
 struct Thinking {
     text: String,
     at: SystemTime,
