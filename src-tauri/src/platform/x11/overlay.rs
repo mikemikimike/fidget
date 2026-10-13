@@ -459,7 +459,8 @@ mod tests {
 
     #[test]
     fn frame_change_triggers_rebuild() {
-        reset_stats();
+        let mut cache = HashMap::new();
+        let window1 = 1;
 
         let shape1 = MaskShape {
             opaque: vec![true, false, true],
@@ -470,16 +471,14 @@ mod tests {
         };
 
         let shape2 = MaskShape {
-            opaque: vec![true, true, false], // Different frame
+            opaque: vec![true, true, false],
             width: 3,
             height: 1,
             facing: 1,
             scale: 1,
         };
 
-        // Simulate shape changes in cache
-        let window1 = 1;
-        PIXMAP_CACHE.lock().unwrap().insert(
+        cache.insert(
             window1,
             CachedPixmap {
                 pixmap: 100,
@@ -487,19 +486,17 @@ mod tests {
                 shape: shape1.clone(),
             },
         );
-        FULL_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
 
-        // Check that shape2 differs from cached shape1
-        let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached.get(&window1).is_none_or(|c| c.shape != shape2);
-        drop(cached);
-
-        assert!(shape_changed, "Frame change should trigger rebuild");
+        assert!(
+            should_rebuild_mask(&cache, window1, &shape2),
+            "Frame change should trigger rebuild"
+        );
     }
 
     #[test]
     fn facing_change_triggers_rebuild() {
-        reset_stats();
+        let mut cache = HashMap::new();
+        let window1 = 1;
 
         let shape1 = MaskShape {
             opaque: vec![true, false, true],
@@ -513,12 +510,11 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: -1, // Different facing
+            facing: -1,
             scale: 1,
         };
 
-        let window1 = 1;
-        PIXMAP_CACHE.lock().unwrap().insert(
+        cache.insert(
             window1,
             CachedPixmap {
                 pixmap: 100,
@@ -527,16 +523,16 @@ mod tests {
             },
         );
 
-        let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached.get(&window1).is_none_or(|c| c.shape != shape2);
-        drop(cached);
-
-        assert!(shape_changed, "Facing change should trigger rebuild");
+        assert!(
+            should_rebuild_mask(&cache, window1, &shape2),
+            "Facing change should trigger rebuild"
+        );
     }
 
     #[test]
     fn scale_change_triggers_rebuild() {
-        reset_stats();
+        let mut cache = HashMap::new();
+        let window1 = 1;
 
         let shape1 = MaskShape {
             opaque: vec![true, false, true],
@@ -551,11 +547,10 @@ mod tests {
             width: 3,
             height: 1,
             facing: 1,
-            scale: 2, // Different scale
+            scale: 2,
         };
 
-        let window1 = 1;
-        PIXMAP_CACHE.lock().unwrap().insert(
+        cache.insert(
             window1,
             CachedPixmap {
                 pixmap: 100,
@@ -564,16 +559,16 @@ mod tests {
             },
         );
 
-        let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached.get(&window1).is_none_or(|c| c.shape != shape2);
-        drop(cached);
-
-        assert!(shape_changed, "Scale change should trigger rebuild");
+        assert!(
+            should_rebuild_mask(&cache, window1, &shape2),
+            "Scale change should trigger rebuild"
+        );
     }
 
     #[test]
     fn position_only_reuses_cache() {
-        reset_stats();
+        let mut cache = HashMap::new();
+        let window1 = 1;
 
         let shape = MaskShape {
             opaque: vec![true, false, true],
@@ -583,8 +578,7 @@ mod tests {
             scale: 1,
         };
 
-        let window1 = 1;
-        PIXMAP_CACHE.lock().unwrap().insert(
+        cache.insert(
             window1,
             CachedPixmap {
                 pixmap: 100,
@@ -593,19 +587,15 @@ mod tests {
             },
         );
 
-        let cached = PIXMAP_CACHE.lock().unwrap();
-        let shape_changed = cached.get(&window1).is_none_or(|c| c.shape != shape);
-        drop(cached);
-
         assert!(
-            !shape_changed,
+            !should_rebuild_mask(&cache, window1, &shape),
             "Same shape should reuse cache (position-only update)"
         );
     }
 
     #[test]
     fn two_windows_have_separate_caches() {
-        reset_stats();
+        let mut cache = HashMap::new();
 
         let shape1 = MaskShape {
             opaque: vec![true, false],
@@ -626,8 +616,7 @@ mod tests {
         let window1 = 1;
         let window2 = 2;
 
-        // Cache shape1 for window1
-        PIXMAP_CACHE.lock().unwrap().insert(
+        cache.insert(
             window1,
             CachedPixmap {
                 pixmap: 100,
@@ -636,8 +625,7 @@ mod tests {
             },
         );
 
-        // Cache shape2 for window2
-        PIXMAP_CACHE.lock().unwrap().insert(
+        cache.insert(
             window2,
             CachedPixmap {
                 pixmap: 300,
@@ -646,25 +634,65 @@ mod tests {
             },
         );
 
-        let cache = PIXMAP_CACHE.lock().unwrap();
-
-        // Both windows should have their own cached shapes
         assert_eq!(cache.get(&window1).unwrap().shape, shape1);
         assert_eq!(cache.get(&window2).unwrap().shape, shape2);
 
-        // Clearing window1 should not affect window2
-        drop(cache);
-        PIXMAP_CACHE.lock().unwrap().remove(&window1);
-
-        let cache = PIXMAP_CACHE.lock().unwrap();
-        assert!(cache.get(&window1).is_none());
+        cache.remove(&window1);
+        assert!(!cache.contains_key(&window1));
         assert_eq!(cache.get(&window2).unwrap().shape, shape2);
     }
 
     #[test]
+    fn ignoring_frame_change_fails() {
+        let mut cache = HashMap::new();
+        let window1 = 1;
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2_frame_changed = MaskShape {
+            opaque: vec![true, true, false],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        cache.insert(
+            window1,
+            CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            },
+        );
+
+        assert_ne!(
+            shape1.opaque, shape2_frame_changed.opaque,
+            "Test setup: shapes must differ"
+        );
+        assert!(
+            should_rebuild_mask(&cache, window1, &shape2_frame_changed),
+            "Ignoring frame change should fail this test"
+        );
+    }
+
+    #[test]
     fn stats_tracking() {
-        reset_stats();
-        let (total, full, position_only) = get_stats();
+        MASK_UPDATE_COUNT.store(0, Ordering::Relaxed);
+        MASK_UPDATE_NANOS.store(0, Ordering::Relaxed);
+        FULL_REBUILD_COUNT.store(0, Ordering::Relaxed);
+        POSITION_ONLY_COUNT.store(0, Ordering::Relaxed);
+
+        let total = MASK_UPDATE_COUNT.load(Ordering::Relaxed);
+        let full = FULL_REBUILD_COUNT.load(Ordering::Relaxed);
+        let position_only = POSITION_ONLY_COUNT.load(Ordering::Relaxed);
+
         assert_eq!(total, 0);
         assert_eq!(full, 0);
         assert_eq!(position_only, 0);
