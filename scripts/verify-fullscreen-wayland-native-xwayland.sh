@@ -16,12 +16,11 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 fail() {
   log_error "$@"
-  [ -n "${FIDGET_LOG:-}" ] && [ -f "$FIDGET_LOG" ] && tail -40 "$FIDGET_LOG" >&2
   exit 1
 }
 
-for tool in mutter xprop xdotool gtk4-demo xterm; do
-  command -v "$tool" > /dev/null || fail "$tool not found (install mutter, x11-utils, xdotool, gtk-4-examples, xterm)"
+for tool in mutter xprop xterm gtk4-demo; do
+  command -v "$tool" > /dev/null || fail "$tool not found (install mutter, x11-utils, xterm, gtk-4-examples)"
 done
 
 cd "$WORKSPACE_ROOT"
@@ -58,31 +57,47 @@ log_info "Starting mutter headless with XWayland..."
 mutter --headless --wayland --virtual-monitor 1920x1080 --wayland-display="$WAYLAND_SOCKET" > "$MUTTER_LOG" 2>&1 &
 MUTTER_PID=$!
 
-sleep 2
-if ! ps -p "$MUTTER_PID" > /dev/null 2>&1; then
-  cat "$MUTTER_LOG"
-  fail "Mutter failed to start"
-fi
+log_info "Waiting for mutter XWayland display line..."
+deadline=$(($(date +%s) + 30))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if ! ps -p "$MUTTER_PID" > /dev/null 2>&1; then
+    cat "$MUTTER_LOG"
+    fail "Mutter failed to start"
+  fi
 
-log_info "Waiting for XWayland display..."
-for _ in $(seq 1 30); do
-  if grep -qE "DISPLAY=:[0-9]+" "$MUTTER_LOG" 2> /dev/null; then
-    DISPLAY=$(grep -oE "DISPLAY=:[0-9]+" "$MUTTER_LOG" | head -1 | cut -d= -f2)
+  if grep -qE "Using public X11 display :[0-9]+" "$MUTTER_LOG" 2> /dev/null; then
+    DISPLAY=$(grep -oE "Using public X11 display :[0-9]+" "$MUTTER_LOG" | head -1 | sed 's/.*:\([0-9]\+\)/:\1/')
     export DISPLAY
     log_info "Found XWayland at $DISPLAY"
     break
   fi
-  sleep 0.5
+  sleep 0.2
 done
 
 [ -n "${DISPLAY:-}" ] || fail "XWayland display not found in mutter log"
+
+XAUTHORITY_FILE=$(find "$XDG_RUNTIME_DIR" -name ".mutter-Xwaylandauth.*" 2> /dev/null | head -1)
+if [ -n "$XAUTHORITY_FILE" ]; then
+  export XAUTHORITY="$XAUTHORITY_FILE"
+  log_info "Using XAUTHORITY=$XAUTHORITY"
+fi
+
+log_info "Waiting to connect to $DISPLAY..."
+deadline=$(($(date +%s) + 10))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if xprop -root > /dev/null 2>&1; then
+    log_info "Connected to $DISPLAY"
+    break
+  fi
+  sleep 0.2
+done
 
 if ! xprop -root > /dev/null 2>&1; then
   fail "Cannot connect to $DISPLAY"
 fi
 
 count_windows() {
-  xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' | wc -l
+  xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' | wc -l || echo 0
 }
 
 dump_windows() {
@@ -112,26 +127,32 @@ BASELINE=$(count_windows)
 dump_windows "Baseline (mutter)"
 
 log_info "Starting native Wayland client (gtk4-demo, GDK_BACKEND=wayland)..."
-GDK_BACKEND=wayland GSK_RENDERER=cairo gtk4-demo > "$NATIVE_LOG" 2>&1 &
+WAYLAND_DEBUG=1 GDK_BACKEND=wayland GSK_RENDERER=cairo gtk4-demo > "$NATIVE_LOG" 2>&1 &
 NATIVE_PID=$!
 
-log_info "Waiting for native client window..."
-deadline=$(($(date +%s) + 15))
+log_info "Waiting for native client wl_surface.commit..."
+deadline=$(($(date +%s) + 20))
+commit_found=false
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  if ps -p "$NATIVE_PID" > /dev/null 2>&1; then
-    if pgrep -P "$NATIVE_PID" > /dev/null 2>&1 || grep -q "GtkApplication" "$NATIVE_LOG" 2> /dev/null; then
-      log_info "Native client running"
-      sleep 2
-      break
-    fi
-  else
-    log_warn "Native client exited early. Log:"
-    cat "$NATIVE_LOG"
-    NATIVE_PID=""
+  if ! ps -p "$NATIVE_PID" > /dev/null 2>&1; then
+    log_error "Native client exited early. Log tail:"
+    tail -20 "$NATIVE_LOG"
+    fail "Native client failed"
+  fi
+
+  if grep -q "wl_surface.*commit" "$NATIVE_LOG" 2> /dev/null; then
+    log_info "Native client committed surface"
+    commit_found=true
     break
   fi
-  sleep 0.5
+  sleep 0.3
 done
+
+if [ "$commit_found" = false ]; then
+  log_error "Native client never committed a surface. Log tail:"
+  tail -20 "$NATIVE_LOG"
+  fail "Native client deadline expired"
+fi
 
 AFTER_NATIVE=$(count_windows)
 dump_windows "With native Wayland client (gtk4-demo)"
@@ -145,25 +166,36 @@ fi
 log_info "Native client did NOT appear in _NET_CLIENT_LIST (expected)"
 
 log_info "Starting XWayland client (xterm)..."
-xterm -e "sleep 15" > "$XTERM_LOG" 2>&1 &
+xterm -e cat > "$XTERM_LOG" 2>&1 &
 XTERM_PID=$!
 
-log_info "Waiting for xterm window..."
-deadline=$(($(date +%s) + 10))
+log_info "Waiting for xterm in _NET_CLIENT_LIST..."
+deadline=$(($(date +%s) + 15))
+xterm_found=false
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  if xdotool search --class xterm > /dev/null 2>&1; then
-    log_info "xterm detected"
-    sleep 1
-    break
+  list=$(xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' || true)
+  if [ -n "$list" ]; then
+    for wid in $list; do
+      class=$(xprop -id "$wid" WM_CLASS 2> /dev/null | sed -n 's/.*= "\([^"]*\)".*/\1/p' || echo "")
+      if [ "$class" = "xterm" ]; then
+        log_info "xterm detected at window $wid"
+        xterm_found=true
+        break 2
+      fi
+    done
   fi
-  sleep 0.5
+  sleep 0.3
 done
+
+if [ "$xterm_found" = false ]; then
+  fail "xterm did not appear in _NET_CLIENT_LIST"
+fi
 
 AFTER_XTERM=$(count_windows)
 dump_windows "With XWayland client (xterm)"
 
 if [ "$AFTER_XTERM" -le "$AFTER_NATIVE" ]; then
-  log_error "FAIL: xterm did not appear in _NET_CLIENT_LIST"
+  log_error "FAIL: xterm did not increase window count"
   exit 1
 fi
 

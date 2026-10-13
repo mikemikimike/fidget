@@ -152,7 +152,7 @@ Update README Platform Support table to link to ADR-0024 or this research doc fo
 **Current behavior:**  
 On a pure Wayland session without XWayland, the Character does not move to a free display or fade when a native Wayland app goes fullscreen. The fullscreen rule behaves as if no fullscreen app is present.
 
-Under an XWayland session (GNOME/KDE Wayland with X server), the Character does not move or fade when a native Wayland app goes fullscreen. XWayland clients (X11 apps) still trigger fullscreen detection correctly under Mutter/KWin-style compositors that maintain `_NET_CLIENT_LIST`.
+Under an XWayland session (GNOME/KDE Wayland with X server), the Character does not move or fade when a native Wayland app goes fullscreen. XWayland clients (X11 apps) still trigger fullscreen detection correctly under Mutter/KWin-style compositors.
 
 **Root constraint:**  
 Wayland protocol design and XWayland architecture.
@@ -179,10 +179,8 @@ Under XWayland with compositors that maintain EWMH window lists (Mutter, KWin), 
 
 3. **Accept the degraded mode:** XWayland under Mutter/KWin is the canonical Linux path. Pure Wayland without XWayland is explicitly a supported degraded mode (DESIGN.md decision 3, docs/research/wayland-protocols.md). The README already documents: "Rare pure Wayland sessions without an X server fall back to screen edges only."
 
-   Under XWayland with Mutter/KWin, native Wayland apps are invisible to the X11 window list by architectural design: XWayland's `_NET_CLIENT_LIST` only includes X11/XWayland windows, not native Wayland clients. The gap applies to native Wayland fullscreen apps (Firefox Wayland, GNOME apps, KDE native apps); X clients under XWayland trigger fullscreen fade correctly under compositors that maintain `_NET_CLIENT_LIST`.
-
 **V1 call:**  
-**Document as accepted degrade.** This is consistent with the project's existing Wayland stance. X11 serves the fullscreen rule correctly for all apps. XWayland under Mutter/KWin serves it correctly for X clients, but native Wayland apps are not in the X11 window list by architectural design: XWayland's `_NET_CLIENT_LIST` only includes X11/XWayland windows, not native Wayland clients. Pure Wayland without XWayland is the rare degraded path where neither X clients nor native Wayland apps trigger fullscreen detection.
+**Document as accepted degrade.** This is consistent with the project's existing Wayland stance. X11 serves the fullscreen rule correctly for all apps. XWayland under Mutter/KWin serves it correctly for X clients. Pure Wayland without XWayland is the rare degraded path where neither X clients nor native Wayland apps trigger fullscreen detection.
 
 Compositor-specific detection would sprawl across three different compositor families, each with its own maintenance burden and stability risks. Wayland's design decision to withhold global window state is architectural, not a temporary gap.
 
