@@ -9,6 +9,9 @@
 //! `wl_surface`, which nothing here matches; the input region is core Wayland
 //! and unwired. DESIGN.md decision 3.
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
 use x11rb::connection::Connection;
@@ -17,6 +20,32 @@ use x11rb::protocol::xproto::{self, AtomEnum, ConfigureWindowAux, PropMode, Stac
 use x11rb::rust_connection::RustConnection;
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+static MASK_UPDATE_COUNT: AtomicU64 = AtomicU64::new(0);
+static MASK_UPDATE_NANOS: AtomicU64 = AtomicU64::new(0);
+static FULL_REBUILD_COUNT: AtomicU64 = AtomicU64::new(0);
+static POSITION_ONLY_COUNT: AtomicU64 = AtomicU64::new(0);
+
+static WINDOW_ID_MAP: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct MaskShape {
+    opaque: Vec<bool>,
+    width: i32,
+    height: i32,
+    facing: i32,
+    scale: i32,
+}
+
+struct CachedPixmap {
+    pixmap: u32,
+    gc: u32,
+    shape: MaskShape,
+}
+
+static PIXMAP_CACHE: LazyLock<Mutex<HashMap<u32, CachedPixmap>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Float above other windows, non-activating, skip the taskbar and pager.
 /// Returns Err when the handle is not realized yet, so the caller can retry.
@@ -43,6 +72,12 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     let Some(conn) = super::connection::connection() else {
         return Err("Failed to get X11 connection".to_string());
     };
+
+    // Record X window ID for cleanup (Destroyed event fires after handle is invalid)
+    WINDOW_ID_MAP
+        .lock()
+        .unwrap()
+        .insert(window.label().to_string(), x_window);
 
     set_ewmh_states(conn, x_window)?;
     Ok(())
@@ -99,6 +134,16 @@ pub fn update_input_region(
     Ok(())
 }
 
+fn should_rebuild_mask(
+    cache: &HashMap<u32, CachedPixmap>,
+    window: u32,
+    current_shape: &MaskShape,
+) -> bool {
+    cache
+        .get(&window)
+        .is_none_or(|cached| &cached.shape != current_shape)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_input_mask(
     conn: &RustConnection,
@@ -113,76 +158,115 @@ fn apply_input_mask(
     let rebuild_start = Instant::now();
 
     let (width, height, opaque) = mask.raw();
-    let scaled_width = width * scale;
-    let scaled_height = height * scale;
+    let current_shape = MaskShape {
+        opaque: opaque.to_vec(),
+        width,
+        height,
+        facing: sprite_facing,
+        scale,
+    };
 
-    let screen = &conn.setup().roots[0];
-    let pixmap = conn
-        .generate_id()
-        .map_err(|e| format!("Failed to generate pixmap ID: {e}"))?;
+    let mut cache = PIXMAP_CACHE.lock().unwrap();
+    let shape_changed = should_rebuild_mask(&cache, window, &current_shape);
 
-    xproto::create_pixmap(
-        conn,
-        1, // 1-bit depth for mask
-        pixmap,
-        screen.root,
-        scaled_width as u16,
-        scaled_height as u16,
-    )
-    .map_err(|e| format!("Failed to create pixmap: {e}"))?;
+    let (pixmap, _gc) = if shape_changed {
+        FULL_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
 
-    let gc = conn
-        .generate_id()
-        .map_err(|e| format!("Failed to generate GC ID: {e}"))?;
-    xproto::create_gc(conn, gc, pixmap, &Default::default())
-        .map_err(|e| format!("Failed to create GC: {e}"))?;
+        // Shape changed: need to rebuild the pixmap
+        if let Some(cached) = cache.remove(&window) {
+            xproto::free_gc(conn, cached.gc).ok();
+            xproto::free_pixmap(conn, cached.pixmap).ok();
+        }
 
-    // Clear the pixmap to 0 (transparent). CreatePixmap contents are undefined.
-    xproto::poly_fill_rectangle(
-        conn,
-        pixmap,
-        gc,
-        &[xproto::Rectangle {
-            x: 0,
-            y: 0,
-            width: scaled_width as u16,
-            height: scaled_height as u16,
-        }],
-    )
-    .map_err(|e| format!("Failed to clear pixmap: {e}"))?;
+        let scaled_width = width * scale;
+        let scaled_height = height * scale;
 
-    // Set GC foreground to 1 for opaque pixels (default is 0)
-    xproto::change_gc(conn, gc, &xproto::ChangeGCAux::new().foreground(1))
-        .map_err(|e| format!("Failed to set GC foreground: {e}"))?;
+        let screen = &conn.setup().roots[0];
+        let pixmap = conn
+            .generate_id()
+            .map_err(|e| format!("Failed to generate pixmap ID: {e}"))?;
 
-    // Facing < 0 mirrors the mask horizontally, matching `AlphaMask::hit` and
-    // the renderer.
-    let mirror = sprite_facing < 0;
-    for y in 0..height {
-        for x in 0..width {
-            let idx = (y * width + x) as usize;
-            if opaque[idx] {
-                let draw_x = if mirror {
-                    (width - 1 - x) * scale
-                } else {
-                    x * scale
-                };
-                let scaled_y = y * scale;
-                xproto::poly_fill_rectangle(
-                    conn,
-                    pixmap,
-                    gc,
-                    &[xproto::Rectangle {
-                        x: draw_x as i16,
-                        y: scaled_y as i16,
-                        width: scale as u16,
-                        height: scale as u16,
-                    }],
-                )
-                .map_err(|e| format!("Failed to draw rectangle: {e}"))?;
+        xproto::create_pixmap(
+            conn,
+            1, // 1-bit depth for mask
+            pixmap,
+            screen.root,
+            scaled_width as u16,
+            scaled_height as u16,
+        )
+        .map_err(|e| format!("Failed to create pixmap: {e}"))?;
+
+        let gc = conn
+            .generate_id()
+            .map_err(|e| format!("Failed to generate GC ID: {e}"))?;
+        xproto::create_gc(conn, gc, pixmap, &Default::default())
+            .map_err(|e| format!("Failed to create GC: {e}"))?;
+
+        // Clear the pixmap to 0 (transparent). CreatePixmap contents are undefined.
+        xproto::poly_fill_rectangle(
+            conn,
+            pixmap,
+            gc,
+            &[xproto::Rectangle {
+                x: 0,
+                y: 0,
+                width: scaled_width as u16,
+                height: scaled_height as u16,
+            }],
+        )
+        .map_err(|e| format!("Failed to clear pixmap: {e}"))?;
+
+        // Set GC foreground to 1 for opaque pixels (default is 0)
+        xproto::change_gc(conn, gc, &xproto::ChangeGCAux::new().foreground(1))
+            .map_err(|e| format!("Failed to set GC foreground: {e}"))?;
+
+        // Facing < 0 mirrors the mask horizontally, matching `AlphaMask::hit` and
+        // the renderer.
+        let mirror = sprite_facing < 0;
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * width + x) as usize;
+                if opaque[idx] {
+                    let draw_x = if mirror {
+                        (width - 1 - x) * scale
+                    } else {
+                        x * scale
+                    };
+                    let scaled_y = y * scale;
+                    xproto::poly_fill_rectangle(
+                        conn,
+                        pixmap,
+                        gc,
+                        &[xproto::Rectangle {
+                            x: draw_x as i16,
+                            y: scaled_y as i16,
+                            width: scale as u16,
+                            height: scale as u16,
+                        }],
+                    )
+                    .map_err(|e| format!("Failed to draw rectangle: {e}"))?;
+                }
             }
         }
-    }
+
+        cache.insert(
+            window,
+            CachedPixmap {
+                pixmap,
+                gc,
+                shape: current_shape,
+            },
+        );
+
+        (pixmap, gc)
+    } else {
+        // Only position changed: reuse cached pixmap
+        POSITION_ONLY_COUNT.fetch_add(1, Ordering::Relaxed);
+        let cached = cache.get(&window).unwrap();
+        (cached.pixmap, cached.gc)
+    };
+
+    drop(cache);
 
     shape::mask(
         conn,
@@ -223,30 +307,44 @@ fn apply_input_mask(
         .map_err(|e| format!("X11 error unioning hotspot rectangles: {e}"))?;
     }
 
-    xproto::free_gc(conn, gc).ok();
-    xproto::free_pixmap(conn, pixmap).ok();
-
     conn.flush()
         .map_err(|e| format!("Failed to flush X11: {e}"))?;
 
     let rebuild_elapsed = rebuild_start.elapsed().as_nanos() as u64;
+    MASK_UPDATE_COUNT.fetch_add(1, Ordering::Relaxed);
+    MASK_UPDATE_NANOS.fetch_add(rebuild_elapsed, Ordering::Relaxed);
 
     if std::env::var("FIDGET_TRACE_MASK_REBUILD").is_ok() {
         let opaque_count = opaque.iter().filter(|&&b| b).count();
         eprintln!(
-            "mask_rebuild: {}x{} @{}x scale, {} opaque pixels, {:.3} ms",
+            "mask_rebuild: {}x{} @{}x scale, {} opaque pixels, {:.3} ms{}",
             width,
             height,
             scale,
             opaque_count,
-            rebuild_elapsed as f64 / 1_000_000.0
+            rebuild_elapsed as f64 / 1_000_000.0,
+            if shape_changed {
+                ""
+            } else {
+                " (position-only)"
+            }
         );
     }
 
     Ok(())
 }
 
+fn free_cached_pixmap(conn: &RustConnection, window: u32) {
+    let mut cache = PIXMAP_CACHE.lock().unwrap();
+    if let Some(cached) = cache.remove(&window) {
+        xproto::free_gc(conn, cached.gc).ok();
+        xproto::free_pixmap(conn, cached.pixmap).ok();
+    }
+}
+
 fn clear_input_region(conn: &RustConnection, window: u32) -> Result<(), String> {
+    free_cached_pixmap(conn, window);
+
     shape::mask(conn, shape::SO::SET, SK::INPUT, window, 0, 0, x11rb::NONE)
         .map_err(|e| format!("Failed to clear input region: {e}"))?
         .check()
@@ -256,6 +354,40 @@ fn clear_input_region(conn: &RustConnection, window: u32) -> Result<(), String> 
         .map_err(|e| format!("Failed to flush X11: {e}"))?;
 
     Ok(())
+}
+
+/// Free cached X11 pixmap and GC for a destroyed overlay window.
+pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
+    let Some(conn) = super::connection::connection() else {
+        eprintln!("cleanup_overlay_window: failed to get X11 connection");
+        return;
+    };
+
+    let label = window.label().to_string();
+
+    // Destroyed fires after the window leaves Tauri's list, so window_handle() fails.
+    // Use the X window ID we recorded at setup instead.
+    let x_window = {
+        let mut map = WINDOW_ID_MAP.lock().unwrap();
+        match map.remove(&label) {
+            Some(id) => {
+                eprintln!(
+                    "cleanup_overlay_window: freeing pixmap for window {} (X ID {})",
+                    label, id
+                );
+                id
+            }
+            None => {
+                eprintln!(
+                    "cleanup_overlay_window: no recorded X window ID for {}",
+                    label
+                );
+                return;
+            }
+        }
+    };
+
+    free_cached_pixmap(conn, x_window);
 }
 
 /// The overlay is not an application window, so the window manager must not treat it as one.
@@ -295,4 +427,270 @@ fn set_ewmh_states(conn: &RustConnection, window: u32) -> Result<(), String> {
     conn.flush()
         .map_err(|e| format!("Failed to flush X11: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mask_shape_equality() {
+        let shape1 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 2,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 2,
+        };
+
+        let shape3 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: -1, // Different facing
+            scale: 2,
+        };
+
+        assert_eq!(shape1, shape2);
+        assert_ne!(shape1, shape3);
+    }
+
+    #[test]
+    fn frame_change_triggers_rebuild() {
+        let mut cache = HashMap::new();
+        let window1 = 1;
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![true, true, false],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        cache.insert(
+            window1,
+            CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            },
+        );
+
+        assert!(
+            should_rebuild_mask(&cache, window1, &shape2),
+            "Frame change should trigger rebuild"
+        );
+    }
+
+    #[test]
+    fn facing_change_triggers_rebuild() {
+        let mut cache = HashMap::new();
+        let window1 = 1;
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: -1,
+            scale: 1,
+        };
+
+        cache.insert(
+            window1,
+            CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            },
+        );
+
+        assert!(
+            should_rebuild_mask(&cache, window1, &shape2),
+            "Facing change should trigger rebuild"
+        );
+    }
+
+    #[test]
+    fn scale_change_triggers_rebuild() {
+        let mut cache = HashMap::new();
+        let window1 = 1;
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 2,
+        };
+
+        cache.insert(
+            window1,
+            CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            },
+        );
+
+        assert!(
+            should_rebuild_mask(&cache, window1, &shape2),
+            "Scale change should trigger rebuild"
+        );
+    }
+
+    #[test]
+    fn position_only_reuses_cache() {
+        let mut cache = HashMap::new();
+        let window1 = 1;
+
+        let shape = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        cache.insert(
+            window1,
+            CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape.clone(),
+            },
+        );
+
+        assert!(
+            !should_rebuild_mask(&cache, window1, &shape),
+            "Same shape should reuse cache (position-only update)"
+        );
+    }
+
+    #[test]
+    fn two_windows_have_separate_caches() {
+        let mut cache = HashMap::new();
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false],
+            width: 2,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![false, true],
+            width: 2,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let window1 = 1;
+        let window2 = 2;
+
+        cache.insert(
+            window1,
+            CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            },
+        );
+
+        cache.insert(
+            window2,
+            CachedPixmap {
+                pixmap: 300,
+                gc: 400,
+                shape: shape2.clone(),
+            },
+        );
+
+        assert_eq!(cache.get(&window1).unwrap().shape, shape1);
+        assert_eq!(cache.get(&window2).unwrap().shape, shape2);
+
+        cache.remove(&window1);
+        assert!(!cache.contains_key(&window1));
+        assert_eq!(cache.get(&window2).unwrap().shape, shape2);
+    }
+
+    #[test]
+    fn window2_same_shape_as_window1_rebuilds() {
+        let mut cache = HashMap::new();
+
+        let shape = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let window1 = 1;
+        let window2 = 2;
+
+        cache.insert(
+            window1,
+            CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape.clone(),
+            },
+        );
+
+        assert!(
+            should_rebuild_mask(&cache, window2, &shape),
+            "Window 2 with same shape as cached window 1 must rebuild (per-window cache)"
+        );
+    }
+
+    #[test]
+    fn stats_tracking() {
+        MASK_UPDATE_COUNT.store(0, Ordering::Relaxed);
+        MASK_UPDATE_NANOS.store(0, Ordering::Relaxed);
+        FULL_REBUILD_COUNT.store(0, Ordering::Relaxed);
+        POSITION_ONLY_COUNT.store(0, Ordering::Relaxed);
+
+        let total = MASK_UPDATE_COUNT.load(Ordering::Relaxed);
+        let full = FULL_REBUILD_COUNT.load(Ordering::Relaxed);
+        let position_only = POSITION_ONLY_COUNT.load(Ordering::Relaxed);
+
+        assert_eq!(total, 0);
+        assert_eq!(full, 0);
+        assert_eq!(position_only, 0);
+    }
 }
