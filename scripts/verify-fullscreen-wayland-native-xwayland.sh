@@ -76,7 +76,7 @@ done
 
 [ -n "${DISPLAY:-}" ] || fail "XWayland display not found in mutter log"
 
-XAUTHORITY_FILE=$(find "$XDG_RUNTIME_DIR" -name ".mutter-Xwaylandauth.*" 2> /dev/null | head -1)
+XAUTHORITY_FILE=$(find "$XDG_RUNTIME_DIR" -name ".mutter-Xwaylandauth.*" 2> /dev/null | head -1 || true)
 if [ -n "$XAUTHORITY_FILE" ]; then
   export XAUTHORITY="$XAUTHORITY_FILE"
   log_info "Using XAUTHORITY=$XAUTHORITY"
@@ -97,7 +97,7 @@ if ! xprop -root > /dev/null 2>&1; then
 fi
 
 count_windows() {
-  xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' | wc -l || echo 0
+  { xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' || true; } | wc -l
 }
 
 dump_windows() {
@@ -130,8 +130,8 @@ log_info "Starting native Wayland client (gtk4-demo, GDK_BACKEND=wayland)..."
 WAYLAND_DEBUG=1 GDK_BACKEND=wayland GSK_RENDERER=cairo gtk4-demo > "$NATIVE_LOG" 2>&1 &
 NATIVE_PID=$!
 
-log_info "Waiting for native client wl_surface.commit..."
-deadline=$(($(date +%s) + 20))
+log_info "Waiting for native client wl_surface.attach + commit..."
+deadline=$(($(date +%s) + 30))
 commit_found=false
 while [ "$(date +%s)" -lt "$deadline" ]; do
   if ! ps -p "$NATIVE_PID" > /dev/null 2>&1; then
@@ -140,16 +140,19 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
     fail "Native client failed"
   fi
 
-  if grep -q "wl_surface.*commit" "$NATIVE_LOG" 2> /dev/null; then
-    log_info "Native client committed surface"
-    commit_found=true
-    break
+  if grep -qE " -> wl_surface@[0-9]+\\.attach\\(wl_buffer@" "$NATIVE_LOG" 2> /dev/null; then
+    surface_with_attach=$(grep -E " -> wl_surface@[0-9]+\\.attach" "$NATIVE_LOG" | grep -oE "wl_surface@[0-9]+" | head -1)
+    if [ -n "$surface_with_attach" ] && grep -qE " -> $surface_with_attach\\.commit\\(\\)" "$NATIVE_LOG" 2> /dev/null; then
+      log_info "Native client attached buffer and committed"
+      commit_found=true
+      break
+    fi
   fi
-  sleep 0.3
+  sleep 0.5
 done
 
 if [ "$commit_found" = false ]; then
-  log_error "Native client never committed a surface. Log tail:"
+  log_error "Native client never attached+committed. Log tail:"
   tail -20 "$NATIVE_LOG"
   fail "Native client deadline expired"
 fi
