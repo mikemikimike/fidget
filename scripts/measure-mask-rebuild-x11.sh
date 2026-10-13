@@ -1,55 +1,56 @@
 #!/usr/bin/env bash
 # Repeatable measurement of X11 mask rebuild frequency and cost.
-# Runs fidget with FIDGET_TRACE_MASK_REBUILD=1 and analyzes the results.
-# Event-driven startup: waits on log growth and trace appearance, not fixed delays.
-# The measurement window itself is timed (acceptable for benchmark duration).
+# Runs fidget with FIDGET_TRACE_MASK_REBUILD=1, measures N mask updates.
+# Event-driven: stops after N mask updates, with deadline as failure guard.
 
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 bin="target/debug/fidget"
 scenario="idle"
-duration=15
+target_updates=100
+deadline_sec=60
 
 usage() {
   cat << 'EOF'
-Usage: measure-mask-rebuild-x11.sh [--bin PATH] [SCENARIO] [DURATION]
+Usage: measure-mask-rebuild-x11.sh [--bin PATH] [SCENARIO] [TARGET_UPDATES] [DEADLINE]
 
-Measure X11 mask rebuild frequency and CPU cost across scenarios.
+Measure X11 mask rebuild frequency and cost across scenarios.
+Stops after N mask updates (event-driven), with deadline as failure guard.
 
 Scenarios:
-  idle       Sprite perched, cursor away (expect 0 rebuilds/sec)
+  idle       Sprite perched, cursor away (expect 0 updates)
   walk       Sprite walking under cursor (tests position-only optimization)
   fast       Fast animation (BMO react at 10fps) under cursor
   large      Black Mage at scale=3 (fewer opaque pixels, tests scale cost)
 
-Duration: Measurement window in seconds (default: 15)
+Target updates: Number of mask updates to capture (default: 100)
+Deadline: Maximum seconds to wait for target updates (default: 60)
 
 Environment:
   Linux VM under X11 (Xvfb or physical X server)
   Compositor optional but recommended for production parity
 
 Output:
-  - Total rebuilds and rate (rebuilds/sec)
-  - Position-only rebuilds (reusing cached pixmap)
-  - Full rebuilds (mask/facing/scale changed, pixmap regenerated)
+  - Full rebuilds vs position-only rebuilds
+  - Rebuilds per update (should be close to 1.0 after optimization)
   - Average CPU time per rebuild
   - Peak rebuild time
 
 Numbers from a VM are labeled indicative. Physical hardware timing differs.
 
 Examples:
-  # Idle baseline (expect 0 rebuilds)
-  ./scripts/measure-mask-rebuild-x11.sh idle 10
+  # Idle baseline (stops immediately, expect 0 updates)
+  ./scripts/measure-mask-rebuild-x11.sh idle 0 10
 
-  # Walking under cursor (position-only rebuilds should dominate)
-  ./scripts/measure-mask-rebuild-x11.sh walk 15
+  # Walking under cursor (100 updates, position-only should dominate)
+  ./scripts/measure-mask-rebuild-x11.sh walk 100 60
 
   # Fast animation
-  ./scripts/measure-mask-rebuild-x11.sh fast 10
+  ./scripts/measure-mask-rebuild-x11.sh fast 100 60
 
   # Large scaled sprite
-  ./scripts/measure-mask-rebuild-x11.sh large 10
+  ./scripts/measure-mask-rebuild-x11.sh large 100 60
 EOF
   exit 0
 }
@@ -75,7 +76,11 @@ if [ $# -gt 0 ]; then
   shift
 fi
 if [ $# -gt 0 ]; then
-  duration="$1"
+  target_updates="$1"
+  shift
+fi
+if [ $# -gt 0 ]; then
+  deadline_sec="$1"
   shift
 fi
 
@@ -107,7 +112,8 @@ trap cleanup EXIT INT TERM
 
 echo "=== X11 Mask Rebuild Measurement ==="
 echo "Scenario: $scenario"
-echo "Duration: ${duration}s"
+echo "Target updates: $target_updates"
+echo "Deadline: ${deadline_sec}s"
 echo "Binary: $bin"
 echo ""
 
@@ -158,7 +164,7 @@ if ! grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
   exit 1
 fi
 
-# Wait for first mask_rebuild line (event-driven settle detection)
+# Wait for first mask_rebuild line or fail if none appears
 echo -n "Waiting for mask trace..."
 for _ in $(seq 40); do
   if grep -q 'mask_rebuild:' "$log" 2> /dev/null; then
@@ -168,25 +174,57 @@ for _ in $(seq 40); do
   sleep 0.25
 done
 
+if ! grep -q 'mask_rebuild:' "$log" 2> /dev/null; then
+  echo " FAILED"
+  echo "No mask_rebuild trace appeared. Check FIDGET_TRACE_MASK_REBUILD."
+  tail -20 "$log"
+  exit 1
+fi
+
 case "$scenario" in
   walk | fast)
     echo ""
     echo "Note: This scenario requires cursor over sprite during measurement."
     echo "      Starting measurement immediately..."
     ;;
-  idle | large)
+  idle)
+    if [ "$target_updates" -eq 0 ]; then
+      echo "Idle scenario with target 0: measurement complete (no updates expected)"
+    else
+      echo "Starting measurement..."
+    fi
+    ;;
+  large)
     echo "Starting measurement..."
     ;;
 esac
 
-# Mark measurement window start
+# Event-driven: wait for N mask updates, with deadline as failure guard
 measure_start=$(date +%s)
+echo "Waiting for $target_updates mask updates (deadline: ${deadline_sec}s)..."
 
-# Event-driven wait: monitor log growth, not a blind sleep
-sleep "$duration"
-
-measure_end=$(date +%s)
-measure_elapsed=$((measure_end - measure_start))
+while true; do
+  update_count=$(grep -c 'mask_rebuild:' "$log" 2> /dev/null || echo "0")
+  
+  if [ "$update_count" -ge "$target_updates" ]; then
+    measure_end=$(date +%s)
+    measure_elapsed=$((measure_end - measure_start))
+    echo "Captured $update_count mask updates in ${measure_elapsed}s"
+    break
+  fi
+  
+  now=$(date +%s)
+  elapsed=$((now - measure_start))
+  if [ "$elapsed" -ge "$deadline_sec" ]; then
+    echo "DEADLINE EXCEEDED: Only $update_count updates in ${deadline_sec}s"
+    echo "Expected $target_updates updates. Stopping measurement."
+    measure_end=$now
+    measure_elapsed=$elapsed
+    break
+  fi
+  
+  sleep 0.1
+done
 
 # Stop app gracefully
 kill -TERM "$app_pid" 2> /dev/null || true
@@ -194,25 +232,18 @@ wait "$app_pid" 2> /dev/null || true
 app_pid=""
 
 echo ""
-echo "=== Results (${measure_elapsed}s measurement window) ==="
+echo "=== Results ($update_count mask updates in ${measure_elapsed}s) ==="
 echo ""
 
-if ! grep -q 'mask_rebuild:' "$log" 2> /dev/null; then
-  rebuild_lines=0
-else
-  rebuild_lines=$(grep -c 'mask_rebuild:' "$log" 2> /dev/null)
-fi
-
-if [ "$rebuild_lines" -eq 0 ]; then
-  echo "Total mask rebuilds: 0"
-  echo "Rate: 0.0 rebuilds/sec"
+if [ "$update_count" -eq 0 ]; then
+  echo "Total mask updates: 0"
   echo ""
   case "$scenario" in
     idle)
-      echo "✓ Expected: idle with cursor away shows no rebuilds"
+      echo "✓ Expected: idle with cursor away shows no updates"
       ;;
     *)
-      echo "⚠ Unexpected: this scenario should show rebuilds if cursor was over sprite"
+      echo "⚠ Unexpected: this scenario should show updates if cursor was over sprite"
       echo "  Check that cursor was positioned over the sprite during measurement"
       ;;
   esac
@@ -228,18 +259,18 @@ grep 'mask_rebuild:' "$log" |
     > /tmp/mask_rebuild_parsed.$$
 
 position_only=$(grep -c '(position-only)' /tmp/mask_rebuild_parsed.$$ 2> /dev/null || echo "0")
-full_rebuilds=$((rebuild_lines - position_only))
+full_rebuilds=$((update_count - position_only))
 
-echo "Total mask rebuilds: $rebuild_lines"
+echo "Total mask updates: $update_count"
 echo "  Full rebuilds: $full_rebuilds (mask/facing/scale changed, pixmap regenerated)"
 echo "  Position-only: $position_only (reused cached pixmap)"
 echo ""
-echo "Rate: $(awk "BEGIN {printf \"%.1f\", $rebuild_lines / $measure_elapsed}") rebuilds/sec"
-if [ "$full_rebuilds" -gt 0 ]; then
-  echo "  Full rebuild rate: $(awk "BEGIN {printf \"%.1f\", $full_rebuilds / $measure_elapsed}") /sec"
-fi
-if [ "$position_only" -gt 0 ]; then
-  echo "  Position-only rate: $(awk "BEGIN {printf \"%.1f\", $position_only / $measure_elapsed}") /sec"
+
+# Metric: rebuilds per update (should be ~1.0 after optimization)
+rebuilds_per_update=$(awk "BEGIN {printf \"%.2f\", ($full_rebuilds + $position_only) / $update_count}")
+echo "Rebuilds per update: $rebuilds_per_update (ideal: 1.00)"
+if [ "$measure_elapsed" -gt 0 ]; then
+  echo "Rate: $(awk "BEGIN {printf \"%.1f\", $update_count / $measure_elapsed}") updates/sec"
 fi
 echo ""
 
@@ -280,17 +311,17 @@ case "$scenario" in
     ;;
   walk)
     if [ "$position_only" -gt 0 ]; then
-      pct=$(awk "BEGIN {printf \"%.0f\", 100.0 * $position_only / $rebuild_lines}")
-      echo "Position-only rebuilds: ${pct}% of total"
+      pct=$(awk "BEGIN {printf \"%.0f\", 100.0 * $position_only / $update_count}")
+      echo "Position-only updates: ${pct}% of total"
       if [ "$pct" -gt 80 ]; then
-        echo "✓ Optimization working: majority of rebuilds reuse cached pixmap"
+        echo "✓ Optimization working: majority reuse cached pixmap"
       else
         echo "⚠ Lower than expected position-only ratio"
         echo "  Walking with consistent animation should show mostly position-only"
       fi
     fi
     echo ""
-    echo "Walking under cursor triggers rebuilds at motion rate."
+    echo "Walking under cursor triggers updates at motion rate."
     echo "With optimization, most should be position-only (cheap)."
     ;;
   fast | large)
