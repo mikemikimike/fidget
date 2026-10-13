@@ -2210,6 +2210,7 @@ fn build_overlay(
                 }
                 platform::set_overlay_origin(&owner, (at.x, at.y));
             }
+            #[cfg(all(unix, not(target_os = "macos")))]
             tauri::WindowEvent::Destroyed => {
                 platform::cleanup_overlay_window(&watched);
             }

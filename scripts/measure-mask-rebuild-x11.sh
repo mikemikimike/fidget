@@ -303,10 +303,10 @@ echo ""
 echo "--- Interpretation ---"
 case "$scenario" in
   idle)
-    if [ "$rebuild_lines" -eq 0 ]; then
-      echo "✓ Idle scenario: 0 rebuilds confirms cursor-over gating works"
+    if [ "$update_count" -eq 0 ]; then
+      echo "✓ Idle scenario: 0 updates confirms cursor-over gating works"
     else
-      echo "⚠ Idle scenario: unexpected rebuilds (cursor may have crossed sprite)"
+      echo "⚠ Idle scenario: unexpected updates (cursor may have crossed sprite)"
     fi
     ;;
   walk)

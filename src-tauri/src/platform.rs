@@ -689,10 +689,7 @@ pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
     x11::cleanup_overlay_window(window)
 }
 
-#[cfg(target_os = "windows")]
-pub fn cleanup_overlay_window(_window: &tauri::WebviewWindow) {}
-
-#[cfg(target_os = "macos")]
+#[cfg(not(all(unix, not(target_os = "macos"))))]
 pub fn cleanup_overlay_window(_window: &tauri::WebviewWindow) {}
 
 /// Update the input region for the overlay window based on the sprite's alpha mask.

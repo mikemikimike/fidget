@@ -367,23 +367,6 @@ pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
     free_cached_pixmap(conn, x_window);
 }
 
-#[cfg(test)]
-fn reset_stats() {
-    MASK_UPDATE_COUNT.store(0, Ordering::Relaxed);
-    MASK_UPDATE_NANOS.store(0, Ordering::Relaxed);
-    FULL_REBUILD_COUNT.store(0, Ordering::Relaxed);
-    POSITION_ONLY_COUNT.store(0, Ordering::Relaxed);
-    PIXMAP_CACHE.lock().unwrap().clear();
-}
-
-#[cfg(test)]
-fn get_stats() -> (u64, u64, u64) {
-    let total = MASK_UPDATE_COUNT.load(Ordering::Relaxed);
-    let full = FULL_REBUILD_COUNT.load(Ordering::Relaxed);
-    let position_only = POSITION_ONLY_COUNT.load(Ordering::Relaxed);
-    (total, full, position_only)
-}
-
 /// The overlay is not an application window, so the window manager must not treat it as one.
 fn set_ewmh_states(conn: &RustConnection, window: u32) -> Result<(), String> {
     let atoms = super::atoms::atoms().ok_or("Failed to intern EWMH atoms")?;
