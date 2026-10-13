@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Repeatable measurement of X11 mask rebuild frequency and cost.
 # Runs fidget with FIDGET_TRACE_MASK_REBUILD=1 and analyzes the results.
-# Event-driven: no fixed sleeps in measurements, uses process signals.
+# Event-driven startup: waits on log growth and trace appearance, not fixed delays.
+# The measurement window itself is timed (acceptable for benchmark duration).
 
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -126,12 +127,28 @@ esac
 app_pid=$!
 
 echo -n "Waiting for overlay ready..."
-for _ in $(seq 60); do
+last_size=0
+stall_count=0
+for _ in $(seq 120); do
   if grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
     echo " ready"
     break
   fi
-  sleep 0.5
+  # Event-driven: check if log is growing
+  current_size=$(wc -c < "$log" 2> /dev/null || echo "0")
+  if [ "$current_size" -eq "$last_size" ]; then
+    stall_count=$((stall_count + 1))
+    if [ "$stall_count" -gt 10 ]; then
+      echo " STALLED"
+      echo "App stalled during startup. Log tail:"
+      tail -20 "$log"
+      exit 1
+    fi
+  else
+    stall_count=0
+  fi
+  last_size=$current_size
+  sleep 0.25
 done
 
 if ! grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
@@ -141,26 +158,21 @@ if ! grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
   exit 1
 fi
 
-# Settle: let startup transients pass (event-driven wait, not measurement window)
-sleep 2
+# Wait for first mask_rebuild line (event-driven settle detection)
+echo -n "Waiting for mask trace..."
+for _ in $(seq 40); do
+  if grep -q 'mask_rebuild:' "$log" 2> /dev/null; then
+    echo " trace active"
+    break
+  fi
+  sleep 0.25
+done
 
 case "$scenario" in
-  walk)
+  walk | fast)
     echo ""
-    echo "Walking scenario requires manual or scripted interaction:"
-    echo "  - Cursor must be over the sprite"
-    echo "  - Sprite must be walking (use perch + MCP play_behavior or GUI)"
-    echo ""
-    echo "Starting measurement in 3s..."
-    sleep 3
-    ;;
-  fast)
-    echo ""
-    echo "Fast animation (BMO react, 10fps) requires cursor over sprite"
-    echo "Trigger via poke or interaction during measurement window"
-    echo ""
-    echo "Starting measurement in 3s..."
-    sleep 3
+    echo "Note: This scenario requires cursor over sprite during measurement."
+    echo "      Starting measurement immediately..."
     ;;
   idle | large)
     echo "Starting measurement..."

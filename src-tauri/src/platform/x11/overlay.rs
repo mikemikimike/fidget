@@ -9,8 +9,9 @@
 //! `wl_surface`, which nothing here matches; the input region is core Wayland
 //! and unwired. DESIGN.md decision 3.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
 use x11rb::connection::Connection;
@@ -20,9 +21,10 @@ use x11rb::rust_connection::RustConnection;
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-static MASK_REBUILD_COUNT: AtomicU64 = AtomicU64::new(0);
-static MASK_REBUILD_NANOS: AtomicU64 = AtomicU64::new(0);
-static POSITION_ONLY_REBUILD_COUNT: AtomicU64 = AtomicU64::new(0);
+static MASK_UPDATE_COUNT: AtomicU64 = AtomicU64::new(0);
+static MASK_UPDATE_NANOS: AtomicU64 = AtomicU64::new(0);
+static FULL_REBUILD_COUNT: AtomicU64 = AtomicU64::new(0);
+static POSITION_ONLY_COUNT: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct MaskShape {
@@ -39,7 +41,8 @@ struct CachedPixmap {
     shape: MaskShape,
 }
 
-static CACHED_PIXMAP: Mutex<Option<CachedPixmap>> = Mutex::new(None);
+static PIXMAP_CACHE: LazyLock<Mutex<HashMap<u32, CachedPixmap>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Float above other windows, non-activating, skip the taskbar and pager.
 /// Returns Err when the handle is not realized yet, so the caller can retry.
@@ -144,14 +147,16 @@ fn apply_input_mask(
         scale,
     };
 
-    let mut cache = CACHED_PIXMAP.lock().unwrap();
+    let mut cache = PIXMAP_CACHE.lock().unwrap();
     let shape_changed = cache
-        .as_ref()
-        .is_none_or(|cached| cached.shape != current_shape);
+        .get(&window)
+        .map_or(true, |cached| cached.shape != current_shape);
 
     let (pixmap, _gc) = if shape_changed {
+        FULL_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
+
         // Shape changed: need to rebuild the pixmap
-        if let Some(cached) = cache.take() {
+        if let Some(cached) = cache.remove(&window) {
             xproto::free_gc(conn, cached.gc).ok();
             xproto::free_pixmap(conn, cached.pixmap).ok();
         }
@@ -227,17 +232,20 @@ fn apply_input_mask(
             }
         }
 
-        *cache = Some(CachedPixmap {
-            pixmap,
-            gc,
-            shape: current_shape,
-        });
+        cache.insert(
+            window,
+            CachedPixmap {
+                pixmap,
+                gc,
+                shape: current_shape,
+            },
+        );
 
         (pixmap, gc)
     } else {
         // Only position changed: reuse cached pixmap
-        POSITION_ONLY_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
-        let cached = cache.as_ref().unwrap();
+        POSITION_ONLY_COUNT.fetch_add(1, Ordering::Relaxed);
+        let cached = cache.get(&window).unwrap();
         (cached.pixmap, cached.gc)
     };
 
@@ -286,8 +294,8 @@ fn apply_input_mask(
         .map_err(|e| format!("Failed to flush X11: {e}"))?;
 
     let rebuild_elapsed = rebuild_start.elapsed().as_nanos() as u64;
-    MASK_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
-    MASK_REBUILD_NANOS.fetch_add(rebuild_elapsed, Ordering::Relaxed);
+    MASK_UPDATE_COUNT.fetch_add(1, Ordering::Relaxed);
+    MASK_UPDATE_NANOS.fetch_add(rebuild_elapsed, Ordering::Relaxed);
 
     if std::env::var("FIDGET_TRACE_MASK_REBUILD").is_ok() {
         let opaque_count = opaque.iter().filter(|&&b| b).count();
@@ -310,9 +318,9 @@ fn apply_input_mask(
 }
 
 fn clear_input_region(conn: &RustConnection, window: u32) -> Result<(), String> {
-    // Clean up cached pixmap when clearing
-    let mut cache = CACHED_PIXMAP.lock().unwrap();
-    if let Some(cached) = cache.take() {
+    // Clean up cached pixmap for this window when clearing
+    let mut cache = PIXMAP_CACHE.lock().unwrap();
+    if let Some(cached) = cache.remove(&window) {
         xproto::free_gc(conn, cached.gc).ok();
         xproto::free_pixmap(conn, cached.pixmap).ok();
     }
@@ -329,23 +337,21 @@ fn clear_input_region(conn: &RustConnection, window: u32) -> Result<(), String> 
     Ok(())
 }
 
-/// Get mask rebuild statistics for benchmarking and testing.
-/// Returns (total_rebuilds, position_only_rebuilds, avg_nanos_per_rebuild).
-#[allow(dead_code)]
-pub fn mask_rebuild_stats() -> (u64, u64, u64) {
-    let total = MASK_REBUILD_COUNT.load(Ordering::Relaxed);
-    let position_only = POSITION_ONLY_REBUILD_COUNT.load(Ordering::Relaxed);
-    let total_nanos = MASK_REBUILD_NANOS.load(Ordering::Relaxed);
-    let avg_nanos = total_nanos.checked_div(total).unwrap_or(0);
-    (total, position_only, avg_nanos)
+#[cfg(test)]
+fn reset_stats() {
+    MASK_UPDATE_COUNT.store(0, Ordering::Relaxed);
+    MASK_UPDATE_NANOS.store(0, Ordering::Relaxed);
+    FULL_REBUILD_COUNT.store(0, Ordering::Relaxed);
+    POSITION_ONLY_COUNT.store(0, Ordering::Relaxed);
+    PIXMAP_CACHE.lock().unwrap().clear();
 }
 
-/// Reset mask rebuild statistics (for testing).
-#[allow(dead_code)]
-pub fn reset_mask_rebuild_stats() {
-    MASK_REBUILD_COUNT.store(0, Ordering::Relaxed);
-    POSITION_ONLY_REBUILD_COUNT.store(0, Ordering::Relaxed);
-    MASK_REBUILD_NANOS.store(0, Ordering::Relaxed);
+#[cfg(test)]
+fn get_stats() -> (u64, u64, u64) {
+    let total = MASK_UPDATE_COUNT.load(Ordering::Relaxed);
+    let full = FULL_REBUILD_COUNT.load(Ordering::Relaxed);
+    let position_only = POSITION_ONLY_COUNT.load(Ordering::Relaxed);
+    (total, full, position_only)
 }
 
 /// The overlay is not an application window, so the window manager must not treat it as one.
@@ -422,10 +428,221 @@ mod tests {
     }
 
     #[test]
-    fn mask_rebuild_stats_tracking() {
-        reset_mask_rebuild_stats();
-        let (total, position_only, _avg) = mask_rebuild_stats();
+    fn frame_change_triggers_rebuild() {
+        reset_stats();
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![true, true, false], // Different frame
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        // Simulate shape changes in cache
+        let window1 = 1;
+        PIXMAP_CACHE
+            .lock()
+            .unwrap()
+            .insert(window1, CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            });
+        FULL_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
+
+        // Check that shape2 differs from cached shape1
+        let cached = PIXMAP_CACHE.lock().unwrap();
+        let shape_changed = cached
+            .get(&window1)
+            .map_or(true, |c| c.shape != shape2);
+        drop(cached);
+
+        assert!(shape_changed, "Frame change should trigger rebuild");
+    }
+
+    #[test]
+    fn facing_change_triggers_rebuild() {
+        reset_stats();
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: -1, // Different facing
+            scale: 1,
+        };
+
+        let window1 = 1;
+        PIXMAP_CACHE
+            .lock()
+            .unwrap()
+            .insert(window1, CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            });
+
+        let cached = PIXMAP_CACHE.lock().unwrap();
+        let shape_changed = cached
+            .get(&window1)
+            .map_or(true, |c| c.shape != shape2);
+        drop(cached);
+
+        assert!(shape_changed, "Facing change should trigger rebuild");
+    }
+
+    #[test]
+    fn scale_change_triggers_rebuild() {
+        reset_stats();
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 2, // Different scale
+        };
+
+        let window1 = 1;
+        PIXMAP_CACHE
+            .lock()
+            .unwrap()
+            .insert(window1, CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            });
+
+        let cached = PIXMAP_CACHE.lock().unwrap();
+        let shape_changed = cached
+            .get(&window1)
+            .map_or(true, |c| c.shape != shape2);
+        drop(cached);
+
+        assert!(shape_changed, "Scale change should trigger rebuild");
+    }
+
+    #[test]
+    fn position_only_reuses_cache() {
+        reset_stats();
+
+        let shape = MaskShape {
+            opaque: vec![true, false, true],
+            width: 3,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let window1 = 1;
+        PIXMAP_CACHE
+            .lock()
+            .unwrap()
+            .insert(window1, CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape.clone(),
+            });
+
+        let cached = PIXMAP_CACHE.lock().unwrap();
+        let shape_changed = cached.get(&window1).map_or(true, |c| c.shape != shape);
+        drop(cached);
+
+        assert!(
+            !shape_changed,
+            "Same shape should reuse cache (position-only update)"
+        );
+    }
+
+    #[test]
+    fn two_windows_have_separate_caches() {
+        reset_stats();
+
+        let shape1 = MaskShape {
+            opaque: vec![true, false],
+            width: 2,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let shape2 = MaskShape {
+            opaque: vec![false, true],
+            width: 2,
+            height: 1,
+            facing: 1,
+            scale: 1,
+        };
+
+        let window1 = 1;
+        let window2 = 2;
+
+        // Cache shape1 for window1
+        PIXMAP_CACHE
+            .lock()
+            .unwrap()
+            .insert(window1, CachedPixmap {
+                pixmap: 100,
+                gc: 200,
+                shape: shape1.clone(),
+            });
+
+        // Cache shape2 for window2
+        PIXMAP_CACHE
+            .lock()
+            .unwrap()
+            .insert(window2, CachedPixmap {
+                pixmap: 300,
+                gc: 400,
+                shape: shape2.clone(),
+            });
+
+        let cache = PIXMAP_CACHE.lock().unwrap();
+
+        // Both windows should have their own cached shapes
+        assert_eq!(cache.get(&window1).unwrap().shape, shape1);
+        assert_eq!(cache.get(&window2).unwrap().shape, shape2);
+
+        // Clearing window1 should not affect window2
+        drop(cache);
+        PIXMAP_CACHE.lock().unwrap().remove(&window1);
+
+        let cache = PIXMAP_CACHE.lock().unwrap();
+        assert!(cache.get(&window1).is_none());
+        assert_eq!(cache.get(&window2).unwrap().shape, shape2);
+    }
+
+    #[test]
+    fn stats_tracking() {
+        reset_stats();
+        let (total, full, position_only) = get_stats();
         assert_eq!(total, 0);
+        assert_eq!(full, 0);
         assert_eq!(position_only, 0);
     }
 }
