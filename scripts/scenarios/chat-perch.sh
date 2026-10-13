@@ -77,7 +77,9 @@ fail() {
 for tool in window-layer chat-window ax click-cursor warp-cursor; do
   [ -x "$tools/$tool" ] || fail "missing prebuilt helper $tools/$tool"
 done
-[ -x "$bin" ] && [ -x "$test_bin" ] && [ -x "$verify_bin" ] || fail "missing Fidget, fidget-verify, or fixture test binary"
+if ! { [ -x "$bin" ] && [ -x "$test_bin" ] && [ -x "$verify_bin" ]; }; then
+  fail "missing Fidget, fidget-verify, or fixture test binary"
+fi
 
 wait_for() {
   local seconds=$1
@@ -200,8 +202,9 @@ overlay_state_at() {
 
 screen=$("$tools/chat-window" screen)
 IFS=, read -r screen_x screen_y screen_w screen_h <<< "$screen"
-[ "$screen_w" -gt 0 ] && [ "$screen_h" -gt 0 ] ||
+if ! { [ "$screen_w" -gt 0 ] && [ "$screen_h" -gt 0 ]; }; then
   fail "macOS window server is unavailable to this process"
+fi
 ax_trust=$("$tools/chat-window" ax-trusted)
 echo "ax_trusted=$ax_trust" > "$out/preflight.txt"
 [ "$ax_trust" = yes ] || fail "Accessibility trust is absent; see $out/preflight.txt"
@@ -233,8 +236,9 @@ echo "screen=$screen" >> "$out/run.txt"
 wait_for 30 info || fail "Chat window did not open"
 wait_for 30 grep -qx asked "$marks" || fail "fixture did not ask its question"
 IFS=, read -r chat_x chat_y chat_w chat_h chat_layer <<< "$(info)"
-[ "$chat_x" -ge "$screen_x" ] && [ $((chat_x + chat_w)) -le $((screen_x + screen_w)) ] ||
+if ! { [ "$chat_x" -ge "$screen_x" ] && [ $((chat_x + chat_w)) -le $((screen_x + screen_w)) ]; }; then
   fail "Chat is not wholly on the primary display"
+fi
 chat_title_x=$((chat_x + chat_w / 2))
 chat_title_y=$((chat_y + 14))
 before_pointer_lines=$(($(wc -l < "$log") + 1))
