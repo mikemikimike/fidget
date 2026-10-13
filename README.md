@@ -274,7 +274,7 @@ What works today on each OS.
 2. **Windows Dock/panel:** Taskbar from work area (full-width strip) rather than exact island bounds. Taskbar spans the edge by design; no Windows API equivalent to macOS's `CoreDockGetRect`.
 3. **Windows fullscreen:** Fades for true fullscreen and properly-sized borderless windowed modes. Apps using non-standard fullscreen or leaving gaps may not trigger fade.
 4. **Linux Capturable:** Always capturable. Linux has no platform API to exclude windows from capture tools ([ADR-0024](./docs/adr/0024-capturable-by-default.md)).
-5. **Linux fullscreen:** X11 and XWayland work for all apps. Pure Wayland without XWayland: native Wayland fullscreen apps do not trigger fade or move; XWayland clients still trigger correctly ([#1360](https://github.com/omesser/fidget/issues/1360)).
+5. **Linux fullscreen:** X11 works for all apps. XWayland: native Wayland fullscreen apps do not trigger fade or move; XWayland clients still trigger correctly. Pure Wayland without XWayland: neither XWayland clients (not present without an X server) nor native Wayland fullscreen apps trigger fade or move ([#1369](https://github.com/omesser/fidget/issues/1369), [#1360](https://github.com/omesser/fidget/issues/1360)).
 
 Detailed investigation: [`docs/research/platform-support-degraded-cells.md`](./docs/research/platform-support-degraded-cells.md).
 
