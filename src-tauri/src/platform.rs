@@ -683,6 +683,18 @@ pub fn set_overlay_click_through(
     }
 }
 
+/// Clean up X11 pixmap cache for a destroyed overlay window.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
+    x11::cleanup_overlay_window(window)
+}
+
+#[cfg(target_os = "windows")]
+pub fn cleanup_overlay_window(_window: &tauri::WebviewWindow) {}
+
+#[cfg(target_os = "macos")]
+pub fn cleanup_overlay_window(_window: &tauri::WebviewWindow) {}
+
 /// Update the input region for the overlay window based on the sprite's alpha mask.
 /// X11 and Windows then union hotspot rects so a control drawn outside the
 /// art still receives clicks. macOS uses `set_ignore_cursor_events`.

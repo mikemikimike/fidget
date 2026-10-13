@@ -125,6 +125,16 @@ pub fn update_input_region(
     Ok(())
 }
 
+fn should_rebuild_mask(
+    cache: &HashMap<u32, CachedPixmap>,
+    window: u32,
+    current_shape: &MaskShape,
+) -> bool {
+    cache
+        .get(&window)
+        .is_none_or(|cached| &cached.shape != current_shape)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_input_mask(
     conn: &RustConnection,
@@ -148,9 +158,7 @@ fn apply_input_mask(
     };
 
     let mut cache = PIXMAP_CACHE.lock().unwrap();
-    let shape_changed = cache
-        .get(&window)
-        .is_none_or(|cached| cached.shape != current_shape);
+    let shape_changed = should_rebuild_mask(&cache, window, &current_shape);
 
     let (pixmap, _gc) = if shape_changed {
         FULL_REBUILD_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -317,14 +325,16 @@ fn apply_input_mask(
     Ok(())
 }
 
-fn clear_input_region(conn: &RustConnection, window: u32) -> Result<(), String> {
-    // Clean up cached pixmap for this window when clearing
+fn free_cached_pixmap(conn: &RustConnection, window: u32) {
     let mut cache = PIXMAP_CACHE.lock().unwrap();
     if let Some(cached) = cache.remove(&window) {
         xproto::free_gc(conn, cached.gc).ok();
         xproto::free_pixmap(conn, cached.pixmap).ok();
     }
-    drop(cache);
+}
+
+fn clear_input_region(conn: &RustConnection, window: u32) -> Result<(), String> {
+    free_cached_pixmap(conn, window);
 
     shape::mask(conn, shape::SO::SET, SK::INPUT, window, 0, 0, x11rb::NONE)
         .map_err(|e| format!("Failed to clear input region: {e}"))?
@@ -335,6 +345,26 @@ fn clear_input_region(conn: &RustConnection, window: u32) -> Result<(), String> 
         .map_err(|e| format!("Failed to flush X11: {e}"))?;
 
     Ok(())
+}
+
+/// Free cached X11 pixmap and GC for a destroyed overlay window.
+pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
+    let raw_window_handle = match window.window_handle() {
+        Ok(handle) => handle,
+        Err(_) => return,
+    };
+
+    let x_window = match raw_window_handle.as_raw() {
+        RawWindowHandle::Xlib(xlib_window) => xlib_window.window as u32,
+        RawWindowHandle::Xcb(xcb_window) => xcb_window.window.get(),
+        _ => return,
+    };
+
+    let Some(conn) = super::connection::connection() else {
+        return;
+    };
+
+    free_cached_pixmap(conn, x_window);
 }
 
 #[cfg(test)]

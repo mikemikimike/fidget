@@ -205,14 +205,14 @@ echo "Waiting for $target_updates mask updates (deadline: ${deadline_sec}s)..."
 
 while true; do
   update_count=$(grep -c 'mask_rebuild:' "$log" 2> /dev/null || echo "0")
-  
+
   if [ "$update_count" -ge "$target_updates" ]; then
     measure_end=$(date +%s)
     measure_elapsed=$((measure_end - measure_start))
     echo "Captured $update_count mask updates in ${measure_elapsed}s"
     break
   fi
-  
+
   now=$(date +%s)
   elapsed=$((now - measure_start))
   if [ "$elapsed" -ge "$deadline_sec" ]; then
@@ -222,7 +222,7 @@ while true; do
     measure_elapsed=$elapsed
     break
   fi
-  
+
   sleep 0.1
 done
 
