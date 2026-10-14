@@ -71,6 +71,10 @@
   a { color: var(--accent); }
   .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1rem; }
 
+  .hero-banner { width: 100%; display: block; height: auto; margin: 0 auto;
+    max-width: 68rem; border-radius: 0 0 14px 14px; }
+  .hero-banner-container { background: var(--paper); padding: 0 1rem; }
+
   nav { display: flex; align-items: center; gap: 1.25rem; padding: 1rem 0; }
   .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700;
     font-size: 1.15rem; color: var(--ink); text-decoration: none; margin-right: auto; }
@@ -153,6 +157,8 @@
   footer a { color: inherit; }
 
   @media (max-width: 760px) {
+    .hero-banner { border-radius: 0; }
+    .hero-banner-container { padding: 0; }
     .hero { grid-template-columns: 1fr; padding-top: 1rem; }
     nav a.link.opt { display: none; }
     .get { grid-template-columns: 1fr; }
@@ -164,6 +170,9 @@
 </style>
 </head>
 <body>
+<div class="hero-banner-container">
+  <img src="hero-banner.jpg" alt="Fidget - A Desktop Pet. Four spherical robots (black, silver, red, gold) with headphones lined up on a desk with a blurred desktop background" class="hero-banner">
+</div>
 <div class="wrap">
   <nav>
     <a class="brand" href="./"><img src="{{brand}}" alt="">Fidget</a>
