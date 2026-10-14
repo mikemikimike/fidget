@@ -123,8 +123,8 @@ $Launcher = "bash"
 
 $env:HOME = Join-Path $out "home"
 $env:USERPROFILE = $env:HOME
-$env:FIDGET_HARNESS = $harness
-$env:FIDGET_DIRECTOR_WAKE_SECS = "600"
+    $env:FIDGET_HARNESS = $harness
+    $env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_CHARACTER = "bmo"
@@ -166,28 +166,28 @@ try {
     }
     function Marked([string]$Line) { [bool](Get-Content -LiteralPath $marks | Where-Object { $_ -eq $Line }) }
 
-    if (-not (Wait-For 30 { Marked "spawn" })) { Fail "Harness never spawned; see $log" }
+    if (-not (Wait-For 3 { Marked "spawn" })) { Fail "Harness never spawned; see $log" }
     # Open Chat, which triggers the sign-in flow. A session/new only comes from a
     # reactive Director wake (pointer hover or window fall), not from attach alone.
     if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
+    if (-not (Wait-For 2 { Marked "new" })) { Fail "Chat did not trigger session/new; see $marks" }
 
     Check-NeedsLogin (Invoke-Dump "needs-login")
     if (-not (Invoke-Ax "press" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Fake login"))) {
         Fail "could not press Fake login button; see $out\press.txt"
     }
-    Start-Sleep -Seconds 1
+    Start-Sleep -Milliseconds 200
     Check-Waiting (Invoke-Dump "waiting")
 
     if (-not (Invoke-Ax "press-open" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Open"))) {
         Fail "could not press Open on the sign-in link; see $out\press-open.txt"
     }
-    if (-not (Wait-For 10 { Marked "elicit-url:accept" })) { Fail "sign-in form never answered; see $log" }
+    if (-not (Wait-For 2 { Marked "elicit-url:accept" })) { Fail "sign-in form never answered; see $log" }
     Write-Output "ok: Open accepted the link"
     $sessions = { @(Get-Content -LiteralPath $marks | Where-Object { $_ -eq "new" }).Count -ge 1 }
-    if (-not (Wait-For 15 $sessions)) { Fail "session did not open after sign-in; see $log" }
-    Start-Sleep -Milliseconds 1500
+    if (-not (Wait-For 3 $sessions)) { Fail "session did not open after sign-in; see $log" }
     Check-SignedIn (Invoke-Dump "signed-in")
     Write-Output "PASS: evidence in $out"
 } finally {

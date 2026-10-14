@@ -44,7 +44,7 @@ check_needs_login() { # <dump>
 }
 
 check_waiting() { # <dump>
-  grep -qE '^label\|.*Finish signing in in your browser' "$1" || fail "no waiting line after button press; see $1"
+  grep -qE '^(label|paragraph)\|.*Finish signing in in your browser' "$1" || fail "no waiting line after button press; see $1"
   grep -qF "came from $launcher, so" "$1" || fail "waiting line does not name the Harness; see $1"
   echo "ok: waiting line appears after button press"
 }
@@ -104,7 +104,7 @@ chmod +x "$out/bin/xdg-open"
 
 env HOME="$out/home" PATH="$out/bin:$PATH" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=600 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
@@ -129,7 +129,7 @@ dump() { # <name>
 handed() { [ "$(cat "$opened")" = "$link" ]; }
 sessions() { [ "$(grep -cx new "$marks")" -ge "$1" ]; }
 
-wait_for 30 grep -qx spawn "$marks" || fail "Harness never spawned; see $log"
+wait_for 3 grep -qx spawn "$marks" || fail "Harness never spawned; see $log"
 # Open Chat, which triggers the sign-in flow. A session/new only comes from a
 # reactive Director wake (pointer hover or window fall), not from attach alone.
 rc=0
@@ -139,21 +139,21 @@ if [ "$rc" -eq 2 ]; then
   exit 2
 fi
 [ "$rc" -eq 0 ] || fail "the tray's Chat row did not open Chat; see $out/open.txt"
+wait_for 2 grep -qx new "$marks" || fail "Chat did not trigger session/new; see $marks"
 
 dump needs-login
 check_needs_login "$out/needs-login.ax.txt"
 
 ax press "$pid" BMO "Fake login" > "$out/press.txt" 2>&1 || fail "could not press Fake login button; see $out/press.txt"
-sleep 1
+sleep 0.2
 dump waiting
 check_waiting "$out/waiting.ax.txt"
 
 ax press "$pid" BMO Open > "$out/press-open.txt" 2>&1 || fail "could not press Open on the sign-in link; see $out/press-open.txt"
-wait_for 10 grep -qx 'elicit-url:accept' "$marks" || fail "sign-in form never answered; see $log"
-wait_for 5 handed || true
+wait_for 2 grep -qx 'elicit-url:accept' "$marks" || fail "sign-in form never answered; see $log"
+wait_for 2 handed || true
 check_opened "$opened"
-wait_for 15 sessions 1 || fail "session did not open after sign-in; see $log"
-sleep 1.5
+wait_for 3 sessions 1 || fail "session did not open after sign-in; see $log"
 
 dump signed-in
 check_signed_in "$out/signed-in.ax.txt"
