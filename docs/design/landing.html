@@ -71,6 +71,9 @@
   a { color: var(--accent); }
   .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1rem; }
 
+  .hero-banner { width: 100%; display: block; height: auto; border-radius: 14px;
+    border: 1px solid var(--line); margin-bottom: 2rem; }
+
   nav { display: flex; align-items: center; gap: 1.25rem; padding: 1rem 0; }
   .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700;
     font-size: 1.15rem; color: var(--ink); text-decoration: none; margin-right: auto; }
@@ -171,6 +174,13 @@
     <a class="link opt" href="#characters">Characters</a>
     <a class="link" href="https://github.com/omesser/fidget">GitHub</a>
   </nav>
+
+  <picture>
+    <source media="(max-width: 760px)" type="image/webp" srcset="hero-banner-mobile.webp" width="960" height="533">
+    <source media="(max-width: 760px)" type="image/jpeg" srcset="hero-banner-mobile.jpg" width="960" height="533">
+    <source type="image/webp" srcset="hero-banner-desktop.webp">
+    <img src="hero-banner-desktop.jpg" alt="Fidget, a desktop pet" class="hero-banner" width="1600" height="533" loading="eager">
+  </picture>
 
   <div class="hero">
     <div>
