@@ -178,7 +178,7 @@ try {
     if (-not (Invoke-Ax "press" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Fake login"))) {
         Fail "could not press Fake login button; see $out\press.txt"
     }
-    Start-Sleep -Milliseconds 200
+    if (-not (Wait-For 2 { Marked "authenticate" })) { Fail "sign-in button did not trigger authenticate; see $log" }
     Check-Waiting (Invoke-Dump "waiting")
 
     if (-not (Invoke-Ax "press-open" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Open"))) {

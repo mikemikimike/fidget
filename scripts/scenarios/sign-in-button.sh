@@ -99,7 +99,7 @@ echo "ok: needs-login shows Fake login button"
 
 "$tools/ax" press-button "$pid" "Fake login" 1 BMO > "$out/press.txt" 2>&1 ||
   fail "could not press Fake login button; see $out/press.txt"
-sleep 0.2
+wait_for 2 grep -qx authenticate "$marks" || fail "sign-in button did not trigger authenticate; see $log"
 
 dump waiting
 shot waiting
