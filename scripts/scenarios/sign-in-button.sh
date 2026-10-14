@@ -83,11 +83,11 @@ shot() { # <name>
 }
 
 wait_for 3 grep -qx spawn "$marks" || fail "Harness never spawned; see $log"
-# Open Chat, which triggers the sign-in flow. A session/new only comes from a
-# reactive Director wake (pointer hover or window fall), not from attach alone.
+# Open Chat. The 1 s timed wake sends session/new (refused: auth required), which
+# shows the needs-login UI. A session/new only comes from a wake, not from attach alone.
 "$tools/ax" open "$pid" Chat BMO > "$out/open.txt" 2>&1 || fail "the menu's Chat row did not open Chat; see $out/open.txt"
 wait_for 3 "$tools/window-id" "$pid" BMO || fail "Chat did not open for needs-login"
-wait_for 2 grep -qx new "$marks" || fail "Chat did not trigger session/new; see $marks"
+wait_for 2 grep -qx new "$marks" || fail "timed wake did not send session/new; see $marks"
 
 dump needs-login
 shot needs-login
@@ -116,7 +116,7 @@ sessions() { [ "$(grep -cx new "$marks")" -ge "$1" ]; }
 handed() { [ "$(cat "$opened")" = "https://example.test/device?code=ABCD-1234" ]; }
 wait_for 2 handed || fail "Open handed '$(cat "$opened")' to open"
 echo "ok: Open accepted the link and handed it to open"
-wait_for 3 sessions 1 || fail "session did not open after sign-in; see $log"
+wait_for 3 sessions 2 || fail "session did not open after sign-in; see $log"
 
 dump signed-in
 shot signed-in

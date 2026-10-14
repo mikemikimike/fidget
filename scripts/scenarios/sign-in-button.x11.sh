@@ -130,8 +130,8 @@ handed() { [ "$(cat "$opened")" = "$link" ]; }
 sessions() { [ "$(grep -cx new "$marks")" -ge "$1" ]; }
 
 wait_for 3 grep -qx spawn "$marks" || fail "Harness never spawned; see $log"
-# Open Chat, which triggers the sign-in flow. A session/new only comes from a
-# reactive Director wake (pointer hover or window fall), not from attach alone.
+# Open Chat. The 1 s timed wake sends session/new (refused: auth required), which
+# shows the needs-login UI. A session/new only comes from a wake, not from attach alone.
 rc=0
 ax tray "$pid" BMO Chat > "$out/open.txt" 2>&1 || rc=$?
 if [ "$rc" -eq 2 ]; then
@@ -139,7 +139,7 @@ if [ "$rc" -eq 2 ]; then
   exit 2
 fi
 [ "$rc" -eq 0 ] || fail "the tray's Chat row did not open Chat; see $out/open.txt"
-wait_for 2 grep -qx new "$marks" || fail "Chat did not trigger session/new; see $marks"
+wait_for 2 grep -qx new "$marks" || fail "timed wake did not send session/new; see $marks"
 
 dump needs-login
 check_needs_login "$out/needs-login.ax.txt"
@@ -153,7 +153,7 @@ ax press "$pid" BMO Open > "$out/press-open.txt" 2>&1 || fail "could not press O
 wait_for 2 grep -qx 'elicit-url:accept' "$marks" || fail "sign-in form never answered; see $log"
 wait_for 2 handed || true
 check_opened "$opened"
-wait_for 3 sessions 1 || fail "session did not open after sign-in; see $log"
+wait_for 3 sessions 2 || fail "session did not open after sign-in; see $log"
 
 dump signed-in
 check_signed_in "$out/signed-in.ax.txt"

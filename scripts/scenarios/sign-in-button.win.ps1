@@ -123,8 +123,8 @@ $Launcher = "bash"
 
 $env:HOME = Join-Path $out "home"
 $env:USERPROFILE = $env:HOME
-    $env:FIDGET_HARNESS = $harness
-    $env:FIDGET_DIRECTOR_WAKE_SECS = "1"
+$env:FIDGET_HARNESS = $harness
+$env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_CHARACTER = "bmo"
@@ -167,12 +167,12 @@ try {
     function Marked([string]$Line) { [bool](Get-Content -LiteralPath $marks | Where-Object { $_ -eq $Line }) }
 
     if (-not (Wait-For 3 { Marked "spawn" })) { Fail "Harness never spawned; see $log" }
-    # Open Chat, which triggers the sign-in flow. A session/new only comes from a
-    # reactive Director wake (pointer hover or window fall), not from attach alone.
+    # Open Chat. The 1 s timed wake sends session/new (refused: auth required), which
+    # shows the needs-login UI. A session/new only comes from a wake, not from attach alone.
     if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
-    if (-not (Wait-For 2 { Marked "new" })) { Fail "Chat did not trigger session/new; see $marks" }
+    if (-not (Wait-For 2 { Marked "new" })) { Fail "timed wake did not send session/new; see $marks" }
 
     Check-NeedsLogin (Invoke-Dump "needs-login")
     if (-not (Invoke-Ax "press" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Fake login"))) {
@@ -186,7 +186,7 @@ try {
     }
     if (-not (Wait-For 2 { Marked "elicit-url:accept" })) { Fail "sign-in form never answered; see $log" }
     Write-Output "ok: Open accepted the link"
-    $sessions = { @(Get-Content -LiteralPath $marks | Where-Object { $_ -eq "new" }).Count -ge 1 }
+    $sessions = { @(Get-Content -LiteralPath $marks | Where-Object { $_ -eq "new" }).Count -ge 2 }
     if (-not (Wait-For 3 $sessions)) { Fail "session did not open after sign-in; see $log" }
     Check-SignedIn (Invoke-Dump "signed-in")
     Write-Output "PASS: evidence in $out"
