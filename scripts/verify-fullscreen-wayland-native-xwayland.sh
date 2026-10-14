@@ -48,8 +48,10 @@ cleanup() {
 
 trap cleanup EXIT
 
-XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+XDG_RUNTIME_DIR="/tmp/mutter-test"
 export XDG_RUNTIME_DIR
+mkdir -p "$XDG_RUNTIME_DIR"
+rm -f "$XDG_RUNTIME_DIR"/.mutter-Xwaylandauth.* 2> /dev/null || true
 WAYLAND_SOCKET="mutter-test-${STAMP}"
 export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
 
@@ -58,7 +60,7 @@ mutter --headless --wayland --virtual-monitor 1920x1080 --wayland-display="$WAYL
 MUTTER_PID=$!
 
 log_info "Waiting for mutter XWayland display line..."
-deadline=$(($(date +%s) + 30))
+deadline=$(($(date +%s) + 3))
 while [ "$(date +%s)" -lt "$deadline" ]; do
   if ! ps -p "$MUTTER_PID" > /dev/null 2>&1; then
     cat "$MUTTER_LOG"
@@ -83,7 +85,7 @@ if [ -n "$XAUTHORITY_FILE" ]; then
 fi
 
 log_info "Waiting to connect to $DISPLAY..."
-deadline=$(($(date +%s) + 10))
+deadline=$(($(date +%s) + 3))
 while [ "$(date +%s)" -lt "$deadline" ]; do
   if xprop -root > /dev/null 2>&1; then
     log_info "Connected to $DISPLAY"
@@ -127,11 +129,11 @@ BASELINE=$(count_windows)
 dump_windows "Baseline (mutter)"
 
 log_info "Starting native Wayland client (gtk4-demo, GDK_BACKEND=wayland)..."
-WAYLAND_DEBUG=1 GDK_BACKEND=wayland GSK_RENDERER=cairo gtk4-demo > "$NATIVE_LOG" 2>&1 &
+WAYLAND_DISPLAY="$WAYLAND_SOCKET" WAYLAND_DEBUG=1 GDK_BACKEND=wayland GSK_RENDERER=cairo gtk4-demo > "$NATIVE_LOG" 2>&1 &
 NATIVE_PID=$!
 
 log_info "Waiting for native client wl_surface.attach + commit..."
-deadline=$(($(date +%s) + 30))
+deadline=$(($(date +%s) + 3))
 commit_found=false
 while [ "$(date +%s)" -lt "$deadline" ]; do
   if ! ps -p "$NATIVE_PID" > /dev/null 2>&1; then
@@ -140,8 +142,8 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
     fail "Native client failed"
   fi
 
-  if grep -qE " -> wl_surface@[0-9]+\\.attach\\(wl_buffer@" "$NATIVE_LOG" 2> /dev/null; then
-    surface_with_attach=$(grep -E " -> wl_surface@[0-9]+\\.attach" "$NATIVE_LOG" | grep -oE "wl_surface@[0-9]+" | head -1)
+  if grep -qE " -> wl_surface[@#][0-9]+\\.attach\\(wl_buffer[@#]" "$NATIVE_LOG" 2> /dev/null; then
+    surface_with_attach=$(grep -E " -> wl_surface[@#][0-9]+\\.attach" "$NATIVE_LOG" | grep -oE "wl_surface[@#][0-9]+" | head -1)
     if [ -n "$surface_with_attach" ]; then
       attach_line=$(grep -n " -> $surface_with_attach\\.attach" "$NATIVE_LOG" 2> /dev/null | head -1 | cut -d: -f1)
       if [ -n "$attach_line" ]; then
@@ -154,7 +156,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
       fi
     fi
   fi
-  sleep 0.5
+  sleep 0.1
 done
 
 if [ "$commit_found" = false ]; then
@@ -179,7 +181,7 @@ xterm -e cat > "$XTERM_LOG" 2>&1 &
 XTERM_PID=$!
 
 log_info "Waiting for xterm in _NET_CLIENT_LIST..."
-deadline=$(($(date +%s) + 15))
+deadline=$(($(date +%s) + 3))
 xterm_found=false
 while [ "$(date +%s)" -lt "$deadline" ]; do
   list=$(xprop -root _NET_CLIENT_LIST 2> /dev/null | grep -oE '0x[0-9a-fA-F]+' || true)
