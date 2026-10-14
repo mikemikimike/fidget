@@ -167,9 +167,8 @@ try {
     function Marked([string]$Line) { [bool](Get-Content -LiteralPath $marks | Where-Object { $_ -eq $Line }) }
 
     if (-not (Wait-For 30 { Marked "spawn" })) { Fail "Harness never spawned; see $log" }
-    # Needs-login does not open Chat by itself; only a link Fidget's own sign-in
-    # raises does (docs/harness.md).
-    if (-not (Wait-For 15 { Marked "new" })) { Fail "the Harness never asked for a session; see $marks" }
+    # Open Chat, which triggers the sign-in flow. A session/new only comes from a
+    # reactive Director wake (pointer hover or window fall), not from attach alone.
     if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
@@ -186,7 +185,7 @@ try {
     }
     if (-not (Wait-For 10 { Marked "elicit-url:accept" })) { Fail "sign-in form never answered; see $log" }
     Write-Output "ok: Open accepted the link"
-    $sessions = { @(Get-Content -LiteralPath $marks | Where-Object { $_ -eq "new" }).Count -ge 2 }
+    $sessions = { @(Get-Content -LiteralPath $marks | Where-Object { $_ -eq "new" }).Count -ge 1 }
     if (-not (Wait-For 15 $sessions)) { Fail "session did not open after sign-in; see $log" }
     Start-Sleep -Milliseconds 1500
     Check-SignedIn (Invoke-Dump "signed-in")

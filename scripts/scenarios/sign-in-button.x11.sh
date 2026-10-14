@@ -130,9 +130,8 @@ handed() { [ "$(cat "$opened")" = "$link" ]; }
 sessions() { [ "$(grep -cx new "$marks")" -ge "$1" ]; }
 
 wait_for 30 grep -qx spawn "$marks" || fail "Harness never spawned; see $log"
-# Needs-login does not open Chat by itself; only a link Fidget's own sign-in
-# raises does (docs/harness.md).
-wait_for 15 grep -qx new "$marks" || fail "the Harness never asked for a session; see $marks"
+# Open Chat, which triggers the sign-in flow. A session/new only comes from a
+# reactive Director wake (pointer hover or window fall), not from attach alone.
 rc=0
 ax tray "$pid" BMO Chat > "$out/open.txt" 2>&1 || rc=$?
 if [ "$rc" -eq 2 ]; then
@@ -153,7 +152,7 @@ ax press "$pid" BMO Open > "$out/press-open.txt" 2>&1 || fail "could not press O
 wait_for 10 grep -qx 'elicit-url:accept' "$marks" || fail "sign-in form never answered; see $log"
 wait_for 5 handed || true
 check_opened "$opened"
-wait_for 15 sessions 2 || fail "session did not open after sign-in; see $log"
+wait_for 15 sessions 1 || fail "session did not open after sign-in; see $log"
 sleep 1.5
 
 dump signed-in
