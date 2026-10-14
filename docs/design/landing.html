@@ -71,9 +71,8 @@
   a { color: var(--accent); }
   .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1rem; }
 
-  .hero-banner { width: 100%; display: block; height: auto; margin: 0 auto;
-    max-width: 68rem; border-radius: 0 0 14px 14px; }
-  .hero-banner-container { background: var(--paper); padding: 0 1rem; }
+  .hero-banner { width: 100%; display: block; height: auto; border-radius: 14px;
+    border: 1px solid var(--line); margin-bottom: 2rem; }
 
   nav { display: flex; align-items: center; gap: 1.25rem; padding: 1rem 0; }
   .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700;
@@ -157,8 +156,6 @@
   footer a { color: inherit; }
 
   @media (max-width: 760px) {
-    .hero-banner { border-radius: 0; }
-    .hero-banner-container { padding: 0; }
     .hero { grid-template-columns: 1fr; padding-top: 1rem; }
     nav a.link.opt { display: none; }
     .get { grid-template-columns: 1fr; }
@@ -170,9 +167,6 @@
 </style>
 </head>
 <body>
-<div class="hero-banner-container">
-  <img src="hero-banner.jpg" alt="Fidget - A Desktop Pet. Four spherical robots (black, silver, red, gold) with headphones lined up on a desk with a blurred desktop background" class="hero-banner">
-</div>
 <div class="wrap">
   <nav>
     <a class="brand" href="./"><img src="{{brand}}" alt="">Fidget</a>
@@ -180,6 +174,13 @@
     <a class="link opt" href="#characters">Characters</a>
     <a class="link" href="https://github.com/omesser/fidget">GitHub</a>
   </nav>
+
+  <picture>
+    <source media="(max-width: 760px)" type="image/webp" srcset="hero-banner-mobile.webp">
+    <source media="(max-width: 760px)" type="image/jpeg" srcset="hero-banner-mobile.jpg">
+    <source type="image/webp" srcset="hero-banner-desktop.webp">
+    <img src="hero-banner-desktop.jpg" alt="Fidget, a desktop pet" class="hero-banner" width="1600" height="533" loading="eager">
+  </picture>
 
   <div class="hero">
     <div>
