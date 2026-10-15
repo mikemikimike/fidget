@@ -7,33 +7,63 @@
 # Wait for a trace line pattern in the app log (fast timeout: 2-3s)
 # Returns immediately when the pattern appears
 wait_for_trace() { # <seconds> <log file> <pattern>
-  local timeout=$1 log=$2 pattern=$3
+  local timeout=$1 log=$2 pattern=$3 tail_pid grep_pid result deadline
   if [ -n "${pid:-}" ]; then
     kill -0 "$pid" 2> /dev/null || return 1
   fi
   if [ -f "$log" ] && grep -qE "$pattern" "$log" 2> /dev/null; then
     return 0
   fi
-  (
-    set +o pipefail
-    timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 --line-buffered "$pattern"
-  )
+  deadline=$(($(date +%s) + timeout))
+  fifo=$(mktemp -u)
+  mkfifo "$fifo"
+  tail -F "$log" > "$fifo" 2> /dev/null &
+  tail_pid=$!
+  grep -qEm1 "$pattern" < "$fifo" &
+  grep_pid=$!
+  result=1
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if ! kill -0 "$grep_pid" 2> /dev/null; then
+      wait "$grep_pid" 2> /dev/null && result=0 || result=1
+      break
+    fi
+    sleep 0.01
+  done
+  kill "$grep_pid" "$tail_pid" 2> /dev/null || true
+  wait "$grep_pid" "$tail_pid" 2> /dev/null || true
+  rm -f "$fifo"
+  return "$result"
 }
 
 # Wait for a marker file to contain a pattern (fast timeout: 2-3s)
 # Returns immediately when the pattern appears
 wait_for_marks() { # <seconds> <marks file> <pattern>
-  local timeout=$1 marks=$2 pattern=$3
+  local timeout=$1 marks=$2 pattern=$3 tail_pid grep_pid result deadline
   if [ -n "${pid:-}" ]; then
     kill -0 "$pid" 2> /dev/null || return 1
   fi
   if [ -f "$marks" ] && grep -qE "$pattern" "$marks" 2> /dev/null; then
     return 0
   fi
-  (
-    set +o pipefail
-    timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 --line-buffered "$pattern"
-  )
+  deadline=$(($(date +%s) + timeout))
+  fifo=$(mktemp -u)
+  mkfifo "$fifo"
+  tail -F "$marks" > "$fifo" 2> /dev/null &
+  tail_pid=$!
+  grep -qEm1 "$pattern" < "$fifo" &
+  grep_pid=$!
+  result=1
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if ! kill -0 "$grep_pid" 2> /dev/null; then
+      wait "$grep_pid" 2> /dev/null && result=0 || result=1
+      break
+    fi
+    sleep 0.01
+  done
+  kill "$grep_pid" "$tail_pid" 2> /dev/null || true
+  wait "$grep_pid" "$tail_pid" 2> /dev/null || true
+  rm -f "$fifo"
+  return "$result"
 }
 
 # Wait for a file to exist (fast timeout: 2-3s)

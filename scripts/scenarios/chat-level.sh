@@ -30,12 +30,12 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 . "$root/scripts/scenarios/wait-helpers.x11.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-chat-level-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
-mkdir -p "$out/home/.local/share/fidget" "$tools"
+mkdir -p "$out/home/Library/Application Support/fidget" "$tools"
 log="$out/app.log" marks="$out/harness.log"
-trace="$out/home/.local/share/fidget/process.log"
+trace="$out/home/Library/Application Support/fidget/process.log"
 : > "$marks"
 
-cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
+cat > "$out/home/Library/Application Support/fidget/settings.json" << 'SETTINGS_EOF'
 {"first_run_tour_shown": true}
 SETTINGS_EOF
 

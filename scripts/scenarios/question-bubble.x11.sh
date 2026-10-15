@@ -98,7 +98,6 @@ trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT IN
 dump() { python3 "$root/scripts/ax-window-linux.py" dump "$pid" Fidget > "$out/$1.ax.txt" 2> "$out/$1.err" || fail "AT-SPI dump failed; see $out/$1.err"; }
 
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-answer_permission "$pid" Allow || fail "could not answer the permission; see $log"
 wait_for_trace 2 "$trace" '^frame: .* sprite\([0-9-]+,[0-9-]+\)' || fail "no frame trace in $trace"
 
 read -r sprite_w sprite_h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$trace" | head -1) || fail "no sprite size in $trace"
@@ -112,6 +111,7 @@ wait_for_trace 2 "$trace" '^verbs: .*Poke' || fail "the click did not land as a 
 wait_for_ax_dump 2 "$pid" Fidget 'Question for you' || fail "question cue never appeared; see $log"
 dump after-poke
 check_after "$out/after-poke.ax.txt"
+answer_permission "$pid" Allow || fail "could not answer the permission; see $log"
 
 elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
 echo "PASS: evidence in $out (${elapsed_ms}ms)"
