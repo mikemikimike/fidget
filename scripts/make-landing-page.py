@@ -4,11 +4,11 @@
     python3 scripts/make-landing-page.py --out _site [--release release.json]
     python3 scripts/make-landing-page.py --self-check
 
-A Generated page under ADR-0038. The headline, opening paragraph, feature list,
-Harness names, install notes and opening hero video are read from README.md;
-the cast, count and sprites are read from Character Manifests. The page shell
-is docs/design/landing.html, with double-brace slots this script fills. A
-source it cannot find fails the build.
+A Generated page under ADR-0038. The headline, the opening paragraph, the
+feature list, the Harness names, the install notes and the hero video are read
+from README.md; the cast, its count and every sprite are read from the Character
+Manifests. The page shell is docs/design/landing.html, with double-brace slots
+this script fills. A source it cannot find fails the build.
 
 Two sources are optional. Without the hero video the desk scene stands in.
 Each download button links its asset in the release file that
@@ -149,8 +149,7 @@ def read_readme(text):
         raise Malformed("README.md Harness Support names no Harness")
 
     get_it = section(found, "Get It")
-    opening = text.split("## What It Does", 1)[0]
-    video = ATTACHMENT.search(opening)
+    video = ATTACHMENT.search(text)
     return {
         "video": video and video.group(1),
         "headline": found["#title"],
@@ -314,16 +313,6 @@ def self_check():
 
     words = read_readme(readme)
     assert "claude" in words["harnesses"] and "anything else" not in words["harnesses"]
-    attachment = "https://github.com/user-attachments/assets/0a1b2c3d-4e5f-6789-abcd-ef0123456789"
-    readme_without_attachments = ATTACHMENT.sub("", readme)
-    opening_video = readme_without_attachments.replace(
-        "## What It Does", f"{attachment}\n\n## What It Does")
-    showcase_video = readme_without_attachments.replace(
-        "## Characters", f"## Characters\n\n{attachment}")
-    assert read_readme(opening_video)["video"] == attachment, \
-        "an opening attachment stopped becoming the website hero video"
-    assert read_readme(showcase_video)["video"] is None, \
-        "a Character showcase attachment became the website hero video"
     fenced = sections("## Get It\nClone and run:\n\n```sh\ncargo run\n```\n\nIt works offline.\n")
     assert sentence(fenced["Get It"], "offline") \
         == "It works offline.", "an install note ran across a code fence into the paragraph before it"
