@@ -1,6 +1,6 @@
 // The landing page is Generated (ADR-0038): its words come from README.md and
-// its cast from characters/. These tests assemble the site the way pages.yml
-// does, so a page that names art the site lacks fails here, not after deploy.
+// its cast from characters/. These tests assemble the site with the script
+// pages.yml runs, so a page that names art the site lacks fails here, not after deploy.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -14,15 +14,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "make-landing-page.py");
 const PAGE = "index.html";
 
-// The Assemble block reads the file the step before it fetched from GitHub;
-// here it reads a fixture shaped like `gh release view --json tagName,assets`.
-function assembleScript(site, release) {
-  const workflow = readFileSync(join(ROOT, ".github", "workflows", "pages.yml"), "utf8");
-  const block = workflow.match(/- name: Assemble the site\n(?:\s+#.*\n)*\s+run: \|\n((?:\s{10}.*\n)+)/);
-  assert.ok(block, "pages.yml has an Assemble the site step");
-  assert.ok(block[1].includes("--release release.json"), "Assemble passes the release file to the landing page");
-  return block[1].replaceAll("_site", site).replaceAll("release.json", release);
-}
+// scripts/assemble-site.sh is what pages.yml runs; it reads the file the step
+// before it fetched from GitHub, here a fixture shaped like
+// `gh release view --json tagName,assets`.
+const ASSEMBLE = join(ROOT, "scripts", "assemble-site.sh");
 
 const DOWNLOAD = "https://github.com/omesser/fidget/releases/download/v0.1.0";
 const LATEST = "https://github.com/omesser/fidget/releases/latest";
@@ -53,7 +48,7 @@ before(() => {
   scratch = mkdtempSync(join(tmpdir(), "landing-page-"));
   site = join(scratch, "_site");
   const release = releaseFile("release.json", ASSETS);
-  execFileSync("bash", ["-ec", assembleScript(site, release)], { cwd: ROOT, stdio: "pipe" });
+  execFileSync(ASSEMBLE, [site, release], { cwd: ROOT, stdio: "pipe" });
 });
 
 after(() => rmSync(scratch, { recursive: true, force: true }));

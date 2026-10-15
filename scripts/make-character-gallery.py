@@ -14,9 +14,9 @@ page that disagrees with a package cannot be deployed.
 Pure standard library. tomllib reads the manifests and the frames are copied
 byte for byte, so nothing here needs Pillow or a TOML dependency installed.
 
-This script decides what gets published. .github/workflows/pages.yml names
+This script decides what gets published. scripts/assemble-site.sh names
 files one by one for the hand-written pages, and that reviewed list is the
-security model; it cannot name a few hundred PNGs. So the workflow names this
+security model; it cannot name a few hundred PNGs. So the script names this
 generator instead, and the guarantee moves here: only the files a manifest
 names as frames are copied, only if they are PNGs inside their own package,
 and the workflow re-checks every extension in _site afterwards.
