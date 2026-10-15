@@ -154,6 +154,14 @@ test("the root is the landing page and every design page stays reachable", () =>
   assert.ok(!existsSync(join(site, "landing.html")), "nothing publishes landing.html");
 });
 
+// #1538: the README links Fidget Cues, so the landing page does too.
+test("the landing page links the published Fidget Cues page", () => {
+  const root = published("index.html");
+  assert.match(root, /<a href="cues\.html">Try the gestures in your browser<\/a>/);
+  assert.match(root, /<a href="cues\.html">Fidget Cues<\/a>/);
+  assert.ok(existsSync(join(site, "cues.html")), "cues.html is published");
+});
+
 test("the root carries a description and an Open Graph image the site publishes", () => {
   const root = published("index.html");
   const description = root.match(/<meta name="description" content="([^"]+)">/);

@@ -57,6 +57,7 @@ out="${out:-$(mktemp -d /tmp/fidget-gpu-bench-XXXXXX)}"
 mkdir -p "$out"
 
 APP_PID=""
+TAIL_PID=""
 PANEL_PID=""
 COVER_PIDS=()
 SCRATCH_HOME=""
@@ -69,6 +70,14 @@ stop_covers() {
   COVER_PIDS=()
 }
 
+stop_tail() {
+  if [ -n "$TAIL_PID" ]; then
+    kill -TERM "$TAIL_PID" 2> /dev/null || true
+    wait "$TAIL_PID" 2> /dev/null || true
+  fi
+  TAIL_PID=""
+}
+
 cleanup() {
   if [ -n "$APP_PID" ]; then
     kill -TERM "$APP_PID" 2> /dev/null || true
@@ -79,8 +88,9 @@ cleanup() {
     kill -TERM "$PANEL_PID" 2> /dev/null || true
   fi
   stop_covers
+  stop_tail
   if [ -n "$SCRATCH_HOME" ]; then
-    rm -rf "$SCRATCH_HOME"
+    rm -rf "$SCRATCH_HOME" 2> /dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -93,8 +103,9 @@ stop_app() {
     wait "$APP_PID" 2> /dev/null || true
   fi
   APP_PID=""
+  stop_tail
   if [ -n "$SCRATCH_HOME" ]; then
-    rm -rf "$SCRATCH_HOME"
+    rm -rf "$SCRATCH_HOME" 2> /dev/null || true
   fi
   SCRATCH_HOME=""
 }
@@ -104,6 +115,32 @@ need_bin() {
     echo "no $bin — run: cargo build -p fidget --bin fidget" >&2
     exit 2
   }
+}
+
+# Other sessions on the host run their own X servers and compositors, so a
+# process counts only when it serves this DISPLAY. A compositor inherits it as
+# DISPLAY. An X server names it on its command line; its own DISPLAY is the
+# shell it was started from.
+compositor_on_display() {
+  local pid
+  for pid in $(pgrep -x "$1" 2> /dev/null); do
+    if tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qx "DISPLAY=${DISPLAY:-}"; then
+      echo "$pid"
+      return 0
+    fi
+  done
+  return 1
+}
+
+x_server_for_display() {
+  local pid
+  for pid in $(pgrep -x "$1" 2> /dev/null); do
+    if tr '\0' '\n' < "/proc/$pid/cmdline" 2> /dev/null | grep -qx "${DISPLAY:-}"; then
+      echo "$pid"
+      return 0
+    fi
+  done
+  return 1
 }
 
 probe_host() {
@@ -120,26 +157,30 @@ probe_host() {
   COMP_PID=""
   local comm
   for comm in mutter gnome-shell kwin_x11 kwin_wayland xfwm4 picom compton sway weston; do
-    if pgrep -x "$comm" > /dev/null 2>&1; then
+    if COMP_PID=$(compositor_on_display "$comm"); then
       COMPOSITOR=$comm
-      COMP_PID=$(pgrep -xo "$comm")
       break
     fi
   done
 
   COMPOSITING=unknown
   VBLANK=unknown
-  if [ "$COMPOSITOR" = xfwm4 ] && command -v xfconf-query > /dev/null 2>&1; then
-    COMPOSITING=$(xfconf-query -c xfwm4 -p /general/use_compositing 2> /dev/null || echo unknown)
-    VBLANK=$(xfconf-query -c xfwm4 -p /general/vblank_mode 2> /dev/null || echo unknown)
-  fi
+  case "$COMPOSITOR" in
+    none) COMPOSITING=false ;;
+    mutter | gnome-shell | kwin_wayland | picom | compton | sway | weston) COMPOSITING=true ;;
+    xfwm4)
+      if command -v xfconf-query > /dev/null 2>&1; then
+        COMPOSITING=$(xfconf-query -c xfwm4 -p /general/use_compositing 2> /dev/null || echo unknown)
+        VBLANK=$(xfconf-query -c xfwm4 -p /general/vblank_mode 2> /dev/null || echo unknown)
+      fi
+      ;;
+  esac
 
   XSERVER=none
   X_PID=""
-  for comm in Xtigervnc Xorg Xwayland X; do
-    if pgrep -x "$comm" > /dev/null 2>&1; then
+  for comm in Xtigervnc Xvfb Xorg Xwayland X; do
+    if X_PID=$(x_server_for_display "$comm"); then
       XSERVER=$comm
-      X_PID=$(pgrep -xo "$comm")
       break
     fi
   done
@@ -420,13 +461,21 @@ launch_app() {
   if [ -z "${XAUTHORITY:-}" ] && [ -f "${HOME}/.Xauthority" ]; then
     export XAUTHORITY="${HOME}/.Xauthority"
   fi
+  : > "$log"
   SCRATCH_HOME=$(mktemp -d)
-  FIDGET_TRACE_MASK_REBUILD=1 \
+  # process_log::init moves stderr into process.log, so the trace lines are
+  # followed from there into $log.
+  mkdir -p "$SCRATCH_HOME/data/fidget"
+  : > "$SCRATCH_HOME/data/fidget/process.log"
+  tail -n +1 -F "$SCRATCH_HOME/data/fidget/process.log" >> "$log" 2> /dev/null &
+  TAIL_PID=$!
+  XDG_DATA_HOME="$SCRATCH_HOME/data" \
+    FIDGET_TRACE_MASK_REBUILD=1 \
     FIDGET_TRACE_FRAMES=1 \
     FIDGET_INSTANCES="${FIDGET_INSTANCES:-BMO}" \
     FIDGET_CHARACTERS="${FIDGET_CHARACTERS:-$PWD/characters}" \
     HOME="$SCRATCH_HOME" \
-    "$bin" > "$log" 2>&1 &
+    "$bin" >> "$log" 2>&1 &
   APP_PID=$!
 }
 
@@ -451,19 +500,24 @@ park_pointer() {
   fi
 }
 
+# The middle of the sprite box from the last Grounded or Perched frame line
+# after line $2: its top-left corner plus half the size the overlay line
+# reports. A climb or a perch puts the feet on an edge, so the feet are not a
+# safe aim, and a falling sprite has moved on before the pointer gets there.
 sprite_center() {
   local log=$1
-  awk '
-    /frame:/ { line = $0 }
+  local from=${2:-0}
+  awk -v from="$from" '
+    /overlay: [0-9]+ display.*sprite [0-9]+x[0-9]+/ {
+      match($0, /sprite [0-9]+x[0-9]+/)
+      split(substr($0, RSTART + 7, RLENGTH - 7), size, "x")
+    }
+    NR > from && /frame: [0-9]+ (Grounded|Perched) / { line = $0 }
     END {
-      if (line == "") exit 1
-      if (!match(line, /pos\([-0-9.]+,[-0-9.]+\)/)) exit 1
-      pos = substr(line, RSTART + 4, RLENGTH - 5)
-      split(pos, feet, ",")
+      if (line == "" || size[1] == "") exit 1
       if (!match(line, /sprite\([-0-9]+,[-0-9]+\)/)) exit 1
-      art = substr(line, RSTART + 7, RLENGTH - 8)
-      split(art, corner, ",")
-      printf "%d %d\n", feet[1], (corner[2] + feet[2]) / 2
+      split(substr(line, RSTART + 7, RLENGTH - 8), corner, ",")
+      printf "%d %d\n", corner[1] + size[1] / 2, corner[2] + size[2] / 2
     }
   ' "$log"
 }
@@ -599,17 +653,35 @@ run_walking() {
     return 0
   fi
   sample_row walking "$log" "$seconds" "pointer away, walk frame seen"
-  local center x y
-  if center=$(sprite_center "$log"); then
-    x=${center%% *}
-    y=${center##* }
-    xdotool mousemove "$x" "$y" > /dev/null 2>&1 || true
-    sleep 1
-    sample_row walking-over "$log" 5 "pointer on sprite center ${x},${y}"
-  else
-    emit walking-over N/A none N/A N/A N/A N/A "walk frame seen but sprite center was not in the log"
-  fi
+  run_walking_over "$log"
   stop_app
+}
+
+# Aims from a frame logged after the wait starts, so the aim is fresh, then
+# requires a mask_rebuild within about 1s of the move as proof of a hit.
+run_walking_over() {
+  local log=$1
+  local _ from center="" x y
+  from=$(log_lines "$log")
+  for _ in $(seq 1 "$((walk_timeout * 4))"); do
+    center=$(sprite_center "$log" "$from") && break
+    center=""
+    sleep 0.25
+  done
+  if [ -z "$center" ]; then
+    emit walking-over N/A none N/A N/A N/A N/A "no fresh Grounded or Perched frame to aim at"
+    return 0
+  fi
+  x=${center%% *}
+  y=${center##* }
+  from=$(log_lines "$log")
+  xdotool mousemove "$x" "$y" > /dev/null 2>&1 || true
+  sleep 1
+  if [ "$(mask_since "$log" "$from")" -eq 0 ]; then
+    emit walking-over N/A none N/A N/A N/A N/A "pointer missed: no mask_rebuild within 1s of the move to ${x},${y}"
+    return 0
+  fi
+  sample_row walking-over "$log" 5 "pointer on sprite center ${x},${y}"
 }
 
 run_chat() {
@@ -652,7 +724,7 @@ run_multi() {
   fi
   run_with_overlay multi
   local reported
-  reported=$(sed -n 's/^overlay: \([0-9]*\) display.*/\1/p' "$out/multi.log" | head -1)
+  reported=$(sed -n 's/^\([0-9]* \)\{0,1\}overlay: \([0-9]*\) display.*/\2/p' "$out/multi.log" | head -1)
   sample_row multi "$out/multi.log" "$seconds" "xrandr screens=$SCREENS overlay displays=${reported:-unknown}"
   stop_app
 }
