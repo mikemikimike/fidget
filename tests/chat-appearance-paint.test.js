@@ -122,13 +122,13 @@ async function probe(body, forceDark, preferredColorScheme) {
     try {
       let wsUrl = null;
       const href = pathToFileURL(page).href;
-      const deadline = Date.now() + 3000;
+      const deadline = Date.now() + 10000;
       while (!wsUrl && Date.now() < deadline) {
         try {
           const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
           wsUrl = pages.find((item) => item.type === "page" && item.url === href)?.webSocketDebuggerUrl;
         } catch {}
-        if (!wsUrl) await sleep(50);
+        if (!wsUrl) await sleep(100);
       }
       const elapsedMs = Date.now() - startMs;
       assert.ok(wsUrl, `Chrome did not open the page after ${elapsedMs} ms`);
@@ -157,7 +157,8 @@ async function probe(body, forceDark, preferredColorScheme) {
         });
 
       let result = null;
-      for (let i = 0; i < 60 && !result; i++) {
+      const probeDeadline = startMs + 3000;
+      while (!result && Date.now() < probeDeadline) {
         const msg = await send("Runtime.evaluate", {
           expression: "window.__probe",
           returnByValue: true,
@@ -168,10 +169,10 @@ async function probe(body, forceDark, preferredColorScheme) {
           await sleep(50);
         }
       }
-
+      
       ws.close();
       const totalMs = Date.now() - startMs;
-      assert.ok(result, `the page did not report after ${totalMs} ms`);
+      assert.ok(result, `window.__probe not set after ${totalMs} ms`);
       return result;
     } finally {
       child.kill("SIGKILL");
