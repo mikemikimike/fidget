@@ -118,12 +118,24 @@ need_bin() {
 }
 
 # Other sessions on the host run their own X servers and compositors, so a
-# process counts only when it serves this DISPLAY.
-pid_on_display() {
-  local comm=$1 pid
-  for pid in $(pgrep -x "$comm" 2> /dev/null); do
-    if tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qx "DISPLAY=${DISPLAY:-}" ||
-      tr '\0' '\n' < "/proc/$pid/cmdline" 2> /dev/null | grep -qx "${DISPLAY:-}"; then
+# process counts only when it serves this DISPLAY. A compositor inherits it as
+# DISPLAY. An X server names it on its command line; its own DISPLAY is the
+# shell it was started from.
+compositor_on_display() {
+  local pid
+  for pid in $(pgrep -x "$1" 2> /dev/null); do
+    if tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qx "DISPLAY=${DISPLAY:-}"; then
+      echo "$pid"
+      return 0
+    fi
+  done
+  return 1
+}
+
+x_server_for_display() {
+  local pid
+  for pid in $(pgrep -x "$1" 2> /dev/null); do
+    if tr '\0' '\n' < "/proc/$pid/cmdline" 2> /dev/null | grep -qx "${DISPLAY:-}"; then
       echo "$pid"
       return 0
     fi
@@ -145,7 +157,7 @@ probe_host() {
   COMP_PID=""
   local comm
   for comm in mutter gnome-shell kwin_x11 kwin_wayland xfwm4 picom compton sway weston; do
-    if COMP_PID=$(pid_on_display "$comm"); then
+    if COMP_PID=$(compositor_on_display "$comm"); then
       COMPOSITOR=$comm
       break
     fi
@@ -167,7 +179,7 @@ probe_host() {
   XSERVER=none
   X_PID=""
   for comm in Xtigervnc Xvfb Xorg Xwayland X; do
-    if X_PID=$(pid_on_display "$comm"); then
+    if X_PID=$(x_server_for_display "$comm"); then
       XSERVER=$comm
       break
     fi
@@ -488,19 +500,22 @@ park_pointer() {
   fi
 }
 
+# The middle of the sprite box from the last frame line: its top-left corner
+# plus half the size the overlay line reports. A climb or a perch puts the
+# feet on an edge, so the feet are not a safe aim.
 sprite_center() {
   local log=$1
   awk '
+    /overlay: [0-9]+ display.*sprite [0-9]+x[0-9]+/ {
+      match($0, /sprite [0-9]+x[0-9]+/)
+      split(substr($0, RSTART + 7, RLENGTH - 7), size, "x")
+    }
     /frame:/ { line = $0 }
     END {
-      if (line == "") exit 1
-      if (!match(line, /pos\([-0-9.]+,[-0-9.]+\)/)) exit 1
-      pos = substr(line, RSTART + 4, RLENGTH - 5)
-      split(pos, feet, ",")
+      if (line == "" || size[1] == "") exit 1
       if (!match(line, /sprite\([-0-9]+,[-0-9]+\)/)) exit 1
-      art = substr(line, RSTART + 7, RLENGTH - 8)
-      split(art, corner, ",")
-      printf "%d %d\n", feet[1], (corner[2] + feet[2]) / 2
+      split(substr(line, RSTART + 7, RLENGTH - 8), corner, ",")
+      printf "%d %d\n", corner[1] + size[1] / 2, corner[2] + size[2] / 2
     }
   ' "$log"
 }

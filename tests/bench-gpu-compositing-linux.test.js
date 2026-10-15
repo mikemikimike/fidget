@@ -20,14 +20,22 @@ function stub(dir, name, body) {
 
 function probe({ display, running }) {
   const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
-  const children = running.map(({ comm, display: own }) => ({
-    comm,
-    child: spawn("sleep", ["30"], {
-      env: { PATH: "/usr/bin:/bin", DISPLAY: own },
-    }),
-  }));
-  const table = children
-    .map(({ comm, child }) => `${comm}) echo ${child.pid}; exit 0 ;;`)
+  const pids = {};
+  const children = running.map(({ comm, display: own, serves }) => {
+    const child = spawn(
+      "bash",
+      ["-c", "sleep 30; :", comm, ...(serves ? [serves] : [])],
+      {
+        env: { PATH: "/usr/bin:/bin", DISPLAY: own },
+      },
+    );
+    (pids[comm] ??= []).push(child.pid);
+    return child;
+  });
+  const table = Object.entries(pids)
+    .map(
+      ([comm, list]) => `${comm}) printf '%s\\n' ${list.join(" ")}; exit 0 ;;`,
+    )
     .join("\n");
   stub(dir, "pgrep", `case "\${!#}" in\n${table}\nesac\nexit 1`);
   for (const tool of ["xrandr", "xdpyinfo", "glxinfo"])
@@ -50,7 +58,7 @@ function probe({ display, running }) {
         .map((line) => line.split("=")),
     );
   } finally {
-    for (const { child } of children) child.kill();
+    for (const child of children) child.kill();
   }
 }
 
@@ -68,7 +76,7 @@ test("picom and Xvfb on this display are picked up, with compositing true", () =
       display: ":77",
       running: [
         { comm: "picom", display: ":77" },
-        { comm: "Xvfb", display: ":77" },
+        { comm: "Xvfb", display: ":1", serves: ":77" },
       ],
     }),
     { compositor: "picom", compositing: "true", x_server: "Xvfb" },
@@ -81,10 +89,23 @@ test("a compositor and X server serving another display are ignored", () => {
       display: ":77",
       running: [
         { comm: "mutter", display: ":1" },
-        { comm: "Xtigervnc", display: ":1" },
+        { comm: "Xtigervnc", display: ":77", serves: ":1" },
       ],
     }),
     { compositor: "none", compositing: "false", x_server: "none" },
+  );
+});
+
+test("an X server started from this display but serving another is not picked", () => {
+  assert.deepEqual(
+    probe({
+      display: ":77",
+      running: [
+        { comm: "Xvfb", display: ":77", serves: ":78" },
+        { comm: "Xorg", display: ":1", serves: ":77" },
+      ],
+    }),
+    { compositor: "none", compositing: "false", x_server: "Xorg" },
   );
 });
 

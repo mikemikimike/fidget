@@ -457,14 +457,15 @@ No DRM device, so GPU% is N/A on every row. CPU is percent of one core.
 | Baseline, Xvfb CPU | 0.1 | 0.0 |
 | Idle perched, Xvfb CPU / mask Hz | 1.3 / 0.00 | 3.2 / 0.00 |
 | Walking, pointer away, Xvfb CPU / mask Hz | 23.5 / 0.00 | 29.3 / 0.00 |
-| Pointer on sprite, 5s, Xvfb CPU / mask Hz | 2.6 / 2.80 | 4.2 / 2.60 |
+| Pointer on sprite, 5s, Xvfb CPU / mask Hz | 2.8 / 2.60 | 4.2 / 2.60 |
 | picom CPU, idle / walking | N/A | 0.1 / 0.9 |
 | Chat, multi-monitor, hidden | N/A | N/A |
 
 1. **Uncomposited X11 costs about the same as composited:** Walking reads 23.5% Xvfb CPU with no compositor and 29.3% under picom. picom itself stays under 1%. The paint lands in the X server either way on this software-only host.
 2. **The mask stays at 0/s while the pointer is off the sprite, with or without a compositor:** Same result as the xfwm4 run above.
-3. **Chat and hidden need a window manager:** These rows ran with no window manager, so the double-click did not log `Summon` and the fullscreen terminal did not hide the Character.
-4. **Mutter was not measured:** Under `mutter --x11` on Xvfb the app never logged its overlay within the 20s wait. Not investigated here.
+3. **The pointer aims at the middle of the sprite box:** The script takes the corner from the last `frame:` line and half the size from the `overlay:` line. It used to aim at the feet, which sit on the screen edge during a climb. Two re-runs with no compositor both read 13 calls in 5s (2.60/s), with the Character grounded under the pointer.
+4. **Chat and hidden need a window manager:** These rows ran with no window manager, so the double-click did not log `Summon` and the fullscreen terminal did not hide the Character.
+5. **Mutter was not measured:** Under `mutter --x11` on Xvfb the app never logged its overlay within the 20s wait. Not investigated here.
 
 **Evidence:**
 
