@@ -5,19 +5,19 @@
 #   the sprite at a window's top edge, poke it, double-click it (Chat opens; keep
 #   it open, or the first-run tour bubble lands 25 s after launch), type a
 #   question, Enter, and throw it again once the reply lands as a speech bubble
-#   and in Chat: Claude Code's words under --harness claude, "Hello" from the fixture.
+#   and in Chat: live replies under --harness claude or codex, "Hello" from the fixture.
 # Input: yours, at the mouse and keyboard. Each cue waits for the last action's reply. None sent.
 # Duration: about 90 s, 3 min at most. Grants: Screen Recording, Accessibility.
 # Asserts: the recording exists and ffprobe reads it. The look is yours to judge
 #   from the contact sheet and the full-frame GIF in the evidence directory.
 #
-# Usage: hero-gif.sh --go <fidget binary> <fidget test binary> [--harness fixture|claude|grok] [--character <id>]
+# Usage: hero-gif.sh --go <fidget binary> <fidget test binary> [--harness fixture|claude|codex|grok] [--character <id>]
 #        hero-gif.sh --crop x:y:w:h [--webp] <recording.mp4> [<from s> [<length s>]]
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
-# --harness claude links ~/.claude, ~/.claude.json, ~/.npm and ~/Library/Keychains
-#   into the private HOME: sign-in and warm npx carry over, Fidget's data stays isolated.
+# --harness claude or codex reuses sign-in and npm cache; claude also links the
+#   keychain. Fidget's data stays isolated.
 # --crop re-encodes a saved recording to <recording>-hero.mp4, launching nothing;
-#   --webp writes a 960 px looping <recording>-hero.webp. x:y:w:h is in recording pixels.
+#   --webp writes a 960 px loop. Crop units are recording pixels.
 set -euo pipefail
 
 ffmpeg=/opt/homebrew/bin/ffmpeg
@@ -68,10 +68,12 @@ case "${1:-}" in
     crop=${2:?$crop_usage}
     shift 2
     encode=to_mp4 ext=mp4
-    if [ "${1:-}" = --webp ]; then
-      encode=to_webp ext=webp
-      shift
-    fi
+    case "${1:-}" in
+      --webp)
+        encode=to_webp ext=webp
+        shift
+        ;;
+    esac
     rec=${1:?$crop_usage}
     IFS=: read -r x y w h <<< "$crop"
     "$encode" "$rec" "${rec%.*}-hero.$ext" "crop=$w:$h:$x:$y," "${2:-0}" "${3:-15}"
@@ -85,7 +87,7 @@ case "${1:-}" in
 esac
 shift
 
-usage="usage: hero-gif.sh --go <fidget binary> <fidget test binary> [--harness fixture|claude|grok] [--character <id>]"
+usage="usage: hero-gif.sh --go <fidget binary> <fidget test binary> [--harness fixture|claude|codex|grok] [--character <id>]"
 harness_kind=fixture character=buddy-bot
 bin=${1:?$usage}
 test_bin=${2:?$usage}
@@ -137,6 +139,17 @@ case "$harness_kind" in
       ln -s "$HOME/$entry" "$out/home/$entry"
     done
     ;;
+  codex)
+    harness=codex
+    command -v npx > /dev/null || fail "npx is not on PATH; the codex Harness runs on Node"
+    command -v node > /dev/null || fail "node is not on PATH; the codex Harness runs on Node"
+    node_major=$(node -p 'process.versions.node.split(".")[0]')
+    [ "$node_major" -ge 22 ] || fail "node $(node -v) is on PATH; the codex Harness needs 22 or newer"
+    # Keep sign-in and user configuration available under the isolated HOME.
+    export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+    [ -d "$CODEX_HOME" ] || fail "no $CODEX_HOME; sign in with \`codex login\` first"
+    [ ! -d "$HOME/.npm" ] || ln -s "$HOME/.npm" "$out/home/.npm"
+    ;;
   grok)
     # grok signs in from its own files under the real HOME and needs no Node.
     harness=grok home=$HOME
@@ -151,7 +164,16 @@ env HOME="$home" \
   FIDGET_CHARACTER="$character" FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
+ffpid=
+cleanup() {
+  kill "$pid" 2> /dev/null || true
+  pkill -f "count=$marks" || true
+  if [ -n "$ffpid" ]; then
+    kill -INT "$ffpid" 2> /dev/null || true
+    wait "$ffpid" 2> /dev/null || true
+  fi
+}
+trap cleanup EXIT
 
 sleep 4
 kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
