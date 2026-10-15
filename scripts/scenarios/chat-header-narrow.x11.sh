@@ -110,7 +110,7 @@ harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-th
 start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
@@ -138,7 +138,7 @@ check() { # <width>
   check_dump "$w" "$f"
 }
 
-wait_for_marks 10 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_ax_dump 2 "$pid" BMO " · session " || fail "the mind line names no session; see $log"
 shows_session || fail "the mind line names no session; see $out/session.ax.txt"
 echo "ok: $(grep -oEm1 '[^|]* · session [^|]+' "$out/session.ax.txt" | head -1)"

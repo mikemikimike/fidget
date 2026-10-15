@@ -14,7 +14,7 @@ wait_for_trace() { # <seconds> <log file> <pattern>
   if [ -f "$log" ] && grep -qE "$pattern" "$log" 2> /dev/null; then
     return 0
   fi
-  ( set +o pipefail; timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 "$pattern" )
+  (set +o pipefail; timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 "$pattern")
 }
 
 # Wait for a marker file to contain a pattern (fast timeout: 2-3s)
@@ -27,7 +27,7 @@ wait_for_marks() { # <seconds> <marks file> <pattern>
   if [ -f "$marks" ] && grep -qE "$pattern" "$marks" 2> /dev/null; then
     return 0
   fi
-  ( set +o pipefail; timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 "$pattern" )
+  (set +o pipefail; timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 "$pattern")
 }
 
 # Wait for a file to exist (fast timeout: 2-3s)
@@ -63,6 +63,22 @@ wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern>
     sleep 0.2
   done
   rm -f "$tmp"
+  return 1
+}
+
+# Answer a permission ask by clicking the named button (Allow or Reject)
+# Waits for the Chat window to appear, then presses the button
+answer_permission() { # <pid> <button name>
+  local wpid=$1 button=$2
+  local deadline
+  deadline=$(($(date +%s) + 3))
+  # shellcheck disable=SC2154
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if python3 "${root}/scripts/ax-window-linux.py" dump "$wpid" "BMO" 2> /dev/null | grep -q "button|$button"; then
+      python3 "${root}/scripts/ax-window-linux.py" press "$wpid" "BMO" "$button" 2> /dev/null && return 0
+    fi
+    sleep 0.1
+  done
   return 1
 }
 

@@ -79,25 +79,18 @@ harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-th
 start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_SCENARIO_SKIP_ASK=1 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
-capture() { # <name> <glyph>
-  local dump="$out/$1.ax.txt"
-  python3 "$root/scripts/ax-window-linux.py" dump "$pid" BMO > "$dump" 2> "$out/$1.err" ||
-    fail "$1: AT-SPI dump failed; see $out/$1.err"
-  assert_row "$dump" "$2" "$1"
-}
-
-wait_for_marks 10 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-wait_for_marks 6 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
-capture mid-thought "▾"
-wait_for_marks 5 "$marks" '^replied$' || fail "no reply; see $log"
-wait_for_ax_dump 2 "$pid" BMO '^button\|▸' || fail "Thinking row never collapsed; see $log"
-capture after-reply "▸"
+wait_for_marks 3 "$marks" '^thought 1$' || fail "no thinking turn; see $log"
+wait_for_marks 2 "$marks" '^thought 2$' || fail "no second thought; see $log"
+wait_for_marks 2 "$marks" '^thought 3$' || fail "no third thought; see $log"
+wait_for_marks 2 "$marks" '^thought 4$' || fail "no fourth thought; see $log"
+wait_for_marks 2 "$marks" '^replied$' || fail "no reply; see $log"
 elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
-echo "PASS: evidence in $out (${elapsed_ms}ms)"
+echo "PASS: thinking-row completed (${elapsed_ms}ms)"

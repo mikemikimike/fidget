@@ -66,7 +66,7 @@ at_layer() { [ "$("$tools/window-layer" "$pid" BMO)" = "$1" ]; }
 logged() { [ "$(grep -cE "^chat: chat-[^ ]+ is $1\$" "$log")" -ge "$2" ]; }
 minimize() { "$tools/ax" minimize "$pid" BMO "$1" || fail "could not set minimized to $1"; }
 
-wait_for_marks 10 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is not minimized$' || fail "Chat never logged open state; see $log"
 at_layer 0 || fail "focused Chat is at layer $("$tools/window-layer" "$pid" BMO), not 0"
 echo "ok: focused Chat stays at layer 0 (a Perch under the overlay)"
