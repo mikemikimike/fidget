@@ -1,0 +1,15 @@
+spawn
+new
+cwd=/tmp/fidget-scenario-chat-header-narrow-20261015-213653/home/.local/share/fidget
+mcp=http
+prompt
+asked
+thought 1
+thought 2
+thought 3
+thought 4
+replied
+perm:cancelled
+prompt
+thought 1
+thought 2

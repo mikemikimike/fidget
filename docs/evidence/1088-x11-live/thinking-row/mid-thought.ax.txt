@@ -1,0 +1,29 @@
+frame|BMO
+filler|
+filler|
+filler|
+scroll-area|
+web-area|Fidget
+landmark|
+label|BMO
+label|BMO
+label|/workspace/scripts/scenarios/fixture-harness.sh · session fresh-id
+page-tab-list|
+page-tab|Chat
+page-tab|Prompt
+section|· ASKS\nOpen Chat for the scenario\nOpens Chat.\n￼￼\n￼\nThought 1 of four. Thought 2 of four. Thought 3 of four. \n
+section|· ASKS
+section|Open Chat for the scenario
+paragraph|Opens Chat.
+button|Allow
+button|Reject
+button|▾ THINKING 21:37
+section|Thought 1 of four. Thought 2 of four. Thought 3 of four. 
+form|
+entry|Ask BMO…
+button|Send
+landmark|
+unknown|
+section|Advanced
+unknown|▸ Advanced
+section|▸

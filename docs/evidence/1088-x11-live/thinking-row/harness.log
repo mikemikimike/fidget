@@ -1,0 +1,12 @@
+spawn
+new
+cwd=/tmp/fidget-scenario-thinking-row-20261015-213703/home/.local/share/fidget
+mcp=http
+prompt
+asked
+thought 1
+thought 2
+thought 3
+thought 4
+replied
+perm:cancelled

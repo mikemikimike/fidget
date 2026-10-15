@@ -1,0 +1,17 @@
+path: /bin/bash answered in 6 ms: /usr/local/cargo/bin:/exec-daemon:/exec-daemon/tools:/home/ubuntu/.nvm/versions/node/v22.23.3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+character: BMO from /workspace/characters/bmo
+window_source: 0 visible windows
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+overlay: overlay-0 EWMH config deferred: Window handle not available yet: the underlying handle is not available
+overlay: overlay-0 covers 1920x1080 at (0,0)
+overlay: 1 display(s); sprite 126x128; BMO as BMO
+harness: /workspace/scripts/scenarios/fixture-harness.sh via `/workspace/scripts/scenarios/fixture-harness.sh /workspace/target/debug/deps/fidget-b5fc5406aa2d759d script=scenario-thinking count=/tmp/fidget-scenario-thinking-row-20261015-213703/harness.log`
+harness: MCP server http://127.0.0.1:46467/mcp, or `/workspace/target/debug/fidget --mcp-stdio` (relays here) for a Harness that advertises no mcpCapabilities.http
+harness: attaching now; the next `harness:` line on this stream is how it went
+director: model, ambient first 1s
+overlay: double-click interval 400ms
+harness: /workspace/scripts/scenarios/fixture-harness.sh attached
+anchor: 1x1 at (-32000,-32000)
+overlay: overlay-0 is at (0,0)
+harness: permission asked for `Open Chat for the scenario`; no Chat surface is on screen

@@ -1,0 +1,29 @@
+frame|BMO|0,0,420,560
+filler||0,0,420,560
+filler||0,0,420,560
+filler||0,0,420,560
+scroll-area||0,0,420,560
+web-area|Fidget|0,0,420,560
+landmark||0,0,420,54
+label|BMO|18,13,36,20
+label|BMO|60,16,36,18
+label|/workspace/scripts/scenarios/fixture-harness.sh · session fresh-id|121,18,281,28
+page-tab-list||0,54,420,34
+page-tab|Chat|14,54,53,33
+page-tab|Prompt|71,54,71,33
+section|￼\nThought 1 of four. Thought 2 of four. Thought 3 of four. Thought 4 of four. \n· ASKS\nOpen Chat for the scenario\nOpens Chat.\n￼￼\n|0,88,420,372
+button|▾ THINKING 21:36|18,106,106,14
+section|Thought 1 of four. Thought 2 of four. Thought 3 of four. Thought 4 of four. |18,125,374,40
+section|· ASKS|18,181,384,14
+section|Open Chat for the scenario|18,200,384,18
+paragraph|Opens Chat.|18,218,384,18
+button|Allow|18,242,384,23
+button|Reject|18,271,384,23
+form||0,459,420,71
+entry|Ask BMO…|16,471,315,43
+button|Send|340,471,64,43
+landmark||0,529,420,31
+unknown||341,537,63,14
+section|Advanced|341,537,63,14
+unknown|▸ Advanced|341,537,63,14
+section|▸|341,537,7,14
