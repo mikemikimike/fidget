@@ -11,9 +11,9 @@
 
 ### thinking-row
 
-**Elapsed**: 3.7s (average of 3 runs: 3739ms, 3705ms, 3698ms)
+**Elapsed:** 3.7s (average of 3 runs: 3739ms, 3705ms, 3698ms)
 
-**Phase breakdown**:
+**Phase breakdown (estimated):**
 1. Binary check: ~200ms (cargo reports "Finished in 0.19-0.24s")
 2. Fidget startup: ~500ms (overlay init, harness attach)
 3. Scenario execution: ~3000ms
@@ -25,7 +25,7 @@
    - Wait for collapsed thinking row: ~400ms (UI render + poll)
    - Second AX dump: ~50ms
 
-**vs. Original (before #1552)**:
+**vs. Original (before #1552, estimated):**
 - Before: 26.8s (cold) / 20.3s (warm)
   - 6s director ambient delay
   - 3s fixture sleep after ask
@@ -39,13 +39,13 @@
   - Event-based waits (no fixed sleeps)
   - Build check: ~0.2s
 
-**Improvement**: 85% faster (26.8s → 3.7s)
+**Improvement:** 85% faster (26.8s → 3.7s)
 
 ### chat-header-narrow
 
-**Elapsed**: 4.5s
+**Elapsed:** 4.5s
 
-**Phase breakdown**:
+**Phase breakdown (estimated):**
 1. Binary check: ~200ms
 2. Fidget startup: ~500ms
 3. Scenario execution: ~3800ms
@@ -58,19 +58,19 @@
    - Resize to 320px: ~50ms
    - AX dump + frame check: ~300ms
 
-**vs. Original (before #1552)**:
+**vs. Original (before #1552, estimated):**
 - Before: 12.3s
 - After: 4.5s
 
-**Improvement**: 63% faster (12.3s → 4.5s)
+**Improvement:** 63% faster (12.3s → 4.5s)
 
 ## Key Changes from #1552
 
-1. **Fixture timing reduced**: 3s+4.8s → 0.3s+1.2s in harness.rs
-2. **Director wake**: 6s → 1s ambient delay
-3. **Event-based waits**: `wait_for_marks` polls at 50ms, returns immediately when mark appears
-4. **AX polling**: `wait_for_ax_dump` polls at 200ms for UI render
-5. **Auto-answer permission**: First turn auto-answers its own ask in 300ms
+1. **Fixture timing reduced:** 3s+4.8s → 0.3s+1.2s in harness.rs
+2. **Director wake:** 6s → 1s ambient delay
+3. **Event-based waits:** `wait_for_marks` polls at 50ms, returns immediately when mark appears
+4. **AX polling:** `wait_for_ax_dump` polls at 200ms for UI render
+5. **Auto-answer permission:** First turn auto-answers its own ask in 300ms
 
 ## Fix Applied
 
