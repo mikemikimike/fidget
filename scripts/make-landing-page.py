@@ -314,6 +314,16 @@ def self_check():
 
     words = read_readme(readme)
     assert "claude" in words["harnesses"] and "anything else" not in words["harnesses"]
+    attachment = "https://github.com/user-attachments/assets/0a1b2c3d-4e5f-6789-abcd-ef0123456789"
+    readme_without_attachments = ATTACHMENT.sub("", readme)
+    opening_video = readme_without_attachments.replace(
+        "## What It Does", f"{attachment}\n\n## What It Does")
+    showcase_video = readme_without_attachments.replace(
+        "## Characters", f"## Characters\n\n{attachment}")
+    assert read_readme(opening_video)["video"] == attachment, \
+        "an opening attachment stopped becoming the website hero video"
+    assert read_readme(showcase_video)["video"] is None, \
+        "a Character showcase attachment became the website hero video"
     fenced = sections("## Get It\nClone and run:\n\n```sh\ncargo run\n```\n\nIt works offline.\n")
     assert sentence(fenced["Get It"], "offline") \
         == "It works offline.", "an install note ran across a code fence into the paragraph before it"

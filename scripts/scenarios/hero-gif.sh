@@ -12,12 +12,12 @@
 #   from the contact sheet and the full-frame GIF in the evidence directory.
 #
 # Usage: hero-gif.sh --go <fidget binary> <fidget test binary> [--harness fixture|claude|codex|grok] [--character <id>]
-#        hero-gif.sh --crop x:y:w:h [--gif|--webp] <recording.mp4> [<from s> [<length s>]]
+#        hero-gif.sh --crop x:y:w:h [--webp] <recording.mp4> [<from s> [<length s>]]
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
 # --harness claude or codex reuses sign-in and npm cache; claude also links the
 #   keychain. Fidget's data stays isolated.
 # --crop re-encodes a saved recording to <recording>-hero.mp4, launching nothing;
-#   --gif writes a compact 540 px loop; --webp writes a 960 px loop. Crop units are recording pixels.
+#   --webp writes a 960 px loop. Crop units are recording pixels.
 set -euo pipefail
 
 ffmpeg=/opt/homebrew/bin/ffmpeg
@@ -35,13 +35,6 @@ to_gif() { # <in> <out> <crop filter or empty> <from s> <length s>
   local vf="fps=15,${3}scale=800:-1:flags=lanczos"
   "$ffmpeg" -y -v error -ss "$4" -t "$5" -i "$1" \
     -vf "$vf,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
-    -loop 0 "$2"
-  sized "$2"
-}
-
-to_hero_gif() { # <in> <out> <crop filter> <from s> <length s>
-  "$ffmpeg" -y -v error -ss "$4" -t "$5" -i "$1" \
-    -vf "fps=6,${3}scale=540:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=32:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
     -loop 0 "$2"
   sized "$2"
 }
@@ -71,15 +64,11 @@ to_webp() { # <in> <out> <crop filter> <from s> <length s>
 
 case "${1:-}" in
   --crop)
-    crop_usage="usage: hero-gif.sh --crop x:y:w:h [--gif|--webp] <recording.mp4> [<from s> [<length s>]]"
+    crop_usage="usage: hero-gif.sh --crop x:y:w:h [--webp] <recording.mp4> [<from s> [<length s>]]"
     crop=${2:?$crop_usage}
     shift 2
     encode=to_mp4 ext=mp4
     case "${1:-}" in
-      --gif)
-        encode=to_hero_gif ext=gif
-        shift
-        ;;
       --webp)
         encode=to_webp ext=webp
         shift
@@ -153,6 +142,7 @@ case "$harness_kind" in
   codex)
     harness=codex
     command -v npx > /dev/null || fail "npx is not on PATH; the codex Harness runs on Node"
+    command -v node > /dev/null || fail "node is not on PATH; the codex Harness runs on Node"
     node_major=$(node -p 'process.versions.node.split(".")[0]')
     [ "$node_major" -ge 22 ] || fail "node $(node -v) is on PATH; the codex Harness needs 22 or newer"
     # Keep sign-in and user configuration available under the isolated HOME.
