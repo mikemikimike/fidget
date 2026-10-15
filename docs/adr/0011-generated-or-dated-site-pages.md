@@ -57,9 +57,9 @@ its own name if a merged issue links a proposal that is later replaced.
 
 ## The allowlist changes its unit
 
-`.github/workflows/pages.yml` names every file it copies, and that list is the
+`scripts/assemble-site.sh` names every file it copies, and that list is the
 security model. #289's gallery needs a few hundred PNGs, too many to name as
-reviewed lines, so the workflow names every file *and* every generated tree, one
+reviewed lines, so the script names every file *and* every generated tree, one
 line per generator, and a guard after assembly fails the build if `_site` holds
 anything but `.html`, `.css`, `.js`, `.png` or `.svg`.
 
