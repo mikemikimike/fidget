@@ -74,6 +74,7 @@ test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-question-bubble-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out/home/.local/share/fidget"
 log="$out/app.log" marks="$out/harness.log"
+trace="$out/home/.local/share/fidget/process.log"
 : > "$marks"
 
 cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
@@ -97,16 +98,16 @@ trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT IN
 dump() { python3 "$root/scripts/ax-window-linux.py" dump "$pid" Fidget > "$out/$1.ax.txt" 2> "$out/$1.err" || fail "AT-SPI dump failed; see $out/$1.err"; }
 
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-wait_for_trace 2 "$log" '^frame: .* sprite\([0-9-]+,[0-9-]+\)' || fail "no frame trace in $log"
+wait_for_trace 2 "$trace" '^frame: .* sprite\([0-9-]+,[0-9-]+\)' || fail "no frame trace in $trace"
 
-read -r sprite_w sprite_h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
-read -r sx sy < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame trace in $log"
+read -r sprite_w sprite_h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$trace" | head -1) || fail "no sprite size in $trace"
+read -r sx sy < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$trace" | tail -1) || fail "no frame trace in $trace"
 dump before-poke
 check_before "$out/before-poke.ax.txt"
 
 { xdotool mousemove --sync "$((sx + sprite_w / 2))" "$((sy + sprite_h / 2))" && sleep 0.05 && xdotool mousedown 1 && sleep 0.12 && xdotool mouseup 1; } > "$out/poke.txt" 2>&1 ||
   fail "could not click the sprite; see $out/poke.txt"
-wait_for_trace 2 "$log" '^verbs: .*Poke' || fail "the click did not land as a Poke; see $log"
+wait_for_trace 2 "$trace" '^verbs: .*Poke' || fail "the click did not land as a Poke; see $trace"
 wait_for_ax_dump 2 "$pid" Fidget 'Question for you' || fail "question cue never appeared; see $log"
 dump after-poke
 check_after "$out/after-poke.ax.txt"

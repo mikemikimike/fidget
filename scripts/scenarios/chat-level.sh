@@ -32,6 +32,7 @@ out="${TMPDIR:-/tmp}/fidget-scenario-chat-level-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home/.local/share/fidget" "$tools"
 log="$out/app.log" marks="$out/harness.log"
+trace="$out/home/.local/share/fidget/process.log"
 : > "$marks"
 
 cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
@@ -76,7 +77,7 @@ wait_at_layer() { # <layer> <description>
 }
 
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is not minimized$' || fail "Chat never logged open state; see $log"
+wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is not minimized$' || fail "Chat never logged open state; see $trace"
 at_layer 0 || fail "focused Chat is at layer $("$tools/window-layer" "$pid" BMO), not 0"
 echo "ok: focused Chat stays at layer 0 (a Perch under the overlay)"
 
@@ -87,21 +88,21 @@ echo "ok: unfocused Chat stays at layer 0"
 osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true"
 wait_at_layer 0 "refocused Chat"
 minimize true
-wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing a focused Chat logged nothing; see $log"
-logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $log"
+wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing a focused Chat logged nothing; see $trace"
+logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $trace"
 minimize false
-wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is not minimized$' || fail "restoring Chat logged nothing; see $log"
-logged "not minimized" 1 || fail "restoring Chat logged nothing; see $log"
+wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is not minimized$' || fail "restoring Chat logged nothing; see $trace"
+logged "not minimized" 1 || fail "restoring Chat logged nothing; see $trace"
 echo "ok: a focused Chat counts as closed while minimized"
 
 open -a Finder
 wait_at_layer 0 "Chat behind Finder after minimize"
 minimize true
-wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing an unfocused Chat logged nothing; see $log"
-logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $log"
+wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing an unfocused Chat logged nothing; see $trace"
+logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $trace"
 minimize false
-wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is not minimized$' || fail "restoring an unfocused Chat logged nothing; see $log"
-logged "not minimized" 2 || fail "restoring an unfocused Chat logged nothing; see $log"
+wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is not minimized$' || fail "restoring an unfocused Chat logged nothing; see $trace"
+logged "not minimized" 2 || fail "restoring an unfocused Chat logged nothing; see $trace"
 echo "ok: an unfocused Chat counts as closed while minimized"
 elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
 echo "PASS: evidence in $out (${elapsed_ms}ms)"

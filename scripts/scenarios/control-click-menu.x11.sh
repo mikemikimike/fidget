@@ -64,6 +64,7 @@ test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-control-click-menu-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out/home/.local/share/fidget"
 log="$out/app.log" marks="$out/harness.log"
+trace="$out/home/.local/share/fidget/process.log"
 : > "$marks"
 
 cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
@@ -86,9 +87,9 @@ trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT IN
 
 # The overlay spans the display, so its centre is not the sprite. The newest
 # frame trace line says where the sprite is drawn.
-wait_for_trace 2 "$log" '^frame: .* sprite\(' || fail "Fidget traced no frame; see $log"
-read -r w h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
-read -r x y < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame trace in $log"
+wait_for_trace 2 "$trace" '^frame: .* sprite\(' || fail "Fidget traced no frame; see $trace"
+read -r w h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$trace" | head -1) || fail "no sprite size in $trace"
+read -r x y < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$trace" | tail -1) || fail "no frame trace in $trace"
 cx=$((x + w / 2))
 cy=$((y + h / 2))
 echo "ok: sprite at ($x,$y) size ${w}x${h}, centre ($cx,$cy)"
@@ -97,7 +98,7 @@ items="$out/menu.txt"
 python3 "$root/scripts/ax-window-linux.py" menu "$pid" "$cx" "$cy" > "$items" 2> "$out/menu.err" ||
   fail "no open menu in the AT-SPI tree; see $out/menu.err"
 
-wait_for_trace 2 "$log" '^verbs: .*\[Menu\]' || fail "the right-click did not land as Menu; see $log"
+wait_for_trace 2 "$trace" '^verbs: .*\[Menu\]' || fail "the right-click did not land as Menu; see $trace"
 echo "ok: the right-click landed as Menu"
 check_items "$items"
 

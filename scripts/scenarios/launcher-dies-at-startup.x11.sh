@@ -106,6 +106,7 @@ test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-launcher-dies-at-startup-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out/home/.local/share/fidget"
 log="$out/app.log" marks="$out/harness.log"
+trace="$out/home/.local/share/fidget/process.log"
 : > "$marks"
 
 cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
@@ -146,7 +147,7 @@ fits() { # <width>
   check_fits "$w" "$out/$w.ax.txt"
 }
 
-wait_for_trace 2 "$log" 'exited before initialize' || fail "the launcher never died before initialize; see $log"
+wait_for_trace 2 "$trace" 'exited before initialize' || fail "the launcher never died before initialize; see $trace"
 [ "$(spawns)" -eq 1 ] || fail "want one spawn before Chat opens, the fixture saw $(spawns)"
 rc=0
 ax tray "$pid" BMO Chat > "$out/open.txt" 2>&1 || rc=$?

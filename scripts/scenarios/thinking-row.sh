@@ -27,6 +27,7 @@ out="${TMPDIR:-/tmp}/fidget-scenario-thinking-row-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home/.local/share/fidget" "$tools"
 log="$out/app.log" marks="$out/harness.log"
+trace="$out/home/.local/share/fidget/process.log"
 : > "$marks"
 
 cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
@@ -68,12 +69,12 @@ capture() { # <name> <glyph the first Thinking row starts with>
 }
 
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-wait_for_trace 2 "$log" 'chat: chat-[^ ]+ is not minimized' || fail "Chat never opened; see $log"
+wait_for_trace 2 "$trace" 'chat: chat-[^ ]+ is not minimized' || fail "Chat never opened; see $trace"
 [ -n "$("$tools/window-id" "$pid" BMO 2> /dev/null)" ] || fail "Chat did not open for the ask"
 wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought ▾
 wait_for_marks 3 "$marks" '^replied$' || fail "no reply; see $log"
-wait_for_trace 2 "$log" 'stream: message_done' || true
+wait_for_trace 2 "$trace" 'stream: message_done' || true
 capture after-reply ▸
 elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
 echo "PASS: evidence in $out (${elapsed_ms}ms)"
