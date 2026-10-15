@@ -20,7 +20,7 @@ Each character has a personality and a life of its own.
 
 An AI harness is optional. Attach the one you already use and it can talk and pitch in with tools; leave it off and the pet still works. It doesn't read your screen without consent and [never takes screenshots](#computer-use).
 
-https://github.com/user-attachments/assets/31bf24c7-7fe7-43d0-92d7-a4a3bd6d4c11
+https://github.com/user-attachments/assets/da8ab992-de5e-4d1e-89ab-95b5a6ec9fc5
 
 Try the gestures in your browser: [Fidget Cues](https://omesser.github.io/fidget/cues.html)
 
@@ -139,6 +139,10 @@ Buddy Bot is the default. Eight Characters ship; each moves and speaks different
 <td align="center" width="25%"><img src="./docs/readme/trump-wave.gif" height="96" alt="Trump" /><br><b><a href="./characters/trump/personality.txt">Trump</a></b><br><sub>The desktop is his rally. Bombastic.</sub></td>
 </tr>
 </table>
+
+### Trump takes the stage
+
+https://github.com/user-attachments/assets/31bf24c7-7fe7-43d0-92d7-a4a3bd6d4c11
 
 Characters are packages of art, personality, and tuning. See [DEVELOPMENT.md](./docs/DEVELOPMENT.md#character-packages); the format is still evolving.
 
