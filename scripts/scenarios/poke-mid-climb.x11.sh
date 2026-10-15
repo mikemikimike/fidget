@@ -69,29 +69,28 @@ pokes() { grep -c '^verbs: .*Poke' "$log" || true; }
 
 # Resting and not walking: a press on a walking sprite lands where it was, and
 # the drag then throws whatever window is underneath.
-wait_still() { # <tenths of a second>
-  local n=$1 a b
-  while [ "$n" -gt 0 ]; do
+wait_still() { # <tenths of a second timeout>
+  local timeout
+  timeout=$(awk -v t="$1" 'BEGIN { print t / 10.0 }')
+  local deadline a b
+  deadline=$(($(date +%s) + timeout))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
     kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    if in_state "$log" 'Grounded|Perched'; then
+    if in_state 'Grounded|Perched'; then
       a=$(sprite_xy)
       sleep 0.2
       b=$(sprite_xy)
-      [ "$a" = "$b" ] && in_state "$log" 'Grounded|Perched' && return 0
+      [ "$a" = "$b" ] && in_state 'Grounded|Perched' && return 0
     fi
-    n=$((n - 1))
     sleep 0.1
   done
   return 1
 }
 
-wait_climbing() { # <tenths of a second>
-  local n=$1
-  until in_state "$log" Climbing; do
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.1
-  done
+wait_climbing() { # <tenths of a second timeout>
+  local timeout
+  timeout=$(awk -v t="$1" 'BEGIN { print t / 10.0 }')
+  wait_for_trace "$timeout" "$log" '^frame: .* Climbing '
 }
 
 # One xdotool call per gesture, as the app samples the pointer on its own tick.
