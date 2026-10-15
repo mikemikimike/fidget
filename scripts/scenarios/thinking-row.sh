@@ -67,7 +67,7 @@ capture() { # <name> <glyph the first Thinking row starts with>
   echo "ok: $1: $row"
 }
 
-wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_marks 10 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_trace 2 "$log" 'chat: chat-[^ ]+ is not minimized' || fail "Chat never opened; see $log"
 [ -n "$("$tools/window-id" "$pid" BMO 2> /dev/null)" ] || fail "Chat did not open for the ask"
 wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"

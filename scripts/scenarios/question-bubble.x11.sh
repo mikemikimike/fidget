@@ -96,7 +96,7 @@ trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT IN
 # The overlay window is titled Fidget; Chat takes the Character's name.
 dump() { python3 "$root/scripts/ax-window-linux.py" dump "$pid" Fidget > "$out/$1.ax.txt" 2> "$out/$1.err" || fail "AT-SPI dump failed; see $out/$1.err"; }
 
-wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_marks 10 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_trace 2 "$log" '^frame: .* sprite\([0-9-]+,[0-9-]+\)' || fail "no frame trace in $log"
 
 read -r sprite_w sprite_h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"

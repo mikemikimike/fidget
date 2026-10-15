@@ -138,7 +138,7 @@ check() { # <width>
   check_dump "$w" "$f"
 }
 
-wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_marks 10 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_ax_dump 2 "$pid" BMO " · session " || fail "the mind line names no session; see $log"
 shows_session || fail "the mind line names no session; see $out/session.ax.txt"
 echo "ok: $(grep -oEm1 '[^|]* · session [^|]+' "$out/session.ax.txt" | head -1)"

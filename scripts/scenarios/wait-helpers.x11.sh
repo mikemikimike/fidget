@@ -8,29 +8,35 @@
 # Returns immediately when the pattern appears
 wait_for_trace() { # <seconds> <log file> <pattern>
   local timeout=$1 log=$2 pattern=$3
-  [ -n "${pid:-}" ] && kill -0 "$pid" 2> /dev/null || return 1
+  if [ -n "${pid:-}" ]; then
+    kill -0 "$pid" 2> /dev/null || return 1
+  fi
   if [ -f "$log" ] && grep -qE "$pattern" "$log" 2> /dev/null; then
     return 0
   fi
-  timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 "$pattern"
+  ( set +o pipefail; timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 "$pattern" )
 }
 
 # Wait for a marker file to contain a pattern (fast timeout: 2-3s)
 # Returns immediately when the pattern appears
 wait_for_marks() { # <seconds> <marks file> <pattern>
   local timeout=$1 marks=$2 pattern=$3
-  [ -n "${pid:-}" ] && kill -0 "$pid" 2> /dev/null || return 1
+  if [ -n "${pid:-}" ]; then
+    kill -0 "$pid" 2> /dev/null || return 1
+  fi
   if [ -f "$marks" ] && grep -qE "$pattern" "$marks" 2> /dev/null; then
     return 0
   fi
-  timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 "$pattern"
+  ( set +o pipefail; timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 "$pattern" )
 }
 
 # Wait for a file to exist (fast timeout: 2-3s)
 # Returns immediately when the file appears
 wait_for_file() { # <seconds> <file path>
   local timeout=$1 file=$2
-  [ -n "${pid:-}" ] && kill -0 "$pid" 2> /dev/null || return 1
+  if [ -n "${pid:-}" ]; then
+    kill -0 "$pid" 2> /dev/null || return 1
+  fi
   [ -f "$file" ] && return 0
   timeout "$timeout" sh -c "while ! [ -f '$file' ]; do sleep 0.1; done" 2> /dev/null
 }

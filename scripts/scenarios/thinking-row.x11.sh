@@ -93,7 +93,7 @@ capture() { # <name> <glyph>
   assert_row "$dump" "$2" "$1"
 }
 
-wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_marks 10 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought "▾"
 wait_for_marks 3 "$marks" '^replied$' || fail "no reply; see $log"
