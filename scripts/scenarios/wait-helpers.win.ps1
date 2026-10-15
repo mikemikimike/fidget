@@ -16,11 +16,11 @@ function Wait-ForTrace([int]$Seconds, [string]$LogFile, [string]$Pattern) {
         param($file, $pattern)
         Get-Content -Path $file -Wait -Tail 0 | Where-Object { $_ -match $pattern } | Select-Object -First 1
     } -ArgumentList $LogFile, $Pattern
-    
+
     $result = Wait-Job -Job $job -Timeout $Seconds
     Stop-Job -Job $job -ErrorAction SilentlyContinue
     Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-    
+
     return $null -ne $result
 }
 
@@ -37,11 +37,11 @@ function Wait-ForMarks([int]$Seconds, [string]$MarksFile, [string]$Pattern) {
         param($file, $pattern)
         Get-Content -Path $file -Wait -Tail 0 | Where-Object { $_ -match $pattern } | Select-Object -First 1
     } -ArgumentList $MarksFile, $Pattern
-    
+
     $result = Wait-Job -Job $job -Timeout $Seconds
     Stop-Job -Job $job -ErrorAction SilentlyContinue
     Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-    
+
     return $null -ne $result
 }
 
@@ -50,10 +50,10 @@ function Wait-ForMarks([int]$Seconds, [string]$MarksFile, [string]$Pattern) {
 function Wait-ForFile([int]$Seconds, [string]$FilePath) {
     if ($script:proc -and $script:proc.HasExited) { return $false }
     if (Test-Path -LiteralPath $FilePath) { return $true }
-    
+
     $dir = Split-Path -Parent $FilePath
     $name = Split-Path -Leaf $FilePath
-    
+
     if (-not (Test-Path -LiteralPath $dir)) {
         # Directory doesn't exist yet, poll for it
         $deadline = (Get-Date).AddSeconds($Seconds)
@@ -64,12 +64,12 @@ function Wait-ForFile([int]$Seconds, [string]$FilePath) {
         }
         return $false
     }
-    
+
     $watcher = New-Object System.IO.FileSystemWatcher
     $watcher.Path = $dir
     $watcher.Filter = $name
     $watcher.EnableRaisingEvents = $true
-    
+
     try {
         $deadline = (Get-Date).AddSeconds($Seconds)
         while ((Get-Date) -lt $deadline) {
