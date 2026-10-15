@@ -4,11 +4,11 @@
     python3 scripts/make-landing-page.py --out _site [--release release.json]
     python3 scripts/make-landing-page.py --self-check
 
-A Generated page under ADR-0038. The headline, the opening paragraph, the
-feature list, the Harness names, the install notes and the hero video are read
-from README.md; the cast, its count and every sprite are read from the Character
-Manifests. The page shell is docs/design/landing.html, with double-brace slots
-this script fills. A source it cannot find fails the build.
+A Generated page under ADR-0038. The headline, opening paragraph, feature list,
+Harness names, install notes and opening hero video are read from README.md;
+the cast, count and sprites are read from Character Manifests. The page shell
+is docs/design/landing.html, with double-brace slots this script fills. A
+source it cannot find fails the build.
 
 Two sources are optional. Without the hero video the desk scene stands in.
 Each download button links its asset in the release file that
@@ -149,7 +149,8 @@ def read_readme(text):
         raise Malformed("README.md Harness Support names no Harness")
 
     get_it = section(found, "Get It")
-    video = ATTACHMENT.search(text)
+    opening = text.split("## What It Does", 1)[0]
+    video = ATTACHMENT.search(opening)
     return {
         "video": video and video.group(1),
         "headline": found["#title"],
