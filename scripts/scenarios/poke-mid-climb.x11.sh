@@ -166,7 +166,7 @@ px=$((edge + into * half / 2))
 before=$(pokes)
 poked=
 for _ in 1 2 3 4 5 6; do
-  in_state "$trace" Climbing || break
+  in_state Climbing || break
   read -r sx sy < <(sprite_xy)
   [ "$sy" -gt "$size" ] || break
   click_at "$px" "$((sy + half / 9))" >> "$out/input.txt" 2>&1 || fail "could not click the sprite; see $out/input.txt"

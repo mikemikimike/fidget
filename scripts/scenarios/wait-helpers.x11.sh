@@ -16,7 +16,7 @@ wait_for_trace() { # <seconds> <log file> <pattern>
   fi
   (
     set +o pipefail
-    timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 "$pattern"
+    timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 --line-buffered "$pattern"
   )
 }
 
@@ -32,22 +32,32 @@ wait_for_marks() { # <seconds> <marks file> <pattern>
   fi
   (
     set +o pipefail
-    timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 "$pattern"
+    timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 --line-buffered "$pattern"
   )
 }
 
 # Wait for a file to exist (fast timeout: 2-3s)
 # Returns immediately when the file appears
 wait_for_file() { # <seconds> <file path>
-  local timeout=$1 file=$2 dir fname
+  local timeout=$1 file=$2 dir fname deadline
   if [ -n "${pid:-}" ]; then
     kill -0 "$pid" 2> /dev/null || return 1
   fi
   [ -f "$file" ] && return 0
   dir=$(dirname "$file")
   fname=$(basename "$file")
-  timeout "$timeout" inotifywait -q -e create,moved_to "$dir" 2> /dev/null |
-    grep -qF "$fname"
+  if command -v inotifywait > /dev/null 2>&1; then
+    timeout "$timeout" inotifywait -q -e create,moved_to "$dir" 2> /dev/null |
+      grep -qF "$fname"
+  else
+    deadline=$(($(date +%s) + timeout))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+      [ -f "$file" ] && return 0
+      [ -n "${pid:-}" ] && ! kill -0 "$pid" 2> /dev/null && return 1
+      sleep 0.1
+    done
+    return 1
+  fi
 }
 
 # Wait for an accessibility dump to match a pattern (fast timeout: 2-3s)

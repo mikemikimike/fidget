@@ -71,17 +71,12 @@ function Wait-ForFile([int]$Seconds, [string]$FilePath) {
     $watcher.EnableRaisingEvents = $true
 
     try {
-        $deadline = (Get-Date).AddSeconds($Seconds)
-        while ((Get-Date) -lt $deadline) {
-            if (Test-Path -LiteralPath $FilePath) {
-                return $true
-            }
-            if ($script:proc -and $script:proc.HasExited) {
-                return $false
-            }
-            Start-Sleep -Milliseconds 100
+        $timeoutMs = $Seconds * 1000
+        $result = $watcher.WaitForChanged([System.IO.WatcherChangeTypes]::Created -bor [System.IO.WatcherChangeTypes]::Renamed, $timeoutMs)
+        if ($result.TimedOut) {
+            return Test-Path -LiteralPath $FilePath
         }
-        return $false
+        return $true
     } finally {
         $watcher.Dispose()
     }

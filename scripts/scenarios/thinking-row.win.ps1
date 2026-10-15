@@ -102,7 +102,7 @@ if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harne
 $env:HOME = Join-Path $out "home"
 $env:USERPROFILE = $env:HOME
 $env:FIDGET_HARNESS = $harness
-$env:FIDGET_DIRECTOR_WAKE_SECS = "6"
+$env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_CHARACTER = "bmo"

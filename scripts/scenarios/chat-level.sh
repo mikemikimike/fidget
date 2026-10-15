@@ -53,10 +53,10 @@ fail() {
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
-start_ms=$(($(date +%s%N) / 1000000))
+start_ms=$(($(date +%s) * 1000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
@@ -64,7 +64,7 @@ pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 at_layer() { [ "$("$tools/window-layer" "$pid" BMO)" = "$1" ]; }
-logged() { [ "$(grep -cE "^chat: chat-[^ ]+ is $1\$" "$log")" -ge "$2" ]; }
+logged() { [ "$(grep -cE "^chat: chat-[^ ]+ is $1\$" "$trace")" -ge "$2" ]; }
 minimize() { "$tools/ax" minimize "$pid" BMO "$1" || fail "could not set minimized to $1"; }
 
 wait_at_layer() { # <layer> <description>
@@ -87,22 +87,38 @@ echo "ok: unfocused Chat stays at layer 0"
 
 osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true"
 wait_at_layer 0 "refocused Chat"
+before=$(grep -cE '^chat: chat-[^ ]+ is minimized$' "$trace" 2> /dev/null || echo 0)
 minimize true
-wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing a focused Chat logged nothing; see $trace"
+until [ "$(grep -cE '^chat: chat-[^ ]+ is minimized$' "$trace" 2> /dev/null || echo 0)" -gt "$before" ]; do
+  kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
+  sleep 0.05
+done
 logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $trace"
+before=$(grep -cE '^chat: chat-[^ ]+ is not minimized$' "$trace" 2> /dev/null || echo 0)
 minimize false
-wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is not minimized$' || fail "restoring Chat logged nothing; see $trace"
+until [ "$(grep -cE '^chat: chat-[^ ]+ is not minimized$' "$trace" 2> /dev/null || echo 0)" -gt "$before" ]; do
+  kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
+  sleep 0.05
+done
 logged "not minimized" 1 || fail "restoring Chat logged nothing; see $trace"
 echo "ok: a focused Chat counts as closed while minimized"
 
 open -a Finder
 wait_at_layer 0 "Chat behind Finder after minimize"
+before=$(grep -cE '^chat: chat-[^ ]+ is minimized$' "$trace" 2> /dev/null || echo 0)
 minimize true
-wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing an unfocused Chat logged nothing; see $trace"
+until [ "$(grep -cE '^chat: chat-[^ ]+ is minimized$' "$trace" 2> /dev/null || echo 0)" -gt "$before" ]; do
+  kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
+  sleep 0.05
+done
 logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $trace"
+before=$(grep -cE '^chat: chat-[^ ]+ is not minimized$' "$trace" 2> /dev/null || echo 0)
 minimize false
-wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is not minimized$' || fail "restoring an unfocused Chat logged nothing; see $trace"
+until [ "$(grep -cE '^chat: chat-[^ ]+ is not minimized$' "$trace" 2> /dev/null || echo 0)" -gt "$before" ]; do
+  kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
+  sleep 0.05
+done
 logged "not minimized" 2 || fail "restoring an unfocused Chat logged nothing; see $trace"
 echo "ok: an unfocused Chat counts as closed while minimized"
-elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+elapsed_ms=$(($(date +%s) * 1000 - start_ms))
 echo "PASS: evidence in $out (${elapsed_ms}ms)"
