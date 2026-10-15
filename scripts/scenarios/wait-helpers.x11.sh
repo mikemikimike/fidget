@@ -14,7 +14,10 @@ wait_for_trace() { # <seconds> <log file> <pattern>
   if [ -f "$log" ] && grep -qE "$pattern" "$log" 2> /dev/null; then
     return 0
   fi
-  (set +o pipefail; timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 "$pattern")
+  (
+    set +o pipefail
+    timeout "$timeout" tail -F "$log" 2> /dev/null | grep -qEm1 "$pattern"
+  )
 }
 
 # Wait for a marker file to contain a pattern (fast timeout: 2-3s)
@@ -27,7 +30,10 @@ wait_for_marks() { # <seconds> <marks file> <pattern>
   if [ -f "$marks" ] && grep -qE "$pattern" "$marks" 2> /dev/null; then
     return 0
   fi
-  (set +o pipefail; timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 "$pattern")
+  (
+    set +o pipefail
+    timeout "$timeout" tail -F "$marks" 2> /dev/null | grep -qEm1 "$pattern"
+  )
 }
 
 # Wait for a file to exist (fast timeout: 2-3s)
