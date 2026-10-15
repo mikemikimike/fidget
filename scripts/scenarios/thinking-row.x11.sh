@@ -73,7 +73,7 @@ harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-th
 
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=2 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &

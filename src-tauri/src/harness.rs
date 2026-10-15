@@ -4510,7 +4510,7 @@ mod tests {
                                 }}),
                             );
                             record(count, "asked");
-                            thread::sleep(Duration::from_secs(3));
+                            thread::sleep(Duration::from_millis(300));
                             chunk(&session, "fidget\nChat is open.");
                             stop(&id, "end_turn");
                         }
@@ -4518,7 +4518,7 @@ mod tests {
                             for n in 1..=4 {
                                 thought(&session, &format!("Thought {n} of four. "));
                                 record(count, &format!("thought {n}"));
-                                thread::sleep(Duration::from_millis(1200));
+                                thread::sleep(Duration::from_millis(500));
                             }
                             chunk(&session, "fidget\nI thought it over and I am staying put.");
                             stop(&id, "end_turn");
