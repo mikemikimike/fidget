@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
-import { createServer } from "node:net";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import {
+  findChrome,
+  launchWithPipe,
+  createPageTarget,
+  captureConsoleLog,
+  cleanupChrome,
+} from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const CSS = readFileSync(new URL("../src/chat-ui.css", import.meta.url), "utf8");
@@ -32,42 +37,13 @@ function resolveToken(value) {
   return decl[1].trim().replace(/\s+/g, "");
 }
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const chrome = findChrome();
 
 // One Chrome launch per test: `body` runs once per design on the same page and
 // returns that design's readings. A launch costs seconds, the loop costs nothing.
 async function probe(body, forceDark, preferredColorScheme) {
   const dir = mkdtempSync(join(tmpdir(), "chat-appearance-paint-"));
-  const startMs = Date.now();
+  let cdp;
   try {
     const page = join(dir, "harness.html");
     const appearance = pathToFileURL(join(SRC, "chat-appearance.js")).href;
@@ -95,20 +71,20 @@ async function probe(body, forceDark, preferredColorScheme) {
           ${body}
         })();
       }
-      window.__probe = out;
+      console.log("__PROBE_READY__");
+      console.log("__PROBE_RESULT__" + JSON.stringify(out));
     </script>
   </body>
 </html>`;
     writeFileSync(page, html);
-    const port = await freePort();
+
     const args = [
-      "--headless",
+      "--headless=new",
       "--disable-gpu",
       "--no-sandbox",
       "--disable-dev-shm-usage",
       `--user-data-dir=${join(dir, "profile")}`,
       "--allow-file-access-from-files",
-      `--remote-debugging-port=${port}`,
     ];
     if (forceDark) {
       args.push("--force-dark-mode");
@@ -116,69 +92,29 @@ async function probe(body, forceDark, preferredColorScheme) {
     if (preferredColorScheme !== undefined) {
       args.push(`--blink-settings=preferredColorScheme=${preferredColorScheme}`);
     }
-    args.push(pathToFileURL(page).href);
 
-    const child = spawn(chrome, args, { stdio: "ignore" });
-    try {
-      let wsUrl = null;
-      const href = pathToFileURL(page).href;
-      const deadline = Date.now() + 10000;
-      while (!wsUrl && Date.now() < deadline) {
-        try {
-          const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-          wsUrl = pages.find((item) => item.type === "page" && item.url === href)?.webSocketDebuggerUrl;
-        } catch {}
-        if (!wsUrl) await sleep(100);
-      }
-      const elapsedMs = Date.now() - startMs;
-      assert.ok(wsUrl, `Chrome did not open the page after ${elapsedMs} ms`);
-
-      const ws = new WebSocket(wsUrl);
-      await new Promise((resolve, reject) => {
-        ws.addEventListener("open", resolve);
-        ws.addEventListener("error", reject);
-      });
-
-      let seq = 0;
-      const pending = new Map();
-      ws.addEventListener("message", (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.id && pending.has(msg.id)) {
-          pending.get(msg.id)(msg);
-          pending.delete(msg.id);
-        }
-      });
-
-      const send = (method, params = {}) =>
-        new Promise((resolve) => {
-          const id = ++seq;
-          pending.set(id, resolve);
-          ws.send(JSON.stringify({ id, method, params }));
-        });
-
-      let result = null;
-      const probeDeadline = startMs + 3000;
-      while (!result && Date.now() < probeDeadline) {
-        const msg = await send("Runtime.evaluate", {
-          expression: "window.__probe",
-          returnByValue: true,
-        });
-        if (msg.result?.result?.value) {
-          result = msg.result.result.value;
-        } else {
-          await sleep(50);
-        }
-      }
-      
-      ws.close();
-      const totalMs = Date.now() - startMs;
-      assert.ok(result, `window.__probe not set after ${totalMs} ms`);
-      return result;
-    } finally {
-      child.kill("SIGKILL");
-    }
+    cdp = await launchWithPipe(chrome, args);
+    const { sessionId, navigate } = await createPageTarget(cdp);
+    const result = await captureConsoleLog(
+      cdp,
+      sessionId,
+      "__PROBE_RESULT__",
+      3100,
+      () => navigate(pathToFileURL(page).href),
+    );
+    return result;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    if (cdp) await cleanupChrome(cdp);
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch (err) {
+      if (err.code === "ENOTEMPTY" || err.code === "EBUSY") {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        rmSync(dir, { recursive: true, force: true });
+      } else {
+        throw err;
+      }
+    }
   }
 }
 
