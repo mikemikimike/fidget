@@ -93,7 +93,7 @@ function probe(body, forceDark, preferredColorScheme) {
       "--disable-dev-shm-usage",
       `--user-data-dir=${join(dir, "profile")}`,
       "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
+      "--virtual-time-budget=100",
     ];
     if (forceDark) {
       args.push("--force-dark-mode");
@@ -102,14 +102,16 @@ function probe(body, forceDark, preferredColorScheme) {
       args.push(`--blink-settings=preferredColorScheme=${preferredColorScheme}`);
     }
     args.push("--dump-dom", pathToFileURL(page).href);
+    const startMs = Date.now();
     const run = spawnSync(chrome, args, {
       encoding: "utf8",
       maxBuffer: 1 << 24,
       timeout: 3000,
       killSignal: "SIGKILL",
     });
+    const elapsedMs = Date.now() - startMs;
     const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-    assert.ok(match, `the page did not report. ${run.stderr?.slice(-500) ?? ""}`);
+    assert.ok(match, `the page did not report after ${elapsedMs} ms. ${run.stderr?.slice(-500) ?? ""}`);
     return JSON.parse(
       match[1]
         .replace(/&quot;/g, '"')
