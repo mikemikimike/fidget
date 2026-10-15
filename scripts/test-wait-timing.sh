@@ -16,7 +16,10 @@ touch "$log" "$marks"
 echo "Testing wait_for_trace..."
 start_ms=$(($(date +%s%N) / 1000000))
 (sleep 0.15 && echo "test pattern match" >> "$log") &
-wait_for_trace 3 "$log" "test pattern" || { echo "FAIL: wait_for_trace timed out"; exit 1; }
+wait_for_trace 3 "$log" "test pattern" || {
+  echo "FAIL: wait_for_trace timed out"
+  exit 1
+}
 end_ms=$(($(date +%s%N) / 1000000))
 elapsed_ms=$((end_ms - start_ms))
 echo "wait_for_trace returned in ${elapsed_ms}ms (line appeared at ~150ms)"
@@ -30,7 +33,10 @@ echo ""
 echo "Testing wait_for_marks..."
 start_ms=$(($(date +%s%N) / 1000000))
 (sleep 0.15 && echo "marker pattern" >> "$marks") &
-wait_for_marks 3 "$marks" "marker pattern" || { echo "FAIL: wait_for_marks timed out"; exit 1; }
+wait_for_marks 3 "$marks" "marker pattern" || {
+  echo "FAIL: wait_for_marks timed out"
+  exit 1
+}
 end_ms=$(($(date +%s%N) / 1000000))
 elapsed_ms=$((end_ms - start_ms))
 echo "wait_for_marks returned in ${elapsed_ms}ms (line appeared at ~150ms)"
