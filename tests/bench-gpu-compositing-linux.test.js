@@ -138,3 +138,75 @@ exec sleep 30`,
     .split("\t");
   assert.deepEqual(idle.slice(0, 5), ["idle", "N/A", "none", "4", "1.33"]);
 });
+
+function walkingOver(hit) {
+  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+  const aim = join(dir, "aim");
+  stub(
+    dir,
+    "xdotool",
+    `[ "$1" = mousemove ] && echo "$2 $3" > "${aim}"; exit 0`,
+  );
+  stub(
+    dir,
+    "fakefid",
+    `log="$XDG_DATA_HOME/fidget/process.log"
+echo "1 overlay: 1 display(s); sprite 126x128; BMO as BMO" >> "$log"
+while :; do
+  echo "1 frame: 1 Grounded pos(163,328) sprite(100,200) walk#0 id" >> "$log"
+  echo "1 frame: 1 Falling pos(1920,128) sprite(1857,0) react#0 id" >> "$log"
+  if [ "${hit}" = 1 ] && grep -qx "163 264" "${aim}" 2> /dev/null; then
+    echo "1 mask_rebuild: opaque" >> "$log"
+  fi
+  sleep 0.1
+done`,
+  );
+  for (const tool of ["xrandr", "xdpyinfo", "glxinfo"])
+    stub(dir, tool, "exit 0");
+  stub(dir, "pgrep", "exit 1");
+  const out = join(dir, "out");
+  const result = spawnSync(
+    "/bin/bash",
+    [
+      script,
+      "walking",
+      "--seconds",
+      "1",
+      "--bin",
+      join(dir, "fakefid"),
+      "--out",
+      out,
+    ],
+    {
+      encoding: "utf8",
+      timeout: 60000,
+      env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, DISPLAY: ":99" },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  return readFileSync(join(out, "rows.tsv"), "utf8")
+    .split("\n")
+    .map((line) => line.split("\t"))
+    .find((row) => row[0] === "walking-over");
+}
+
+test("walking-over aims at a Grounded frame, not a later Falling one", () => {
+  const row = walkingOver(1);
+  assert.notEqual(row[3], "N/A", row.join(" "));
+  assert.ok(Number(row[3]) > 0, row.join(" "));
+  assert.match(row.at(-1), /163,264/);
+});
+
+test("walking-over with no mask_rebuild after the move reports pointer missed", () => {
+  const row = walkingOver(0);
+  assert.deepEqual(row.slice(0, 7), [
+    "walking-over",
+    "N/A",
+    "none",
+    "N/A",
+    "N/A",
+    "N/A",
+    "N/A",
+  ]);
+  assert.match(row[7], /pointer missed/);
+});

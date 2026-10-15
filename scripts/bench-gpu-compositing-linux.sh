@@ -500,17 +500,19 @@ park_pointer() {
   fi
 }
 
-# The middle of the sprite box from the last frame line: its top-left corner
-# plus half the size the overlay line reports. A climb or a perch puts the
-# feet on an edge, so the feet are not a safe aim.
+# The middle of the sprite box from the last Grounded or Perched frame line
+# after line $2: its top-left corner plus half the size the overlay line
+# reports. A climb or a perch puts the feet on an edge, so the feet are not a
+# safe aim, and a falling sprite has moved on before the pointer gets there.
 sprite_center() {
   local log=$1
-  awk '
+  local from=${2:-0}
+  awk -v from="$from" '
     /overlay: [0-9]+ display.*sprite [0-9]+x[0-9]+/ {
       match($0, /sprite [0-9]+x[0-9]+/)
       split(substr($0, RSTART + 7, RLENGTH - 7), size, "x")
     }
-    /frame:/ { line = $0 }
+    NR > from && /frame: [0-9]+ (Grounded|Perched) / { line = $0 }
     END {
       if (line == "" || size[1] == "") exit 1
       if (!match(line, /sprite\([-0-9]+,[-0-9]+\)/)) exit 1
@@ -651,17 +653,35 @@ run_walking() {
     return 0
   fi
   sample_row walking "$log" "$seconds" "pointer away, walk frame seen"
-  local center x y
-  if center=$(sprite_center "$log"); then
-    x=${center%% *}
-    y=${center##* }
-    xdotool mousemove "$x" "$y" > /dev/null 2>&1 || true
-    sleep 1
-    sample_row walking-over "$log" 5 "pointer on sprite center ${x},${y}"
-  else
-    emit walking-over N/A none N/A N/A N/A N/A "walk frame seen but sprite center was not in the log"
-  fi
+  run_walking_over "$log"
   stop_app
+}
+
+# Aims from a frame logged after the wait starts, so the aim is fresh, then
+# requires a mask_rebuild within about 1s of the move as proof of a hit.
+run_walking_over() {
+  local log=$1
+  local _ from center="" x y
+  from=$(log_lines "$log")
+  for _ in $(seq 1 "$((walk_timeout * 4))"); do
+    center=$(sprite_center "$log" "$from") && break
+    center=""
+    sleep 0.25
+  done
+  if [ -z "$center" ]; then
+    emit walking-over N/A none N/A N/A N/A N/A "no fresh Grounded or Perched frame to aim at"
+    return 0
+  fi
+  x=${center%% *}
+  y=${center##* }
+  from=$(log_lines "$log")
+  xdotool mousemove "$x" "$y" > /dev/null 2>&1 || true
+  sleep 1
+  if [ "$(mask_since "$log" "$from")" -eq 0 ]; then
+    emit walking-over N/A none N/A N/A N/A N/A "pointer missed: no mask_rebuild within 1s of the move to ${x},${y}"
+    return 0
+  fi
+  sample_row walking-over "$log" 5 "pointer on sprite center ${x},${y}"
 }
 
 run_chat() {
