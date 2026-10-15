@@ -4,7 +4,7 @@
 #   itself and takes focus, then is resized to 420, 360 and 320 wide. One
 #   AT-SPI dump of the Chat window per width. Fidget quits when it ends.
 # Input: none. The resizes go through xdotool on the X11 client window.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: a running X11 session. AT-SPI (python3-pyatspi) for the dump. xdotool for the resize.
 # Asserts: at each width the Instance name, the Character chip and the mind
 #   line share one row, all three end inside the window, and the page is no
@@ -24,6 +24,7 @@ fi
 bin=${2:?usage: chat-header-narrow.x11.sh --go <fidget binary> <fidget test binary>}
 test_bin=${3:?usage: chat-header-narrow.x11.sh --go <fidget binary> <fidget test binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -95,13 +96,18 @@ command -v xdotool > /dev/null 2>&1 || {
 
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-chat-header-narrow-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$out/home"
+mkdir -p "$out/home/.local/share/fidget"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
+
+cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
+{"first_run_tour_shown": true}
+SETTINGS_EOF
 
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=6 \
@@ -109,18 +115,7 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() {
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 dump() { # <name>
   python3 "$root/scripts/ax-window-linux.py" dump "$pid" BMO frames > "$out/$1.ax.txt" 2> "$out/$1.err"
@@ -138,13 +133,15 @@ check() { # <width>
     fail "$w: resize failed; see $out/$w.frame.err"
   read -r _ _ got _ < <(tr , ' ' < "$out/$w.frame.txt")
   [ "$got" -eq "$w" ] || fail "$w: Chat is $got wide after the resize"
-  sleep 1
+  wait_for_ax_dump 2 "$pid" BMO '^label\|.*session ' || fail "$w: session line never appeared; see $log"
   dump "$w" || fail "$w: AX dump failed; see $f"
   check_dump "$w" "$f"
 }
 
-wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-wait_for 40 shows_session || fail "the mind line names no session; see $out/session.ax.txt"
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_ax_dump 2 "$pid" BMO " · session " || fail "the mind line names no session; see $log"
+shows_session || fail "the mind line names no session; see $out/session.ax.txt"
 echo "ok: $(grep -oEm1 '[^|]* · session [^|]+' "$out/session.ax.txt" | head -1)"
 for w in 420 360 320; do check "$w"; done
-echo "PASS: evidence in $out"
+elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+echo "PASS: evidence in $out (${elapsed_ms}ms)"

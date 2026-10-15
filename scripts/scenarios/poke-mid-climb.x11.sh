@@ -7,7 +7,7 @@
 #   named by FIDGET_SCENARIO_EDGE (left or right, default left), then clicks on
 #   it until one lands as a Poke. The cursor moves; keep hands off the mouse
 #   for the run.
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: an X11 session and xdotool.
 # Asserts: the Poke starts react over, then the sprite stays Climbing at one
 #   position in one climb frame through the cooldown, and climbs on after it.
@@ -24,6 +24,7 @@ if [ "${1:-}" != --go ]; then
 fi
 bin=${2:?usage: poke-mid-climb.x11.sh --go <fidget binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -72,11 +73,11 @@ wait_still() { # <tenths of a second>
   local n=$1 a b
   while [ "$n" -gt 0 ]; do
     kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    if in_state 'Grounded|Perched'; then
+    if in_state "$log" 'Grounded|Perched'; then
       a=$(sprite_xy)
       sleep 0.2
       b=$(sprite_xy)
-      [ "$a" = "$b" ] && in_state 'Grounded|Perched' && return 0
+      [ "$a" = "$b" ] && in_state "$log" 'Grounded|Perched' && return 0
     fi
     n=$((n - 1))
     sleep 0.1
@@ -86,7 +87,7 @@ wait_still() { # <tenths of a second>
 
 wait_climbing() { # <tenths of a second>
   local n=$1
-  until in_state Climbing; do
+  until in_state "$log" Climbing; do
     n=$((n - 1))
     [ "$n" -gt 0 ] || return 1
     sleep 0.1
@@ -112,12 +113,13 @@ click_at() { # <x> <y>
   xdotool mousemove "$1" "$2" sleep 0.12 mousedown 1 sleep 0.06 mouseup 1
 }
 
+start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
   FIDGET_CHARACTERS="$root/characters" "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true' EXIT
+trap 'kill "$pid" 2> /dev/null || true' EXIT INT TERM
 
-wait_still 300 || fail "the sprite never came to rest; see $log"
+wait_still 30 || fail "the sprite never came to rest; see $log"
 size=$(sed -nE 's/^overlay: .* sprite ([0-9]+)x[0-9]+;.*/\1/p' "$log" | head -1)
 [ -n "$size" ] || fail "no sprite size in $log"
 half=$((size / 2))
@@ -164,7 +166,7 @@ px=$((edge + into * half / 2))
 before=$(pokes)
 poked=
 for _ in 1 2 3 4 5 6; do
-  in_state Climbing || break
+  in_state "$log" Climbing || break
   read -r sx sy < <(sprite_xy)
   [ "$sy" -gt "$size" ] || break
   click_at "$px" "$((sy + half / 9))" >> "$out/input.txt" 2>&1 || fail "could not click the sprite; see $out/input.txt"
@@ -181,9 +183,10 @@ done
 away=$((px + into * 4 * size))
 xdotool mousemove "$((away < 0 ? 0 : away))" "$sy" >> "$out/input.txt" 2>&1 || fail "could not move the pointer off the sprite; see $out/input.txt"
 
-sleep 4
+wait_for_trace 3 "$log" 'frame: .* Climbing .* react#[0-9]' || fail "sprite did not hold react during cooldown; see $log"
 kill "$pid" 2> /dev/null || true
 wait "$pid" 2> /dev/null || true
 
 check "$log"
-echo "PASS: evidence in $out"
+elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+echo "PASS: evidence in $out (${elapsed_ms}ms)"

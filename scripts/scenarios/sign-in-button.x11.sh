@@ -7,7 +7,7 @@
 #   Three AT-SPI dumps of the Chat window. Fidget quits when it ends.
 # Input: a dbusmenu click on the tray's Chat… row; AT-SPI actions on the
 #   sign-in button and on Open; no pointer, no keys.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: an X11 session with a tray host (StatusNotifierWatcher) and AT-SPI
 #   (python3-pyatspi).
 # Asserts: the sign-in button shows on the needs-login landing; pressing it
@@ -27,6 +27,7 @@ fi
 bin=${2:?usage: sign-in-button.x11.sh --go <fidget binary> <fidget test binary>}
 test_bin=${3:?usage: sign-in-button.x11.sh --go <fidget binary> <fidget test binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 link="https://example.test/device?code=ABCD-1234"
 
 fail() {
@@ -87,10 +88,14 @@ python3 -c 'import pyatspi' > /dev/null 2>&1 || {
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-sign-in-button-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$out/home" "$out/bin"
+mkdir -p "$out/home/.local/share/fidget" "$out/bin"
 log="$out/app.log" marks="$out/harness.log" opened="$out/opened.txt"
 : > "$marks"
 : > "$opened"
+
+cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
+{"first_run_tour_shown": true}
+SETTINGS_EOF
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
 # Chat names the Harness by its launcher.
@@ -102,6 +107,7 @@ harness="$launcher $test_bin script=auth-sign-in-link count=$marks"
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> %q\n' "$opened" > "$out/bin/xdg-open"
 chmod +x "$out/bin/xdg-open"
 
+start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" PATH="$out/bin:$PATH" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=1 \
@@ -109,18 +115,7 @@ env HOME="$out/home" PATH="$out/bin:$PATH" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 ax() { python3 "$root/scripts/ax-window-linux.py" "$@"; }
 dump() { # <name>
@@ -129,7 +124,7 @@ dump() { # <name>
 handed() { [ "$(cat "$opened")" = "$link" ]; }
 sessions() { [ "$(grep -cx new "$marks")" -ge "$1" ]; }
 
-wait_for 3 grep -qx spawn "$marks" || fail "Harness never spawned; see $log"
+wait_for_marks 2 "$marks" '^spawn$' || fail "Harness never spawned; see $log"
 # Open Chat. The 1 s timed wake sends session/new (refused: auth required), which
 # shows the needs-login UI. A session/new only comes from a wake, not from attach alone.
 rc=0
@@ -139,22 +134,23 @@ if [ "$rc" -eq 2 ]; then
   exit 2
 fi
 [ "$rc" -eq 0 ] || fail "the tray's Chat row did not open Chat; see $out/open.txt"
-wait_for 2 grep -qx new "$marks" || fail "timed wake did not send session/new; see $marks"
+wait_for_marks 2 "$marks" '^new$' || fail "timed wake did not send session/new; see $marks"
 
 dump needs-login
 check_needs_login "$out/needs-login.ax.txt"
 
 ax press "$pid" BMO "Fake login" > "$out/press.txt" 2>&1 || fail "could not press Fake login button; see $out/press.txt"
-wait_for 2 grep -qx authenticate "$marks" || fail "sign-in button did not trigger authenticate; see $log"
+wait_for_marks 2 "$marks" '^authenticate$' || fail "sign-in button did not trigger authenticate; see $log"
 dump waiting
 check_waiting "$out/waiting.ax.txt"
 
 ax press "$pid" BMO Open > "$out/press-open.txt" 2>&1 || fail "could not press Open on the sign-in link; see $out/press-open.txt"
-wait_for 2 grep -qx 'elicit-url:accept' "$marks" || fail "sign-in form never answered; see $log"
-wait_for 2 handed || true
+wait_for_marks 2 "$marks" '^elicit-url:accept$' || fail "sign-in form never answered; see $log"
+wait_for_file 2 "$opened" || true
 check_opened "$opened"
-wait_for 3 sessions 2 || fail "session did not open after sign-in; see $log"
+wait_for_marks 2 "$marks" '^new$' || fail "session did not open after sign-in; see $log"
 
 dump signed-in
 check_signed_in "$out/signed-in.ax.txt"
-echo "PASS: evidence in $out"
+elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+echo "PASS: evidence in $out (${elapsed_ms}ms)"

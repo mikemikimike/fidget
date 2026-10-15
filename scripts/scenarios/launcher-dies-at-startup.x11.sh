@@ -6,7 +6,7 @@
 #   wide, then Codex is pressed. Four AT-SPI dumps. Fidget quits at the end.
 # Input: a dbusmenu click on the tray's Chat… row; an AT-SPI action on Codex;
 #   xdotool resizes; no pointer, no keys.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: X11 with a tray host (StatusNotifierWatcher), python3-pyatspi, xdotool.
 # Asserts: what only a live run can: the tray's Chat… row opens the Harness
 #   error landing; at 420 and 320 its Error output and Command boxes end inside
@@ -27,6 +27,7 @@ fi
 bin=${2:?usage: launcher-dies-at-startup.x11.sh --go <fidget binary> <fidget test binary>}
 test_bin=${3:?usage: launcher-dies-at-startup.x11.sh --go <fidget binary> <fidget test binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 dyld="dyld[0]: Library not loaded"
 
 fail() {
@@ -103,9 +104,13 @@ command -v xdotool > /dev/null 2>&1 || {
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-launcher-dies-at-startup-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$out/home"
+mkdir -p "$out/home/.local/share/fidget"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
+
+cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
+{"first_run_tour_shown": true}
+SETTINGS_EOF
 
 # `abort-first` prints a dyld line and aborts on its first spawn, then answers.
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=abort-first count=$marks"
@@ -113,6 +118,7 @@ harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=abort-first
 name=${harness%% *}
 
 # No ambient wake: one would respawn the Harness and pass the re-pick for it.
+start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
@@ -120,18 +126,7 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 ax() { python3 "$root/scripts/ax-window-linux.py" "$@"; }
 dump() { ax dump "$pid" BMO frames > "$out/$1.ax.txt" 2> "$out/$1.err"; }
@@ -146,12 +141,12 @@ fits() { # <width>
     fail "$w: resize failed; see $out/$w.frame.err"
   read -r _ _ got _ < <(tr , ' ' < "$out/$w.frame.txt")
   [ "$got" -eq "$w" ] || fail "$w: Chat is $got wide after the resize"
-  sleep 1
+  wait_for_ax_dump 2 "$pid" BMO "^entry\|" || fail "$w: Chat content never settled; see $log"
   dump "$w" || fail "$w: AT-SPI dump failed; see $out/$w.err"
   check_fits "$w" "$out/$w.ax.txt"
 }
 
-wait_for 20 grep -q 'exited before initialize' "$log" || fail "the launcher never died before initialize; see $log"
+wait_for_trace 2 "$log" 'exited before initialize' || fail "the launcher never died before initialize; see $log"
 [ "$(spawns)" -eq 1 ] || fail "want one spawn before Chat opens, the fixture saw $(spawns)"
 rc=0
 ax tray "$pid" BMO Chat > "$out/open.txt" 2>&1 || rc=$?
@@ -160,13 +155,17 @@ if [ "$rc" -eq 2 ]; then
   exit 2
 fi
 [ "$rc" -eq 0 ] || fail "the tray's Chat row did not open Chat; see $out/open.txt"
-wait_for 15 shows_failed || fail "Chat shows no Harness error landing; see $out/failed.ax.txt"
+wait_for_ax_dump 2 "$pid" BMO "Harness couldn't start" || fail "Chat shows no Harness error landing; see $log"
+shows_failed || fail "Chat shows no Harness error landing; see $out/failed.ax.txt"
 check_failed "$out/failed.ax.txt"
 for w in 420 320; do fits "$w"; done
 
 [ "$(spawns)" -eq 1 ] || fail "the Harness launched again before the re-pick ($(spawns) spawns)"
 ax press "$pid" BMO Codex > "$out/press.txt" 2>&1 || fail "could not press Codex on the landing; see $out/press.txt"
-wait_for 10 respawned || fail "the re-pick did not launch the Harness again; see $log"
-wait_for 15 shows_live || true
+wait_for_marks 2 "$marks" '^spawn$' || fail "the re-pick did not launch the Harness again; see $log"
+respawned || fail "the re-pick did not launch the Harness again; see $log"
+wait_for_ax_dump 2 "$pid" BMO " · session " || true
+shows_live || true
 check_live "$out/live.ax.txt"
-echo "PASS: evidence in $out"
+elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+echo "PASS: evidence in $out (${elapsed_ms}ms)"

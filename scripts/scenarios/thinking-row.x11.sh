@@ -4,7 +4,7 @@
 #   itself and takes focus. One AT-SPI dump of the Chat window while the
 #   Harness thinks, and one after the reply. Fidget quits when the scenario ends.
 # Input: none.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: a running X11 session. AT-SPI (python3-pyatspi) for the terminal that runs it.
 # Asserts: the Thinking row is open while the Harness thinks, and collapsed
 #   once the reply lands.
@@ -22,6 +22,7 @@ fi
 bin=${2:?usage: thinking-row.x11.sh --go <fidget binary> <fidget test binary>}
 test_bin=${3:?usage: thinking-row.x11.sh --go <fidget binary> <fidget test binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -64,13 +65,18 @@ python3 -c 'import pyatspi' > /dev/null 2>&1 || {
 
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-thinking-row-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$out/home"
+mkdir -p "$out/home/.local/share/fidget"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
+
+cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
+{"first_run_tour_shown": true}
+SETTINGS_EOF
 
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=6 \
@@ -78,18 +84,7 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() {
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 capture() { # <name> <glyph>
   local dump="$out/$1.ax.txt"
@@ -98,10 +93,11 @@ capture() { # <name> <glyph>
   assert_row "$dump" "$2" "$1"
 }
 
-wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-wait_for 40 grep -qx 'thought 2' "$marks" || fail "no thinking turn; see $log"
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought "▾"
-wait_for 15 grep -qx replied "$marks" || fail "no reply; see $log"
-sleep 1.5
+wait_for_marks 3 "$marks" '^replied$' || fail "no reply; see $log"
+wait_for_ax_dump 2 "$pid" BMO '^button\|▸' || fail "Thinking row never collapsed; see $log"
 capture after-reply "▸"
-echo "PASS: evidence in $out"
+elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+echo "PASS: evidence in $out (${elapsed_ms}ms)"

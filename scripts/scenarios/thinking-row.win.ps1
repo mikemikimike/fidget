@@ -4,7 +4,7 @@
 #   itself and takes focus. One UI Automation dump of the Chat window while
 #   the Harness thinks, and one after the reply. Fidget quits when the scenario ends.
 # Input: none.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. bash
 #   on PATH for the fixture Harness wrapper.
 # Asserts: the Thinking row is open while the Harness thinks, and collapsed
@@ -47,6 +47,7 @@ if (-not $Bin -or -not $TestBin) {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
@@ -86,10 +87,13 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-thinking-row-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $out "home\AppData\Roaming\fidget") | Out-Null
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
 Set-Content -LiteralPath $marks -Value "" -Encoding ascii
+
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText((Join-Path $out "home\AppData\Roaming\fidget\settings.json"), '{"first_run_tour_shown": true}', $utf8)
 
 $harness = "$bashPath $root/scripts/scenarios/fixture-harness.sh $TestBin script=scenario-thinking count=$marks"
 $paths = @($harness -split '\s+' | Select-Object -Skip 1)
@@ -104,22 +108,13 @@ $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_CHARACTER = "bmo"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
 
-$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
+$startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$script:proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $log" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
-    if (-not (Wait-For 30 { Select-String -LiteralPath $marks -Pattern '^asked$' -Quiet })) {
+    if (-not (Wait-ForMarks 3 $marks '^asked$')) {
         Fail "no wake reached the Harness; see $log"
     }
-    if (-not (Wait-For 40 { Select-String -LiteralPath $marks -Pattern '^thought 2$' -Quiet })) {
+    if (-not (Wait-ForMarks 3 $marks '^thought 2$')) {
         Fail "no thinking turn; see $log"
     }
     $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -136,36 +131,27 @@ try {
     function Capture([string]$Name, [string]$Glyph) {
         $dump = Join-Path $out "$Name.ax.txt"
         $prefix = ("button|$Glyph").ToLower()
-        $deadline = (Get-Date).AddSeconds(2)
-        $code = 1
-        do {
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $dumpPs1 dump -ProcessId $proc.Id -Title "BMO" |
-                Out-File -FilePath $dump -Encoding utf8
-            $code = $LASTEXITCODE
-            if ($code -eq 0) {
-                $row = Get-Content -LiteralPath $dump -Encoding utf8 |
-                    Where-Object { $_ -match '(?i)^button\|.*thinking' } |
-                    Select-Object -First 1
-                if ($row -and $row.ToLower().StartsWith($prefix)) {
-                    Write-Output "ok: ${Name}: $row"
-                    return
-                }
-            }
-            if ($proc.HasExited) { Fail "Fidget exited; see $log" }
-            Start-Sleep -Milliseconds 200
-        } while ((Get-Date) -lt $deadline)
+        if (-not (Wait-ForAxDump 2 $script:proc.Id "BMO" "(?i)^button\|.*thinking")) {
+            Fail "${Name}: Thinking row never appeared; see $log"
+        }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $dumpPs1 dump -ProcessId $script:proc.Id -Title "BMO" |
+            Out-File -FilePath $dump -Encoding utf8
+        $code = $LASTEXITCODE
         if ($code -ne 0) { Fail "${Name}: UI Automation dump failed; see $dump" }
         Assert-Row $dump $Glyph $Name
     }
     Capture "mid-thought" $GlyphOpen
-    if (-not (Wait-For 15 { Select-String -LiteralPath $marks -Pattern '^replied$' -Quiet })) {
+    if (-not (Wait-ForMarks 3 $marks '^replied$')) {
         Fail "no reply; see $log"
     }
-    Start-Sleep -Milliseconds 1500
+    if (-not (Wait-ForAxDump 2 $script:proc.Id "BMO" "\u25B8")) {
+        Fail "Thinking row never collapsed; see $log"
+    }
     Capture "after-reply" $GlyphDone
-    Write-Output "PASS: evidence in $out"
+    $elapsedMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $startMs
+    Write-Output "PASS: evidence in $out (${elapsedMs}ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    if (-not $script:proc.HasExited) { Stop-Process -Id $script:proc.Id -Force -ErrorAction SilentlyContinue }
     Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like "*count=$marks*" } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }

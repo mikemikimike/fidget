@@ -6,7 +6,7 @@
 #   link is clicked. Two AT-SPI dumps. Fidget quits at the end.
 # Input: a dbusmenu click on the tray's Chat… row; one real click on the link
 #   through xdotool; no keys. A recording `xdg-open` takes it, so no browser.
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: an X11 session with a tray host (StatusNotifierWatcher), AT-SPI
 #   (python3-pyatspi) and xdotool.
 # Asserts: the landing draws `npx` and https://nodejs.org/ as their own
@@ -26,6 +26,7 @@ if [ "${1:-}" != --go ]; then
 fi
 bin=${2:?usage: landing-link-click.x11.sh --go <fidget binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 url=https://nodejs.org/
 
 fail() {
@@ -84,9 +85,13 @@ command -v xdotool > /dev/null 2>&1 || {
 }
 
 out="${TMPDIR:-/tmp}/fidget-scenario-landing-link-click-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$out/home" "$out/bin"
+mkdir -p "$out/home/.local/share/fidget" "$out/bin"
 log="$out/app.log" opened="$out/opened.txt"
 : > "$opened"
+
+cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
+{"first_run_tour_shown": true}
+SETTINGS_EOF
 
 # platform::open_url spawns `xdg-open` by name, so this one on PATH takes the hand-off.
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> %q\n' "$opened" > "$out/bin/xdg-open"
@@ -97,6 +102,7 @@ if PATH=$path command -v npx > /dev/null; then
   exit 2
 fi
 
+start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" PATH="$path" \
   FIDGET_HARNESS=codex \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
@@ -104,18 +110,7 @@ env HOME="$out/home" PATH="$path" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'kill "$pid" 2> /dev/null || true' EXIT INT TERM
 
 ax() { python3 "$root/scripts/ax-window-linux.py" "$@"; }
 dump() { ax dump "$pid" BMO frames > "$out/$1.ax.txt" 2> "$out/$1.err"; }
@@ -129,16 +124,18 @@ if [ "$rc" -eq 2 ]; then
   exit 2
 fi
 [ "$rc" -eq 0 ] || fail "the tray's Chat row did not open Chat; see $out/open.txt"
-wait_for 15 shows_landing landing || fail "Chat shows no Codex needs npx landing; see $out/landing.ax.txt"
+wait_for_ax_dump 2 "$pid" BMO "Codex needs " || fail "Chat shows no Codex needs npx landing; see $log"
+shows_landing landing || fail "Chat shows no Codex needs npx landing; see $out/landing.ax.txt"
 check_landing "$out/landing.ax.txt"
 
 [ ! -s "$opened" ] || fail "something reached xdg-open before the click: $(cat "$opened")"
 xdotool mousemove --sync "$((x + w / 2))" "$((y + h / 2))" click 1 > "$out/click.txt" 2>&1 ||
   fail "could not click the link; see $out/click.txt"
-wait_for 5 handed || true
+wait_for_file 2 "$opened" || true
 check_handed "$opened"
 
-sleep 1
+wait_for_ax_dump 2 "$pid" BMO "Codex needs " || fail "Chat left the landing after the click; see $log"
 dump after || fail "AT-SPI dump failed after the click; see $out/after.err"
 check_after "$out/after.ax.txt"
-echo "PASS: evidence in $out"
+elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+echo "PASS: evidence in $out (${elapsed_ms}ms)"
