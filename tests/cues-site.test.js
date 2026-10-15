@@ -97,25 +97,26 @@ const probe = `
 async function launch() {
   const dir = mkdtempSync(join(tmpdir(), "cues-site-"));
   const site = join(dir, "_site");
-  // The real build, so a page import the script forgets to copy fails here.
-  const built = spawnSync("bash", ["scripts/assemble-site.sh", site, "/dev/null"], { cwd: ROOT, encoding: "utf8" });
-  assert.equal(built.status, 0, `assemble-site.sh failed: ${built.stderr}`);
-  const html = readFileSync(join(site, "cues.html"), "utf8")
-    .replace("<head>", `<head>${probe}`);
-  writeFileSync(join(site, "cues.html"), html);
-
-  const cdp = launchWithPipe(chrome, [
-    "--headless=new",
-    "--disable-gpu",
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--mute-audio",
-    `--user-data-dir=${join(dir, "profile")}`,
-    "--allow-file-access-from-files",
-    "--window-size=1400,900",
-  ]);
-
+  let cdp;
   try {
+    // The real build, so a page import the script forgets to copy fails here.
+    const built = spawnSync("bash", ["scripts/assemble-site.sh", site, "/dev/null"], { cwd: ROOT, encoding: "utf8" });
+    assert.equal(built.status, 0, `assemble-site.sh failed: ${built.stderr}`);
+    const html = readFileSync(join(site, "cues.html"), "utf8")
+      .replace("<head>", `<head>${probe}`);
+    writeFileSync(join(site, "cues.html"), html);
+
+    cdp = launchWithPipe(chrome, [
+      "--headless=new",
+      "--disable-gpu",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--mute-audio",
+      `--user-data-dir=${join(dir, "profile")}`,
+      "--allow-file-access-from-files",
+      "--window-size=1400,900",
+    ]);
+
     const { sessionId, navigate, blockURLs } = await createPageTarget(cdp);
     await blockURLs(["*fonts.googleapis.com*", "*fonts.gstatic.com*"]);
     const result = await captureConsoleLog(
@@ -127,7 +128,7 @@ async function launch() {
     );
     return result;
   } finally {
-    await cleanupChrome(cdp);
+    if (cdp) await cleanupChrome(cdp);
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   }
 }

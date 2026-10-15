@@ -197,8 +197,8 @@ export async function captureConsoleLog(cdp, sessionId, prefix, timeoutMs, start
             clearTimeout(readyTimer);
             resultTimer = setTimeout(() => {
               cleanup();
-              reject(buildError(`no console.log with prefix "${prefix}" within 3100ms (probe timed out)`));
-            }, 3100);
+              reject(buildError(`no console.log with prefix "${prefix}" within ${timeoutMs}ms (probe timed out)`));
+            }, timeoutMs);
           }
         }
       }
@@ -208,8 +208,8 @@ export async function captureConsoleLog(cdp, sessionId, prefix, timeoutMs, start
 
     readyTimer = setTimeout(() => {
       cleanup();
-      reject(buildError("no console.log with prefix \"__PROBE_READY__\" within 3000ms (page never loaded)"));
-    }, 3000);
+      reject(buildError(`no console.log with prefix "__PROBE_READY__" within ${timeoutMs}ms (page never loaded)`));
+    }, timeoutMs);
   });
 }
 

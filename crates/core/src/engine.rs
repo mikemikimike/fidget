@@ -1054,7 +1054,8 @@ impl Engine {
                     normal: Point { x: 0.0, y: -1.0 },
                 });
             }
-            Some(transition::Contact::Wall { side, x }) if state == State::Falling => {
+            Some(transition::Contact::Wall { side }) if state == State::Falling => {
+                let x = self.position.x;
                 cue = cue.or(self.release_cue.take());
                 if let Some(display) = snapshot.displays.iter().find(|d| {
                     d.spans_x(x) && self.position.y >= d.y && self.position.y <= d.y + d.height
@@ -1316,7 +1317,7 @@ impl Engine {
                     let side = self.velocity.x.signum();
                     self.position.x = wall;
                     self.velocity = Point::default();
-                    Some(Contact::Wall { side, x: wall })
+                    Some(Contact::Wall { side })
                 } else {
                     let next_y = self.position.y + self.velocity.y * dt;
 
@@ -1404,7 +1405,7 @@ impl Engine {
                     let side = self.velocity.x.signum();
                     self.position.x = x;
                     self.velocity = Point::default();
-                    return Some(Contact::Wall { side, x });
+                    return Some(Contact::Wall { side });
                 }
 
                 let fresh = snapshot.poll_generation == 0
@@ -3845,6 +3846,12 @@ mod tests {
         );
         let cues: Vec<Cue> = frames.iter().filter_map(|frame| frame.cue).collect();
         assert_eq!(cues, vec![Cue::Throw], "plays once on wall arrival");
+        let cued = frames.iter().find(|frame| frame.cue.is_some()).unwrap();
+        assert_eq!(
+            cued.contact.map(|c| c.normal.y),
+            Some(0.0),
+            "the cue plays on the wall-contact frame itself"
+        );
         assert_eq!(
             frames.last().unwrap().state,
             State::Grounded,
@@ -3874,6 +3881,12 @@ mod tests {
         );
         let cues: Vec<Cue> = frames.iter().filter_map(|frame| frame.cue).collect();
         assert_eq!(cues, vec![Cue::Throw], "plays once on wall arrival");
+        let cued = frames.iter().find(|frame| frame.cue.is_some()).unwrap();
+        assert_eq!(
+            cued.contact.map(|c| c.normal.y),
+            Some(0.0),
+            "the cue plays on the wall-contact frame itself"
+        );
     }
 
     /// Caught again mid-fall, the first release never landed, so it never
