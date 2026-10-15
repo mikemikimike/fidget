@@ -93,7 +93,7 @@ async function probe(body, forceDark, preferredColorScheme) {
       args.push(`--blink-settings=preferredColorScheme=${preferredColorScheme}`);
     }
 
-    cdp = await launchWithPipe(chrome, args);
+    cdp = launchWithPipe(chrome, args);
     const { sessionId, navigate } = await createPageTarget(cdp);
     const result = await captureConsoleLog(
       cdp,
