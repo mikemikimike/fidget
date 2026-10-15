@@ -64,7 +64,7 @@ test("a leftward throw faces left", () => {
     world(flight),
     { type: "release", sample: { dx: -6, dy: 0, elapsedMs: 30 } },
   );
-  assert.equal(out.cue, "throw");
+  assert.equal(out.pose.landing, "throw");
   assert.equal(out.pose.vx, -200);
   assert.equal(out.pose.facing, -1);
   assert.equal(out.pose.y, 140);
@@ -169,7 +169,8 @@ test("a fast release throws and keeps the grab feet", () => {
   assert.equal(out.pose.y, 140);
   assert.equal(out.pose.vx, 200);
   assert.equal(out.pose.vy, -100);
-  assert.equal(out.cue, "throw");
+  assert.equal(out.cue, null);
+  assert.equal(out.pose.landing, "throw");
 });
 
 test("a slow release drops in place with no velocity", () => {
@@ -179,7 +180,8 @@ test("a slow release drops in place with no velocity", () => {
     world(flight),
     { type: "release", sample: { dx: 1, dy: 0, elapsedMs: 30 } },
   );
-  assert.equal(out.cue, "drop");
+  assert.equal(out.cue, null);
+  assert.equal(out.pose.landing, "drop");
   assert.equal(out.pose.vx, 0);
   assert.equal(out.pose.vy, 0);
   assert.equal(out.pose.x, 180);
@@ -193,7 +195,47 @@ test("three samples of stillness after a shove release as a drop", () => {
   pose = flight.apply(pose, desk, { type: "sample", dx: 9, dy: 0, elapsedMs: 30 }).pose;
   pose = flight.apply(pose, desk, { type: "sample", dx: 0, dy: 0, elapsedMs: 30 }).pose;
   const out = flight.apply(pose, desk, { type: "release", sample: { dx: 0, dy: 0, elapsedMs: 30 } });
-  assert.equal(out.cue, "drop");
+  assert.equal(out.pose.landing, "drop");
   assert.equal(out.pose.vx, 0);
   assert.equal(out.pose.vy, 0);
+});
+
+function fallFrom(flight, desk, pose) {
+  const cues = [];
+  for (let i = 0; i < 200 && pose.mode !== "resting"; i += 1) {
+    const out = flight.apply(pose, desk, { type: "tick", dt, walk: false });
+    if (out.cue) cues.push([out.cue, out.pose.mode, out.pose.on]);
+    pose = out.pose;
+  }
+  return cues;
+}
+
+test("a release cues once, on landing on the floor or the sill", () => {
+  const flight = loadFlight();
+  const desk = world(flight);
+  for (const [x, release, cue, on] of [
+    [400, { dx: 1, dy: 0, elapsedMs: 30 }, "drop", "floor"],
+    [400, { dx: 6, dy: -3, elapsedMs: 30 }, "throw", "floor"],
+    [160, { dx: 1, dy: 0, elapsedMs: 30 }, "drop", "sill"],
+  ]) {
+    const released = flight.apply(grabbing(x, 100), desk, { type: "release", sample: release });
+    assert.equal(released.cue, null, `nothing on letting go, ${cue}`);
+    assert.deepEqual(fallFrom(flight, desk, released.pose), [[cue, "resting", on]]);
+  }
+});
+
+test("walking off a ledge lands with no cue", () => {
+  const flight = loadFlight();
+  const desk = world(flight);
+  assert.deepEqual(
+    fallFrom(flight, desk, { mode: "falling", x: 400, y: 100, vx: 0, vy: 0, facing: 1 }),
+    [],
+  );
+});
+
+test("a throw into the desk edge plays the cue once on wall arrival", () => {
+  const flight = loadFlight();
+  const desk = world(flight);
+  const pose = { mode: "falling", x: 700, y: 100, vx: 2000, vy: 0, facing: 1, landing: "throw" };
+  assert.deepEqual(fallFrom(flight, desk, pose), [["throw", "falling", undefined]]);
 });
