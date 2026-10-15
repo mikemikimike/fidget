@@ -105,16 +105,7 @@ async function probe(body, forceDark, preferredColorScheme) {
     return result;
   } finally {
     if (cdp) await cleanupChrome(cdp);
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch (err) {
-      if (err.code === "ENOTEMPTY" || err.code === "EBUSY") {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        rmSync(dir, { recursive: true, force: true });
-      } else {
-        throw err;
-      }
-    }
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   }
 }
 
