@@ -6,7 +6,7 @@
 #   Fidget quits when it ends.
 # Input: none. Finder comes forward through `open -a`, Fidget through System
 #   Events, and the minimizes through the Accessibility API, not the mouse.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: Accessibility for the terminal that runs it.
 # Asserts: Chat stays at the normal window level (0) while focused so it remains
 #   a Perch under the overlay, and still at 0 once Finder is in front.
@@ -27,11 +27,16 @@ test_bin=${3:?usage: chat-level.sh --go <fidget binary> <fidget test binary>}
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-chat-level-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
-mkdir -p "$out/home" "$tools"
+mkdir -p "$out/home/.local/share/fidget" "$tools"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
+
+cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
+{"first_run_tour_shown": true}
+SETTINGS_EOF
 
 fail() {
   echo "FAIL: $*" >&2
@@ -47,6 +52,7 @@ fail() {
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=6 \
@@ -54,43 +60,42 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
 at_layer() { [ "$("$tools/window-layer" "$pid" BMO)" = "$1" ]; }
 logged() { [ "$(grep -cE "^chat: chat-[^ ]+ is $1\$" "$log")" -ge "$2" ]; }
 minimize() { "$tools/ax" minimize "$pid" BMO "$1" || fail "could not set minimized to $1"; }
 
-wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-wait_for 15 at_layer 0 || fail "focused Chat is at layer $("$tools/window-layer" "$pid" BMO), not 0"
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is not minimized$' || fail "Chat never logged open state; see $log"
+at_layer 0 || fail "focused Chat is at layer $("$tools/window-layer" "$pid" BMO), not 0"
 echo "ok: focused Chat stays at layer 0 (a Perch under the overlay)"
 
 open -a Finder
-wait_for 5 at_layer 0 || fail "Chat left layer 0 behind Finder: $("$tools/window-layer" "$pid" BMO)"
+sleep 0.5
+at_layer 0 || fail "Chat left layer 0 behind Finder: $("$tools/window-layer" "$pid" BMO)"
 echo "ok: unfocused Chat stays at layer 0"
 
 osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true"
-wait_for 5 at_layer 0 || fail "refocused Chat left layer 0: $("$tools/window-layer" "$pid" BMO)"
+sleep 0.5
+at_layer 0 || fail "refocused Chat left layer 0: $("$tools/window-layer" "$pid" BMO)"
 minimize true
-wait_for 5 logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $log"
+wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing a focused Chat logged nothing; see $log"
+logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $log"
 minimize false
-wait_for 5 logged "not minimized" 1 || fail "restoring Chat logged nothing; see $log"
+wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is not minimized$' || fail "restoring Chat logged nothing; see $log"
+logged "not minimized" 1 || fail "restoring Chat logged nothing; see $log"
 echo "ok: a focused Chat counts as closed while minimized"
 
 open -a Finder
-wait_for 5 at_layer 0 || fail "Chat did not stay at layer 0 behind Finder"
+sleep 0.5
+at_layer 0 || fail "Chat did not stay at layer 0 behind Finder"
 minimize true
-wait_for 5 logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $log"
+wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing an unfocused Chat logged nothing; see $log"
+logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $log"
 minimize false
-wait_for 5 logged "not minimized" 2 || fail "restoring an unfocused Chat logged nothing; see $log"
+wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is not minimized$' || fail "restoring an unfocused Chat logged nothing; see $log"
+logged "not minimized" 2 || fail "restoring an unfocused Chat logged nothing; see $log"
 echo "ok: an unfocused Chat counts as closed while minimized"
-echo "PASS: evidence in $out"
+elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+echo "PASS: evidence in $out (${elapsed_ms}ms)"
