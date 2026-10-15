@@ -215,19 +215,21 @@
   .cue-puff {
     width: 20px; height: 8px; border-radius: 50%;
     border: 2px solid var(--cue-stroke);
-    box-shadow: 0 0 0 1.5px var(--cue-ink), inset 0 0 0 1.5px var(--cue-ink);
+    --puff-shadow: 1.5px;
+    --puff-final-scale: 1.3;
+    box-shadow: 0 0 0 var(--puff-shadow) var(--cue-ink), inset 0 0 0 var(--puff-shadow) var(--cue-ink);
     transform: translate(-50%, -50%) scale(1);
     animation: cue-land 280ms cubic-bezier(.2,.7,.3,1) forwards;
   }
-  .cue-puff.hard { animation-duration: 340ms; }
+  .cue-puff.hard { --puff-final-scale: 1.6; animation-duration: 340ms; }
   @keyframes cue-land {
     from { transform: translate(-50%,-50%) scaleX(1) scaleY(1); opacity: .95; }
-    to   { transform: translate(-50%,-50%) scaleX(4.6) scaleY(1.3); opacity: 0; }
+    to   { transform: translate(-50%,-50%) scaleX(4.6) scaleY(var(--puff-final-scale)); opacity: 0; }
   }
   .cue-puff.hard { animation-name: cue-land-hard; }
   @keyframes cue-land-hard {
     from { transform: translate(-50%,-50%) scaleX(1) scaleY(1); opacity: 1; }
-    to   { transform: translate(-50%,-50%) scaleX(6.5) scaleY(1.6); opacity: 0; }
+    to   { transform: translate(-50%,-50%) scaleX(6.5) scaleY(var(--puff-final-scale)); opacity: 0; }
   }
   @media (prefers-reduced-motion: reduce) {
     .cue-ring, .cue-wedge, .cue-wedge-edge, .cue-dash, .cue-puff { animation-duration: 1ms !important; animation-delay: 0ms !important; }
@@ -476,14 +478,14 @@
     </div>
     <div class="row">
       <button class="play" data-cue="drop" aria-label="Play the Drop cue"><svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg></button>
-      <div><span class="name">Drop</span><span class="gesture">Drag ends, still</span></div>
-      <div class="spec"><b>Puff, sideways.</b> A flat ellipse at the feet spreads to 92 px wide and fades. Dust at the feet, where the hand opens. <code>280 ms</code>.</div>
+      <div><span class="name">Drop</span><span class="gesture">Lands after a still release</span></div>
+      <div class="spec"><b>Puff, sideways.</b> A flat ellipse at the feet spreads to 92 px wide and fades. Dust at the feet, where it lands on the floor, a window, or a wall. On a wall, the ripple rotates 90° to lie parallel to the wall and face away from it. A release caught mid-air plays none. <code>280 ms</code>.</div>
       <div class="spec"><b>Thud.</b> Sine <code>160→55 Hz</code> over 120 ms, 160 ms decay. Down, and heavier than anything else in the set.</div>
     </div>
     <div class="row hard">
       <button class="play" data-cue="throw" aria-label="Play the Throw cue"><svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg></button>
-      <div><span class="name">Throw</span><span class="gesture">Drag ends, moving</span></div>
-      <div class="spec"><b>Drop, harder.</b> Same puff, 130 px wide, 340 ms. Not a sixth shape — the same shape with more force behind it.</div>
+      <div><span class="name">Throw</span><span class="gesture">Lands after a moving release</span></div>
+      <div class="spec"><b>Drop, harder.</b> Same puff, 130 px wide, 340 ms, rotated 90° on a wall. Not a sixth shape — the same shape with more force behind it.</div>
       <div class="spec"><b>Thud, harder.</b> <code>220→55 Hz</code>, 1.6× the gain, 200 ms decay.</div>
     </div>
   </div>
@@ -495,7 +497,9 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+import { measurePuffInset, landingPuff } from "./cue.js";
+
 // ---- Cues. This block ports to src/ as the cue machine. ----
 // Every visual is one element added and removed on animationend; every sound
 // is one oscillator with a gain envelope. Nothing is loaded, nothing persists.
@@ -563,6 +567,17 @@ function reap(node, child) {
   (child || [node]).forEach(c => c.addEventListener("animationend", done, { once: true }));
 }
 
+// The client box, not the offset box: the flight model's walls are the desk's
+// inside edges, and its 1px border is not floor or wall.
+function landingPuffDemo(stage, c, wall, className) {
+  if (wall) {
+    c.ripple_x = wall === "left" ? 0 : stage.clientWidth;
+    c.ripple_y = stage.clientHeight / 2;
+    c.ripple_normal = { x: wall === "left" ? 1 : -1, y: 0 };
+  }
+  return landingPuff(stage, c, className)[0];
+}
+
 const VISUALS = {
   poke(stage, c) { const r = el("cue-ring", c.x, c.y); stage.append(r); reap(r); return r; },
   summon(stage, c) {
@@ -592,15 +607,15 @@ const VISUALS = {
     const ds = [-30, -10, 10, 30].map((dx, i) => { const d = el("cue-dash", c.feetX + dx, c.feetY - 12); d.style.animationDelay = (i * 25) + "ms"; return d; });
     const g = document.createElement("div"); g.className = "cue"; g.append(...ds); stage.append(g); reap(g, ds); return g;
   },
-  drop(stage, c)  { const p = el("cue-puff", c.feetX, c.feetY - 2); stage.append(p); reap(p); return p; },
-  throw(stage, c) { const p = el("cue-puff hard", c.feetX, c.feetY - 2); stage.append(p); reap(p); return p; },
+  drop(stage, c, wall)  { return landingPuffDemo(stage, c, wall, "cue-puff"); },
+  throw(stage, c, wall) { return landingPuffDemo(stage, c, wall, "cue-puff hard"); },
 };
 
 // One in-flight Poke at a time is remembered, because Summon has to cancel it.
 let inflightPoke = null;
-function play(name, stage, anchor) {
+function play(name, stage, anchor, wall) {
   if (name === "summon" && inflightPoke) { inflightPoke.node.remove(); inflightPoke.voice.cut(); inflightPoke = null; }
-  const node = VISUALS[name](stage, anchor);
+  const node = VISUALS[name](stage, anchor, wall);
   let v = null;
   if (soundOn) { v = voice(); SOUNDS[name](v); }
   if (name === "poke") { inflightPoke = { node, voice: v || { cut() {} } }; setTimeout(() => { if (inflightPoke && inflightPoke.node === node) inflightPoke = null; }, 400); }
@@ -620,9 +635,9 @@ function faceToward(facing, vx) {
 }
 
 function apply(pose, world, event) {
-  if (event.type === "sample" && pose.mode === "grabbing") return frame(withSample(pose, event), world, null);
+  if (event.type === "sample" && pose.mode === "grabbing") return frame(withSample(pose, event), world, null, null);
   if (event.type === "release") {
-    if (pose.mode !== "grabbing") return frame(pose, world, null);
+    if (pose.mode !== "grabbing") return frame(pose, world, null, null);
     const next = event.sample ? withSample(pose, event.sample) : pose;
     const v = bucketVelocity(next);
     const thrown = Math.hypot(v.x, v.y) >= THROW_MIN_SPEED;
@@ -635,7 +650,8 @@ function apply(pose, world, event) {
       vx,
       vy,
       facing: faceToward(next.facing, vx),
-    }, world, thrown ? "throw" : "drop");
+      landing: thrown ? "throw" : "drop",
+    }, world, null);
   }
   if (event.type === "grab") {
     const feet = feetOf(pose, world);
@@ -652,38 +668,48 @@ function apply(pose, world, event) {
     }, world, null);
   }
   if (event.type === "drag") {
-    if (pose.mode !== "grabbing") return frame(pose, world, null);
-    return frame({ ...pose, x: event.x, y: event.y }, world, null);
+    if (pose.mode !== "grabbing") return frame(pose, world, null, null);
+    return frame({ ...pose, x: event.x, y: event.y }, world, null, null);
   }
-  if (event.type === "clamp") return frame({ ...pose, x: clampX(pose.x, world) }, world, null);
+  if (event.type === "clamp") return frame({ ...pose, x: clampX(pose.x, world) }, world, null, null);
   if (event.type === "tick" && pose.mode === "resting" && event.walk) {
     const vx = pose.facing * WALK_SPEED;
     const x = pose.x + vx * event.dt;
     const ledge = world.ledges.find((item) => item.id === pose.on);
     if (x < ledge.x0 || x > ledge.x1) {
-      return frame({ mode: "falling", x, y: ledge.y, vx, vy: 0, facing: pose.facing }, world, null);
+      return frame({ mode: "falling", x, y: ledge.y, vx, vy: 0, facing: pose.facing }, world, null, null);
     }
     const clamped = clampX(x, world);
     const facing = clamped === x ? pose.facing : -pose.facing;
-    return frame({ mode: "resting", x: clamped, on: pose.on, facing }, world, null);
+    return frame({ mode: "resting", x: clamped, on: pose.on, facing }, world, null, null);
   }
-  if (event.type !== "tick" || pose.mode !== "falling") return frame(pose, world, null);
+  if (event.type !== "tick" || pose.mode !== "falling") return frame(pose, world, null, null);
   const dt = Math.min(Math.max(event.dt, 0), 0.05);
   const vy = pose.vy + GRAVITY * dt;
-  const x = clampX(pose.x + pose.vx * dt, world);
+  const free = pose.x + pose.vx * dt;
+  const x = clampX(free, world);
   const facing = faceToward(pose.facing, pose.vx);
+  let cue = null;
+  let cueWall = null;
+  let cuePlayed = pose.cuePlayed ?? false;
+  if (x !== free && !cuePlayed) {
+    cue = pose.landing ?? null;
+    cueWall = pose.vx > 0 ? "right" : "left";
+    cuePlayed = true;
+  }
   if (vy < 0) {
     const stopAt = Math.min(pose.y, world.sprite.h);
     if (pose.y + vy * dt < stopAt) {
-      return frame({ mode: "falling", x, y: stopAt, vx: pose.vx, vy: 0, facing }, world, null);
+      return frame({ mode: "falling", x, y: stopAt, vx: pose.vx, vy: 0, facing, landing: pose.landing, cuePlayed }, world, cue, cueWall);
     }
   }
   const nextY = pose.y + vy * dt;
   const support = supportBelow(world, x, pose.y);
   if (support && nextY >= support.y) {
-    return frame({ mode: "resting", x, on: support.id, facing }, world, null);
+    const landingCue = !cuePlayed ? (pose.landing ?? null) : null;
+    return frame({ mode: "resting", x, on: support.id, facing }, world, landingCue, null);
   }
-  return frame({ mode: "falling", x, y: nextY, vx: pose.vx, vy, facing }, world, null);
+  return frame({ mode: "falling", x, y: nextY, vx: pose.vx, vy, facing, landing: pose.landing, cuePlayed }, world, cue, cueWall);
 }
 
 function withSample(pose, sample) {
@@ -737,7 +763,7 @@ function feetOf(pose, world) {
   return { x: pose.x, y: pose.y };
 }
 
-function frame(pose, world, cue) {
+function frame(pose, world, cue, cueWall) {
   const feet = feetOf(pose, world);
   const { w, h } = world.sprite;
   return {
@@ -746,6 +772,7 @@ function frame(pose, world, cue) {
     box: { x: feet.x - w / 2, y: feet.y - h },
     anchor: { x: feet.x, y: feet.y - h / 2, feetX: feet.x, feetY: feet.y },
     cue,
+    cueWall,
     holding: pose.mode === "grabbing",
   };
 }
@@ -851,9 +878,7 @@ sprite.addEventListener("pointerup", e => {
     const feet = dragFeet(e.clientX, e.clientY);
     paint(apply(pose, world(), { type: "drag", x: feet.x, y: feet.y }));
     cursor = { x: e.clientX, y: e.clientY };
-    const frame = apply(pose, world(), { type: "release", sample: takeSample(performance.now()) });
-    paint(frame);
-    if (frame.cue) play(frame.cue, desk, frame.anchor);
+    paint(apply(pose, world(), { type: "release", sample: takeSample(performance.now()) }));
     lastClickT = -Infinity;
   } else if (phase === "pressed") {
     const now = performance.now();
@@ -1049,7 +1074,9 @@ function tick(now) {
   } else {
     const pointerBlocksStroll = overSprite;
     const walk = strollOn && phase === "idle" && !composing && !pointerBlocksStroll;
-    paint(apply(pose, world(), { type: "tick", dt, walk }));
+    const frame = apply(pose, world(), { type: "tick", dt, walk });
+    paint(frame);
+    if (frame.cue) play(frame.cue, desk, frame.anchor, frame.cueWall);
   }
   if (pillUp) placeQuick();
   if (hoverTimer !== null) {

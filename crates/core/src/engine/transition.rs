@@ -16,9 +16,10 @@ pub enum Contact {
     Lifted(Surface),
     /// Still standing exactly where it stood.
     Standing,
-    /// Ran into something the sprite cannot pass sideways: a screen edge, in
-    /// the air or on the ground, or the side of the Dock.
-    Wall,
+    /// Ran into something the sprite cannot pass sideways: a screen edge or the
+    /// side of the Dock. Contains side (-1.0 left, 1.0 right) and the contact x
+    /// coordinate where the sprite stopped.
+    Wall { side: f64, x: f64 },
     /// Met the usable top while rising or climbing.
     Ceiling,
 }
@@ -50,7 +51,7 @@ pub fn on_contact(state: State, contact: Option<Contact>, rested: bool) -> State
         // Physics had nothing to report: a held sprite, or a climb still
         // under way.
         None => state,
-        Some(Contact::Wall) => State::Climbing,
+        Some(Contact::Wall { .. }) => State::Climbing,
         Some(Contact::Airborne | Contact::Ceiling) => State::Falling,
         Some(Contact::Landed(surface) | Contact::Lifted(surface)) => match surface {
             Surface::Floor => State::Grounded,

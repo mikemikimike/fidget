@@ -575,6 +575,12 @@ struct SpritePlacement<'a> {
     /// sound by. `None` on every overlay but the bubble owner's: every overlay
     /// draws the art, so a cue from all of them is one sound per display. #277
     cue: Option<&'static str>,
+    /// Where a landing touched, in this overlay's coordinates, and the normal of
+    /// what it touched, which the webview turns into the ripple's inset and
+    /// rotation. `None` off the bubble owner, like the cue it goes with.
+    ripple_x: Option<i32>,
+    ripple_y: Option<i32>,
+    ripple_normal: Option<fidget_core::engine::Point>,
     /// The open quick-message draft. `None` off the bubble owner, so exactly one
     /// overlay draws the pill and the text follows the Instance across a seam.
     qm: Option<&'a fidget_core::quick_message::QmDraft>,
@@ -590,6 +596,8 @@ impl<'a> SpritePlacement<'a> {
     fn new(instance: &'a Placed, display: Rect, index: usize) -> Self {
         let local = instance.sprite.in_overlay(display);
         let bubble = instance.owner == Some(index);
+        // Rounded like `in_overlay`, so a floor ripple lands under the drawn feet.
+        let contact = instance.contact.filter(|_| bubble);
         Self {
             id: &instance.id,
             character: &instance.character,
@@ -606,6 +614,9 @@ impl<'a> SpritePlacement<'a> {
             chatting: instance.chatting,
             bubble,
             cue: instance.cue.filter(|_| bubble).map(Cue::name),
+            ripple_x: contact.map(|c| c.point.x.round() as i32 - display.x.round() as i32),
+            ripple_y: contact.map(|c| c.point.y.round() as i32 - display.y.round() as i32),
+            ripple_normal: contact.map(|c| c.normal),
             qm: instance.qm.as_ref().filter(|_| bubble),
         }
     }
@@ -681,6 +692,8 @@ struct Placed {
     asking: bool,
     chatting: bool,
     cue: Option<Cue>,
+    /// Where this tick's landing touched, in the space every display shares.
+    contact: Option<fidget_core::engine::RippleContact>,
     /// The overlay that draws the bubble, decided once from the feet
     /// (#178, `bubble_owner`); `None` while the feet are on no display.
     owner: Option<usize>,
@@ -6576,7 +6589,14 @@ mod tests {
             thinking: true,
             asking: true,
             chatting: true,
-            cue: Some(Cue::Poke),
+            cue: Some(Cue::Drop),
+            contact: Some(fidget_core::engine::RippleContact {
+                point: fidget_core::engine::Point {
+                    x: 2064.0,
+                    y: 528.0,
+                },
+                normal: fidget_core::engine::Point { x: 0.0, y: -1.0 },
+            }),
             owner: Some(1),
             qm: None,
             mask: fidget_core::overlay::AlphaMask::from_png(PATCHY, 128)
@@ -6588,7 +6608,16 @@ mod tests {
         assert!(owner.thinking);
         assert!(owner.asking);
         assert!(owner.bubble);
-        assert_eq!(owner.cue, Some("poke"));
+        assert_eq!(owner.cue, Some("drop"));
+        assert_eq!(
+            (owner.ripple_x, owner.ripple_y, owner.ripple_normal),
+            (
+                Some(144),
+                Some(528),
+                Some(fidget_core::engine::Point { x: 0.0, y: -1.0 })
+            ),
+            "the ripple under the feet, in the owner's coordinates"
+        );
 
         let elsewhere = SpritePlacement::new(&placed, left, 0);
         assert_eq!(elsewhere.dialogue, None, "no line to latch off the owner");
@@ -6599,6 +6628,15 @@ mod tests {
         );
         assert!(!elsewhere.bubble);
         assert_eq!(elsewhere.cue, None, "or the cue sounds once per display");
+        assert_eq!(
+            (
+                elsewhere.ripple_x,
+                elsewhere.ripple_y,
+                elsewhere.ripple_normal
+            ),
+            (None, None, None),
+            "and its ripple is drawn once"
+        );
         assert!(
             owner.chatting && elsewhere.chatting,
             "the pill can open on any overlay, so each one hears that Chat is up"
@@ -6649,6 +6687,7 @@ mod tests {
             asking: false,
             chatting: false,
             cue: None,
+            contact: None,
             owner: Some(1),
             qm: Some(draft.clone()),
             mask: fidget_core::overlay::AlphaMask::from_png(PATCHY, 128)

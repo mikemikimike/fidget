@@ -18,10 +18,19 @@ use geometry::*;
 
 /// A point in the one coordinate space the Engine works in: points, y growing
 /// downward, spanning every visible display.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
+}
+
+/// Where a landing touched, and the unit normal of what it touched: `(0, -1)`
+/// on the floor or a Perch, `(1, 0)` off a left wall, `(-1, 0)` off a right one.
+/// The renderer lays the ripple along the surface and insets it along the normal.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RippleContact {
+    pub point: Point,
+    pub normal: Point,
 }
 
 /// A sprite's current feet and the width needed to place it beside others.
@@ -86,9 +95,9 @@ pub enum Cue {
     Menu,
     /// The sprite left its footing for the cursor.
     Pickup,
-    /// The sprite was let go standing still.
+    /// The sprite landed, on the floor or a Perch, after being let go standing still.
     Drop,
-    /// The sprite was let go moving. The Drop cue played harder rather than a
+    /// The sprite landed after being let go moving. The Drop cue played harder rather than a
     /// sixth shape and a sixth sound.
     Throw,
 }
@@ -212,6 +221,10 @@ pub struct Frame {
     /// The cue this interaction earned, if one landed. A one-tick pulse like
     /// `dialogue`, and at most one a tick — the precedence is in `tick`.
     pub cue: Option<Cue>,
+
+    /// Where this tick's landing touched, for the Drop/Throw ripple. Set on
+    /// every landing (floor, Perch, wall), whether or not a cue sounds.
+    pub contact: Option<RippleContact>,
 
     /// A Behavior this Character declared, proposed this tick, and turned down by `permitted`.
     ///
@@ -378,6 +391,10 @@ pub struct Engine {
     hold_offset_x: f64,
     /// Feet minus the cursor when a grab began, so the pressed point stays put.
     grab_offset: Point,
+    /// The Drop or Throw cue this fall earned at release. Set when leaving
+    /// Dragged, played and cleared on the first contact. None for falls with
+    /// no prior release (startup fall, walk-off, yank).
+    pub(crate) release_cue: Option<Cue>,
     /// Seconds since the last fresh window sample. Velocity and acceleration
     /// are that interval, not a constant poll, because idle and ride differ.
     since_sample_s: f64,
@@ -617,6 +634,7 @@ impl Engine {
             last_perch: None,
             hold_offset_x: 0.0,
             grab_offset: Point::default(),
+            release_cue: Some(Cue::Drop),
             since_sample_s: 0.0,
             yank_reference: Point::default(),
             since_yank_ref_s: 0.0,
@@ -811,12 +829,14 @@ impl Engine {
         }
 
         // A Grab wins over whatever the sprite was doing, the usable floor included: the user's hand outranks the world.
-        // Pickup and drop cues are decided here: `Verb::Grab` is present on every tick the sprite is held, and a slow release emits no verb at all.
+        // Pickup is cued here and a release's cue is held for the landing: `Verb::Grab` is present on every tick the sprite is held, and a slow release emits no verb at all.
         // The transition is the edge, and both States are in hand only between `on_verbs` above and `on_contact` below.
         let mut cue = None;
+        let mut thrown_now = false;
         if state == State::Dragged {
             if self.state != State::Dragged {
                 cue = Some(Cue::Pickup);
+                self.release_cue = None;
                 // The press lands on the art, not the feet. That point stays
                 // under the pointer; snapping the feet to it hangs the cursor
                 // below the sprite.
@@ -830,12 +850,9 @@ impl Engine {
             self.velocity = Point::default();
         } else if self.state == State::Dragged {
             let thrown = thrown_velocity(snapshot);
-            cue = Some(if thrown.is_some() {
-                Cue::Throw
-            } else {
-                Cue::Drop
-            });
+            thrown_now = thrown.is_some();
             self.velocity = thrown.unwrap_or_default();
+            self.release_cue = Some(if thrown_now { Cue::Throw } else { Cue::Drop });
         }
 
         // The cursor already arrives every tick for hit-testing, so noticing
@@ -1026,6 +1043,34 @@ impl Engine {
         let rested = self.idle_ms >= SLEEP_AFTER_MS && self.velocity.x == 0.0;
         self.state = transition::on_contact(state, contact, rested);
 
+        // The release's cue sounds on arrival: floor, Perch, or wall, once.
+        // Every landing reports where it touched for the cue ripple.
+        let mut ripple = None;
+        match contact {
+            Some(transition::Contact::Landed(_)) if state == State::Falling => {
+                cue = cue.or(self.release_cue.take());
+                ripple = Some(RippleContact {
+                    point: self.position,
+                    normal: Point { x: 0.0, y: -1.0 },
+                });
+            }
+            Some(transition::Contact::Wall { side, x }) if state == State::Falling => {
+                cue = cue.or(self.release_cue.take());
+                if let Some(display) = snapshot.displays.iter().find(|d| {
+                    d.spans_x(x) && self.position.y >= d.y && self.position.y <= d.y + d.height
+                }) {
+                    ripple = Some(RippleContact {
+                        point: Point {
+                            x,
+                            y: display.y + display.height / 2.0,
+                        },
+                        normal: Point { x: -side, y: 0.0 },
+                    });
+                }
+            }
+            _ => {}
+        }
+
         if self.velocity.x != 0.0 {
             self.facing = self.velocity.x.signum();
         }
@@ -1139,7 +1184,8 @@ impl Engine {
         // and only here. A Poke counts once settled: on its own tick it may be
         // the first half of a Summon. Dwell sets the same bit above.
         addressed |= snapshot.poke_settled
-            || matches!(cue, Some(Cue::Pickup | Cue::Throw))
+            || thrown_now
+            || matches!(cue, Some(Cue::Pickup))
             || snapshot
                 .verbs
                 .iter()
@@ -1235,6 +1281,7 @@ impl Engine {
             facing: self.facing,
             addressed,
             cue,
+            contact: ripple,
             refused,
         }
     }
@@ -1256,14 +1303,20 @@ impl Engine {
                 self.velocity.y += GRAVITY * dt;
                 self.position.x += self.velocity.x * dt;
 
-                if let Some(wall) = wall_reached(self.position.x, self.velocity.x, snapshot)
-                    .or_else(|| dock_side_reached(self.position, self.velocity.x, snapshot))
-                {
-                    // Arriving at a screen edge sideways is a catch, not a stop. It also keeps the sprite inside the displays.
-                    // The Dock's side catches the same way: a low throw or a drop under the Dock climbs out instead of resting behind it.
+                let wall_from_screen = wall_reached(self.position.x, self.velocity.x, snapshot);
+                let wall_from_dock = dock_side_reached(self.position, self.velocity.x, snapshot);
+                debug_assert!(
+                    wall_from_screen.is_none() || wall_from_dock.is_none(),
+                    "at most one wall check fires: screen at {:?}, dock at {:?}",
+                    wall_from_screen,
+                    wall_from_dock
+                );
+
+                if let Some(wall) = wall_from_screen.or(wall_from_dock) {
+                    let side = self.velocity.x.signum();
                     self.position.x = wall;
                     self.velocity = Point::default();
-                    Some(Contact::Wall)
+                    Some(Contact::Wall { side, x: wall })
                 } else {
                     let next_y = self.position.y + self.velocity.y * dt;
 
@@ -1347,10 +1400,11 @@ impl Engine {
                 // A walk on the floor beside the Dock stops clear of its side and climbs it.
                 // Placed there once rather than corrected back a step each tick, which a held walk would re-close into a stutter.
                 // The Engine does not clamp `dt`, so a step longer than the Dock is wide would cross it unseen; the snapshot assembler caps `elapsed_ms` at one poll interval, which is what keeps a step small.
-                if let Some(side) = dock_side_reached(self.position, self.velocity.x, snapshot) {
-                    self.position.x = side;
+                if let Some(x) = dock_side_reached(self.position, self.velocity.x, snapshot) {
+                    let side = self.velocity.x.signum();
+                    self.position.x = x;
                     self.velocity = Point::default();
-                    return Some(Contact::Wall);
+                    return Some(Contact::Wall { side, x });
                 }
 
                 let fresh = snapshot.poll_generation == 0
@@ -2979,43 +3033,882 @@ mod tests {
         );
     }
 
-    /// There is no drop verb and a sixth is not allowed, so both cues key
-    /// on leaving `Dragged` — which is also what tells them apart, a throw
-    /// being the only one of the two that carries a velocity.
-    #[test]
-    fn letting_go_cues_a_drop_and_letting_go_moving_cues_a_throw() {
-        for (release, cue) in [
-            (Vec::new(), Cue::Drop),
-            (
-                vec![Verb::Throw {
-                    velocity: Point {
-                        x: 400.0,
-                        y: -200.0,
-                    },
-                }],
-                Cue::Throw,
-            ),
-        ] {
-            let mut engine = Engine::new(Point { x: 100.0, y: 0.0 });
-            settle(&mut engine, &snapshot(100));
-            carry(&mut engine, Point { x: 200.0, y: 200.0 }, &snapshot(100));
+    /// Release from `at` with `verbs`, then tick until the sprite rests.
+    /// Returns every cue in order, each with the State its tick ended in.
+    fn released_from(
+        mut engine: Engine,
+        at: Point,
+        verbs: Vec<Verb>,
+        world: &WorldSnapshot,
+    ) -> (Frame, Vec<(Cue, State)>) {
+        carry(&mut engine, at, world);
+        let released = engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs,
+            ..world.clone()
+        });
+        let mut cues: Vec<(Cue, State)> = released
+            .cue
+            .map(|c| (c, released.state))
+            .into_iter()
+            .collect();
+        for _ in 0..60 {
+            let frame = engine.tick(world);
+            cues.extend(frame.cue.map(|c| (c, frame.state)));
+        }
+        (released, cues)
+    }
 
-            let released = engine.tick(&WorldSnapshot {
-                cursor: Point { x: 200.0, y: 200.0 },
-                verbs: release.clone(),
-                ..snapshot(100)
-            });
+    fn wall_ripples(frames: &[Frame]) -> Vec<RippleContact> {
+        frames
+            .iter()
+            .filter_map(|f| f.contact)
+            .filter(|c| c.normal.y == 0.0)
+            .collect()
+    }
+
+    fn a_throw() -> Vec<Verb> {
+        vec![Verb::Throw {
+            velocity: Point {
+                x: 100.0,
+                y: -200.0,
+            },
+        }]
+    }
+
+    /// There is no drop verb, so letting go is the edge out of `Dragged`;
+    /// but the cue is the arrival. It sounds once, on the tick the sprite
+    /// lands, and a throw is the harder of the two.
+    #[test]
+    fn a_release_cues_on_landing_on_the_floor_not_on_letting_go() {
+        for (release, cue) in [(Vec::new(), Cue::Drop), (a_throw(), Cue::Throw)] {
+            let mut engine = Engine::new(Point { x: 300.0, y: 0.0 });
+            settle(&mut engine, &snapshot(100));
+            let (released, cues) = released_from(
+                engine,
+                Point { x: 300.0, y: 200.0 },
+                release.clone(),
+                &snapshot(100),
+            );
             assert_eq!(released.state, State::Falling);
-            assert_eq!(released.cue, Some(cue), "released with {release:?}");
+            assert_eq!(released.cue, None, "nothing on letting go with {release:?}");
             assert_eq!(
                 released.addressed,
                 cue == Cue::Throw,
                 "only a Throw addresses"
             );
-
-            let falling = engine.tick(&snapshot(100));
-            assert_eq!(falling.cue, None, "and once, after {release:?}");
+            assert_eq!(
+                cues,
+                vec![(cue, State::Grounded)],
+                "once, on landing, with {release:?}"
+            );
         }
+    }
+
+    #[test]
+    fn a_drop_onto_a_perch_cues_on_landing_there() {
+        let mut engine = a_character_at(Point { x: 500.0, y: 0.0 });
+        settle(&mut engine, &a_long_perch());
+        let (_, cues) = released_from(
+            engine,
+            Point { x: 500.0, y: 200.0 },
+            Vec::new(),
+            &a_long_perch(),
+        );
+        assert_eq!(cues, vec![(Cue::Drop, State::Perched)]);
+    }
+
+    /// A floor and a Perch both face up, so the ripple lies under the feet.
+    #[test]
+    fn a_landing_on_the_floor_or_a_perch_touches_under_the_feet_facing_up() {
+        for (world, feet, landed) in [
+            (snapshot(100), Point { x: 300.0, y: 800.0 }, State::Grounded),
+            (a_long_perch(), Point { x: 500.0, y: 400.0 }, State::Perched),
+        ] {
+            let mut engine = Engine::new(Point { x: feet.x, y: 0.0 });
+            settle(&mut engine, &world);
+            let at = Point {
+                x: feet.x,
+                y: 200.0,
+            };
+            carry(&mut engine, at, &world);
+            let mut frames = vec![engine.tick(&WorldSnapshot {
+                cursor: at,
+                ..world.clone()
+            })];
+            frames.extend((0..60).map(|_| engine.tick(&world)));
+            let touched: Vec<_> = frames
+                .iter()
+                .filter_map(|f| f.contact.map(|c| (c, f.state)))
+                .collect();
+            assert_eq!(
+                touched,
+                vec![(
+                    RippleContact {
+                        point: feet,
+                        normal: Point { x: 0.0, y: -1.0 },
+                    },
+                    landed
+                )],
+                "once, on landing"
+            );
+        }
+    }
+
+    /// Let go with the feet already at the floor: the landing is at once,
+    /// and still one cue.
+    #[test]
+    fn a_drop_that_lands_at_once_cues_once() {
+        let mut engine = Engine::new(Point { x: 300.0, y: 0.0 });
+        let floor = settle(&mut engine, &snapshot(100)).position;
+        let (_, cues) = released_from(engine, floor, Vec::new(), &snapshot(100));
+        assert_eq!(cues, vec![(Cue::Drop, State::Grounded)]);
+    }
+
+    /// A straight-up toss (no horizontal velocity) still lands as Throw, not
+    /// Drop. The cue kind is set at release, not derived from impact velocity.
+    #[test]
+    fn a_straight_up_toss_lands_as_throw() {
+        let mut engine = Engine::new(Point { x: 300.0, y: 0.0 });
+        settle(&mut engine, &snapshot(100));
+        let (_, cues) = released_from(
+            engine,
+            Point { x: 300.0, y: 200.0 },
+            vec![Verb::Throw {
+                velocity: Point { x: 0.0, y: -200.0 },
+            }],
+            &snapshot(100),
+        );
+        assert_eq!(cues, vec![(Cue::Throw, State::Grounded)]);
+    }
+
+    /// A fall with no prior release, such as the startup fall or any fall
+    /// before the first grab, plays Drop on landing (owner override).
+    #[test]
+    fn a_startup_fall_plays_drop_on_landing() {
+        let mut engine = Engine::new(Point { x: 300.0, y: 200.0 });
+        let frames = (0..200)
+            .map(|_| engine.tick(&snapshot(100)))
+            .collect::<Vec<_>>();
+        assert!(
+            frames.iter().any(|f| f.state == State::Grounded),
+            "it landed"
+        );
+        let cues: Vec<Cue> = frames.iter().filter_map(|f| f.cue).collect();
+        assert_eq!(cues, vec![Cue::Drop], "startup fall plays Drop");
+    }
+
+    /// Wall ripple on left wall for negative-origin display positions correctly.
+    #[test]
+    fn wall_ripple_on_negative_origin_display_left_wall() {
+        let display = Rect {
+            x: -1000.0,
+            y: 100.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut engine = Engine::new(Point {
+            x: -900.0,
+            y: 200.0,
+        });
+        let world = WorldSnapshot {
+            displays: vec![display],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+        let at = Point {
+            x: -900.0,
+            y: 600.0,
+        };
+        carry(&mut engine, at, &world);
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: -3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&world)));
+        assert_eq!(
+            wall_ripples(&frames),
+            vec![RippleContact {
+                point: Point {
+                    x: display.x,
+                    y: display.y + display.height / 2.0,
+                },
+                normal: Point { x: 1.0, y: 0.0 },
+            }],
+            "one ripple at the left edge of a negative-origin display, centred, facing right"
+        );
+    }
+
+    /// Wall ripple on right wall for negative-origin display positions correctly.
+    #[test]
+    fn wall_ripple_on_negative_origin_display_right_wall() {
+        let display = Rect {
+            x: -1000.0,
+            y: 100.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut engine = Engine::new(Point {
+            x: -100.0,
+            y: 200.0,
+        });
+        let world = WorldSnapshot {
+            displays: vec![display],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+        let at = Point {
+            x: -100.0,
+            y: 600.0,
+        };
+        carry(&mut engine, at, &world);
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: 3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&world)));
+        assert_eq!(
+            wall_ripples(&frames),
+            vec![RippleContact {
+                point: Point {
+                    x: display.x + display.width,
+                    y: display.y + display.height / 2.0,
+                },
+                normal: Point { x: -1.0, y: 0.0 },
+            }],
+            "one ripple at the right edge of a negative-origin display, centred, facing left"
+        );
+    }
+
+    /// Wall ripple centers in the work area, not the full display. Work area excludes
+    /// menu bar, Dock, and taskbar. This test has a menu bar at top (y=30 instead of y=0),
+    /// so full-display center would be (0 + 800) / 2 = 400, but work-area center is
+    /// (30 + 770) / 2 = 415. This test fails if centering uses full display.
+    #[test]
+    fn wall_ripple_centers_in_work_area_not_full_display() {
+        let work_area = Rect {
+            x: 0.0,
+            y: 30.0,
+            width: 1000.0,
+            height: 770.0,
+        };
+        let mut engine = Engine::new(Point { x: 100.0, y: 200.0 });
+        let world = WorldSnapshot {
+            displays: vec![work_area],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+        let at = Point { x: 100.0, y: 600.0 };
+        carry(&mut engine, at, &world);
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: -3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&world)));
+        assert_eq!(
+            wall_ripples(&frames),
+            vec![RippleContact {
+                point: Point { x: 0.0, y: 415.0 },
+                normal: Point { x: 1.0, y: 0.0 },
+            }],
+            "ripple centered in work area (y=30+770/2=415), not full display (y=0+800/2=400)"
+        );
+    }
+
+    /// A catch on the Dock's side positions the ripple at the Dock's side, not
+    /// the display edge, and centers it vertically in the visible area beside the Dock,
+    /// which is the work area (display) center since the Dock doesn't occlude horizontally.
+    #[test]
+    fn dock_side_catch_positions_ripple_at_dock_not_display_edge() {
+        let mut engine = Engine::new(Point { x: 700.0, y: 0.0 });
+
+        let work_area_with_menu_bar = Rect {
+            x: 0.0,
+            y: 30.0,
+            width: 1000.0,
+            height: 770.0,
+        };
+        let world = WorldSnapshot {
+            displays: vec![work_area_with_menu_bar],
+            windows: vec![window(DOCK_PERCH_ID, dock())],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+
+        settle(&mut engine, &world);
+        let at = Point { x: 700.0, y: 760.0 };
+        carry(&mut engine, at, &world);
+        let frame = engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: -400.0, y: 0.0 },
+            }],
+            ..world.clone()
+        });
+
+        let dock = dock();
+        assert_eq!(
+            frame.contact,
+            Some(RippleContact {
+                point: Point {
+                    x: dock.x + dock.width + EDGE_CLEARANCE,
+                    y: 415.0,
+                },
+                normal: Point { x: 1.0, y: 0.0 },
+            }),
+            "ripple at the Dock's right side, not the display edge, centred in the work area: (30 + 770) / 2 = 415, not 400"
+        );
+    }
+
+    /// A sprite positioned at dock.x ± EDGE_CLEARANCE in mid-air (falling without
+    /// wall contact) reports no Dock-side ripple position. Only actual wall contacts
+    /// trigger Dock ripple positioning.
+    #[test]
+    fn sprite_at_dock_side_without_contact_reports_no_dock_ripple() {
+        let mut engine = Engine::new(Point { x: 700.0, y: 0.0 });
+        let world = WorldSnapshot {
+            displays: vec![one_display()],
+            windows: vec![window(DOCK_PERCH_ID, dock())],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+
+        settle(&mut engine, &world);
+        let dock = dock();
+        let dock_right_side = dock.x + dock.width + EDGE_CLEARANCE;
+
+        carry(
+            &mut engine,
+            Point {
+                x: dock_right_side,
+                y: 200.0,
+            },
+            &world,
+        );
+
+        let mut frame = engine.tick(&WorldSnapshot {
+            cursor: Point {
+                x: dock_right_side,
+                y: 200.0,
+            },
+            verbs: vec![],
+            ..world.clone()
+        });
+
+        for _ in 0..200 {
+            if frame.state != State::Falling {
+                break;
+            }
+            if frame.contact.is_some() {
+                panic!(
+                    "No Dock ripple expected during fall at dock_right_side without wall contact, but got one at state {:?}",
+                    frame.state
+                );
+            }
+            frame = engine.tick(&world);
+        }
+
+        assert!(
+            [State::Grounded, State::Perched].contains(&frame.state),
+            "sprite eventually lands"
+        );
+    }
+
+    /// Dock left side catch also positions ripple at Dock side, not display edge.
+    #[test]
+    fn dock_left_side_catch_positions_ripple_at_dock() {
+        let mut engine = Engine::new(Point { x: 300.0, y: 0.0 });
+
+        let world = WorldSnapshot {
+            displays: vec![one_display()],
+            windows: vec![window(DOCK_PERCH_ID, dock())],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+
+        settle(&mut engine, &world);
+        let at = Point { x: 300.0, y: 760.0 };
+        carry(&mut engine, at, &world);
+        let frame = engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: 400.0, y: 0.0 },
+            }],
+            ..world.clone()
+        });
+
+        let dock = dock();
+        assert_eq!(
+            frame.contact,
+            Some(RippleContact {
+                point: Point {
+                    x: dock.x - EDGE_CLEARANCE,
+                    y: 400.0,
+                },
+                normal: Point { x: -1.0, y: 0.0 },
+            }),
+            "ripple at the Dock's left side, not the display edge, facing left"
+        );
+    }
+
+    /// A throw into the right side of the Dock reports the ripple at the
+    /// Dock's right side (dock.x + dock.width + EDGE_CLEARANCE).
+    #[test]
+    fn dock_right_side_catch_positions_ripple_at_contact_x() {
+        let mut engine = Engine::new(Point { x: 700.0, y: 0.0 });
+
+        let world = WorldSnapshot {
+            displays: vec![one_display()],
+            windows: vec![window(DOCK_PERCH_ID, dock())],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+
+        settle(&mut engine, &world);
+        let at = Point { x: 700.0, y: 760.0 };
+        carry(&mut engine, at, &world);
+        let frame = engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: -400.0, y: 0.0 },
+            }],
+            ..world.clone()
+        });
+
+        let dock = dock();
+        assert_eq!(
+            frame.contact,
+            Some(RippleContact {
+                point: Point {
+                    x: dock.x + dock.width + EDGE_CLEARANCE,
+                    y: 400.0,
+                },
+                normal: Point { x: 1.0, y: 0.0 },
+            }),
+            "ripple at the Dock's right side contact x, facing right"
+        );
+    }
+
+    /// A throw into a display edge reports the ripple at the actual contact x
+    /// (display.x or display.x + display.width).
+    #[test]
+    fn display_edge_ripple_at_contact_x() {
+        let display = Rect {
+            x: 100.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut engine = Engine::new(Point { x: 500.0, y: 0.0 });
+        let world = WorldSnapshot {
+            displays: vec![display],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+
+        let at = Point { x: 200.0, y: 600.0 };
+        carry(&mut engine, at, &world);
+        let frame = engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: -3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        });
+
+        assert_eq!(
+            frame.contact,
+            Some(RippleContact {
+                point: Point {
+                    x: display.x,
+                    y: 400.0,
+                },
+                normal: Point { x: 1.0, y: 0.0 },
+            }),
+            "ripple at display left edge contact x"
+        );
+    }
+
+    /// A throw into the left screen edge puts the ripple on the wall edge,
+    /// facing right. The renderer applies the visual inset.
+    #[test]
+    fn a_throw_into_the_left_wall_positions_ripple_inside_bounds() {
+        let display = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut engine = Engine::new(Point { x: 100.0, y: 0.0 });
+        let world = WorldSnapshot {
+            displays: vec![display],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+        let at = Point { x: 100.0, y: 600.0 };
+        carry(&mut engine, at, &world);
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: -3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&world)));
+        assert_eq!(
+            wall_ripples(&frames),
+            vec![RippleContact {
+                point: Point { x: 0.0, y: 400.0 },
+                normal: Point { x: 1.0, y: 0.0 },
+            }],
+            "one ripple at display.x, centred in the display, facing right"
+        );
+    }
+
+    /// A throw into the right screen edge puts the ripple on the wall edge,
+    /// facing left. The renderer applies the visual inset.
+    #[test]
+    fn a_throw_into_the_right_wall_positions_ripple_inside_bounds() {
+        let display = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut engine = Engine::new(Point { x: 900.0, y: 0.0 });
+        let world = WorldSnapshot {
+            displays: vec![display],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+        let at = Point { x: 900.0, y: 600.0 };
+        carry(&mut engine, at, &world);
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: 3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&world)));
+        assert_eq!(
+            wall_ripples(&frames),
+            vec![RippleContact {
+                point: Point {
+                    x: 1000.0,
+                    y: 400.0
+                },
+                normal: Point { x: -1.0, y: 0.0 },
+            }],
+            "one ripple at display.x + width, centred in the display, facing left"
+        );
+    }
+
+    /// A throw into a wall on a display with non-zero origin positions the
+    /// ripple within that display's bounds when hitting the leftmost edge.
+    #[test]
+    fn a_wall_ripple_respects_display_origin_in_multi_display_layout() {
+        let displays = vec![
+            Rect {
+                x: 500.0,
+                y: 0.0,
+                width: 1000.0,
+                height: 800.0,
+            },
+            Rect {
+                x: 1500.0,
+                y: 300.0,
+                width: 1000.0,
+                height: 500.0,
+            },
+        ];
+        let mut engine = Engine::new(Point { x: 600.0, y: 400.0 });
+        let world = WorldSnapshot {
+            displays: displays.clone(),
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+        let at = Point { x: 600.0, y: 600.0 };
+        carry(&mut engine, at, &world);
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: -3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&world)));
+        assert_eq!(
+            wall_ripples(&frames),
+            vec![RippleContact {
+                point: Point { x: 500.0, y: 400.0 },
+                normal: Point { x: 1.0, y: 0.0 },
+            }],
+            "one ripple on the first display's left edge, centred in that display"
+        );
+    }
+
+    /// With two vertically overlapping displays at the same x, the wall ripple
+    /// centers in the first display that contains the contact y, not the last.
+    /// Reversing the display search (.iter().rev()) would fail this.
+    #[test]
+    fn wall_ripple_uses_first_matching_display_not_last() {
+        let displays = vec![
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 800.0,
+                height: 400.0,
+            },
+            Rect {
+                x: 0.0,
+                y: 200.0,
+                width: 800.0,
+                height: 400.0,
+            },
+        ];
+        let mut engine = Engine::new(Point { x: 400.0, y: 250.0 });
+        let world = WorldSnapshot {
+            displays: displays.clone(),
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+        let at = Point { x: 400.0, y: 250.0 };
+        carry(&mut engine, at, &world);
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: 3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&world)));
+        assert_eq!(
+            wall_ripples(&frames),
+            vec![RippleContact {
+                point: Point { x: 800.0, y: 200.0 },
+                normal: Point { x: -1.0, y: 0.0 },
+            }],
+            "ripple centered in first display (y=0+400/2=200), not second (y=200+400/2=400)"
+        );
+    }
+
+    /// A wall hit on the second display centers the ripple in that display,
+    /// not in the first display. Matching any display (.first() or [0])
+    /// instead of searching would fail this.
+    #[test]
+    fn wall_ripple_centers_on_the_actual_display_not_any_display() {
+        let displays = vec![
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 800.0,
+                height: 400.0,
+            },
+            Rect {
+                x: 0.0,
+                y: 400.0,
+                width: 800.0,
+                height: 400.0,
+            },
+        ];
+        let mut engine = Engine::new(Point { x: 400.0, y: 500.0 });
+        let world = WorldSnapshot {
+            displays: displays.clone(),
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &world);
+        let at = Point { x: 400.0, y: 500.0 };
+        carry(&mut engine, at, &world);
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: 3000.0, y: 0.0 },
+            }],
+            ..world.clone()
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&world)));
+        assert_eq!(
+            wall_ripples(&frames),
+            vec![RippleContact {
+                point: Point { x: 800.0, y: 600.0 },
+                normal: Point { x: -1.0, y: 0.0 },
+            }],
+            "ripple centered in second display (y=400+400/2=600), not first (y=0+400/2=200)"
+        );
+    }
+
+    /// A grab clears release_cue (tested directly via pub(crate) access).
+    #[test]
+    fn a_grab_clears_release_cue() {
+        let mut engine = Engine::new(Point { x: 300.0, y: 0.0 });
+        settle(&mut engine, &snapshot(100));
+        let at = Point { x: 300.0, y: 200.0 };
+        carry(&mut engine, at, &snapshot(100));
+        // Release sets release_cue
+        engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![],
+            ..snapshot(100)
+        });
+        assert_eq!(
+            engine.release_cue,
+            Some(Cue::Drop),
+            "release sets release_cue"
+        );
+        // Grab clears it
+        engine.tick(&WorldSnapshot {
+            cursor: engine.feet(),
+            verbs: vec![Verb::Grab],
+            ..snapshot(100)
+        });
+        assert_eq!(engine.release_cue, None, "grab clears release_cue");
+    }
+
+    /// A second fall after landing (with no new release) plays no cue.
+    #[test]
+    fn a_second_fall_after_landing_plays_no_cue() {
+        let mut engine = Engine::new(Point { x: 300.0, y: 0.0 });
+        let perch_world = WorldSnapshot {
+            displays: vec![one_display()],
+            windows: vec![window(
+                1,
+                Rect {
+                    x: 200.0,
+                    y: 400.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+            )],
+            elapsed_ms: 100,
+            ..WorldSnapshot::default()
+        };
+        settle(&mut engine, &perch_world);
+        let at = Point { x: 300.0, y: 200.0 };
+        carry(&mut engine, at, &perch_world);
+        let mut first_fall = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![],
+            ..perch_world.clone()
+        })];
+        first_fall.extend((0..200).map(|_| engine.tick(&perch_world)));
+        let first_cues: Vec<Cue> = first_fall.iter().filter_map(|f| f.cue).collect();
+        assert_eq!(first_cues.len(), 1, "first fall plays one cue");
+        let no_perch_world = snapshot(100);
+        let mut second_fall = vec![engine.tick(&no_perch_world)];
+        second_fall.extend((0..200).map(|_| engine.tick(&no_perch_world)));
+        assert!(
+            second_fall.iter().any(|f| f.state == State::Grounded),
+            "second fall landed"
+        );
+        let second_cues: Vec<Cue> = second_fall.iter().filter_map(|f| f.cue).collect();
+        assert_eq!(second_cues, Vec::<Cue>::new(), "second fall plays no cue");
+    }
+
+    /// A throw into a screen edge plays the cue once on wall arrival. The
+    /// climb that follows and the landing after it do not replay the cue.
+    #[test]
+    fn a_throw_into_a_wall_plays_its_cue_once_on_arrival() {
+        let mut engine = Engine::new(Point { x: 900.0, y: 0.0 });
+        settle(&mut engine, &snapshot(100));
+        let at = Point { x: 900.0, y: 600.0 };
+        carry(&mut engine, at, &snapshot(100));
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: 3000.0, y: 0.0 },
+            }],
+            ..snapshot(100)
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&snapshot(100))));
+        assert!(
+            frames.iter().any(|frame| frame.state == State::Climbing),
+            "it reached the wall"
+        );
+        let cues: Vec<Cue> = frames.iter().filter_map(|frame| frame.cue).collect();
+        assert_eq!(cues, vec![Cue::Throw], "plays once on wall arrival");
+        assert_eq!(
+            frames.last().unwrap().state,
+            State::Grounded,
+            "and came down"
+        );
+    }
+
+    /// A throw into the left screen edge plays the cue once on wall arrival,
+    /// same as the right wall above.
+    #[test]
+    fn a_throw_into_the_left_wall_plays_its_cue_once_on_arrival() {
+        let mut engine = Engine::new(Point { x: 100.0, y: 0.0 });
+        settle(&mut engine, &snapshot(100));
+        let at = Point { x: 100.0, y: 600.0 };
+        carry(&mut engine, at, &snapshot(100));
+        let mut frames = vec![engine.tick(&WorldSnapshot {
+            cursor: at,
+            verbs: vec![Verb::Throw {
+                velocity: Point { x: -3000.0, y: 0.0 },
+            }],
+            ..snapshot(100)
+        })];
+        frames.extend((0..400).map(|_| engine.tick(&snapshot(100))));
+        assert!(
+            frames.iter().any(|frame| frame.state == State::Climbing),
+            "it reached the wall"
+        );
+        let cues: Vec<Cue> = frames.iter().filter_map(|frame| frame.cue).collect();
+        assert_eq!(cues, vec![Cue::Throw], "plays once on wall arrival");
+    }
+
+    /// Caught again mid-fall, the first release never landed, so it never
+    /// cues; only the pickup does, and the last release's landing.
+    #[test]
+    fn a_release_caught_again_mid_air_never_cues_its_drop() {
+        let mut engine = Engine::new(Point { x: 300.0, y: 0.0 });
+        settle(&mut engine, &snapshot(100));
+        let high = Point { x: 300.0, y: 100.0 };
+        carry(&mut engine, high, &snapshot(100));
+        let let_go = engine.tick(&WorldSnapshot {
+            cursor: high,
+            ..snapshot(100)
+        });
+        assert_eq!(let_go.state, State::Falling);
+        let caught = engine.tick(&WorldSnapshot {
+            cursor: engine.feet(),
+            verbs: vec![Verb::Grab],
+            ..snapshot(100)
+        });
+        assert_eq!(caught.cue, Some(Cue::Pickup));
+        let held: Vec<Option<Cue>> = (0..60)
+            .map(|_| {
+                engine
+                    .tick(&WorldSnapshot {
+                        cursor: high,
+                        verbs: vec![Verb::Grab],
+                        ..snapshot(100)
+                    })
+                    .cue
+            })
+            .collect();
+        assert!(held.iter().all(Option::is_none), "held: {held:?}");
+        let (_, cues) = released_from(engine, high, a_throw(), &snapshot(100));
+        assert_eq!(cues, vec![(Cue::Throw, State::Grounded)]);
     }
 
     /// The tray menu opening is its response, and a reaction under a context
