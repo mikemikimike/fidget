@@ -49,15 +49,37 @@ const chrome = chromeBin();
 
 // One Chrome launch per test: `body` runs once per design on the same page and
 // returns that design's readings. A launch costs seconds, the loop costs nothing.
-function probe(body, forceDark) {
+function probe(body, forceDark, emulateColorScheme) {
   const dir = mkdtempSync(join(tmpdir(), "chat-appearance-paint-"));
   const page = join(dir, "harness.html");
   const appearance = pathToFileURL(join(SRC, "chat-appearance.js")).href;
+  const matchMediaOverride = emulateColorScheme
+    ? `<script>
+      (() => {
+        const original = window.matchMedia;
+        window.matchMedia = (query) => {
+          const result = original.call(window, query);
+          if (query === "(prefers-color-scheme: dark)") {
+            return Object.assign(Object.create(Object.getPrototypeOf(result)), result, {
+              matches: ${emulateColorScheme === "dark"}
+            });
+          }
+          if (query === "(prefers-color-scheme: light)") {
+            return Object.assign(Object.create(Object.getPrototypeOf(result)), result, {
+              matches: ${emulateColorScheme === "light"}
+            });
+          }
+          return result;
+        };
+      })();
+    </script>`
+    : "";
   const html = `<!doctype html>
 <html>
   <head>
     <base href="${pathToFileURL(SRC).href}">
     <link rel="stylesheet" href="chat-ui.css">
+    ${matchMediaOverride}
   </head>
   <body>
     <script type="module">
@@ -176,30 +198,64 @@ test("changing data-chat-palette from dark to light repaints the panel", browser
   }
 });
 
-test("dark forces the dark panel when the browser is not in force-dark-mode", browser, () => {
+test("system follows emulated light preference and dark forces dark panel", browser, () => {
   const reports = probe(
     `
     const apply = mountChatAppearance(html);
     apply("system");
     const systemPalette = html.dataset.chatPalette;
     const systemPanel = panel();
+    const systemScheme = getComputedStyle(html).colorScheme;
     apply("dark");
     const darkPanel = panel();
     const darkScheme = getComputedStyle(html).colorScheme;
     apply("light");
-    return read({ systemPalette, systemPanel, darkPanel, darkScheme });
+    return read({ systemPalette, systemPanel, systemScheme, darkPanel, darkScheme });
   `,
     false,
+    "light",
   );
   for (const design of DESIGNS) {
-    const dark = declaredToken(`.chat-ui-${design}`, "--chat-panel");
-    const light = declaredToken(`[data-chat-palette="light"].chat-ui-${design}`, "--chat-panel");
+    const darkPanel = declaredToken(`.chat-ui-${design}`, "--chat-panel");
+    const lightPanel = declaredToken(`[data-chat-palette="light"].chat-ui-${design}`, "--chat-panel");
     const report = reports[design];
-    assert.equal(report.systemPalette, "light", `${design} system`);
-    assert.equal(flat(report.systemPanel), light, `${design} system panel`);
-    assert.equal(flat(report.darkPanel), dark, `${design} dark panel`);
+    assert.equal(report.systemPalette, "light", `${design} system palette`);
+    assert.equal(flat(report.systemPanel), lightPanel, `${design} system panel`);
+    assert.equal(report.systemScheme, "light", `${design} system scheme`);
+    assert.equal(flat(report.darkPanel), darkPanel, `${design} dark panel`);
     assert.equal(report.darkScheme, "dark", `${design} dark scheme`);
-    assert.equal(flat(report.panel), light, `${design} light panel`);
+    assert.equal(flat(report.panel), lightPanel, `${design} light panel`);
+    assert.equal(report.colorScheme, "light", `${design} light scheme`);
+  }
+});
+
+test("system follows emulated dark preference and dark forces dark panel", browser, () => {
+  const reports = probe(
+    `
+    const apply = mountChatAppearance(html);
+    apply("system");
+    const systemPalette = html.dataset.chatPalette;
+    const systemPanel = panel();
+    const systemScheme = getComputedStyle(html).colorScheme;
+    apply("dark");
+    const darkPanel = panel();
+    const darkScheme = getComputedStyle(html).colorScheme;
+    apply("light");
+    return read({ systemPalette, systemPanel, systemScheme, darkPanel, darkScheme });
+  `,
+    false,
+    "dark",
+  );
+  for (const design of DESIGNS) {
+    const darkPanel = declaredToken(`.chat-ui-${design}`, "--chat-panel");
+    const lightPanel = declaredToken(`[data-chat-palette="light"].chat-ui-${design}`, "--chat-panel");
+    const report = reports[design];
+    assert.equal(report.systemPalette, "dark", `${design} system palette`);
+    assert.equal(flat(report.systemPanel), darkPanel, `${design} system panel`);
+    assert.equal(report.systemScheme, "dark", `${design} system scheme`);
+    assert.equal(flat(report.darkPanel), darkPanel, `${design} dark panel`);
+    assert.equal(report.darkScheme, "dark", `${design} dark scheme`);
+    assert.equal(flat(report.panel), lightPanel, `${design} light panel`);
     assert.equal(report.colorScheme, "light", `${design} light scheme`);
   }
 });
