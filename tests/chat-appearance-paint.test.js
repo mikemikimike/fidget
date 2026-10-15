@@ -59,15 +59,16 @@ function probe(body, forceDark, emulateColorScheme) {
         const original = window.matchMedia;
         window.matchMedia = (query) => {
           const result = original.call(window, query);
-          if (query === "(prefers-color-scheme: dark)") {
-            return Object.assign(Object.create(Object.getPrototypeOf(result)), result, {
-              matches: ${emulateColorScheme === "dark"}
-            });
-          }
-          if (query === "(prefers-color-scheme: light)") {
-            return Object.assign(Object.create(Object.getPrototypeOf(result)), result, {
-              matches: ${emulateColorScheme === "light"}
-            });
+          if (query === "(prefers-color-scheme: dark)" || query === "(prefers-color-scheme: light)") {
+            const matchesOverride = query === "(prefers-color-scheme: ${emulateColorScheme})";
+            return {
+              matches: matchesOverride,
+              media: result.media,
+              addEventListener: result.addEventListener.bind(result),
+              removeEventListener: result.removeEventListener.bind(result),
+              addListener: result.addListener ? result.addListener.bind(result) : undefined,
+              removeListener: result.removeListener ? result.removeListener.bind(result) : undefined,
+            };
           }
           return result;
         };
