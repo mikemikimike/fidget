@@ -32,10 +32,6 @@ wait_for_file() { # <seconds> <file path>
   local timeout=$1 file=$2
   [ -n "${pid:-}" ] && kill -0 "$pid" 2> /dev/null || return 1
   [ -f "$file" ] && return 0
-  local dir
-  dir=$(dirname "$file")
-  local name
-  name=$(basename "$file")
   timeout "$timeout" sh -c "while ! [ -f '$file' ]; do sleep 0.1; done" 2> /dev/null
 }
 
