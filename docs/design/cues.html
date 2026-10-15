@@ -349,8 +349,8 @@
   }
   .dwell span { display: block; height: 100%; width: 0; background: #5cc9b5; }
   .qm-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-  #qm-release { opacity: 0.5; pointer-events: none; }
-  #qm-release.active { opacity: 1; pointer-events: auto; }
+  #qm-release { opacity: 0; visibility: hidden; pointer-events: none; }
+  #qm-release.active { opacity: 1; visibility: visible; pointer-events: auto; }
   @media (prefers-reduced-motion: reduce) {
     .quick-message, .quick-message.visible {
       transition-duration: 1ms !important;
