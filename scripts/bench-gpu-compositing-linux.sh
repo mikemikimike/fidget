@@ -57,6 +57,7 @@ out="${out:-$(mktemp -d /tmp/fidget-gpu-bench-XXXXXX)}"
 mkdir -p "$out"
 
 APP_PID=""
+TAIL_PID=""
 PANEL_PID=""
 COVER_PIDS=()
 SCRATCH_HOME=""
@@ -69,6 +70,14 @@ stop_covers() {
   COVER_PIDS=()
 }
 
+stop_tail() {
+  if [ -n "$TAIL_PID" ]; then
+    kill -TERM "$TAIL_PID" 2> /dev/null || true
+    wait "$TAIL_PID" 2> /dev/null || true
+  fi
+  TAIL_PID=""
+}
+
 cleanup() {
   if [ -n "$APP_PID" ]; then
     kill -TERM "$APP_PID" 2> /dev/null || true
@@ -79,8 +88,9 @@ cleanup() {
     kill -TERM "$PANEL_PID" 2> /dev/null || true
   fi
   stop_covers
+  stop_tail
   if [ -n "$SCRATCH_HOME" ]; then
-    rm -rf "$SCRATCH_HOME"
+    rm -rf "$SCRATCH_HOME" 2> /dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -93,8 +103,9 @@ stop_app() {
     wait "$APP_PID" 2> /dev/null || true
   fi
   APP_PID=""
+  stop_tail
   if [ -n "$SCRATCH_HOME" ]; then
-    rm -rf "$SCRATCH_HOME"
+    rm -rf "$SCRATCH_HOME" 2> /dev/null || true
   fi
   SCRATCH_HOME=""
 }
@@ -104,6 +115,20 @@ need_bin() {
     echo "no $bin — run: cargo build -p fidget --bin fidget" >&2
     exit 2
   }
+}
+
+# Other sessions on the host run their own X servers and compositors, so a
+# process counts only when it serves this DISPLAY.
+pid_on_display() {
+  local comm=$1 pid
+  for pid in $(pgrep -x "$comm" 2> /dev/null); do
+    if tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qx "DISPLAY=${DISPLAY:-}" ||
+      tr '\0' '\n' < "/proc/$pid/cmdline" 2> /dev/null | grep -qx "${DISPLAY:-}"; then
+      echo "$pid"
+      return 0
+    fi
+  done
+  return 1
 }
 
 probe_host() {
@@ -120,26 +145,30 @@ probe_host() {
   COMP_PID=""
   local comm
   for comm in mutter gnome-shell kwin_x11 kwin_wayland xfwm4 picom compton sway weston; do
-    if pgrep -x "$comm" > /dev/null 2>&1; then
+    if COMP_PID=$(pid_on_display "$comm"); then
       COMPOSITOR=$comm
-      COMP_PID=$(pgrep -xo "$comm")
       break
     fi
   done
 
   COMPOSITING=unknown
   VBLANK=unknown
-  if [ "$COMPOSITOR" = xfwm4 ] && command -v xfconf-query > /dev/null 2>&1; then
-    COMPOSITING=$(xfconf-query -c xfwm4 -p /general/use_compositing 2> /dev/null || echo unknown)
-    VBLANK=$(xfconf-query -c xfwm4 -p /general/vblank_mode 2> /dev/null || echo unknown)
-  fi
+  case "$COMPOSITOR" in
+    none) COMPOSITING=false ;;
+    mutter | gnome-shell | kwin_wayland | picom | compton | sway | weston) COMPOSITING=true ;;
+    xfwm4)
+      if command -v xfconf-query > /dev/null 2>&1; then
+        COMPOSITING=$(xfconf-query -c xfwm4 -p /general/use_compositing 2> /dev/null || echo unknown)
+        VBLANK=$(xfconf-query -c xfwm4 -p /general/vblank_mode 2> /dev/null || echo unknown)
+      fi
+      ;;
+  esac
 
   XSERVER=none
   X_PID=""
-  for comm in Xtigervnc Xorg Xwayland X; do
-    if pgrep -x "$comm" > /dev/null 2>&1; then
+  for comm in Xtigervnc Xvfb Xorg Xwayland X; do
+    if X_PID=$(pid_on_display "$comm"); then
       XSERVER=$comm
-      X_PID=$(pgrep -xo "$comm")
       break
     fi
   done
@@ -420,13 +449,21 @@ launch_app() {
   if [ -z "${XAUTHORITY:-}" ] && [ -f "${HOME}/.Xauthority" ]; then
     export XAUTHORITY="${HOME}/.Xauthority"
   fi
+  : > "$log"
   SCRATCH_HOME=$(mktemp -d)
-  FIDGET_TRACE_MASK_REBUILD=1 \
+  # process_log::init moves stderr into process.log, so the trace lines are
+  # followed from there into $log.
+  mkdir -p "$SCRATCH_HOME/data/fidget"
+  : > "$SCRATCH_HOME/data/fidget/process.log"
+  tail -n +1 -F "$SCRATCH_HOME/data/fidget/process.log" >> "$log" 2> /dev/null &
+  TAIL_PID=$!
+  XDG_DATA_HOME="$SCRATCH_HOME/data" \
+    FIDGET_TRACE_MASK_REBUILD=1 \
     FIDGET_TRACE_FRAMES=1 \
     FIDGET_INSTANCES="${FIDGET_INSTANCES:-BMO}" \
     FIDGET_CHARACTERS="${FIDGET_CHARACTERS:-$PWD/characters}" \
     HOME="$SCRATCH_HOME" \
-    "$bin" > "$log" 2>&1 &
+    "$bin" >> "$log" 2>&1 &
   APP_PID=$!
 }
 
@@ -652,7 +689,7 @@ run_multi() {
   fi
   run_with_overlay multi
   local reported
-  reported=$(sed -n 's/^overlay: \([0-9]*\) display.*/\1/p' "$out/multi.log" | head -1)
+  reported=$(sed -n 's/^\([0-9]* \)\{0,1\}overlay: \([0-9]*\) display.*/\2/p' "$out/multi.log" | head -1)
   sample_row multi "$out/multi.log" "$seconds" "xrandr screens=$SCREENS overlay displays=${reported:-unknown}"
   stop_app
 }
