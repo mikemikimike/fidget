@@ -123,7 +123,7 @@ async function launch() {
       cdp,
       sessionId,
       "__PROBE_RESULT__",
-      PROBE_MS,
+      PROBE_MS + 100,
       () => navigate(pathToFileURL(join(site, "cues.html")).href)
     );
     return result;

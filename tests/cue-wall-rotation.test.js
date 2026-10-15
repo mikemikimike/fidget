@@ -131,7 +131,7 @@ async function launch(sprite, css = "") {
       cdp,
       sessionId,
       "__PROBE_RESULT__",
-      PROBE_MS,
+      PROBE_MS + 100,
       () => navigate(pathToFileURL(page).href)
     );
     return result;

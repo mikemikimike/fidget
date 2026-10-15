@@ -204,7 +204,7 @@ export async function captureConsoleLog(cdp, sessionId, prefix, timeoutMs, start
       }
     });
 
-    startNavigation();
+    Promise.resolve(startNavigation()).catch(reject);
 
     readyTimer = setTimeout(() => {
       cleanup();
