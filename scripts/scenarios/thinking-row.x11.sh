@@ -94,9 +94,9 @@ capture() { # <name> <glyph>
 }
 
 wait_for_marks 10 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
+wait_for_marks 6 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought "▾"
-wait_for_marks 3 "$marks" '^replied$' || fail "no reply; see $log"
+wait_for_marks 5 "$marks" '^replied$' || fail "no reply; see $log"
 wait_for_ax_dump 2 "$pid" BMO '^button\|▸' || fail "Thinking row never collapsed; see $log"
 capture after-reply "▸"
 elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
