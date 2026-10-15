@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,10 +48,26 @@ function chromeBin() {
 
 const chrome = chromeBin();
 
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // One Chrome launch per test: `body` runs once per design on the same page and
 // returns that design's readings. A launch costs seconds, the loop costs nothing.
-function probe(body, forceDark, preferredColorScheme) {
+async function probe(body, forceDark, preferredColorScheme) {
   const dir = mkdtempSync(join(tmpdir(), "chat-appearance-paint-"));
+  const startMs = Date.now();
   try {
     const page = join(dir, "harness.html");
     const appearance = pathToFileURL(join(SRC, "chat-appearance.js")).href;
@@ -78,14 +95,12 @@ function probe(body, forceDark, preferredColorScheme) {
           ${body}
         })();
       }
-      const pre = document.createElement("pre");
-      pre.id = "probe";
-      pre.textContent = JSON.stringify(out);
-      document.body.append(pre);
+      window.__probe = out;
     </script>
   </body>
 </html>`;
     writeFileSync(page, html);
+    const port = await freePort();
     const args = [
       "--headless",
       "--disable-gpu",
@@ -93,7 +108,7 @@ function probe(body, forceDark, preferredColorScheme) {
       "--disable-dev-shm-usage",
       `--user-data-dir=${join(dir, "profile")}`,
       "--allow-file-access-from-files",
-      "--virtual-time-budget=100",
+      `--remote-debugging-port=${port}`,
     ];
     if (forceDark) {
       args.push("--force-dark-mode");
@@ -101,24 +116,66 @@ function probe(body, forceDark, preferredColorScheme) {
     if (preferredColorScheme !== undefined) {
       args.push(`--blink-settings=preferredColorScheme=${preferredColorScheme}`);
     }
-    args.push("--dump-dom", pathToFileURL(page).href);
-    const startMs = Date.now();
-    const run = spawnSync(chrome, args, {
-      encoding: "utf8",
-      maxBuffer: 1 << 24,
-      timeout: 3000,
-      killSignal: "SIGKILL",
-    });
-    const elapsedMs = Date.now() - startMs;
-    const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-    assert.ok(match, `the page did not report after ${elapsedMs} ms. ${run.stderr?.slice(-500) ?? ""}`);
-    return JSON.parse(
-      match[1]
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">"),
-    );
+    args.push(pathToFileURL(page).href);
+
+    const child = spawn(chrome, args, { stdio: "ignore" });
+    try {
+      let wsUrl = null;
+      const href = pathToFileURL(page).href;
+      const deadline = Date.now() + 3000;
+      while (!wsUrl && Date.now() < deadline) {
+        try {
+          const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+          wsUrl = pages.find((item) => item.type === "page" && item.url === href)?.webSocketDebuggerUrl;
+        } catch {}
+        if (!wsUrl) await sleep(50);
+      }
+      const elapsedMs = Date.now() - startMs;
+      assert.ok(wsUrl, `Chrome did not open the page after ${elapsedMs} ms`);
+
+      const ws = new WebSocket(wsUrl);
+      await new Promise((resolve, reject) => {
+        ws.addEventListener("open", resolve);
+        ws.addEventListener("error", reject);
+      });
+
+      let seq = 0;
+      const pending = new Map();
+      ws.addEventListener("message", (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.id && pending.has(msg.id)) {
+          pending.get(msg.id)(msg);
+          pending.delete(msg.id);
+        }
+      });
+
+      const send = (method, params = {}) =>
+        new Promise((resolve) => {
+          const id = ++seq;
+          pending.set(id, resolve);
+          ws.send(JSON.stringify({ id, method, params }));
+        });
+
+      let result = null;
+      for (let i = 0; i < 60 && !result; i++) {
+        const msg = await send("Runtime.evaluate", {
+          expression: "window.__probe",
+          returnByValue: true,
+        });
+        if (msg.result?.result?.value) {
+          result = msg.result.result.value;
+        } else {
+          await sleep(50);
+        }
+      }
+
+      ws.close();
+      const totalMs = Date.now() - startMs;
+      assert.ok(result, `the page did not report after ${totalMs} ms`);
+      return result;
+    } finally {
+      child.kill("SIGKILL");
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -127,8 +184,8 @@ function probe(body, forceDark, preferredColorScheme) {
 const flat = (value) => value.replace(/\s+/g, "");
 const browser = { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 };
 
-test("forced light paints each design's light panel and pins color-scheme", browser, () => {
-  const reports = probe(
+test("forced light paints each design's light panel and pins color-scheme", browser, async () => {
+  const reports = await probe(
     `
     mountChatAppearance(html)("light");
     return read();
@@ -142,8 +199,8 @@ test("forced light paints each design's light panel and pins color-scheme", brow
   }
 });
 
-test("system and dark under force-dark-mode keep the dark panel", browser, () => {
-  const reports = probe(
+test("system and dark under force-dark-mode keep the dark panel", browser, async () => {
+  const reports = await probe(
     `
     mountChatAppearance(html)("dark");
     const dark = read();
@@ -162,8 +219,8 @@ test("system and dark under force-dark-mode keep the dark panel", browser, () =>
   }
 });
 
-test("changing data-chat-palette from dark to light repaints the panel", browser, () => {
-  const reports = probe(
+test("changing data-chat-palette from dark to light repaints the panel", browser, async () => {
+  const reports = await probe(
     `
     const apply = mountChatAppearance(html);
     apply("dark");
@@ -185,9 +242,9 @@ test("changing data-chat-palette from dark to light repaints the panel", browser
   }
 });
 
-test("system follows browser preference and dark forces dark panel", browser, () => {
+test("system follows browser preference and dark forces dark panel", browser, async () => {
   for (const [schemeName, schemeValue] of [["light", 1], ["dark", 0]]) {
-    const reports = probe(
+    const reports = await probe(
       `
       const apply = mountChatAppearance(html);
       apply("system");
