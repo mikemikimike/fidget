@@ -4,7 +4,7 @@
 #   itself and takes focus. Two screenshots of the Chat window. Fidget quits
 #   when the scenario ends.
 # Input: none.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
 # Asserts: the Thinking row is open while the Harness thinks, and collapsed
 #   once the reply lands.
@@ -22,11 +22,17 @@ test_bin=${3:?usage: thinking-row.sh --go <fidget binary> <fidget test binary>}
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-thinking-row-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
-mkdir -p "$out/home" "$tools"
+mkdir -p "$out/home/Library/Application Support/fidget" "$tools"
 log="$out/app.log" marks="$out/harness.log"
+trace="$out/home/Library/Application Support/fidget/process.log"
 : > "$marks"
+
+cat > "$out/home/Library/Application Support/fidget/settings.json" << 'SETTINGS_EOF'
+{"first_run_tour_shown": true}
+SETTINGS_EOF
 
 fail() {
   echo "FAIL: $*" >&2
@@ -41,25 +47,15 @@ fail() {
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(($(date +%s) * 1000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 # The first row is the turn that thought; the ask turn before it has none.
 capture() { # <name> <glyph the first Thinking row starts with>
@@ -72,11 +68,12 @@ capture() { # <name> <glyph the first Thinking row starts with>
   echo "ok: $1: $row"
 }
 
-wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-wait_for 15 "$tools/window-id" "$pid" BMO || fail "Chat did not open for the ask"
-wait_for 40 grep -qx 'thought 2' "$marks" || fail "no thinking turn; see $log"
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_trace 2 "$trace" 'chat: chat-[^ ]+ is not minimized' || fail "Chat never opened; see $trace"
+[ -n "$("$tools/window-id" "$pid" BMO 2> /dev/null)" ] || fail "Chat did not open for the ask"
+wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought ▾
-wait_for 15 grep -qx replied "$marks" || fail "no reply; see $log"
-sleep 1.5
+wait_for_marks 3 "$marks" '^replied$' || fail "no reply; see $log"
 capture after-reply ▸
-echo "PASS: evidence in $out"
+elapsed_ms=$(($(date +%s) * 1000 - start_ms))
+echo "PASS: evidence in $out (${elapsed_ms}ms)"

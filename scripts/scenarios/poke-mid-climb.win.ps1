@@ -7,7 +7,7 @@
 #   FIDGET_SCENARIO_EDGE (left or right, default left), then clicks on it
 #   until one lands as a Poke. The cursor moves; keep hands off the mouse for
 #   the run.
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: a desktop session.
 # Asserts: the Poke starts react over, then the sprite stays Climbing at one
 #   position in one climb frame through the cooldown, and climbs on after it.
@@ -45,6 +45,7 @@ if (-not $Bin) {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
@@ -315,10 +316,10 @@ function Get-ClimbEdges([string[]]$Lines) {
     }
 }
 
-$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
+$script:proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
+$startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
-    for ($n = 120; $n -gt 0 -and -not (Test-Path -LiteralPath $trace); $n--) { Start-Sleep -Milliseconds 250 }
-    if (-not (Test-Path -LiteralPath $trace)) { Fail "process.log never appeared; see $err" }
+    if (-not (Wait-ForFile 3 $trace)) { Fail "process.log never appeared; see $err" }
 
     if (-not (Wait-Still 300)) { Fail "the sprite never came to rest; see $trace" }
     $overlay = @(Get-Content -LiteralPath $trace | Where-Object { $_ -match '^(?:\d+ )?overlay: ' })
@@ -392,10 +393,13 @@ try {
     # Move further into the display than the click landed.
     [ClimbInput]::Move($px + $into * 4 * $size, $sy)
 
-    Start-Sleep -Seconds 4
+    if (-not (Wait-ForTrace 3 $trace 'frame: .* Climbing .* react#\d+')) {
+        Fail "sprite did not hold react during cooldown; see $trace"
+    }
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    if (-not $script:proc.HasExited) { Stop-Process -Id $script:proc.Id -Force -ErrorAction SilentlyContinue }
 }
 
 Check-Trace $trace
-Write-Output "PASS: evidence in $out"
+$elapsedMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $startMs
+Write-Output "PASS: evidence in $out (${elapsedMs}ms)"

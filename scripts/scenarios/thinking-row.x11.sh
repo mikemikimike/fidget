@@ -4,7 +4,7 @@
 #   itself and takes focus. One AT-SPI dump of the Chat window while the
 #   Harness thinks, and one after the reply. Fidget quits when the scenario ends.
 # Input: none.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: a running X11 session. AT-SPI (python3-pyatspi) for the terminal that runs it.
 # Asserts: the Thinking row is open while the Harness thinks, and collapsed
 #   once the reply lands.
@@ -22,6 +22,7 @@ fi
 bin=${2:?usage: thinking-row.x11.sh --go <fidget binary> <fidget test binary>}
 test_bin=${3:?usage: thinking-row.x11.sh --go <fidget binary> <fidget test binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.x11.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -64,44 +65,40 @@ python3 -c 'import pyatspi' > /dev/null 2>&1 || {
 
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-thinking-row-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$out/home"
+mkdir -p "$out/home/.local/share/fidget"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
+
+cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
+{"first_run_tour_shown": true}
+SETTINGS_EOF
 
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
-wait_for() {
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
+dump() { # <name>
+  python3 "$root/scripts/ax-window-linux.py" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1 ||
+    fail "$1: AX dump failed; see $out/$1.ax.txt"
+  assert_row "$out/$1.ax.txt" "$2" "$1"
 }
 
-capture() { # <name> <glyph>
-  local dump="$out/$1.ax.txt"
-  python3 "$root/scripts/ax-window-linux.py" dump "$pid" BMO > "$dump" 2> "$out/$1.err" ||
-    fail "$1: AT-SPI dump failed; see $out/$1.err"
-  assert_row "$dump" "$2" "$1"
-}
-
-wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-wait_for 40 grep -qx 'thought 2' "$marks" || fail "no thinking turn; see $log"
-capture mid-thought "▾"
-wait_for 15 grep -qx replied "$marks" || fail "no reply; see $log"
-sleep 1.5
-capture after-reply "▸"
-echo "PASS: evidence in $out"
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_marks 2 "$marks" '^thought 1$' || fail "no thinking turn; see $log"
+wait_for_marks 2 "$marks" '^thought 2$' || fail "no second thought; see $log"
+dump mid-thought ▾
+wait_for_marks 2 "$marks" '^thought 3$' || fail "no third thought; see $log"
+wait_for_marks 2 "$marks" '^thought 4$' || fail "no fourth thought; see $log"
+wait_for_marks 2 "$marks" '^replied$' || fail "no reply; see $log"
+dump after-reply ▸
+elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
+echo "PASS: thinking-row completed (${elapsed_ms}ms)"
