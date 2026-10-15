@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Assembles the Pages site. The one place that says what reaches the web:
+# pages.yml and tests/landing-page.test.js both run it (ADR-0011).
+#
+# Usage: scripts/assemble-site.sh OUT_DIR RELEASE_JSON
+# RELEASE_JSON is `gh release view --json tagName,assets`; it may be absent,
+# and then the download buttons link /releases/latest.
+#
+# Flat, so a link is `/cues.html`; only generated art sits under
+# `OUT_DIR/characters/`.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+site=${1:?usage: assemble-site.sh OUT_DIR RELEASE_JSON}
+release=${2:?usage: assemble-site.sh OUT_DIR RELEASE_JSON}
+
+mkdir -p "$site"
+cp docs/design/design.html "$site/design.html"
+cp docs/design/cues.html "$site/cues.html"
+cp docs/design/bubble.html "$site/bubble.html"
+cp docs/design/chat.html "$site/chat.html"
+cp docs/design/chat-mockups.html "$site/chat-mockups.html"
+cp docs/design/window-titles-hint.html "$site/window-titles-hint.html"
+python3 scripts/make-character-gallery.py --self-check
+python3 scripts/make-character-gallery.py --out "$site"
+python3 scripts/make-expression-page.py --self-check
+python3 scripts/make-expression-page.py --out "$site"
+python3 scripts/make-landing-page.py --self-check
+python3 scripts/make-landing-page.py --out "$site" --release "$release"
+cp src-tauri/icons/icon.png "$site/icon.png"
+cp docs/assets/hero-banner-desktop.webp "$site/hero-banner-desktop.webp"
+cp docs/assets/hero-banner-desktop.jpg "$site/hero-banner-desktop.jpg"
+cp docs/assets/hero-banner-mobile.webp "$site/hero-banner-mobile.webp"
+cp docs/assets/hero-banner-mobile.jpg "$site/hero-banner-mobile.jpg"
