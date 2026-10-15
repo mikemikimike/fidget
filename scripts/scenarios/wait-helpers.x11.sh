@@ -39,12 +39,15 @@ wait_for_marks() { # <seconds> <marks file> <pattern>
 # Wait for a file to exist (fast timeout: 2-3s)
 # Returns immediately when the file appears
 wait_for_file() { # <seconds> <file path>
-  local timeout=$1 file=$2
+  local timeout=$1 file=$2 dir fname
   if [ -n "${pid:-}" ]; then
     kill -0 "$pid" 2> /dev/null || return 1
   fi
   [ -f "$file" ] && return 0
-  timeout "$timeout" sh -c "while ! [ -f '$file' ]; do sleep 0.1; done" 2> /dev/null
+  dir=$(dirname "$file")
+  fname=$(basename "$file")
+  timeout "$timeout" inotifywait -q -e create,moved_to "$dir" 2> /dev/null |
+    grep -qF "$fname"
 }
 
 # Wait for an accessibility dump to match a pattern (fast timeout: 2-3s)
@@ -74,6 +77,7 @@ wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern>
 
 # Answer a permission ask by clicking the named button (Allow or Reject)
 # Waits for the Chat window to appear, then presses the button
+# Uses polling at 200ms: AX queries are expensive and have no event mechanism
 answer_permission() { # <pid> <button name>
   local wpid=$1 button=$2
   local deadline
@@ -83,7 +87,7 @@ answer_permission() { # <pid> <button name>
     if python3 "${root}/scripts/ax-window-linux.py" dump "$wpid" "BMO" 2> /dev/null | grep -q "button|$button"; then
       python3 "${root}/scripts/ax-window-linux.py" press "$wpid" "BMO" "$button" 2> /dev/null && return 0
     fi
-    sleep 0.1
+    sleep 0.2
   done
   return 1
 }

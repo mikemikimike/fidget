@@ -55,12 +55,12 @@ function Wait-ForFile([int]$Seconds, [string]$FilePath) {
     $name = Split-Path -Leaf $FilePath
 
     if (-not (Test-Path -LiteralPath $dir)) {
-        # Directory doesn't exist yet, poll for it
+        # Directory doesn't exist yet, poll at 200ms (no event mechanism for dir creation)
         $deadline = (Get-Date).AddSeconds($Seconds)
         while ((Get-Date) -lt $deadline) {
             if (Test-Path -LiteralPath $FilePath) { return $true }
             if ($script:proc -and $script:proc.HasExited) { return $false }
-            Start-Sleep -Milliseconds 100
+            Start-Sleep -Milliseconds 200
         }
         return $false
     }

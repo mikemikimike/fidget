@@ -66,19 +66,26 @@ at_layer() { [ "$("$tools/window-layer" "$pid" BMO)" = "$1" ]; }
 logged() { [ "$(grep -cE "^chat: chat-[^ ]+ is $1\$" "$log")" -ge "$2" ]; }
 minimize() { "$tools/ax" minimize "$pid" BMO "$1" || fail "could not set minimized to $1"; }
 
+wait_at_layer() { # <layer> <description>
+  local layer=$1 desc=$2 deadline
+  deadline=$(($(date +%s) + 2))
+  until at_layer "$layer"; do
+    [ "$(date +%s)" -lt "$deadline" ] || fail "$desc: Chat is at layer $("$tools/window-layer" "$pid" BMO), not $layer"
+    sleep 0.05
+  done
+}
+
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is not minimized$' || fail "Chat never logged open state; see $log"
 at_layer 0 || fail "focused Chat is at layer $("$tools/window-layer" "$pid" BMO), not 0"
 echo "ok: focused Chat stays at layer 0 (a Perch under the overlay)"
 
 open -a Finder
-sleep 0.5
-at_layer 0 || fail "Chat left layer 0 behind Finder: $("$tools/window-layer" "$pid" BMO)"
+wait_at_layer 0 "Chat behind Finder"
 echo "ok: unfocused Chat stays at layer 0"
 
 osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true"
-sleep 0.5
-at_layer 0 || fail "refocused Chat left layer 0: $("$tools/window-layer" "$pid" BMO)"
+wait_at_layer 0 "refocused Chat"
 minimize true
 wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing a focused Chat logged nothing; see $log"
 logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $log"
@@ -88,8 +95,7 @@ logged "not minimized" 1 || fail "restoring Chat logged nothing; see $log"
 echo "ok: a focused Chat counts as closed while minimized"
 
 open -a Finder
-sleep 0.5
-at_layer 0 || fail "Chat did not stay at layer 0 behind Finder"
+wait_at_layer 0 "Chat behind Finder after minimize"
 minimize true
 wait_for_trace 2 "$log" '^chat: chat-[^ ]+ is minimized$' || fail "minimizing an unfocused Chat logged nothing; see $log"
 logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $log"

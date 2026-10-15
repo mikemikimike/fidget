@@ -4494,33 +4494,27 @@ mod tests {
                         // asks, so Chat opens by itself, and its end cancels
                         // the ask. Later turns think slowly enough to capture.
                         "scenario-thinking" if prompts == 1 => {
-                            // In headless CI, skip the permission ask that opens Chat
-                            let skip_ask = std::env::var("FIDGET_SCENARIO_SKIP_ASK")
-                                .map(|v| v == "1")
-                                .unwrap_or(false);
-                            if !skip_ask {
-                                say(
-                                    json!({"jsonrpc": "2.0", "id": 99, "method": "session/request_permission", "params": {
-                                        "sessionId": &session,
-                                        "toolCall": {
-                                            "toolCallId": "t1",
-                                            "title": "Open Chat for the scenario",
-                                            "kind": "other",
-                                            "content": [{"type": "content", "content": {"type": "text", "text": "Opens Chat."}}],
-                                        },
-                                        "options": [
-                                            {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
-                                            {"optionId": "reject", "name": "Reject", "kind": "reject_once"},
-                                        ],
-                                    }}),
-                                );
-                                record(count, "asked");
-                                thread::sleep(Duration::from_secs(3));
-                            }
+                            say(
+                                json!({"jsonrpc": "2.0", "id": 99, "method": "session/request_permission", "params": {
+                                    "sessionId": &session,
+                                    "toolCall": {
+                                        "toolCallId": "t1",
+                                        "title": "Open Chat for the scenario",
+                                        "kind": "other",
+                                        "content": [{"type": "content", "content": {"type": "text", "text": "Opens Chat."}}],
+                                    },
+                                    "options": [
+                                        {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+                                        {"optionId": "reject", "name": "Reject", "kind": "reject_once"},
+                                    ],
+                                }}),
+                            );
+                            record(count, "asked");
+                            thread::sleep(Duration::from_millis(300));
                             for n in 1..=4 {
                                 thought(&session, &format!("Thought {n} of four. "));
                                 record(count, &format!("thought {n}"));
-                                thread::sleep(Duration::from_millis(1200));
+                                thread::sleep(Duration::from_millis(300));
                             }
                             chunk(&session, "fidget\nChat is open.");
                             stop(&id, "end_turn");
@@ -4530,7 +4524,7 @@ mod tests {
                             for n in 1..=4 {
                                 thought(&session, &format!("Thought {n} of four. "));
                                 record(count, &format!("thought {n}"));
-                                thread::sleep(Duration::from_millis(1200));
+                                thread::sleep(Duration::from_millis(300));
                             }
                             chunk(&session, "fidget\nI thought it over and I am staying put.");
                             stop(&id, "end_turn");
