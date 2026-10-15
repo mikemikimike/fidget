@@ -20,7 +20,7 @@ Each character has a personality and a life of its own.
 
 An AI harness is optional. Attach the one you already use and it can talk and pitch in with tools; leave it off and the pet still works. It doesn't read your screen without consent and [never takes screenshots](#computer-use).
 
-https://github.com/user-attachments/assets/da8ab992-de5e-4d1e-89ab-95b5a6ec9fc5
+https://github.com/user-attachments/assets/f833a66c-6f56-446e-aa7e-42b936f67754
 
 Try the gestures in your browser: [Fidget Cues](https://omesser.github.io/fidget/cues.html)
 
