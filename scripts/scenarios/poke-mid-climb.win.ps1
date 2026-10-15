@@ -393,8 +393,8 @@ try {
     # Move further into the display than the click landed.
     [ClimbInput]::Move($px + $into * 4 * $size, $sy)
 
-    if (-not (Wait-ForTrace 3 $trace 'frame: .* Climbing .* react#\d+')) { 
-        Fail "sprite did not hold react during cooldown; see $trace" 
+    if (-not (Wait-ForTrace 3 $trace 'frame: .* Climbing .* react#\d+')) {
+        Fail "sprite did not hold react during cooldown; see $trace"
     }
 } finally {
     if (-not $script:proc.HasExited) { Stop-Process -Id $script:proc.Id -Force -ErrorAction SilentlyContinue }
