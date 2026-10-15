@@ -2134,6 +2134,7 @@ pub(crate) fn run_frame_loop(
                     asking,
                     chatting: chat_is_up(&app, &live.id),
                     cue: frame.cue,
+                    contact: frame.contact,
                     owner,
                     qm: live.qm.clone(),
                     mask: drawn.mask.clone(),

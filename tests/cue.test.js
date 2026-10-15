@@ -152,10 +152,18 @@ test("a hidden Character produces no cue of either kind", () => {
   assert.deepEqual(calls, []);
 });
 
-test("the click cues anchor to the sprite's centre and the drag cues to its feet", () => {
-  const anchor = cueAnchor({ x: 100, y: 200, width: 126, height: 128 });
+test("the click cues anchor to the sprite's centre, the drag cues to its feet, a landing to where it touched", () => {
+  const anchor = cueAnchor({ x: 100, y: 200, width: 126, height: 128, ripple_x: 0, ripple_y: 300, ripple_normal: { x: 1, y: 0 } });
 
-  assert.deepEqual(anchor, { x: 163, y: 264, feetX: 163, feetY: 328 });
+  assert.deepEqual(anchor, {
+    x: 163,
+    y: 264,
+    feetX: 163,
+    feetY: 328,
+    ripple_x: 0,
+    ripple_y: 300,
+    ripple_normal: { x: 1, y: 0 },
+  });
 });
 
 test("an odd sprite width still centres the cue between its edges", () => {

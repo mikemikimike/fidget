@@ -171,7 +171,7 @@ function createView(id) {
   // Anchored when the cue fires rather than followed afterwards: a cue is a
   // burst where the gesture landed, and the sprite it marks may be halfway to
   // the cursor before it fades.
-  view.cues = createCueMachine(cueIo(cueLayer, () => cueAnchor(spriteRect())));
+  view.cues = createCueMachine(cueIo(cueLayer, () => cueAnchor(view.latest)));
 
   view.bubbles = createBubbleMachine({
     showSpeech(text, cutOff) {

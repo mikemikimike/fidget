@@ -84,6 +84,7 @@ mod tests {
             facing: 1.0,
             addressed: false,
             cue: None,
+            contact: None,
             refused: None,
         }
     }

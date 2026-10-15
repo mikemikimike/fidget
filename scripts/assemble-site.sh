@@ -21,6 +21,7 @@ cp docs/design/bubble.html "$site/bubble.html"
 cp docs/design/chat.html "$site/chat.html"
 cp docs/design/chat-mockups.html "$site/chat-mockups.html"
 cp docs/design/window-titles-hint.html "$site/window-titles-hint.html"
+cp src/cue.js "$site/cue.js"
 python3 scripts/make-character-gallery.py --self-check
 python3 scripts/make-character-gallery.py --out "$site"
 python3 scripts/make-expression-page.py --self-check

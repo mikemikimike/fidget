@@ -56,6 +56,7 @@ in that job already runs. The tracker calls this the Windows compile job.
 | `harness` | The user's Harness. Launch, ACP, permissions, its tools. |
 | `prompting` | Prompt shape and contents. |
 | `local models` | Local model inference. |
+| `website` | The GitHub Pages site: the landing page, character gallery, design pages, Fidget Cues, and the scripts that build them. |
 | `security` | Secrets, passwords, the keychain, and other security work. |
 | `research` | An investigation. |
 | `accessibility` | A barrier for people with disabilities. |

@@ -121,6 +121,43 @@ function el(cls, x, y) {
   return e;
 }
 
+let cachedPuffInset = {};
+
+export function measurePuffInset(className) {
+  if (cachedPuffInset[className]) return cachedPuffInset[className];
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "cue";
+  wrapper.style.position = "absolute";
+  wrapper.style.left = "-9999px";
+  wrapper.style.top = "-9999px";
+  wrapper.style.visibility = "hidden";
+
+  const puff = el(className, 0, 0);
+  wrapper.append(puff);
+  const stage = document.getElementById("stage");
+  (stage || document.body).append(wrapper);
+
+  void wrapper.offsetHeight;
+
+  const styles = getComputedStyle(puff);
+  const baseHeight = parseFloat(styles.height);
+  const borderWidth = parseFloat(styles.borderTopWidth || "0");
+  const shadowWidth = parseFloat(styles.getPropertyValue("--puff-shadow") || "0");
+
+  const finalScale = styles.getPropertyValue("--puff-final-scale").trim();
+  const maxScaleY = parseFloat(finalScale);
+  if (!maxScaleY || maxScaleY <= 0) {
+    throw new Error(`No --puff-final-scale custom property for ${className}`);
+  }
+
+  const inset = ((baseHeight + borderWidth * 2 + shadowWidth * 2) * maxScaleY) / 2;
+
+  cachedPuffInset[className] = inset;
+  wrapper.remove();
+  return inset;
+}
+
 function reap(node, child) {
   // Remove on the last animation to end, so a stagger does not cut its siblings.
   let pending = child ? child.length : 1;
@@ -128,6 +165,27 @@ function reap(node, child) {
     if (--pending <= 0) node.remove();
   };
   (child || [node]).forEach((c) => c.addEventListener("animationend", done, { once: true }));
+}
+
+const UP = { x: 0, y: -1 };
+
+// Every surface takes the same path: the puff sits on the contact, pushed off
+// the surface along its normal by the puff's own half-thickness, and lies along
+// it. A landing the Shell sent no contact for is a floor under the feet.
+export function landingPuff(stage, c, className) {
+  const normal = c.ripple_normal ?? UP;
+  const inset = measurePuffInset(className);
+  const x = (c.ripple_x ?? c.feetX) + normal.x * inset;
+  const y = (c.ripple_y ?? c.feetY) + normal.y * inset;
+  const turn = (Math.atan2(normal.y, normal.x) * 180) / Math.PI + 90;
+  // A translate, not left and top: Chrome rounds those to 1/64px, and the inset
+  // is what holds the puff flush against a wall.
+  const wrapper = el("", 0, 0);
+  wrapper.style.transform = `translate(${x}px, ${y}px) rotate(${turn}deg)`;
+  wrapper.append(el(className, 0, 0));
+  stage.append(wrapper);
+  reap(wrapper);
+  return [wrapper];
 }
 
 const VISUALS = {
@@ -187,16 +245,10 @@ const VISUALS = {
     return [g];
   },
   drop(stage, c) {
-    const p = el("cue-puff", c.feetX, c.feetY - 2);
-    stage.append(p);
-    reap(p);
-    return [p];
+    return landingPuff(stage, c, "cue-puff");
   },
   throw(stage, c) {
-    const p = el("cue-puff hard", c.feetX, c.feetY - 2);
-    stage.append(p);
-    reap(p);
-    return [p];
+    return landingPuff(stage, c, "cue-puff hard");
   },
 };
 
@@ -204,12 +256,15 @@ const VISUALS = {
 // click landed on the art; pickup and drop at its feet, because that is the
 // contact the gesture broke and made. Overlay coordinates, the same space the
 // bubble is placed in.
-export function cueAnchor(spriteRect) {
+export function cueAnchor(sprite) {
   return {
-    x: spriteRect.x + spriteRect.width / 2,
-    y: spriteRect.y + spriteRect.height / 2,
-    feetX: spriteRect.x + spriteRect.width / 2,
-    feetY: spriteRect.y + spriteRect.height,
+    x: sprite.x + sprite.width / 2,
+    y: sprite.y + sprite.height / 2,
+    feetX: sprite.x + sprite.width / 2,
+    feetY: sprite.y + sprite.height,
+    ripple_x: sprite.ripple_x,
+    ripple_y: sprite.ripple_y,
+    ripple_normal: sprite.ripple_normal,
   };
 }
 
