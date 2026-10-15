@@ -122,7 +122,6 @@ async function launch(sprite, css = "") {
     `--user-data-dir=${join(dir, "profile")}`,
     "--allow-file-access-from-files",
     "--window-size=800,600",
-    `--virtual-time-budget=${PROBE_MS + 1000}`,
   ]);
 
   try {
