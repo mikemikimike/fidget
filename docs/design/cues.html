@@ -370,11 +370,13 @@
     border-radius: 12px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
-    transition: opacity 200ms ease;
+    transition: opacity 200ms ease, visibility 200ms ease;
   }
   .mock-chat.open {
     opacity: 1;
+    visibility: visible;
     pointer-events: auto;
   }
   .mock-chat-header {
@@ -454,7 +456,7 @@
 <body>
 <div class="page">
   <header>
-    <p class="class">Cue playground · <a href="https://github.com/omesser/fidget/issues/1076">#1076 quick message</a></p>
+    <p class="class">Dated proposal · <a href="https://github.com/omesser/fidget/issues/277">#277</a> · 2026-09-03 · hand-written and frozen, not a description of shipped behavior</p>
     <h1>Fidget Cues</h1>
     <p class="lede">Five cues, one per interaction. Try them on the desk: <b>click</b> (Poke), <b>double-click</b> (Summon), <b>right-click</b> (Menu), <b>drag</b> (Pickup, Drop, or Throw), and <b>hover and stay ~2.5 seconds</b> for the quick-message pill. The Summon cue cancels a Poke still in flight. A fast release is a Throw. Every stroke is white on ink, the same pair the speech bubble already uses.</p>
   </header>
@@ -1151,6 +1153,11 @@ chatClose.addEventListener("click", () => {
 });
 document.addEventListener("pointerdown", (e) => {
   if (chatOpen && !e.target.closest("#mock-chat") && !e.target.closest("#sprite")) {
+    closeChat();
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && chatOpen) {
     closeChat();
   }
 });
