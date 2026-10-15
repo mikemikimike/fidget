@@ -458,12 +458,12 @@
   <header>
     <p class="class">Dated proposal · <a href="https://github.com/omesser/fidget/issues/277">#277</a> · 2026-09-03 · hand-written and frozen, not a description of shipped behavior</p>
     <h1>Fidget Cues</h1>
-    <p class="lede">Five cues, one per interaction. Try them on the desk: <b>click</b> (Poke), <b>double-click</b> (Summon), <b>right-click</b> (Menu), <b>drag</b> (Pickup, Drop, or Throw), and <b>hover and stay ~2.5 seconds</b> for the quick-message pill. The Summon cue cancels a Poke still in flight. A fast release is a Throw. Every stroke is white on ink, the same pair the speech bubble already uses.</p>
+    <p class="lede">Five cues, one per interaction. Try them on the desk: <b>click</b> (Poke), <b>double-click</b> (Summon), <b>right-click</b> (Menu), <b>drag</b> (Pickup, Drop, or Throw), and <b>hover and stay <span id="lede-dwell">~1.5 seconds</span></b> for the quick-message pill. The Summon cue cancels a Poke still in flight. A fast release is a Throw. Every stroke is white on ink, the same pair the speech bubble already uses.</p>
   </header>
 
   <section class="desk-wrap">
     <div class="desk-bar">
-      <span class="hint">Try each gesture on BMO: <b>click</b>, <b>double-click</b>, <b>right-click</b>, <b>drag</b>, <b>hover and stay ~2.5s</b> for the quick-message pill. The wallpaper changes to check that the cues read on any desktop. A throw or a drop can perch on the window.</span>
+      <span class="hint">Try each gesture on BMO: <b>click</b>, <b>double-click</b>, <b>right-click</b>, <b>drag</b>, <b>hover and stay <span id="hint-dwell">~1.5s</span></b> for the quick-message pill. The wallpaper changes to check that the cues read on any desktop. A throw or a drop can perch on the window.</span>
       <div class="seg" role="group" aria-label="Wallpaper">
         <button data-wall="light" aria-pressed="true">Light</button>
         <button data-wall="dark" aria-pressed="false">Dark</button>
@@ -494,7 +494,7 @@
       </div>
     </div>
     <div class="toast" id="toast">Waiting for the first click.</div>
-    <p class="qm-live" id="qm-status">Hover BMO and stay for 2.5s.</p>
+    <p class="qm-live" id="qm-status"></p>
     <div class="dwell" id="dwell" aria-hidden="true"><span id="dwell-fill"></span></div>
     <div class="qm-bar" data-qm-keep>
       <button type="button" class="toggle" id="stroll" aria-pressed="true">Stroll on</button>
@@ -504,8 +504,8 @@
 
   <section id="quick-message-spec">
     <h2>Quick message</h2>
-    <p>Hover BMO for 2.5 seconds and a pill appears over the sprite, the field focused. Empty, it says <b>talk to me</b>. Send is an accent disc, <code>#5cc9b5</code>, with a dark triangle. The box is the speech bubble's chrome and it has no tail. Appear and dismiss fade over 180ms. The caret is that same accent. The same pill on a light, a dark and a busy desktop is <a href="bubble.html#quick-message-chrome">Fidget Bubble</a>.</p>
-    <p>Leave during the 2.5s and the pill never appears. Leave after it is up and it stays. It goes away on a click outside the sprite and the pill, a drag of the pet of at least 4px, or a double-click. The double-click is still Summon. A poke still plays and does not dismiss. A drag that starts in the field selects text; it does not grab the pet and does not dismiss. Escape does not dismiss. Enter sends.</p>
+    <p>Hover BMO for <span id="spec-dwell-long">1.5 seconds</span> and a pill appears over the sprite, the field focused. Empty, it says <b>talk to me</b>. Send is an accent disc, <code>#5cc9b5</code>, with a dark triangle. The box is the speech bubble's chrome and it has no tail. Appear and dismiss fade over 180ms. The caret is that same accent. The same pill on a light, a dark and a busy desktop is <a href="bubble.html#quick-message-chrome">Fidget Bubble</a>.</p>
+    <p>Leave during the <span id="spec-dwell-short">1.5s</span> and the pill never appears. Leave after it is up and it stays. It goes away on a click outside the sprite and the pill, a drag of the pet of at least 4px, or a double-click. The double-click is still Summon. A poke still plays and does not dismiss. A drag that starts in the field selects text; it does not grab the pet and does not dismiss. Escape does not dismiss. Enter sends.</p>
     <p>While the caret is in the field the stroll holds in place. This desk has no walk-cycle frames, so the slide stands in for the Engine's walk. Idle is the sprite at rest, which stays. A jump is not drawn here; the Engine still lets one leave. <b>Release the caret</b> blurs the field without a dismiss, which is when the stroll resumes and the pill remains. The stroll pauses while the pointer is on the sprite, so a still cursor can finish the dwell.</p>
     <p>When nothing can answer, the field is disabled and the draft is cleared so the sentence shows. That is <b>Nothing can answer yet</b>, or <b>Starting Hermes…</b> while a harness is still coming up. Send is the dim disc <code>#2c3340</code>, not the accent.</p>
     <div class="quick-message visible quick-frozen" id="quick-message-frozen">
@@ -974,7 +974,7 @@ document.getElementById("sequence").addEventListener("click", () => {
 
 // The quick-message gesture locked on #1076. The desk already decodes poke,
 // drag and Summon; this only decides when the pill is up.
-const HOVER_DELAY_MS = 2500;
+const HOVER_DELAY_MS = 1500;
 const quick = document.getElementById("quick-message");
 const field = document.getElementById("quick-field");
 const mirror = document.getElementById("quick-mirror");
@@ -987,6 +987,14 @@ const chatClose = document.getElementById("chat-close");
 let pillUp = false;
 let composing = false;
 let chatOpen = false;
+
+// Initialize timing text from HOVER_DELAY_MS
+const dwellSeconds = (HOVER_DELAY_MS / 1000).toFixed(1);
+document.getElementById("lede-dwell").textContent = "~" + dwellSeconds + " seconds";
+document.getElementById("hint-dwell").textContent = "~" + dwellSeconds + "s";
+document.getElementById("spec-dwell-long").textContent = dwellSeconds + " seconds";
+document.getElementById("spec-dwell-short").textContent = dwellSeconds + "s";
+qmStatus.textContent = "Hover BMO and stay for " + dwellSeconds + "s.";
 let overSprite = false;
 let hoverTimer = null;
 let hoverStart = 0;
@@ -1182,7 +1190,7 @@ function tick(now) {
   if (hoverTimer !== null) {
     const p = Math.min(1, (now - hoverStart) / HOVER_DELAY_MS);
     dwellFill.style.width = (p * 100).toFixed(1) + "%";
-    setQmStatus("Dwelling " + ((now - hoverStart) / 1000).toFixed(1) + "s of 2.5s. Leave now and the pill does not appear.");
+    setQmStatus("Dwelling " + ((now - hoverStart) / 1000).toFixed(1) + "s of " + (HOVER_DELAY_MS / 1000).toFixed(1) + "s. Leave now and the pill does not appear.");
   }
   requestAnimationFrame(tick);
 }
