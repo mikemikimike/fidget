@@ -89,14 +89,18 @@ osascript -e "tell application \"System Events\" to set frontmost of (first proc
 wait_at_layer 0 "refocused Chat"
 before=$(grep -cE '^chat: chat-[^ ]+ is minimized$' "$trace" 2> /dev/null || echo 0)
 minimize true
+deadline=$(($(date +%s) + 3))
 until [ "$(grep -cE '^chat: chat-[^ ]+ is minimized$' "$trace" 2> /dev/null || echo 0)" -gt "$before" ]; do
+  [ "$(date +%s)" -lt "$deadline" ] || fail "minimizing a focused Chat logged nothing within 3s; see $trace"
   kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
   sleep 0.05
 done
 logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $trace"
 before=$(grep -cE '^chat: chat-[^ ]+ is not minimized$' "$trace" 2> /dev/null || echo 0)
 minimize false
+deadline=$(($(date +%s) + 3))
 until [ "$(grep -cE '^chat: chat-[^ ]+ is not minimized$' "$trace" 2> /dev/null || echo 0)" -gt "$before" ]; do
+  [ "$(date +%s)" -lt "$deadline" ] || fail "restoring Chat logged nothing within 3s; see $trace"
   kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
   sleep 0.05
 done
@@ -107,14 +111,18 @@ open -a Finder
 wait_at_layer 0 "Chat behind Finder after minimize"
 before=$(grep -cE '^chat: chat-[^ ]+ is minimized$' "$trace" 2> /dev/null || echo 0)
 minimize true
+deadline=$(($(date +%s) + 3))
 until [ "$(grep -cE '^chat: chat-[^ ]+ is minimized$' "$trace" 2> /dev/null || echo 0)" -gt "$before" ]; do
+  [ "$(date +%s)" -lt "$deadline" ] || fail "minimizing an unfocused Chat logged nothing within 3s; see $trace"
   kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
   sleep 0.05
 done
 logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $trace"
 before=$(grep -cE '^chat: chat-[^ ]+ is not minimized$' "$trace" 2> /dev/null || echo 0)
 minimize false
+deadline=$(($(date +%s) + 3))
 until [ "$(grep -cE '^chat: chat-[^ ]+ is not minimized$' "$trace" 2> /dev/null || echo 0)" -gt "$before" ]; do
+  [ "$(date +%s)" -lt "$deadline" ] || fail "restoring an unfocused Chat logged nothing within 3s; see $trace"
   kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
   sleep 0.05
 done

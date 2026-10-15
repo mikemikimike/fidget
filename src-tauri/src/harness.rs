@@ -4548,7 +4548,11 @@ mod tests {
                                 }}),
                             );
                             record(count, "asked");
-                            pending_prompt = Some(id);
+                            thread::sleep(Duration::from_millis(300));
+                            say(json!({"jsonrpc": "2.0", "id": 99, "result": {"option": "allow"}}));
+                            chunk(&session, "fidget\nAllowed.");
+                            stop(&id, "end_turn");
+                            record(count, "replied");
                         }
                         "mcp-link-turn" if prompts == 1 => {
                             mcp_link(&session, None);
