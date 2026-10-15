@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -51,9 +51,10 @@ const chrome = chromeBin();
 // returns that design's readings. A launch costs seconds, the loop costs nothing.
 function probe(body, forceDark, preferredColorScheme) {
   const dir = mkdtempSync(join(tmpdir(), "chat-appearance-paint-"));
-  const page = join(dir, "harness.html");
-  const appearance = pathToFileURL(join(SRC, "chat-appearance.js")).href;
-  const html = `<!doctype html>
+  try {
+    const page = join(dir, "harness.html");
+    const appearance = pathToFileURL(join(SRC, "chat-appearance.js")).href;
+    const html = `<!doctype html>
 <html>
   <head>
     <base href="${pathToFileURL(SRC).href}">
@@ -84,38 +85,41 @@ function probe(body, forceDark, preferredColorScheme) {
     </script>
   </body>
 </html>`;
-  writeFileSync(page, html);
-  const args = [
-    "--headless",
-    "--disable-gpu",
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    `--user-data-dir=${join(dir, "profile")}`,
-    "--allow-file-access-from-files",
-    "--virtual-time-budget=3000",
-  ];
-  if (forceDark) {
-    args.push("--force-dark-mode");
+    writeFileSync(page, html);
+    const args = [
+      "--headless",
+      "--disable-gpu",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      `--user-data-dir=${join(dir, "profile")}`,
+      "--allow-file-access-from-files",
+      "--virtual-time-budget=3000",
+    ];
+    if (forceDark) {
+      args.push("--force-dark-mode");
+    }
+    if (preferredColorScheme !== undefined) {
+      args.push(`--blink-settings=preferredColorScheme=${preferredColorScheme}`);
+    }
+    args.push("--dump-dom", pathToFileURL(page).href);
+    const run = spawnSync(chrome, args, {
+      encoding: "utf8",
+      maxBuffer: 1 << 24,
+      timeout: 3000,
+      killSignal: "SIGKILL",
+    });
+    const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
+    assert.ok(match, `the page did not report. ${run.stderr?.slice(-500) ?? ""}`);
+    return JSON.parse(
+      match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">"),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-  if (preferredColorScheme !== undefined) {
-    args.push(`--blink-settings=preferredColorScheme=${preferredColorScheme}`);
-  }
-  args.push("--dump-dom", pathToFileURL(page).href);
-  const run = spawnSync(chrome, args, {
-    encoding: "utf8",
-    maxBuffer: 1 << 24,
-    timeout: 40000,
-    killSignal: "SIGKILL",
-  });
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the page did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(
-    match[1]
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">"),
-  );
 }
 
 const flat = (value) => value.replace(/\s+/g, "");
