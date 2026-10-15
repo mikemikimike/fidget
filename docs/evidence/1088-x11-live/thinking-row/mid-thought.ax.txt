@@ -18,7 +18,7 @@ paragraph|Opens Chat.
 button|Allow
 button|Reject
 button|▾ THINKING 21:37
-section|Thought 1 of four. Thought 2 of four. Thought 3 of four. 
+section|Thought 1 of four. Thought 2 of four. Thought 3 of four.
 form|
 entry|Ask BMO…
 button|Send

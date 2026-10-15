@@ -34,7 +34,7 @@
   - Build + startup: ~5-7s
 - After: 3.7s
   - 1s director ambient delay
-  - 0.3s fixture sleep after ask  
+  - 0.3s fixture sleep after ask
   - 1.2s fixture thinking (0.3s × 4)
   - Event-based waits (no fixed sleeps)
   - Build check: ~0.2s
