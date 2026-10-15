@@ -7,7 +7,7 @@
 # Wait for a trace line pattern in the app log (fast timeout: 2-3s)
 # Returns immediately when the pattern appears
 wait_for_trace() { # <seconds> <log file> <pattern>
-  local timeout=$1 log=$2 pattern=$3 tail_pid grep_pid result deadline
+  local timeout=$1 log=$2 pattern=$3 tail_pid grep_pid result deadline fifo
   if [ -n "${pid:-}" ]; then
     kill -0 "$pid" 2> /dev/null || return 1
   fi
@@ -17,7 +17,7 @@ wait_for_trace() { # <seconds> <log file> <pattern>
   deadline=$(($(date +%s) + timeout))
   fifo=$(mktemp -u)
   mkfifo "$fifo"
-  tail -F "$log" > "$fifo" 2> /dev/null &
+  tail -s 0.05 -F "$log" > "$fifo" 2> /dev/null &
   tail_pid=$!
   grep -qEm1 "$pattern" < "$fifo" &
   grep_pid=$!
@@ -38,7 +38,7 @@ wait_for_trace() { # <seconds> <log file> <pattern>
 # Wait for a marker file to contain a pattern (fast timeout: 2-3s)
 # Returns immediately when the pattern appears
 wait_for_marks() { # <seconds> <marks file> <pattern>
-  local timeout=$1 marks=$2 pattern=$3 tail_pid grep_pid result deadline
+  local timeout=$1 marks=$2 pattern=$3 tail_pid grep_pid result deadline fifo
   if [ -n "${pid:-}" ]; then
     kill -0 "$pid" 2> /dev/null || return 1
   fi
@@ -48,7 +48,7 @@ wait_for_marks() { # <seconds> <marks file> <pattern>
   deadline=$(($(date +%s) + timeout))
   fifo=$(mktemp -u)
   mkfifo "$fifo"
-  tail -F "$marks" > "$fifo" 2> /dev/null &
+  tail -s 0.05 -F "$marks" > "$fifo" 2> /dev/null &
   tail_pid=$!
   grep -qEm1 "$pattern" < "$fifo" &
   grep_pid=$!
