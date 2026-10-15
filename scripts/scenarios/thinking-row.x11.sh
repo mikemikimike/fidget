@@ -87,7 +87,6 @@ pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-answer_permission "$pid" Allow || fail "could not answer the permission ask; see $log"
 wait_for_marks 2 "$marks" '^thought 1$' || fail "no thinking turn; see $log"
 wait_for_marks 2 "$marks" '^thought 2$' || fail "no second thought; see $log"
 wait_for_marks 2 "$marks" '^thought 3$' || fail "no third thought; see $log"

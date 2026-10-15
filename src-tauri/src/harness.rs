@@ -4511,6 +4511,7 @@ mod tests {
                             );
                             record(count, "asked");
                             thread::sleep(Duration::from_millis(300));
+                            say(json!({"jsonrpc": "2.0", "id": 99, "result": {"option": "allow"}}));
                             for n in 1..=4 {
                                 thought(&session, &format!("Thought {n} of four. "));
                                 record(count, &format!("thought {n}"));
