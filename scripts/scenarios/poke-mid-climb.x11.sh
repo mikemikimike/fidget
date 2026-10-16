@@ -68,26 +68,6 @@ in_state() { last_frame | grep -qE " ($1) "; }
 sprite_xy() { last_frame | sed -E 's/.*sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1 \2/'; }
 pokes() { grep -c '^verbs: .*Poke' "$trace" || true; }
 
-# Resting and not walking: a press on a walking sprite lands where it was, and
-# the drag then throws whatever window is underneath.
-wait_still() { # <tenths of a second timeout>
-  local timeout
-  timeout=$(awk -v t="$1" 'BEGIN { print t / 10.0 }')
-  local deadline a b
-  deadline=$(($(date +%s) + timeout))
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    if in_state 'Grounded|Perched'; then
-      a=$(sprite_xy)
-      sleep 0.2
-      b=$(sprite_xy)
-      [ "$a" = "$b" ] && in_state 'Grounded|Perched' && return 0
-    fi
-    sleep 0.1
-  done
-  return 1
-}
-
 wait_climbing() { # <tenths of a second timeout>
   local timeout
   timeout=$(awk -v t="$1" 'BEGIN { print t / 10.0 }')
@@ -102,6 +82,8 @@ wait_climbing() { # <tenths of a second timeout>
 # it, whatever speed the hand had. No Throw is involved, and the release is
 # held still so none can be measured.
 place_sprite() { # <grab x> <y> <target x>
+  # Holds as on Windows: 0.12 s lets click-through turn off, 0.25 s makes a grab,
+  # 0.03 s a step keeps the path, 0.3 s still means the release throws nothing.
   local args=(mousemove "$1" "$2" sleep 0.12 mousedown 1 sleep 0.25) step
   for step in 1 2 3 4 5 6 7 8 9 10; do
     args+=(mousemove "$(($1 + ($3 - $1) * step / 10))" "$2" sleep 0.03)
@@ -110,6 +92,7 @@ place_sprite() { # <grab x> <y> <target x>
 }
 
 click_at() { # <x> <y>
+  # 0.12 s lets click-through turn off under the pointer; 0.06 s spans a tick.
   xdotool mousemove "$1" "$2" sleep 0.12 mousedown 1 sleep 0.06 mouseup 1
 }
 
@@ -119,7 +102,7 @@ env HOME="$out/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true' EXIT INT TERM
 
-wait_still 30 || fail "the sprite never came to rest; see $trace"
+wait_for_rest "$trace" || fail "the sprite never came to rest; see $trace"
 size=$(sed -nE 's/^overlay: .* sprite ([0-9]+)x[0-9]+;.*/\1/p' "$trace" | head -1)
 [ -n "$size" ] || fail "no sprite size in $trace"
 half=$((size / 2))
@@ -170,8 +153,8 @@ for _ in 1 2 3 4 5 6; do
   read -r sx sy < <(sprite_xy)
   [ "$sy" -gt "$size" ] || break
   click_at "$px" "$((sy + half / 9))" >> "$out/input.txt" 2>&1 || fail "could not click the sprite; see $out/input.txt"
-  sleep "$click_gap"
-  if [ "$(pokes)" -gt "$before" ]; then
+  # A second click inside the double-click gap is not a new Poke, so wait out the gap for one.
+  if wait_for_count "$click_gap" "$trace" '^verbs: .*Poke' "$before"; then
     poked=1
     break
   fi

@@ -53,6 +53,7 @@ if (-not $Bin -or -not $TestBin) {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
@@ -110,7 +111,7 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-sign-in-button-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home") | Out-Null
+$data = Initialize-ScenarioData $out
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
 Set-Content -LiteralPath $marks -Value "" -Encoding ascii
@@ -121,8 +122,6 @@ $paths = @($harness -split '\s+' | Select-Object -Skip 1)
 if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
 $Launcher = "bash"
 
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
 $env:FIDGET_HARNESS = $harness
 $env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
@@ -141,58 +140,42 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
         "& '$ax' @args"
     ), $utf8)
 
+$startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $log" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
-    function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
-            Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
-        return ($LASTEXITCODE -eq 0)
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Invoke-Dump([string]$Label) {
-        if (-not (Invoke-Ax "$Label.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) {
+        if (-not (Invoke-Ax "$Label.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" })) {
             Fail "${Label}: UI Automation dump failed; see $out\$Label.ax.txt"
         }
         return (Join-Path $out "$Label.ax.txt")
     }
-    function Marked([string]$Line) { [bool](Get-Content -LiteralPath $marks | Where-Object { $_ -eq $Line }) }
 
-    if (-not (Wait-For 3 { Marked "spawn" })) { Fail "Harness never spawned; see $log" }
+    if (-not (Wait-ForMarks 3 $marks '^spawn$')) { Fail "Harness never spawned; see $log" }
     # Open Chat. The 1 s timed wake sends session/new (refused: auth required), which
     # shows the needs-login UI. A session/new only comes from a wake, not from attach alone.
-    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
+    if (-not (Invoke-Ax "open" @{ Command = "tray"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Chat" })) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
-    if (-not (Wait-For 2 { Marked "new" })) { Fail "timed wake did not send session/new; see $marks" }
+    if (-not (Wait-ForMarks 2 $marks '^new$')) { Fail "timed wake did not send session/new; see $marks" }
 
     Check-NeedsLogin (Invoke-Dump "needs-login")
-    if (-not (Invoke-Ax "press" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Fake login"))) {
+    if (-not (Invoke-Ax "press" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Fake login" })) {
         Fail "could not press Fake login button; see $out\press.txt"
     }
-    if (-not (Wait-For 2 { Marked "authenticate" })) { Fail "sign-in button did not trigger authenticate; see $log" }
+    if (-not (Wait-ForMarks 2 $marks '^authenticate$')) { Fail "sign-in button did not trigger authenticate; see $log" }
     Check-Waiting (Invoke-Dump "waiting")
 
-    if (-not (Invoke-Ax "press-open" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Open"))) {
+    if (-not (Invoke-Ax "press-open" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Open" })) {
         Fail "could not press Open on the sign-in link; see $out\press-open.txt"
     }
-    if (-not (Wait-For 2 { Marked "elicit-url:accept" })) { Fail "sign-in form never answered; see $log" }
+    if (-not (Wait-ForMarks 2 $marks '^elicit-url:accept$')) { Fail "sign-in form never answered; see $log" }
     Write-Output "ok: Open accepted the link"
-    $sessions = { @(Get-Content -LiteralPath $marks | Where-Object { $_ -eq "new" }).Count -ge 2 }
-    if (-not (Wait-For 3 $sessions)) { Fail "session did not open after sign-in; see $log" }
+    if (-not (Wait-ForCount 3 $marks '^new$' 1)) { Fail "session did not open after sign-in; see $log" }
     Check-SignedIn (Invoke-Dump "signed-in")
-    Write-Output "PASS: evidence in $out"
+    Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*count=$marks*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-FidgetTree $proc "count=$marks"
 }

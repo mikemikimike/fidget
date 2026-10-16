@@ -110,11 +110,7 @@ if ($env:FIDGET_SCENARIO_TRACE) {
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-poke-mid-climb-$stamp"
 $script:Evidence = $out
-$homeDir = Join-Path $out "home"
-New-Item -ItemType Directory -Force -Path (Join-Path $homeDir "AppData\Roaming\fidget") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $homeDir "AppData\Local") | Out-Null
-$utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText((Join-Path $homeDir "AppData\Roaming\fidget\settings.json"), '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
+$data = Initialize-ScenarioData $out @{ hide_in_fullscreen = $false }
 
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -190,18 +186,14 @@ if ($fullscreenApp) {
 $log = Join-Path $out "app.log"
 $err = Join-Path $out "app.err"
 $inputLog = Join-Path $out "input.txt"
-$trace = Join-Path $homeDir "AppData\Roaming\fidget\process.log"
+$trace = Join-Path $data "process.log"
 
-$env:HOME = $homeDir
-$env:USERPROFILE = $homeDir
-$env:APPDATA = Join-Path $homeDir "AppData\Roaming"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_TRACE_FRAMES = "1"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
 
 # In-process, not ax-window-win.ps1 click: a new PowerShell compiles its
-# Add-Type before the click, and a climbing sprite has moved its own height by
-# then. Timings are click-cursor.swift's, and X11's for the drag.
+# Add-Type before the click, and a climbing sprite has moved its own height by then.
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -212,13 +204,17 @@ public class ClimbInput {
     const uint Down = 0x0002, Up = 0x0004;
     public static void Place(int x, int y, int toX) {
         SetCursorPos(x, y);
+        // The frame loop reads the cursor per tick and turns click-through off under it; 120 ms spans several ticks.
         Thread.Sleep(120);
         mouse_event(Down, 0, 0, 0, UIntPtr.Zero);
+        // A press held past the drag threshold time becomes a grab, not a click.
         Thread.Sleep(250);
         for (int step = 1; step <= 10; step++) {
             SetCursorPos(x + (toX - x) * step / 10, y);
+            // One step per frame tick or two, so the drag follows the path instead of one jump.
             Thread.Sleep(30);
         }
+        // Held still before release, so the release measures no speed and nothing is thrown.
         Thread.Sleep(300);
         mouse_event(Up, 0, 0, 0, UIntPtr.Zero);
     }
@@ -227,8 +223,11 @@ public class ClimbInput {
     }
     public static void Click(int x, int y) {
         SetCursorPos(x, y);
+        // As in Place: ticks to turn click-through off under the cursor. A hit-test file
+        // wait from PowerShell is slower than the climbing sprite stays under it.
         Thread.Sleep(120);
         mouse_event(Down, 0, 0, 0, UIntPtr.Zero);
+        // A press and release in one tick read as no click; 60 ms spans a tick.
         Thread.Sleep(60);
         mouse_event(Up, 0, 0, 0, UIntPtr.Zero);
     }
@@ -251,50 +250,41 @@ function In-State([string]$Pattern) {
 
 function Pokes { @(Select-String -LiteralPath $trace -Pattern $pokePattern -CaseSensitive).Count }
 
-# A tall-display climb can outlast the grounded rest budget. This is the wall-clock stop.
-$RestCeilingMs = 90000
-
-# Falling and Climbing do not spend the rest budget; the ceiling stops a stuck sprite.
-function Get-RestDecision([string]$State, [bool]$Still, [int]$RestMs, [int]$WallMs, [int]$BudgetMs) {
-    if ($WallMs -ge $RestCeilingMs) { return "give-up" }
-    if ($State -cmatch '^(Falling|Climbing)$') { return "wait" }
+# A frame where the sprite moved (walking, climbing or falling) is progress,
+# however long the walk or climb. 3 s with no progress gives up.
+function Get-RestDecision([string]$State, [bool]$Moved, [bool]$Still, [int]$SinceProgressMs) {
     if ($Still -and $State -cmatch '^(Grounded|Perched)$') { return "done" }
-    if ($RestMs -ge $BudgetMs) { return "give-up" }
+    if ($Moved) { return "progress" }
+    if ($SinceProgressMs -ge 3000) { return "give-up" }
     "wait"
 }
 
 # Resting and not walking: a press on a walking sprite lands where it was, and
 # the drag then throws whatever window is underneath.
-function Wait-Still([int]$Tenths) {
-    $budgetMs = $Tenths * 100
-    $restMs = 0
-    $wall = [System.Diagnostics.Stopwatch]::StartNew()
+function Wait-Still {
+    $script:restDecision = "wait"
+    $script:lastFrame = Last-Frame
     while ($true) {
-        if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-        $a = Last-Frame
-        $state = if ($a) { $a.State } else { "" }
-        $still = $false
-        $airborne = $state -cmatch '^(Falling|Climbing)$'
-        if ($a -and $state -cmatch '^(Grounded|Perched)$') {
-            Start-Sleep -Milliseconds 200
-            $b = Last-Frame
-            if ($b.X -eq $a.X -and $b.Y -eq $a.Y -and $b.State -cmatch '^(Grounded|Perched)$') { $still = $true }
-            $restMs += 200
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        # Re-decided on each trace change; progress restarts the 3 s window.
+        $null = Wait-OnChanges 3 (Split-Path -Parent $trace) {
+            $a = Last-Frame
+            $state = if ($a) { $a.State } else { "" }
+            $last = $script:lastFrame
+            $moved = [bool]($a -and $last -and ($a.X -ne $last.X -or $a.Y -ne $last.Y))
+            $script:lastFrame = $a
+            $still = [bool](Get-SpriteAtRest $trace)
+            $script:restDecision = Get-RestDecision $state $moved $still ([int]$clock.ElapsedMilliseconds)
+            $script:restDecision -cne "wait"
         }
-        $decision = Get-RestDecision $state $still $restMs ([int]$wall.ElapsedMilliseconds) $budgetMs
-        if ($decision -ceq "done") { return $true }
-        if ($decision -ceq "give-up") { return $false }
-        Start-Sleep -Milliseconds 100
-        if (-not $airborne) { $restMs += 100 }
+        if ($proc.HasExited) { Fail "Fidget exited; see $err" }
+        if ($script:restDecision -ceq "done") { return $true }
+        if ($script:restDecision -cne "progress") { return $false }
     }
 }
 
 function Wait-Climbing([int]$Tenths) {
-    for ($n = $Tenths; $n -gt 0; $n--) {
-        if (In-State "Climbing") { return $true }
-        Start-Sleep -Milliseconds 100
-    }
-    $false
+    return (Wait-OnChanges ($Tenths / 10) (Split-Path -Parent $trace) { In-State "Climbing" })
 }
 
 function Get-ClimbEdges([string[]]$Lines) {
@@ -321,7 +311,7 @@ $startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
     if (-not (Wait-ForFile 3 $trace)) { Fail "process.log never appeared; see $err" }
 
-    if (-not (Wait-Still 300)) { Fail "the sprite never came to rest; see $trace" }
+    if (-not (Wait-Still)) { Fail "the sprite never came to rest; see $trace" }
     $overlay = @(Get-Content -LiteralPath $trace | Where-Object { $_ -match '^(?:\d+ )?overlay: ' })
     $sizeLine = $overlay | Where-Object { $_ -match ' sprite (\d+)x\d+;' } | Select-Object -First 1
     if (-not ($sizeLine -match ' sprite (\d+)x\d+;')) { Fail "no sprite size in $trace" }
@@ -381,8 +371,7 @@ try {
         $py = $sy + [int][Math]::Floor($half / 9)
         [ClimbInput]::Click($px, $py)
         Add-Content -LiteralPath $inputLog -Value "clicked ($px,$py)"
-        Start-Sleep -Milliseconds $clickGap
-        if ((Pokes) -gt $before) {
+        if (Wait-ForCount ($clickGap / 1000) $trace $pokePattern $before) {
             $poked = $true
             break
         }
@@ -397,7 +386,7 @@ try {
         Fail "sprite did not hold react during cooldown; see $trace"
     }
 } finally {
-    if (-not $script:proc.HasExited) { Stop-Process -Id $script:proc.Id -Force -ErrorAction SilentlyContinue }
+    Stop-FidgetTree $script:proc
 }
 
 Check-Trace $trace

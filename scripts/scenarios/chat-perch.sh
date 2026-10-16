@@ -6,7 +6,7 @@
 #   types into the Chat composer. Two cropped screenshots are captured.
 #   The instance quits at the end.
 # Input: synthetic mouse clicks and typing inside Fidget only; no Finder or Poke.
-# Duration: expected 2–3 minutes, 5 minutes maximum.
+# Duration: a few seconds, 20 s at most.
 # Grants: Accessibility and Screen Recording for the terminal running it.
 # Asserts: focused Chat stays at layer 0, supports a Perch, accepts composer
 #   input, and its overlapping bubble button invokes the Chat command.
@@ -35,6 +35,7 @@ if [ "${1:-}" != --go ] && [ "${1:-}" != --prepare ]; then
 fi
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.mac.sh"
 helper_key=$(shasum "$root/scripts/scenarios/window-layer.swift" \
   "$root/scripts/scenarios/chat-perch-window.swift" "$root/scripts/ax-settings.swift" \
   "$root/scripts/click-cursor.swift" "$root/scripts/warp-cursor.swift" | shasum | cut -d ' ' -f 1)
@@ -54,15 +55,14 @@ test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 verify_bin="$(dirname "$bin")/fidget-verify"
 out=$(mktemp -d "${TMPDIR:-/tmp}/fidget-scenario-chat-perch-XXXXXX")
 mkdir -p "$out/home"
+seed_tour_shown "$out/home"
 log="$out/app.log"
 marks="$out/harness.log"
 : > "$marks"
 pid=""
-watchdog=""
 
 cleanup() {
-  [ -z "$watchdog" ] || kill "$watchdog" 2> /dev/null || true
-  [ -z "$pid" ] || kill "$pid" 2> /dev/null || true
+  stop_fidget
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -80,18 +80,6 @@ done
 if ! { [ -x "$bin" ] && [ -x "$test_bin" ] && [ -x "$verify_bin" ]; }; then
   fail "missing Fidget, fidget-verify, or fixture test binary"
 fi
-
-wait_for() {
-  local seconds=$1
-  shift
-  local n=$((seconds * 4))
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited early; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
 
 info() { "$tools/chat-window" info "$pid" BMO; }
 layer_zero() { [ "$("$tools/window-layer" "$pid" BMO)" = 0 ]; }
@@ -184,13 +172,31 @@ sys.exit(1)
 PY
 }
 
+chat_at_y() { # <y>
+  local y
+  IFS=, read -r _ y _ <<< "$(info)"
+  [ "$y" = "$1" ]
+}
+
+# True when two reads in a row put the button in the same spot.
+last_button=
+button_steady() {
+  local was=$last_button
+  button_over_chat || return 1
+  last_button="$button_x,$button_y"
+  [ "$was" = "$last_button" ]
+}
+
+composer_focused() {
+  [ "$("$tools/chat-window" focused-element 2> /dev/null)" = "$pid|BMO|AXTextArea|" ]
+}
+
 point_cursor_at() {
   local x=$1 y=$2 landed
   landed=$("$tools/warp-cursor" "$x" "$y" --event) ||
     fail "could not move cursor to Fidget target ($x,$y)"
   [ "$landed" = "$x $y" ] ||
     fail "cursor landed at $landed instead of Fidget target ($x,$y)"
-  sleep 0.2
 }
 
 overlay_state_at() {
@@ -218,23 +224,19 @@ printf 'focused_window_status=%s focused_window=%s\n' \
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-asking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "Harness path contains spaces"
 
+start_ms=$(now_ms)
 env HOME="$out/home" FIDGET_HARNESS="$harness" FIDGET_OPEN_CHAT=1 \
-  FIDGET_DEBUG_IPC=1 FIDGET_DIRECTOR_WAKE_SECS=6 FIDGET_DIRECTOR_API_KEY=x \
+  FIDGET_DEBUG_IPC=1 FIDGET_DIRECTOR_WAKE_SECS=1 FIDGET_DIRECTOR_API_KEY=x \
   FIDGET_CAPTURABLE=1 FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_HITTEST=1 \
   FIDGET_TRACE_BUBBLE=1 FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-(
-  sleep 300
-  kill -TERM "$$" 2> /dev/null || true
-) &
-watchdog=$!
 echo "pid=$pid" > "$out/run.txt"
 echo "commit=$(git -C "$root" rev-parse HEAD)" >> "$out/run.txt"
 echo "screen=$screen" >> "$out/run.txt"
 
-wait_for 30 info || fail "Chat window did not open"
-wait_for 30 grep -qx asked "$marks" || fail "fixture did not ask its question"
+wait_until 3 info || fail "Chat window did not open"
+wait_for_marks 3 "$marks" '^asked$' || fail "fixture did not ask its question"
 IFS=, read -r chat_x chat_y chat_w chat_h chat_layer <<< "$(info)"
 if ! { [ "$chat_x" -ge "$screen_x" ] && [ $((chat_x + chat_w)) -le $((screen_x + screen_w)) ]; }; then
   fail "Chat is not wholly on the primary display"
@@ -243,12 +245,12 @@ chat_title_x=$((chat_x + chat_w / 2))
 chat_title_y=$((chat_y + 14))
 before_pointer_lines=$(($(wc -l < "$log") + 1))
 point_cursor_at "$chat_title_x" "$chat_title_y"
-wait_for 4 overlay_state_at "$chat_title_x" "$chat_title_y" "$before_pointer_lines" "miss click-through on" ||
+wait_until 3 overlay_state_at "$chat_title_x" "$chat_title_y" "$before_pointer_lines" "miss click-through on" ||
   fail "overlay did not release input over Chat title"
 hit "$chat_title_x" "$chat_title_y" "$pid|BMO|"
 "$tools/click-cursor" "$chat_title_x" "$chat_title_y" 1 \
   > "$out/chat-focus-click.txt" || fail "could not focus Chat"
-if ! wait_for 5 chat_focused_and_normal; then
+if ! wait_until 3 chat_focused_and_normal; then
   probe_chat > "$out/initial-chat-state.txt"
   fail "focused Chat did not stay at layer 0; see $out/initial-chat-state.txt"
 fi
@@ -262,7 +264,7 @@ target_y=$((screen_y + 160))
 if [ "$chat_y" -ne "$target_y" ]; then
   "$tools/chat-window" move "$pid" BMO "$chat_x" "$target_y" ||
     fail "could not move Chat to a perchable ledge"
-  sleep 1
+  wait_until 3 chat_at_y "$target_y" || fail "Chat never reached y=$target_y after the move"
 fi
 IFS=, read -r chat_x chat_y chat_w chat_h chat_layer <<< "$(info)"
 echo "chat=$chat_x,$chat_y,$chat_w,$chat_h,$chat_layer" >> "$out/run.txt"
@@ -272,7 +274,7 @@ ledge_x=$((chat_x + chat_w / 2))
 ledge_y=$chat_y
 before_place_lines=$(wc -l < "$log")
 place "$ledge_x" "$((ledge_y - 60))"
-wait_for 10 perched_now || fail "Character did not settle Perched on Chat at y=$ledge_y"
+wait_until 3 perched_now || fail "Character did not settle Perched on Chat at y=$ledge_y"
 echo 'perch=pass' >> "$out/result.txt"
 
 capture_x=$chat_x
@@ -282,14 +284,11 @@ capture_h=$((chat_h + chat_y - capture_y))
 screencapture -x -R "$capture_x,$capture_y,$chat_w,$capture_h" "$out/perched.png" ||
   fail "could not capture perched Character"
 
-wait_for 5 grep -q 'showAsk instance=' "$log" ||
+wait_for_trace 3 "$log" 'showAsk instance=' ||
   fail "perching did not show the question bubble"
-wait_for 5 button_over_chat || fail "question bubble button did not overlap Chat"
-first_button="$button_x,$button_y"
-sleep 0.25
-button_over_chat || fail "question bubble button did not remain over Chat"
-[ "$first_button" = "$button_x,$button_y" ] ||
-  fail "question bubble button moved before click"
+wait_until 3 button_over_chat || fail "question bubble button did not overlap Chat"
+# The button holds still before the click.
+wait_until 2 button_steady || fail "question bubble button moved or left Chat before the click"
 echo "button=$button_x,$button_y" >> "$out/run.txt"
 echo 'bubble_over_chat=pass' >> "$out/result.txt"
 screencapture -x -R "$capture_x,$capture_y,$chat_w,$capture_h" "$out/bubble-over-chat.png" ||
@@ -297,7 +296,7 @@ screencapture -x -R "$capture_x,$capture_y,$chat_w,$capture_h" "$out/bubble-over
 
 before_pointer_lines=$(($(wc -l < "$log") + 1))
 point_cursor_at "$button_x" "$button_y"
-wait_for 4 overlay_state_at "$button_x" "$button_y" \
+wait_until 3 overlay_state_at "$button_x" "$button_y" \
   "$before_pointer_lines" "click-through OFF" ||
   fail "overlay did not accept input at the bubble button"
 hit "$button_x" "$button_y" "$pid|Fidget|AXButton|chat"
@@ -306,9 +305,9 @@ ask_id=$(sed -n 's/.*showAsk instance=\([^ ]*\) dnd=.*/\1/p' "$log" | tail -n 1)
 before_click_lines=$(($(wc -l < "$log") + 1))
 "$tools/click-cursor" "$button_x" "$button_y" 1 > "$out/bubble-click.txt" ||
   fail "could not click the bubble button"
-wait_for 5 click_traced "$log" "$before_click_lines" "$ask_id" ||
+wait_until 3 click_traced "$log" "$before_click_lines" "$ask_id" ||
   fail "bubble button did not invoke open Chat; see $log"
-if ! wait_for 5 chat_focused_and_normal; then
+if ! wait_until 3 chat_focused_and_normal; then
   probe_chat > "$out/after-bubble-chat-state.txt"
   fail "Chat was not focused at normal level after bubble click"
 fi
@@ -324,12 +323,12 @@ composer_y=$((cy + ch / 2))
 chat_focused_and_normal || fail "Chat lost focus before the composer click"
 before_pointer_lines=$(($(wc -l < "$log") + 1))
 point_cursor_at "$composer_x" "$composer_y"
-wait_for 4 overlay_state_at "$composer_x" "$composer_y" "$before_pointer_lines" "miss click-through on" ||
+wait_until 3 overlay_state_at "$composer_x" "$composer_y" "$before_pointer_lines" "miss click-through on" ||
   fail "overlay did not release the Chat composer point"
 hit "$composer_x" "$composer_y" "$pid|BMO|AXTextArea|"
 "$tools/click-cursor" "$composer_x" "$composer_y" 1 > "$out/composer-click.txt" ||
   fail "could not click Chat composer"
-sleep 0.4
+wait_until 2 composer_focused || fail "composer did not receive keyboard focus after the click"
 chat_focused_and_normal || fail "Chat lost focus after the composer click"
 "$tools/chat-window" focused-element > "$out/composer-focus.txt" ||
   fail "cannot read keyboard focus after the composer click"
@@ -343,4 +342,4 @@ grep -Fq "$marker" "$out/chat-after.ax.txt" ||
   fail "typed text did not appear in Chat composer"
 echo 'composer_click_and_type=pass' >> "$out/result.txt"
 
-echo "PASS: all four macOS checks; evidence in $out"
+echo "PASS: all four macOS checks; evidence in $out ($(($(now_ms) - start_ms))ms)"

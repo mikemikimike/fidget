@@ -5,9 +5,9 @@
 #   invoked, so Chat opens on the "Codex needs `npx`" landing and takes focus.
 #   The install link is clicked, which opens https://nodejs.org/ in the default
 #   browser. Two UI Automation dumps. Fidget quits at the end.
-# Input: one real click on the taskbar icon, Invoke on Chat..., one real click
-#   on the link; no keys.
-# Duration: about 20 s, 1 min at most.
+# Input: one real click on the taskbar icon, Invoke on Chat..., Invoke on the
+#   link (a real click only if it has no Invoke); no keys.
+# Duration: a few seconds, 10 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. The
 #   fidget icon shown on the taskbar, not in the hidden-icons overflow.
 # Asserts: the landing draws `npx` and https://nodejs.org/ as their own
@@ -51,6 +51,7 @@ if (-not $Bin) {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
@@ -81,6 +82,22 @@ function Check-After([string]$File) {
     Write-Output "ok: Chat still shows the landing, and no note says the link did not open"
 }
 
+# What the click led to: the "did not open" note, a webview navigation (the
+# landing is gone), a new top-level window that is not Fidget's, or $null.
+function Get-LinkOutcome([string[]]$Dump, [string[]]$NewTitles) {
+    if ($Dump | Where-Object { $_.Contains("That link did not open") }) { return "refused" }
+    if (-not ($Dump | Where-Object { $_.Contains("|Codex needs ") })) { return "navigated" }
+    if ($NewTitles | Where-Object { $_ -and $_ -notin @("BMO", "Fidget") }) { return "opened" }
+    return $null
+}
+
+# Top-level windows on the desktop, by native handle and title.
+function Get-TopWindows {
+    $all = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($w in $all) { [pscustomobject]@{ Handle = $w.Current.NativeWindowHandle; Title = $w.Current.Name } }
+}
+
 $landing = $env:FIDGET_SCENARIO_AX_LANDING
 $after = $env:FIDGET_SCENARIO_AX_AFTER
 if ($landing -or $after) {
@@ -94,7 +111,7 @@ if ($landing -or $after) {
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-landing-link-click-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home") | Out-Null
+$data = Initialize-ScenarioData $out
 $log = Join-Path $out "app.log"
 
 $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
@@ -103,8 +120,6 @@ if (Get-Command npx -ErrorAction SilentlyContinue) {
     exit 2
 }
 
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
 $env:FIDGET_HARNESS = "codex"
 $env:FIDGET_DIRECTOR_WAKE_SECS = "600"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
@@ -123,46 +138,47 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
         "& '$ax' @args"
     ), $utf8)
 
+$startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $log" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
-    function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
-            Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
-        return ($LASTEXITCODE -eq 0)
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Shows-Landing([string]$Name) {
-        if (-not (Invoke-Ax "$Name.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) { return $false }
+        if (-not (Invoke-Ax "$Name.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" })) { return $false }
         return (Test-Landing (Join-Path $out "$Name.ax.txt"))
     }
 
-    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
+    if (-not (Invoke-Ax "open" @{ Command = "tray"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Chat" })) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
-    if (-not (Wait-For 15 { Shows-Landing "landing" })) {
+    if (-not (Wait-ForUia 3 $proc.Id { Shows-Landing "landing" })) {
         Fail "Chat shows no Codex needs npx landing; see $out\landing.ax.txt"
     }
     Check-Landing (Join-Path $out "landing.ax.txt")
     $x = $script:Link[0] + [int]($script:Link[2] / 2)
     $y = $script:Link[1] + [int]($script:Link[3] / 2)
-    if (-not (Invoke-Ax "click" @("click", "-X", $x, "-Y", $y))) {
+    $before = @(Get-TopWindows | ForEach-Object { $_.Handle })
+    # UI Automation's Invoke first, so the real cursor stays put; a real click
+    # at the link's centre only if the webview exposes no Invoke on it.
+    if (Invoke-Ax "click" @{ Command = "link"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = $Url }) {
+        Write-Output "ok: invoked the link through UI Automation"
+    } elseif (-not (Invoke-Ax "click" @{ Command = "click"; X = $x; Y = $y })) {
         Fail "could not click the link; see $out\click.txt"
     }
-    Start-Sleep -Seconds 2
-    if (-not (Invoke-Ax "after.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) {
-        Fail "UI Automation dump failed after the click; see $out\after.ax.txt"
+    # Block on UI Automation events from any process (a browser window opening,
+    # Chat changing) until the click shows an outcome, at most 3 s.
+    $script:Outcome = $null
+    $null = Wait-UiaChange 0 3 {
+        if (-not (Invoke-Ax "after.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" })) { return $false }
+        $new = @(Get-TopWindows | Where-Object { $_.Handle -notin $before } | ForEach-Object { $_.Title })
+        $script:Outcome = Get-LinkOutcome (Read-Dump (Join-Path $out "after.ax.txt")) $new
+        [bool]$script:Outcome
     }
+    if (-not $script:Outcome) { Fail "the click showed no outcome (browser window, navigation or note) within 3 s; see $out\after.ax.txt" }
+    Write-Output "ok: the click's outcome is $script:Outcome"
     Check-After (Join-Path $out "after.ax.txt")
-    Write-Output "PASS: evidence in $out"
+    Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    Stop-FidgetTree $proc
 }
