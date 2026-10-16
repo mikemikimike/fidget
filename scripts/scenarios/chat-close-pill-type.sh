@@ -189,10 +189,9 @@ wait_textedit_front() { # <case> <document name>
   wait_until 3 textedit_front_on "$2" ||
     fail "$1: TextEdit with $2 did not come to the front (front: $(front_name), window: $(textedit_window))"
 }
-# The text of one of the run's TextEdit documents.
-# The text where TextEdit's caret is, read through Accessibility: an Apple event
-# for it timed out after typing. Every read, with its exit status and any error,
-# goes to textedit-reads.log, so a read that fails is never mistaken for text.
+# The text of TextEdit's focused document, read through Accessibility (Apple
+# events timed out after typing). Each read and its exit status go to
+# textedit-reads.log, so a failed read is never taken for text.
 text_front() {
   local text status=0
   text=$(capped 2 "$tools/ax" value "$(pgrep -x TextEdit | head -1)" 2>> "$out/textedit-reads.log") || status=$?

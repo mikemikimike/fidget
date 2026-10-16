@@ -1010,9 +1010,8 @@ test("the trace tells each hover change and why the timer did or did not start, 
   ]);
 });
 
-test("the pill's overlay trusts the Shell's hit test over a :hover stuck after Chat", () => {
-  assert.equal(spriteHovered({ owner: true, shell: false, dom: true }), false);
-  assert.equal(spriteHovered({ owner: true, shell: true, dom: false }), true);
-  assert.equal(spriteHovered({ owner: false, shell: false, dom: true }), true);
-  assert.equal(spriteHovered({ owner: false, shell: false, dom: false }), false);
+test("only the pill's overlay, by the Shell's hit test, counts the cursor on the Character", () => {
+  assert.equal(spriteHovered({ owner: true, shell: true }), true);
+  assert.equal(spriteHovered({ owner: true, shell: false }), false);
+  assert.equal(spriteHovered({ owner: false, shell: true }), false);
 });

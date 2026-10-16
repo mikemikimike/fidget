@@ -381,7 +381,6 @@ function notePointerLeft(view) {
     const over = spriteHovered({
       owner: Boolean(view.latest?.bubble),
       shell: view.latest?.hovered,
-      dom: view.sprite.matches(":hover"),
     });
     if (over) view.quickMachine.enterSprite();
     else view.quickMachine.leaveSprite();

@@ -2314,8 +2314,10 @@ fn build_overlay(
     cover_display(&window, display)?;
 
     // Windows: configure before show to prevent white flash.
-    // HWND exists while hidden, so all operations succeed.
-    #[cfg(windows)]
+    // macOS: a panel non-activating before its first show stays that way for
+    // the window server, so a sprite click does not activate Fidget (#1565).
+    // Both native handles exist while hidden.
+    #[cfg(any(windows, target_os = "macos"))]
     platform::configure_overlay(&window)?;
 
     // Show the window. On Linux/GTK this realizes the widget and creates the
@@ -2328,11 +2330,6 @@ fn build_overlay(
     if let Err(why) = platform::configure_overlay(&window) {
         eprintln!("overlay: {label} EWMH config deferred: {why}");
     }
-
-    // macOS: configure after show. Configured as a panel before its first
-    // show, the overlay plays an open animation and overshoots the display.
-    #[cfg(target_os = "macos")]
-    platform::configure_overlay(&window)?;
 
     eprintln!(
         "overlay: {label} covers {:.0}x{:.0} at ({:.0},{:.0})",
