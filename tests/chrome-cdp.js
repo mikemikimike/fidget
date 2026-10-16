@@ -88,13 +88,13 @@ export function launchWithPipe(chrome, args) {
     proc.stdio[fd].on("close", () => failPending("Chrome pipe closed"));
   }
 
-  function send(method, params = {}, sessionId = undefined) {
+  function send(method, params = {}, sessionId = undefined, timeoutMs = 3000) {
     const id = nextId++;
     return new Promise((res, rej) => {
       const timer = setTimeout(() => {
         pending.delete(id);
-        rej(new Error(`${method}: CDP call timeout after 3s`));
-      }, 3000);
+        rej(new Error(`${method}: CDP call timeout after ${timeoutMs}ms`));
+      }, timeoutMs);
 
       pending.set(id, {
         resolve: (result) => {
@@ -127,7 +127,7 @@ export function launchWithPipe(chrome, args) {
 }
 
 export async function createPageTarget(cdp) {
-  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
+  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" }, undefined, 10000);
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   await cdp.send("Runtime.enable", {}, sessionId);
   await cdp.send("Log.enable", {}, sessionId);
