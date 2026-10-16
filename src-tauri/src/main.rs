@@ -325,7 +325,10 @@ impl MinimizedChats {
         let (floats, minimized) = match event {
             tauri::WindowEvent::Focused(focused) => (Some(*focused), minimized()),
             tauri::WindowEvent::Resized(_) => (None, minimized()),
-            tauri::WindowEvent::Destroyed => (None, false),
+            tauri::WindowEvent::Destroyed => {
+                eprintln!("chat: {label} is closed");
+                (None, false)
+            }
             _ => return None,
         };
         self.set(label, minimized);
@@ -2021,10 +2024,10 @@ fn overlay_composing(instance: String) {
 #[tauri::command]
 fn overlay_report_qm_draft(instance: String, payload: Option<fidget_core::quick_message::QmDraft>) {
     if dev_flags::TRACE_BUBBLE.is_on() {
-        if let Some(ref draft) = payload {
+        if let Some(draft) = &payload {
             eprintln!(
-                "overlay: draft instance={} text={:?} focused={}",
-                instance, draft.text, draft.focused
+                "overlay: draft instance={instance} text={:?} focused={}",
+                draft.text, draft.focused
             );
         }
     }
@@ -2128,7 +2131,7 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
 /// SetForegroundWindow to a background thread, so the overlay borrows the
 /// foreground thread's input for the call.
 #[tauri::command]
-fn overlay_request_focus(window: tauri::WebviewWindow) -> Result<(), String> {
+fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -2172,37 +2175,7 @@ fn overlay_request_focus(window: tauri::WebviewWindow) -> Result<(), String> {
         Ok(())
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        if dev_flags::TRACE_BUBBLE.is_on() {
-            use objc2::msg_send;
-            use objc2_app_kit::NSApplication;
-            use objc2_foundation::MainThreadMarker;
-
-            if let Ok(ptr) = window.ns_window() {
-                let ns_window = ptr as *const objc2::runtime::AnyObject;
-                unsafe {
-                    let mtm = MainThreadMarker::new_unchecked();
-                    let app = NSApplication::sharedApplication(mtm);
-                    let is_active: bool = msg_send![&*app, isActive];
-                    let is_key: bool = msg_send![ns_window, isKeyWindow];
-                    let can_become_key: bool = msg_send![ns_window, canBecomeKeyWindow];
-                    let key_window: *const objc2::runtime::AnyObject = msg_send![&*app, keyWindow];
-                    eprintln!(
-                        "overlay: request_focus app_active={} window_is_key={} can_become_key={} has_key_window={}",
-                        is_active, is_key, can_become_key, !key_window.is_null()
-                    );
-                }
-            }
-        }
-
-        platform::allow_overlay_focus(&window, true)?;
-        let result = window.set_focus().map_err(|e| e.to_string());
-        platform::allow_overlay_focus(&window, false)?;
-        result
-    }
-
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(not(target_os = "windows"))]
     {
         window.set_focus().map_err(|e| e.to_string())
     }
@@ -2456,46 +2429,8 @@ fn close_chat(app: &tauri::AppHandle, id: &InstanceId) {
     let handle = app.clone();
     if let Err(why) = app.run_on_main_thread(move || {
         if let Some(window) = handle.get_webview_window(&label) {
-            #[cfg(target_os = "macos")]
-            if dev_flags::TRACE_BUBBLE.is_on() {
-                use objc2::msg_send;
-                use objc2_app_kit::NSApplication;
-                use objc2_foundation::MainThreadMarker;
-
-                unsafe {
-                    let mtm = MainThreadMarker::new_unchecked();
-                    let app = NSApplication::sharedApplication(mtm);
-                    let is_active: bool = msg_send![&*app, isActive];
-                    let key_window: *const objc2::runtime::AnyObject = msg_send![&*app, keyWindow];
-                    eprintln!(
-                        "chat: before close app_active={} has_key_window={}",
-                        is_active,
-                        !key_window.is_null()
-                    );
-                }
-            }
-
             if let Err(why) = window.close() {
                 eprintln!("chat: {label} could not be closed: {why}");
-            }
-
-            #[cfg(target_os = "macos")]
-            if dev_flags::TRACE_BUBBLE.is_on() {
-                use objc2::msg_send;
-                use objc2_app_kit::NSApplication;
-                use objc2_foundation::MainThreadMarker;
-
-                unsafe {
-                    let mtm = MainThreadMarker::new_unchecked();
-                    let app = NSApplication::sharedApplication(mtm);
-                    let is_active: bool = msg_send![&*app, isActive];
-                    let key_window: *const objc2::runtime::AnyObject = msg_send![&*app, keyWindow];
-                    eprintln!(
-                        "chat: after close app_active={} has_key_window={}",
-                        is_active,
-                        !key_window.is_null()
-                    );
-                }
             }
         }
     }) {
