@@ -481,9 +481,9 @@ pub fn remember_foreground(window: &tauri::Window) {
     }
 }
 
-/// The overlay's last pill closed: on X11, ask the window manager to activate
-/// the window that was active before, if the overlay still has focus and that
-/// window still exists. Wayland has no way for one client to activate another
+/// The overlay's last pill closed: on X11, if the overlay still has focus, ask
+/// the window manager to activate the window that was active before, or, if it
+/// is gone, the topmost window that is not Fidget's. Wayland has no way for one client to activate another
 /// client's surface without a token from that client (xdg-activation), so there
 /// the compositor picks where focus goes.
 #[cfg(all(unix, not(target_os = "macos")))]
