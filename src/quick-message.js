@@ -67,7 +67,14 @@ export function keepOnDrag(text) {
   return text.trim().length > 0;
 }
 
-export function createQuickMessage({ schedule, clear, send, onChange, available = true }) {
+export function createQuickMessage({
+  schedule,
+  clear,
+  send,
+  onChange,
+  available = true,
+  trace = () => {},
+}) {
   let visible = false;
   let text = "";
   let focused = false;
@@ -89,6 +96,13 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
   // The open draft came from the Shell and is untouched here, so it stays only
   // while the Shell still carries it.
   let carried = false;
+
+  // Hover is re-reported every frame, so each refusal is traced once per reason.
+  let refused = null;
+  function refuse(reason) {
+    if (reason !== refused) trace(`timer refused: ${reason}`);
+    refused = reason;
+  }
 
   function changed() {
     if (!disposed) onChange?.();
@@ -186,16 +200,34 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
     },
     enterSprite() {
       if (disposed) return;
+      if (!overSprite) trace("hover enter");
       overSprite = true;
       cancelAutoHide();
-      if (yielded || chatOpen || visible || hoverTimer !== null) return;
+      const reason = yielded
+        ? "yielded"
+        : chatOpen
+          ? "chat open"
+          : visible
+            ? "pill open"
+            : hoverTimer !== null
+              ? "timer running"
+              : null;
+      if (reason) return refuse(reason);
+      refused = null;
+      trace("timer started");
       hoverTimer = schedule(() => {
         hoverTimer = null;
-        if (disposed || !overSprite || chatOpen) return;
+        if (disposed || !overSprite || chatOpen) {
+          trace(`timer fired: not shown (${chatOpen ? "chat open" : "left"})`);
+          return;
+        }
+        trace("timer fired: shown");
         show();
       }, HOVER_DELAY_MS);
     },
     leaveSprite() {
+      if (overSprite) trace("hover leave");
+      refused = null;
       overSprite = false;
       yielded = false;
       cancelHover();

@@ -234,7 +234,22 @@ wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is closed$' osascript \
   -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true" \
   -e 'tell application "System Events" to keystroke "w" using command down' ||
   fail "Chat did not close; see $log"
-open_pill after-chat
+# Four cursor moves onto the sprite, the way a hand arrives. Run by wait_for_next.
+# shellcheck disable=SC2329
+stepped() { for step in 3 2 1 0; do "$tools/warp-cursor" "$((cx + step * sw))" "$cy" --event || return 1; done; }
+# A single cursor move first. If that opens nothing in 3 s, a stepped move
+# onto the sprite tells a missed synthetic move apart from a pill that won't open.
+sprite_center
+capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "after-chat: could not move the cursor away"
+if wait_for_next 3 "$log" "$draft" "$tools/warp-cursor" "$cx" "$cy" --event; then
+  echo "ok: after-chat: a single cursor move opened the pill"
+else
+  capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "after-chat: could not move the cursor away"
+  if wait_for_next 3 "$log" "$draft" stepped; then
+    fail "after-chat: only a stepped cursor move opened the pill, not a single move; see $log"
+  fi
+  fail "after-chat: the pill did not open after a single or a stepped cursor move; see $log"
+fi
 type_into_pill two after-chat
 
 # 4. TextEdit in front when the pill opens. A minimized Chat lets the pill back.

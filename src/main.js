@@ -454,6 +454,7 @@ function attachQuickMessage(view, id) {
     clear: (timer) => window.clearTimeout(timer),
     // Frozen until the first opening. The fetch below is what thaws it.
     available: false,
+    trace: (message) => traceBubble(`pill ${message} instance=${id}`),
     onChange() {
       syncQuick(view);
     },

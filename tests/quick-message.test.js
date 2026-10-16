@@ -27,7 +27,11 @@ function harness(options = {}) {
   let nextId = 1;
   const sent = [];
   const changes = [];
+  const traces = [];
   const qm = createQuickMessage({
+    trace(message) {
+      traces.push(message);
+    },
     schedule(fn, ms) {
       const id = nextId;
       nextId += 1;
@@ -61,7 +65,7 @@ function harness(options = {}) {
     }
   }
 
-  return { qm, sent, advance, changes };
+  return { qm, sent, advance, changes, traces };
 }
 
 function shown() {
@@ -967,4 +971,28 @@ test("a carried draft is this overlay's to report once it is typed into", () => 
 
   right.qm.setOwner(true, slot.get("a"));
   assert.equal(right.qm.visible, true, "the line being typed stays");
+});
+
+test("the trace tells each hover change and why the timer did or did not start, once", () => {
+  const { qm, advance, traces } = harness();
+  qm.summon();
+  qm.enterSprite();
+  qm.enterSprite();
+  qm.leaveSprite();
+  qm.setChatOpen(true);
+  qm.enterSprite();
+  qm.setChatOpen(false);
+  qm.enterSprite();
+  qm.enterSprite();
+  advance(HOVER_DELAY_MS);
+  assert.deepEqual(traces, [
+    "hover enter",
+    "timer refused: yielded",
+    "hover leave",
+    "hover enter",
+    "timer refused: chat open",
+    "timer started",
+    "timer refused: timer running",
+    "timer fired: shown",
+  ]);
 });
