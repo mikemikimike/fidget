@@ -277,7 +277,13 @@ try {
     $r = Rect $chat
     [ChatPerchWin]::SetWindowPos($chat, [IntPtr]::Zero, $work.Left + [int](($work.Width - $r[2]) / 2),
         $work.Top + 160, 0, 0, 0x0015) | Out-Null
+    # SetForegroundWindow is refused while another app holds the foreground,
+    # so a click on Chat's title bar focuses it, as a user would.
     [ChatPerchWin]::SetForegroundWindow($chat) | Out-Null
+    if (-not (Wait-For 1 { [ChatPerchWin]::GetForegroundWindow() -eq $chat })) {
+        $r = Rect $chat
+        [ChatPerchWin]::Click($r[0] + [int]($r[2] / 2), $r[1] + 12)
+    }
     if (-not (Wait-For 5 { [ChatPerchWin]::GetForegroundWindow() -eq $chat })) {
         Fail "Chat did not take the foreground: $(Chat-State)"
     }
