@@ -41,6 +41,7 @@ fail() {
 
 [ -x "$tools/click-cursor" ] || swiftc -O "$root/scripts/click-cursor.swift" -o "$tools/click-cursor"
 [ "$tools/ax" -nt "$root/scripts/ax-settings.swift" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+build_ax_events
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-asking count=$marks"

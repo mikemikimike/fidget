@@ -14,13 +14,19 @@ ax_dump_matches() { # <pid> <window title> <pattern>
 # from the app (printed by ax-events) until it succeeds or the seconds run out.
 wait_for_ax() { # <seconds> <pid> <command...>
   local seconds=$1
+  # Built by the leaf at startup, beside ax: see build_ax_events.
   # shellcheck disable=SC2154
-  [ "$tools/ax-events" -nt "$root/scripts/ax-events.swift" ] ||
-    swiftc -O "$root/scripts/ax-events.swift" -o "$tools/ax-events" || return 1
+  [ -x "$tools/ax-events" ] || return 1
   ax_events_pid=$2
   shift 2
   "$@" > /dev/null 2>&1 && return 0
   wait_on_source "$seconds" ax_events probe_each_line "$@"
+}
+# Build ax-events at startup, where the leaf builds its other tools.
+build_ax_events() {
+  # shellcheck disable=SC2154
+  [ "$tools/ax-events" -nt "$root/scripts/ax-events.swift" ] ||
+    swiftc -O "$root/scripts/ax-events.swift" -o "$tools/ax-events"
 }
 ax_events() { exec "$tools/ax-events" "$ax_events_pid" 2> /dev/null; }
 

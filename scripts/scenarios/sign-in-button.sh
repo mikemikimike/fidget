@@ -42,6 +42,7 @@ fail() {
 [ "$tools/ax" -nt "$root/scripts/ax-settings.swift" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
 # shellcheck source=wait-helpers.mac.sh
 . "$root/scripts/scenarios/wait-helpers.mac.sh"
+build_ax_events
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
 # Chat names the Harness by its launcher.

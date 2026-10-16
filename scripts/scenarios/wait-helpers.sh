@@ -149,3 +149,34 @@ sprite_at_rest() { # <log>
     { match($0, /sprite\(-?[0-9]+,-?[0-9]+\)/); at = substr($0, RSTART, RLENGTH); if (n++ && at != last) bad = 1; last = at }
     END { exit (bad || n < 5) }'
 }
+
+# Wait for the sprite to rest. Each frame where it moved (walking, climbing or
+# falling) is progress and restarts the 3 s window, so a long walk is fine.
+wait_for_rest() { # <log>
+  local flag result
+  flag=$(mktemp "${TMPDIR:-/tmp}/fidget-rest.XXXXXX")
+  while :; do
+    sprite_at_rest "$1" && result=0 && break
+    : > "$flag"
+    wait_on_lines 3 0 "$1" rest_or_moved "$1" "$flag" || { result=1 && break; }
+    [ -s "$flag" ] || { result=0 && break; }
+  done
+  rm -f "$flag"
+  return "$result"
+}
+# Reader for wait_for_rest: exits on rest, or on a move after noting it.
+rest_or_moved() { # <log> <flag file>
+  local line spot last
+  last=$(grep '^frame: ' "$1" 2> /dev/null | tail -1 | grep -oE 'sprite\(-?[0-9]+,-?[0-9]+\)')
+  while IFS= read -r line; do
+    [[ $line == frame:* ]] || continue
+    sprite_at_rest "$1" && return 0
+    spot=$(grep -oE 'sprite\(-?[0-9]+,-?[0-9]+\)' <<< "$line")
+    if [ -n "$last" ] && [ "$spot" != "$last" ]; then
+      echo moved > "$2"
+      return 0
+    fi
+    last=$spot
+  done
+  return 1
+}

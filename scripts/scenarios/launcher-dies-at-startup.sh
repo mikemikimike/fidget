@@ -42,6 +42,7 @@ fail() {
 
 [ -x "$tools/window-id" ] || swiftc -O "$root/scripts/scenarios/window-id.swift" -o "$tools/window-id"
 [ "$tools/ax" -nt "$root/scripts/ax-settings.swift" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+build_ax_events
 
 # `abort-first` prints a dyld line and aborts on its first spawn, then answers.
 # The wrapper answers the launcher probe's `--version` as harness.rs's does.

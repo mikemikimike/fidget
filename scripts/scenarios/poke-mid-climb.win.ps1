@@ -244,11 +244,11 @@ function In-State([string]$Pattern) {
 
 function Pokes { @(Select-String -LiteralPath $trace -Pattern $pokePattern -CaseSensitive).Count }
 
-# A climbing or falling frame where the sprite moved is progress, however
-# long a tall display makes the climb. 3 s with no progress gives up.
+# A frame where the sprite moved (walking, climbing or falling) is progress,
+# however long the walk or climb. 3 s with no progress gives up.
 function Get-RestDecision([string]$State, [bool]$Moved, [bool]$Still, [int]$SinceProgressMs) {
     if ($Still -and $State -cmatch '^(Grounded|Perched)$') { return "done" }
-    if ($Moved -and $State -cmatch '^(Falling|Climbing)$') { return "progress" }
+    if ($Moved) { return "progress" }
     if ($SinceProgressMs -ge 3000) { return "give-up" }
     "wait"
 }

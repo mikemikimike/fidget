@@ -41,6 +41,7 @@ fail() {
 [ -x "$tools/window-id" ] || swiftc -O "$root/scripts/scenarios/window-id.swift" -o "$tools/window-id"
 # Rebuilt when the source is newer: this scenario needs its `size` and `frames`.
 [ "$tools/ax" -nt "$root/scripts/ax-settings.swift" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+build_ax_events
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"

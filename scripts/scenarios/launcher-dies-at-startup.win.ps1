@@ -187,11 +187,11 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
 $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $errLog -PassThru -WindowStyle Normal
 try {
-    function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
         return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Invoke-Dump([string]$Name) {
-        return (Invoke-Ax "$Name.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))
+        return (Invoke-Ax "$Name.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" })
     }
     function Get-Spawns { @(Get-Content -LiteralPath $marks | Where-Object { $_ -eq "spawn" }).Count }
 
@@ -199,7 +199,7 @@ try {
         Fail "the launcher never died before initialize; see $errLog"
     }
     if ((Get-Spawns) -ne 1) { Fail "want one spawn before Chat opens, the fixture saw $(Get-Spawns)" }
-    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
+    if (-not (Invoke-Ax "open" @{ Command = "tray"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Chat" })) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
     $failed = Join-Path $out "failed.ax.txt"
@@ -207,7 +207,7 @@ try {
     Check-Failed $failed
 
     foreach ($w in @(420, 320)) {
-        if (-not (Invoke-Ax "$w.frame" @("size", "-ProcessId", $proc.Id, "-Title", "BMO", $w, 560))) {
+        if (-not (Invoke-Ax "$w.frame" @{ Command = "size"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = $w; Arg4 = 560 })) {
             Fail "${w}: resize failed; see $out\$w.frame.txt"
         }
         $got = [int]((Get-Content -LiteralPath (Join-Path $out "$w.frame.txt") -Encoding utf8 | Select-Object -First 1) -split ',')[2]
@@ -219,7 +219,7 @@ try {
     }
 
     if ((Get-Spawns) -ne 1) { Fail "the Harness launched again before the re-pick ($(Get-Spawns) spawns)" }
-    if (-not (Invoke-Ax "press" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Codex"))) {
+    if (-not (Invoke-Ax "press" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Codex" })) {
         Fail "could not press Codex on the landing; see $out\press.txt"
     }
     if (-not (Wait-ForCount 3 $marks '^spawn$' 1)) { Fail "the re-pick did not launch the Harness again; see $errLog" }

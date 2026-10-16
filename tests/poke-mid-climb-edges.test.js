@@ -48,7 +48,8 @@ $fallStuck = Get-RestDecision "Falling" $false $false 3000
 $climbPaused = Get-RestDecision "Climbing" $false $false 2900
 $groundedStill = Get-RestDecision "Grounded" $false $true 0
 $walkingLong = Get-RestDecision "Walking" $true $false 3000
-Write-Output "$climbAfterAMinute $fallStuck $climbPaused $groundedStill $walkingLong"
+$walkingStuck = Get-RestDecision "Walking" $false $false 3000
+Write-Output "$climbAfterAMinute $fallStuck $climbPaused $groundedStill $walkingLong $walkingStuck"
 `);
 
 const PWSH_HOST_ABORT =
@@ -84,8 +85,8 @@ test("the right edge target is the far side of the wide display", { skip }, (t) 
   assert.deepEqual(got, { left: -1200, right: 3440, leftTarget: -1200, rightTarget: 3439 });
 });
 
-test("an airborne frame that moved is progress; 3 s with none gives up", { skip }, (t) => {
+test("a frame that moved (walking, climbing or falling) is progress; 3 s with none gives up", { skip }, (t) => {
   const got = runLeaf(t, REST);
   if (got == null) return;
-  assert.equal(got, "progress give-up wait done give-up");
+  assert.equal(got, "progress give-up wait done progress give-up");
 });

@@ -136,6 +136,8 @@ $env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_TRACE_FRAMES = "1"
+# ax-window-win.ps1 presses once a hit-test line shows the click area followed the cursor.
+$env:FIDGET_TRACE_HITTEST = "1"
 $env:FIDGET_TRACE_WINDOWS = "1"
 $env:FIDGET_CHARACTER = "bmo"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
@@ -226,12 +228,12 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
 $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
 try {
-    function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
         return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     # The overlay window is titled Fidget; Chat takes the Character's name.
     function Invoke-Dump([string]$Label) {
-        if (-not (Invoke-Ax "$Label.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "Fidget"))) {
+        if (-not (Invoke-Ax "$Label.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "Fidget" })) {
             Fail "${Label}: UI Automation dump failed; see $out\$Label.ax.txt"
         }
         return (Join-Path $out "$Label.ax.txt")
@@ -289,7 +291,7 @@ try {
         $trace = Get-Content -LiteralPath $traceFile
         $clickCountBefore = @($trace | Select-String -Pattern '^\d+ click: down ').Count
         $verbCountBefore = @($trace | Select-String -Pattern '^\d+ verbs: ').Count
-        if (-not (Invoke-Ax "poke-$attempt" @("click", "-TraceFile", $traceFile, "-SpriteW", $w, "-SpriteH", $h))) {
+        if (-not (Invoke-Ax "poke-$attempt" @{ Command = "click"; TraceFile = $traceFile; SpriteW = $w; SpriteH = $h })) {
             $msg = "could not click the sprite on attempt $attempt; see $out\poke-$attempt.txt"
             Add-Content -LiteralPath $attemptsFile -Value $msg
             if ($attempt -eq $maxAttempts) { Fail $msg }
@@ -328,7 +330,7 @@ try {
     $null = Wait-ForUia 3 $proc.Id { Read-Dump (Invoke-Dump "after-poke") | Where-Object { $_.Contains("Question for you") } }
     Check-After (Join-Path $out "after-poke.ax.txt")
     # Answer the ask, so the fixture Harness finishes its turn instead of waiting.
-    if (-not (Wait-ForUia 3 $proc.Id { Invoke-Ax "allow" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Allow") })) {
+    if (-not (Wait-ForUia 3 $proc.Id { Invoke-Ax "allow" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Allow" } })) {
         Fail "could not press Allow on the permission ask; see $out\allow.txt"
     }
     if (-not (Wait-ForMarks 3 $marks '^replied$')) { Fail "the Harness never replied after Allow; see $marks" }

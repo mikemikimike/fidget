@@ -125,15 +125,15 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
 $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
 try {
-    function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
         return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Shows-Landing([string]$Name) {
-        if (-not (Invoke-Ax "$Name.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) { return $false }
+        if (-not (Invoke-Ax "$Name.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" })) { return $false }
         return (Test-Landing (Join-Path $out "$Name.ax.txt"))
     }
 
-    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
+    if (-not (Invoke-Ax "open" @{ Command = "tray"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Chat" })) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
     if (-not (Wait-ForUia 3 $proc.Id { Shows-Landing "landing" })) {
@@ -144,13 +144,13 @@ try {
     $y = $script:Link[1] + [int]($script:Link[3] / 2)
     # UI Automation's Invoke first, so the real cursor stays put; a real click
     # at the link's centre only if the webview exposes no Invoke on it.
-    if (Invoke-Ax "click" @("link", "-ProcessId", $proc.Id, "-Title", "BMO", $Url)) {
+    if (Invoke-Ax "click" @{ Command = "link"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = $Url }) {
         Write-Output "ok: invoked the link through UI Automation"
-    } elseif (-not (Invoke-Ax "click" @("click", "-X", $x, "-Y", $y))) {
+    } elseif (-not (Invoke-Ax "click" @{ Command = "click"; X = $x; Y = $y })) {
         Fail "could not click the link; see $out\click.txt"
     }
     # A webview navigation, or the "did not open" note, lands as the link hands off.
-    if (-not (Wait-ForUia 2 $proc.Id { Invoke-Ax "after.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames") })) {
+    if (-not (Wait-ForUia 2 $proc.Id { Invoke-Ax "after.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" } })) {
         Fail "UI Automation dump failed after the click; see $out\after.ax.txt"
     }
     Check-After (Join-Path $out "after.ax.txt")

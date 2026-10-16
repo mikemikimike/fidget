@@ -64,17 +64,15 @@ public class FidgetWinEnum {
     }
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, int dx, int dy, uint data, UIntPtr extra);
-    public static void Click(int x, int y) {
-        SetCursorPos(x, y);
-        System.Threading.Thread.Sleep(800);
+    public static void Press() {
         mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+        // A press and release in one tick read as no click; 80 ms spans a frame.
         System.Threading.Thread.Sleep(80);
         mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
     }
-    public static void RightClick(int x, int y) {
-        SetCursorPos(x, y);
-        System.Threading.Thread.Sleep(800);
+    public static void RightPress() {
         mouse_event(0x0008, 0, 0, 0, UIntPtr.Zero);
+        // WebView2 opens its context menu on a held right press; 400 ms is held.
         System.Threading.Thread.Sleep(400);
         mouse_event(0x0010, 0, 0, 0, UIntPtr.Zero);
     }
@@ -248,9 +246,46 @@ function Get-ClickPoint {
     }
 }
 
+# Move the cursor, then press once the overlay's clickable area has followed
+# it: with -TraceFile and FIDGET_TRACE_HITTEST=1, a new hit-test line that says
+# HIT with click-through OFF. Fails after 3 s from the move. A plain window
+# (no -TraceFile) is clickable at once.
+function Invoke-Click([int]$ClickX, [int]$ClickY, [switch]$Right) {
+    $start = if ($TraceFile -and (Test-Path -LiteralPath $TraceFile)) { (Get-Item -LiteralPath $TraceFile).Length } else { -1 }
+    [FidgetWinEnum]::SetCursorPos($ClickX, $ClickY) | Out-Null
+    if ($start -ge 0 -and -not (Wait-HitFollowed $start)) {
+        Write-Error "the clickable area did not follow the cursor to $ClickX,$ClickY within 3s; is FIDGET_TRACE_HITTEST=1 set?"
+        exit 1
+    }
+    if ($Right) { [FidgetWinEnum]::RightPress() } else { [FidgetWinEnum]::Press() }
+}
+function Wait-HitFollowed([long]$From) {
+    $full = [System.IO.Path]::GetFullPath($TraceFile)
+    $watcher = New-Object System.IO.FileSystemWatcher ([System.IO.Path]::GetDirectoryName($full)), ([System.IO.Path]::GetFileName($full))
+    $watcher.NotifyFilter = [System.IO.NotifyFilters]'Size, LastWrite'
+    $deadline = [DateTime]::UtcNow.AddSeconds(3)
+    try {
+        while ($true) {
+            $stream = [System.IO.File]::Open($full, 'Open', 'Read', 'ReadWrite')
+            try {
+                [void]$stream.Seek($From, 'Begin')
+                $text = (New-Object System.IO.StreamReader $stream).ReadToEnd()
+            } finally {
+                $stream.Dispose()
+            }
+            if ($text -match 'hit-test: cursor\(.*\bHIT\s+click-through OFF') { return $true }
+            $left = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds
+            if ($left -le 0) { return $false }
+            $watcher.WaitForChanged([System.IO.WatcherChangeTypes]::Changed, $left) | Out-Null
+        }
+    } finally {
+        $watcher.Dispose()
+    }
+}
+
 if ($Command -eq "click") {
     $point = Get-ClickPoint
-    [FidgetWinEnum]::Click($point[0], $point[1])
+    Invoke-Click $point[0] $point[1]
     exit 0
 }
 
@@ -260,7 +295,7 @@ if ($Command -eq "menu") {
     # Listen before the click so a fast MenuOpened is not missed.
     $signal = [FidgetUiaSignal]::new(0)
     try {
-        [FidgetWinEnum]::RightClick($point[0], $point[1])
+        Invoke-Click $point[0] $point[1] -Right
         $deadline = [DateTime]::UtcNow.AddSeconds(3)
         $items = @(Get-PopupMenuItems -FidgetPid $pidArg)
         while ($items.Count -eq 0 -and $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) {
@@ -302,7 +337,8 @@ if ($Command -eq "tray") {
     $r = $icon.Current.BoundingRectangle
     $signal = [FidgetUiaSignal]::new(0)
     try {
-        [FidgetWinEnum]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
+        [FidgetWinEnum]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) | Out-Null
+        [FidgetWinEnum]::Press()
         $deadline = [DateTime]::UtcNow.AddSeconds(3)
         $findRow = { Get-PopupMenuItems | Where-Object { $_ -isnot [string] -and $_.Current.Name.StartsWith($Arg3) } | Select-Object -First 1 }
         $row = & $findRow

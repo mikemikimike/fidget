@@ -50,7 +50,6 @@ pokes() { grep -c '^verbs: .*Poke' "$log" || true; }
 
 # Resting and not walking: a press on a walking sprite lands where it was, and
 # the drag then throws whatever window is underneath.
-still() { sprite_at_rest "$log"; }
 climbing() { in_state Climbing; }
 # The checker passes once the trace runs past the Poke's 2.5 s cooldown.
 cooldown_traced() { python3 "$root/scripts/scenarios/poke-mid-climb-check.py" "$log" 2> "$out/check.txt"; }
@@ -70,7 +69,7 @@ else
   pid=$!
   trap 'stop_fidget' EXIT INT TERM
 
-  wait_until 3 still || fail "the sprite never came to rest; see $log"
+  wait_for_rest "$log" || fail "the sprite never came to rest; see $log"
   size=$(sed -nE 's/^overlay: .* sprite ([0-9]+)x[0-9]+;.*/\1/p' "$log" | head -1)
   [ -n "$size" ] || fail "no sprite size in $log"
   half=$((size / 2))
@@ -83,7 +82,7 @@ else
 
   poked=
   for attempt in 1 2 3 4 5; do
-    wait_until 3 still || continue
+    wait_for_rest "$log" || continue
     read -r sx sy < <(sprite_xy)
     cx=$((sx + half))
     # Toward the nearer side of the sprite's own display, and the far side on

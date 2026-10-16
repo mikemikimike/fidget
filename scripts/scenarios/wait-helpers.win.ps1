@@ -103,19 +103,14 @@ function Wait-Until([double]$Seconds, [scriptblock]$Probe) {
     return (Wait-OnChanges $Seconds $script:WatchDir $Probe)
 }
 
-# Run ax-window-win.ps1 in this session (no new powershell per check) with
-# the args a command line would take, writing its output to $OutFile.
-# True when it exits 0.
-function Invoke-AxWin([string]$OutFile, [string[]]$AxArgs) {
-    $named = @{}
-    $positional = @()
-    for ($i = 0; $i -lt $AxArgs.Count; $i++) {
-        if ($AxArgs[$i] -match '^-([A-Za-z]\w*)$') { $named[$Matches[1]] = $AxArgs[$i + 1]; $i++ } else { $positional += $AxArgs[$i] }
-    }
+# Run ax-window-win.ps1 in this session (no new powershell per check),
+# splatting $AxArgs as its parameters, e.g. @{ Command = "dump"; ProcessId = $id;
+# Title = "BMO" }. Writes its output to $OutFile; true when it exits 0.
+$script:AxScript = Join-Path $PSScriptRoot "..\ax-window-win.ps1"
+function Invoke-AxWin([string]$OutFile, [hashtable]$AxArgs) {
     $global:LASTEXITCODE = 0
     try {
-        & (Join-Path $PSScriptRoot "..\ax-window-win.ps1") @positional @named 2>&1 |
-            Out-File -FilePath $OutFile -Encoding utf8
+        & $script:AxScript @AxArgs 2>&1 | Out-File -FilePath $OutFile -Encoding utf8
     } catch {
         $_ | Out-File -FilePath $OutFile -Encoding utf8 -Append
         return $false

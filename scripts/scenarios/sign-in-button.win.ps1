@@ -143,11 +143,11 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
 $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
 try {
-    function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
         return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Invoke-Dump([string]$Label) {
-        if (-not (Invoke-Ax "$Label.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) {
+        if (-not (Invoke-Ax "$Label.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" })) {
             Fail "${Label}: UI Automation dump failed; see $out\$Label.ax.txt"
         }
         return (Join-Path $out "$Label.ax.txt")
@@ -156,19 +156,19 @@ try {
     if (-not (Wait-ForMarks 3 $marks '^spawn$')) { Fail "Harness never spawned; see $log" }
     # Open Chat. The 1 s timed wake sends session/new (refused: auth required), which
     # shows the needs-login UI. A session/new only comes from a wake, not from attach alone.
-    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
+    if (-not (Invoke-Ax "open" @{ Command = "tray"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Chat" })) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
     if (-not (Wait-ForMarks 2 $marks '^new$')) { Fail "timed wake did not send session/new; see $marks" }
 
     Check-NeedsLogin (Invoke-Dump "needs-login")
-    if (-not (Invoke-Ax "press" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Fake login"))) {
+    if (-not (Invoke-Ax "press" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Fake login" })) {
         Fail "could not press Fake login button; see $out\press.txt"
     }
     if (-not (Wait-ForMarks 2 $marks '^authenticate$')) { Fail "sign-in button did not trigger authenticate; see $log" }
     Check-Waiting (Invoke-Dump "waiting")
 
-    if (-not (Invoke-Ax "press-open" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Open"))) {
+    if (-not (Invoke-Ax "press-open" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Open" })) {
         Fail "could not press Open on the sign-in link; see $out\press-open.txt"
     }
     if (-not (Wait-ForMarks 2 $marks '^elicit-url:accept$')) { Fail "sign-in form never answered; see $log" }

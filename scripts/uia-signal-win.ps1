@@ -1,9 +1,6 @@
-# UI Automation change events as one waitable signal. Dot-source, then:
-#   $signal = [FidgetUiaSignal]::new($processId)   # 0 takes every process
-#   $signal.Wait($ms)   # true on a change event, false when $ms run out
-#   $signal.Dispose()
-# It listens for window and menu open/close, structure changes, and name or
-# bounds changes, so a check re-runs only when the UI changed.
+# UI Automation change events as one waitable signal: [FidgetUiaSignal]::new($pid)
+# (0 = any process), .Wait($ms) is true on a window, menu, structure, name or
+# bounds change. Wait-UiaChange re-runs a check on each one.
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return }
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes

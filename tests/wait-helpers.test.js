@@ -117,6 +117,19 @@ test("sprite_at_rest needs the same spot in all five frames", () => {
   assert.notStrictEqual(walked.code, 0, "five spots counted as rest");
 });
 
+test("wait_for_rest keeps waiting while the sprite walks, past 3 s", () => {
+  const walk = 'for i in $(seq 1 16); do echo "frame: 1 Walking pos(1,1) sprite($((i * 10)),20) walk#1" >> "$log"; sleep 0.25; done; for i in 1 2 3 4 5; do echo "frame: 1 Grounded pos(1,1) sprite(160,20) idle#1" >> "$log"; done';
+  const r = run(`pid=$$; (${walk}) & wait_for_rest "$log"`);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(r.ms >= 3500 && r.ms < 6000, `took ${r.ms} ms`);
+});
+
+test("wait_for_rest gives up 3 s after the last move", () => {
+  const r = run(`pid=$$; echo "frame: 1 Walking pos(1,1) sprite(10,20) walk#1" >> "$log"; (sleep 0.5; echo "frame: 1 Walking pos(1,1) sprite(10,20) walk#1" >> "$log") & wait_for_rest "$log"`);
+  assert.notStrictEqual(r.code, 0, r.out);
+  assert.ok(r.ms >= 2800 && r.ms < 4500, `took ${r.ms} ms`);
+});
+
 const pwsh = spawnSync("pwsh", ["-NoProfile", "-Command", "1"], { encoding: "utf8" });
 const noPwsh = pwsh.status !== 0;
 const winHelper = path.join(scenarios, "wait-helpers.win.ps1");
@@ -196,4 +209,14 @@ ${[10, 10, 10, 10, 13].map(frame).join("\n")}
 ${[10, 10, 10, 10, 210].map(frame).join("\n")}
 [bool](Get-SpriteAtRest $t)`);
   assert.deepStrictEqual(r.lines.slice(0, 4), ["10", "False", "False", "False"], r.err);
+});
+
+test("Windows: Invoke-AxWin splats a hashtable of ax-window-win.ps1 parameters", { skip: noPwsh }, () => {
+  // A stub stands in for ax-window-win.ps1, so this checks the binding only.
+  const r = ps(`$stub = "$W/ax.ps1"
+Set-Content $stub 'param([Parameter(Position = 0)]$Command, [int]$ProcessId, $Title, $Arg3) "$Command $ProcessId $Title $Arg3"; exit 0'
+$script:AxScript = $stub
+Invoke-AxWin "$W/o.txt" @{ Command = "dump"; ProcessId = 42; Title = "BMO"; Arg3 = "frames" }
+(Get-Content "$W/o.txt").Trim()`);
+  assert.deepStrictEqual(r.lines.slice(0, 2), ["True", "dump 42 BMO frames"], r.err);
 });

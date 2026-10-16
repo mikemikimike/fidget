@@ -121,6 +121,8 @@ $env:FIDGET_DIRECTOR_WAKE_SECS = "3600"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_TRACE_FRAMES = "1"
+# ax-window-win.ps1 presses once a hit-test line shows the click area followed the cursor.
+$env:FIDGET_TRACE_HITTEST = "1"
 $env:FIDGET_TRACE_WINDOWS = "1"
 $env:FIDGET_CHARACTER = "bmo"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
@@ -215,7 +217,7 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
 $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
 try {
-    function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
         return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Traced([string]$Pattern) {
@@ -266,7 +268,7 @@ try {
         Add-Content -LiteralPath $attemptsFile -Value $attemptLog
         $trace = Get-Content -LiteralPath $traceFile
         $menuCountBefore = @($trace | Select-String -Pattern '^\d+ verbs: .*\[Menu\]').Count
-        if (-not (Invoke-Ax "menu-$attempt" @("menu", "-ProcessId", $proc.Id, "-TraceFile", $traceFile, "-SpriteW", $w, "-SpriteH", $h))) {
+        if (-not (Invoke-Ax "menu-$attempt" @{ Command = "menu"; ProcessId = $proc.Id; TraceFile = $traceFile; SpriteW = $w; SpriteH = $h })) {
             $msg = "no open menu in the UI Automation tree on attempt $attempt; see $out\menu-$attempt.txt"
             Add-Content -LiteralPath $attemptsFile -Value $msg
             if ($attempt -eq $maxAttempts) { Fail $msg }

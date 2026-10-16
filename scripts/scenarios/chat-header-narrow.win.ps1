@@ -156,7 +156,7 @@ $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStand
 try {
     function Invoke-Dump([string]$Name) {
         $dump = Join-Path $out "$Name.ax.txt"
-        if (-not (Invoke-AxWin $dump @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) { return $null }
+        if (-not (Invoke-AxWin $dump @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" })) { return $null }
         return $dump
     }
     # The page is no wider than its scroll area once WebView2 has reflowed.

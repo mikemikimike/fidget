@@ -58,6 +58,7 @@ fail() {
 
 [ -x "$tools/window-id" ] || swiftc -O "$root/scripts/scenarios/window-id.swift" -o "$tools/window-id"
 [ -x "$tools/ax" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+build_ax_events
 
 # NO_BROWSER drops codex-acp's browser sign-in, so the device code is the one
 # button. The npm cache is shared across runs so npx fetches codex-acp once.
