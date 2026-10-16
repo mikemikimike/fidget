@@ -82,11 +82,17 @@ test("the page names every Character a manifest declares", () => {
 test("every frame the page names is in the assembled site", () => {
   const page = published(PAGE);
   const srcs = [...page.matchAll(/src="([^"]+)"/g)].map((m) => m[1]);
+  // A <picture> source names its file only in srcset, so a missing copy there
+  // breaks the image just for the browsers that pick that source.
+  const sets = [...page.matchAll(/srcset="([^"]+)"/g)].flatMap((m) =>
+    m[1].split(",").map((c) => c.trim().split(/\s+/)[0]),
+  );
+  assert.ok(sets.length > 0, "the hero banner names its sources");
   const loops = [...page.matchAll(/data-frames="([^"]+)"/g)].flatMap((m) =>
     JSON.parse(m[1].replaceAll("&quot;", '"')),
   );
   assert.ok(loops.length > srcs.length, "the cast and the hero carry their loops");
-  for (const path of [...srcs, ...loops].filter((p) => !p.startsWith("http"))) {
+  for (const path of [...srcs, ...sets, ...loops].filter((p) => !p.startsWith("http"))) {
     assert.ok(existsSync(join(site, path)), `${path} is published`);
   }
 });
