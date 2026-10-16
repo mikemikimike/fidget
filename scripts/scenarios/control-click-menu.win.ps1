@@ -6,7 +6,7 @@
 #   ends.
 # Input: one real right-click on the sprite and one Escape. Fidget treats
 #   Control-click as the menu gesture only on macOS; here the right button is the menu gesture.
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 30 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. bash
 #   on PATH for the fixture Harness wrapper.
 # Asserts: the right-click lands as Menu, and the open menu's UI Automation
@@ -64,14 +64,14 @@ if (-not ($selfTestSettledFrame -match '^\d+\.?\d* frame: .* Grounded .* sprite\
 if ($selfTestSettledFrame -match 'walk#|Falling') { Write-Error "self-test: settled frame should not match walk# or Falling"; exit 1 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
     [Console]::Error.WriteLine("FAIL: $Message")
     if ($script:Evidence) { [Console]::Error.WriteLine("evidence in $($script:Evidence)") }
-    $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
-    if (-not (Test-Path -LiteralPath $traceFile -ErrorAction SilentlyContinue)) {
-        [Console]::Error.WriteLine("data_dir did not resolve under $out\home")
+    if ($script:Data -and -not (Test-Path -LiteralPath (Join-Path $script:Data "process.log"))) {
+        [Console]::Error.WriteLine("no process.log under FIDGET_DATA_DIR $($script:Data)")
     }
     exit 1
 }
@@ -100,14 +100,9 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-control-click-menu-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home\AppData\Roaming") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home\AppData\Local") | Out-Null
-
-$settingsDir = Join-Path $out "home\AppData\Roaming\fidget"
-New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
-$settingsFile = Join-Path $settingsDir "settings.json"
+$data = Initialize-ScenarioData $out @{ hide_in_fullscreen = $false }
+$script:Data = $data
 $utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($settingsFile, '{"hide_in_fullscreen": false}', $utf8)
 
 $log = Join-Path $out "app.log"
 $err = Join-Path $out "app.err"
@@ -122,9 +117,6 @@ $harness = "$bashPath $rootBash/scripts/scenarios/fixture-harness.sh $testBinBas
 $paths = @($harness -split '\s+' | Select-Object -Skip 1)
 if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
 
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
-$env:APPDATA = Join-Path $env:HOME "AppData\Roaming"
 $env:FIDGET_HARNESS = $harness
 $env:FIDGET_DIRECTOR_WAKE_SECS = "3600"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
@@ -221,49 +213,38 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
         "& '$ax' @args"
     ), $utf8)
 
-$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
+$startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$script:proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
             Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
         return ($LASTEXITCODE -eq 0)
     }
-    function Traced([string]$Pattern) {
-        $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
-        if (Test-Path -LiteralPath $traceFile) {
-            [bool](Get-Content -LiteralPath $traceFile | Where-Object { $_ -match $Pattern })
-        } else {
-            return $false
-        }
+    function Traced([string]$Pattern) { Wait-ForTrace 0 (Join-Path $data "process.log") $Pattern }
+    function Count-Traced([string]$Pattern) {
+        $text = Read-Shared $traceFile
+        if ($null -eq $text) { return 0 }
+        @($text -split "`r?`n" | Where-Object { $_ -match $Pattern }).Count
     }
     function Wait-Settled {
-        $deadline = (Get-Date).AddSeconds(15)
+        $deadline = (Get-Date).AddSeconds(5)
         $lastX = $null
         $lastY = $null
         $firstSeenAt = $null
         while ((Get-Date) -lt $deadline) {
-            if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-            $trace = Get-Content -LiteralPath $traceFile
+            if ($script:proc.HasExited) { Fail "Fidget exited; see $err" }
+            $trace = (Read-Shared $traceFile) -split "`r?`n"
             $recent = $trace | Select-String -Pattern '^\d+\.?\d* frame: .* Grounded .* sprite\((-?\d+),(-?\d+)\) ' | Select-Object -Last 1
             if (-not $recent) {
-                Start-Sleep -Milliseconds 100
+                Start-Sleep -Milliseconds 50
                 continue
             }
             if ($recent.Line -match 'walk#|Falling') {
                 $lastX = $null
                 $lastY = $null
                 $firstSeenAt = $null
-                Start-Sleep -Milliseconds 100
+                Start-Sleep -Milliseconds 50
                 continue
             }
             $x = [int]$recent.Matches[0].Groups[1].Value
@@ -272,7 +253,7 @@ try {
                 $lastX = $x
                 $lastY = $y
                 $firstSeenAt = Get-Date
-                Start-Sleep -Milliseconds 100
+                Start-Sleep -Milliseconds 50
                 continue
             }
             $dx = [Math]::Abs($x - $lastX)
@@ -287,15 +268,15 @@ try {
                 $lastY = $y
                 $firstSeenAt = Get-Date
             }
-            Start-Sleep -Milliseconds 100
+            Start-Sleep -Milliseconds 50
         }
-        Fail "sprite did not settle within 15s; see $traceFile"
+        Fail "sprite did not settle within 5s; see $traceFile"
     }
 
-    $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
-    if (-not (Wait-For 15 { Test-Path -LiteralPath $traceFile })) { Fail "process.log never appeared; see $err" }
+    $traceFile = Join-Path $data "process.log"
+    if (-not (Wait-ForFile 3 $traceFile)) { Fail "process.log never appeared; see $err" }
 
-    $settingsFile = Join-Path $out "home\AppData\Roaming\fidget\settings.json"
+    $settingsFile = Join-Path $data "settings.json"
     if (Test-Path -LiteralPath $settingsFile) {
         $settingsContent = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
         if ($settingsContent.hide_in_fullscreen -ne $false) {
@@ -303,7 +284,7 @@ try {
         }
     }
 
-    if (-not (Wait-For 15 { Traced '^\d+ frame: .* sprite\(' })) { Fail "Fidget traced no frame; see $traceFile" }
+    if (-not (Wait-ForTrace 3 $traceFile '^\d+ frame: .* sprite\(')) { Fail "Fidget traced no frame; see $traceFile" }
 
     if (Traced '^\d+ presence: hidden') {
         Fail "overlay hidden (presence: hidden) - see process.log window_source lines"
@@ -324,15 +305,14 @@ try {
         Add-Content -LiteralPath $attemptsFile -Value $attemptLog
         $trace = Get-Content -LiteralPath $traceFile
         $menuCountBefore = @($trace | Select-String -Pattern '^\d+ verbs: .*\[Menu\]').Count
-        if (-not (Invoke-Ax "menu-$attempt" @("menu", "-ProcessId", $proc.Id, "-TraceFile", $traceFile, "-SpriteW", $w, "-SpriteH", $h))) {
+        if (-not (Invoke-Ax "menu-$attempt" @("menu", "-ProcessId", $script:proc.Id, "-TraceFile", $traceFile, "-SpriteW", $w, "-SpriteH", $h))) {
             $msg = "no open menu in the UI Automation tree on attempt $attempt; see $out\menu-$attempt.txt"
             Add-Content -LiteralPath $attemptsFile -Value $msg
             if ($attempt -eq $maxAttempts) { Fail $msg }
             $settled = Wait-Settled
-            Start-Sleep -Milliseconds 700
             continue
         }
-        Start-Sleep -Milliseconds 500
+        $null = Wait-Until 1 { (Count-Traced '^\d+ verbs: .*\[Menu\]') -gt $menuCountBefore } 50
         $trace = Get-Content -LiteralPath $traceFile
         $menuCountAfter = @($trace | Select-String -Pattern '^\d+ verbs: .*\[Menu\]').Count
         if ($menuCountAfter -gt $menuCountBefore) {
@@ -344,7 +324,6 @@ try {
         }
         if ($attempt -lt $maxAttempts) {
             $settled = Wait-Settled
-            Start-Sleep -Milliseconds 700
         }
     }
     if (-not $success) {
@@ -352,10 +331,7 @@ try {
     }
     Write-Output "ok: the right-click landed as Menu"
     Check-Items (Join-Path $out "menu.txt")
-    Write-Output "PASS: evidence in $out"
+    Write-Output "PASS: evidence in $out ($(Get-ElapsedMs $startMs)ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*count=$marks*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-ScenarioTree $script:proc $marksBash
 }

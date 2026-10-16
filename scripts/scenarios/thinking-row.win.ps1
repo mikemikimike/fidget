@@ -87,20 +87,16 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-thinking-row-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home\AppData\Roaming\fidget") | Out-Null
+$data = Initialize-ScenarioData $out
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
 Set-Content -LiteralPath $marks -Value "" -Encoding ascii
 
-$utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText((Join-Path $out "home\AppData\Roaming\fidget\settings.json"), '{"first_run_tour_shown": true}', $utf8)
 
 $harness = "$bashPath $root/scripts/scenarios/fixture-harness.sh $TestBin script=scenario-thinking count=$marks"
 $paths = @($harness -split '\s+' | Select-Object -Skip 1)
 if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
 
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
 $env:FIDGET_HARNESS = $harness
 $env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
@@ -151,8 +147,5 @@ try {
     $elapsedMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $startMs
     Write-Output "PASS: evidence in $out (${elapsedMs}ms)"
 } finally {
-    if (-not $script:proc.HasExited) { Stop-Process -Id $script:proc.Id -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*count=$marks*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-ScenarioTree $script:proc $marks
 }

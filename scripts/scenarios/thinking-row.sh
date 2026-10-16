@@ -22,7 +22,7 @@ test_bin=${3:?usage: thinking-row.sh --go <fidget binary> <fidget test binary>}
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
-. "$root/scripts/scenarios/wait-helpers.x11.sh"
+. "$root/scripts/scenarios/wait-helpers.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-thinking-row-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home/Library/Application Support/fidget" "$tools"

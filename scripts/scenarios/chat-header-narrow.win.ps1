@@ -4,7 +4,7 @@
 #   itself and takes focus, then is resized to 420, 360 and 320 wide. One
 #   UI Automation dump of the Chat window per width. Fidget quits when it ends.
 # Input: none. The resizes go through Win32 SetWindowPos, not the mouse.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 30 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. bash
 #   on PATH for the fixture Harness wrapper.
 # Asserts: at each width the Instance name, the Character chip and the mind
@@ -46,6 +46,7 @@ if (-not $Bin -or -not $TestBin) {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 $Mind = '^label\|[^|]* session [^|]+\|'
 
@@ -133,7 +134,7 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-chat-header-narrow-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home") | Out-Null
+$data = Initialize-ScenarioData $out
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
 Set-Content -LiteralPath $marks -Value "" -Encoding ascii
@@ -142,31 +143,20 @@ $harness = "$bashPath $root/scripts/scenarios/fixture-harness.sh $TestBin script
 $paths = @($harness -split '\s+' | Select-Object -Skip 1)
 if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
 
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
 $env:FIDGET_HARNESS = $harness
-$env:FIDGET_DIRECTOR_WAKE_SECS = "6"
+$env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_CHARACTER = "bmo"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
 
 $ax = Join-Path $root "scripts/ax-window-win.ps1"
-$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
+$startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$script:proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $log" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
     function Invoke-Dump([string]$Name) {
         $dump = Join-Path $out "$Name.ax.txt"
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $ax dump -ProcessId $proc.Id -Title "BMO" frames |
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $ax dump -ProcessId $script:proc.Id -Title "BMO" frames |
             Out-File -FilePath $dump -Encoding utf8
         if ($LASTEXITCODE -ne 0) { return $null }
         return $dump
@@ -176,10 +166,10 @@ try {
         if (-not $dump) { return $false }
         return [bool](Select-String -LiteralPath $dump -Pattern $Mind -Quiet)
     }
-    if (-not (Wait-For 30 { Select-String -LiteralPath $marks -Pattern '^asked$' -Quiet })) {
+    if (-not (Wait-ForMarks 3 $marks '^asked$')) {
         Fail "no wake reached the Harness; see $log"
     }
-    if (-not (Wait-For 40 { Shows-Session })) {
+    if (-not (Wait-Until 5 { Shows-Session })) {
         Fail "the mind line names no session; see $(Join-Path $out 'session.ax.txt')"
     }
     $sessionLine = Get-Content -LiteralPath (Join-Path $out "session.ax.txt") -Encoding utf8 |
@@ -188,20 +178,18 @@ try {
 
     foreach ($w in @(420, 360, 320)) {
         $frameFile = Join-Path $out "$w.frame.txt"
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $ax size -ProcessId $proc.Id -Title "BMO" $w 560 |
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $ax size -ProcessId $script:proc.Id -Title "BMO" $w 560 |
             Out-File -FilePath $frameFile -Encoding utf8
         if ($LASTEXITCODE -ne 0) { Fail "${w}: resize failed; see $frameFile" }
         $got = [int]((Get-Content -LiteralPath $frameFile -Encoding utf8 | Select-Object -First 1) -split ',')[2]
         if ($got -ne $w) { Fail "${w}: Chat is $got wide after the resize" }
-        Start-Sleep -Seconds 1
-        $dump = Invoke-Dump "$w"
-        if (-not $dump) { Fail "${w}: UI Automation dump failed; see $out\$w.ax.txt" }
+        # The page reflows after the resize: wait for a dump at the new width.
+        $null = Wait-Until 3 { $d = Invoke-Dump "$w"; $d -and (Select-String -LiteralPath $d -Pattern $Mind -Quiet) }
+        $dump = Join-Path $out "$w.ax.txt"
+        if (-not (Test-Path -LiteralPath $dump)) { Fail "${w}: UI Automation dump failed; see $dump" }
         Check-Dump $w $dump
     }
-    Write-Output "PASS: evidence in $out"
+    Write-Output "PASS: evidence in $out ($(Get-ElapsedMs $startMs)ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*count=$marks*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-ScenarioTree $script:proc $marks
 }

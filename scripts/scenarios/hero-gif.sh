@@ -22,6 +22,7 @@ set -euo pipefail
 
 ffmpeg=/opt/homebrew/bin/ffmpeg
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.sh"
 record=90
 
 fail() {
@@ -107,6 +108,7 @@ done
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-hero-gif-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out/home"
+seed_settings "$out/home"
 home="$out/home"
 log="$out/app.log" marks="$out/harness.log" rec="$out/recording.mp4"
 : > "$marks"
@@ -158,6 +160,7 @@ case "$harness_kind" in
   *) fail "$usage" ;;
 esac
 
+start_ms=$(now_ms)
 env HOME="$home" \
   FIDGET_HARNESS="$harness" FIDGET_TRACE_DIRECTOR=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
@@ -173,20 +176,15 @@ cleanup() {
     wait "$ffpid" 2> /dev/null || true
   fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
-sleep 4
-kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
+wait_for_trace 5 "$log" '^overlay: ' || fail "Fidget never drew its overlay; see $log"
 # A real Harness opens with its own turn. Record once that reply lands, or a
 # question typed on cue queues behind it and misses the take.
 if [ "$harness_kind" != fixture ]; then
   echo ">>> warming up: waiting for $harness_kind's first reply before recording (60 s at most)"
-  for _ in $(seq 60); do
-    grep -q 'Static fallback' "$log" && fail "the Harness failed its first turn; see $log"
-    grep -q '^harness: reply ' "$log" && break
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    sleep 1
-  done
+  wait_for_trace 60 "$log" '^harness: reply |Static fallback' || fail "no first reply in 60 s; see $log"
+  ! grep -q 'Static fallback' "$log" || fail "the Harness failed its first turn; see $log"
 fi
 "$ffmpeg" -y -v error -f avfoundation -capture_cursor 1 -framerate 30 -i "$screen:none" \
   -t "$record" -vf 'crop=trunc(iw/2)*2:trunc(ih/2)*2' -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \
@@ -222,6 +220,7 @@ wait_for() { # <ERE>: true once a log line past `heard` matches; moves `heard` t
 }
 beat() { # <trigger> <next cue>
   if wait_for "happened=$1" && wait_for '^harness: reply '; then
+    # A beat for the viewer to read the reply: film pacing, not a wait to look.
     sleep 2
     cue "$2"
   else
@@ -248,5 +247,5 @@ secs=$(/opt/homebrew/bin/ffprobe -v error -show_entries format=duration -of csv=
 
 "$ffmpeg" -y -v error -i "$rec" -vf "fps=45/$secs,scale=480:-1,tile=5x9" -frames:v 1 "$out/contact-sheet.png"
 to_gif "$rec" "$out/full-frame.gif" "" 0 "$secs"
-echo "PASS: evidence in $out"
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"
 echo "next: $0 --crop x:y:w:h $rec [<from s> [<length s>]]"

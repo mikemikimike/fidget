@@ -3,9 +3,10 @@
 # On screen: launches Fidget with dual displays (3440x1440@(0,0) + 1200x1920@(-1200,-209)).
 #   A static-director wake shows speech; the pill is typed into and carried across the seam.
 #   Fidget quits when the scenario ends. No screenshots.
-# Input: none automated. During a 20 s wait a person hovers the sprite, types
-#   into the pill, and drags the sprite to the other display.
-# Duration: about 30 s.
+# Input: none automated. A person hovers the sprite, types into the pill, and
+#   drags the sprite to the other display. Each step waits on its trace line
+#   and the run ends the moment the pill follows, 60 s at most.
+# Duration: as long as the person takes, 60 s at most.
 # Grants: a desktop session with dual displays matching geometry above.
 # Asserts: painted bubble rect included in Windows region while visible,
 #   a typed pill reopens on the new owner overlay on display cross.
@@ -41,6 +42,7 @@ if (-not $Bin) {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
@@ -116,40 +118,31 @@ if ($displays.Count -lt 2) {
     exit 2
 }
 
-# Run Fidget with trace enabled
-$tempDir = [System.IO.Path]::GetTempPath()
-$timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-$traceFile = Join-Path $tempDir "fidget-pill-dual-display-trace-$timestamp.log"
-$script:Evidence = $traceFile
+# Run Fidget with trace enabled, every folder it writes under the evidence dir.
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$out = Join-Path $env:TEMP "fidget-scenario-pill-dual-display-$stamp"
+New-Item -ItemType Directory -Force -Path $out | Out-Null
+$traceFile = Join-Path $out "app.err"
+$script:Evidence = $out
+$data = Initialize-ScenarioData $out
 
 Write-Host "scenario: launching Fidget with FIDGET_TRACE_BUBBLE=1, static director"
 $env:FIDGET_TRACE_BUBBLE = "1"
 $env:FIDGET_DIRECTOR = "static"
-$env:FIDGET_DIRECTOR_WAKE_SECS = "2"
-$process = Start-Process -FilePath $Bin -NoNewWindow -PassThru -RedirectStandardError $traceFile
-
-Start-Sleep -Seconds 2
-
-# The static director's wake brings up a speech bubble on its own. Opening the
-# pill, typing, and dragging the sprite across the seam have no hook yet, so a
-# person does them within the wait; the trace is checked afterwards.
-
-Write-Host "scenario: Fidget running with static director."
-Write-Host "Within 20s: hover the sprite, type into the pill, drag the sprite to the other display."
-Start-Sleep -Seconds 20
-
-# For a full automated run, a dev hook would simulate the drag here:
-# Invoke-Expression "$Bin dev-move-sprite --instance 0 --x -600 --y 500"
-# Start-Sleep -Seconds 2
-
-# Stop Fidget
-Stop-Process -Id $process.Id -Force
-Start-Sleep -Seconds 1
-
-# Check the trace
-if (Test-Path $traceFile) {
-    Check-Trace $traceFile
-    Write-Host "evidence in $traceFile"
-} else {
-    Fail "no trace file at $traceFile"
+$env:FIDGET_DIRECTOR_WAKE_SECS = "1"
+$startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$script:proc = Start-Process -FilePath $Bin -PassThru -RedirectStandardError $traceFile `
+    -RedirectStandardOutput (Join-Path $out "app.log")
+try {
+    # The static director's wake brings up a speech bubble on its own. Opening
+    # the pill, typing, and dragging across the seam have no hook yet, so a
+    # person does them; each wait returns on the trace line it expects.
+    if (-not (Wait-ForTrace 5 $traceFile $bubbleShowPattern)) { Fail "no speech bubble from the static wake" }
+    Write-Host "scenario: hover the sprite, type into the pill, drag the sprite to the other display (60 s)."
+    if (-not (Wait-ForTrace 60 $traceFile $followPattern)) { Fail "the pill never followed to another overlay within 60 s" }
+} finally {
+    Stop-ScenarioTree $script:proc $null
 }
+
+Check-Trace $traceFile
+Write-Host "evidence in $out ($(Get-ElapsedMs $startMs)ms)"

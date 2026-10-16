@@ -1,7 +1,7 @@
 # Dump or resize one top-level window through UI Automation.
 # Dump lines are `role|name`. Pass `frames` after the title to append
 # `|x,y,w,h` on every line. `size` resizes the window and prints `x,y,w,h`.
-# `press NAME` invokes the first button named NAME.
+# `press NAME` invokes the first button named NAME; `link NAME` the first link.
 # `click -X X -Y Y` sends a real left click at that screen point and takes
 # no -ProcessId or -Title.
 # `menu -X X -Y Y` right-clicks that point, prints the names of the popup
@@ -13,7 +13,7 @@
 # descendant search can hang on a multi-monitor session.
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('dump', 'size', 'press', 'click', 'tray', 'menu')]
+    [ValidateSet('dump', 'size', 'press', 'link', 'click', 'tray', 'menu')]
     [string]$Command,
     [Parameter(Position = 1)]
     [int]$ProcessId,
@@ -415,6 +415,18 @@ if ($null -eq $window) {
     Write-Error "FromHandle returned nothing for $hwnd"
     exit 1
 }
+# A link through its Invoke pattern: no cursor move, no real click.
+if ($Command -eq "link") {
+    $found = Find-ByControlType $window ([System.Windows.Automation.ControlType]::Hyperlink) |
+        Where-Object { $_.Current.Name -eq $Arg3 } | Select-Object -First 1
+    if ($null -eq $found) {
+        Write-Error "no link $Arg3"
+        exit 1
+    }
+    Invoke-Element $found
+    exit 0
+}
+
 if ($Command -eq "press") {
     $found = Find-ByControlType $window ([System.Windows.Automation.ControlType]::Button) |
         Where-Object { $_.Current.Name -eq $Arg3 } | Select-Object -First 1

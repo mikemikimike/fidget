@@ -6,7 +6,7 @@
 #   types into the Chat composer. Two cropped screenshots are captured.
 #   The instance quits at the end.
 # Input: synthetic mouse clicks and typing inside Fidget only; no Finder or Poke.
-# Duration: expected 2–3 minutes, 5 minutes maximum.
+# Duration: about 30 s, 2 minutes maximum.
 # Grants: Accessibility and Screen Recording for the terminal running it.
 # Asserts: focused Chat stays at layer 0, supports a Perch, accepts composer
 #   input, and its overlapping bubble button invokes the Chat command.
@@ -35,6 +35,7 @@ if [ "${1:-}" != --go ] && [ "${1:-}" != --prepare ]; then
 fi
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.sh"
 helper_key=$(shasum "$root/scripts/scenarios/window-layer.swift" \
   "$root/scripts/scenarios/chat-perch-window.swift" "$root/scripts/ax-settings.swift" \
   "$root/scripts/click-cursor.swift" "$root/scripts/warp-cursor.swift" | shasum | cut -d ' ' -f 1)
@@ -54,6 +55,7 @@ test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 verify_bin="$(dirname "$bin")/fidget-verify"
 out=$(mktemp -d "${TMPDIR:-/tmp}/fidget-scenario-chat-perch-XXXXXX")
 mkdir -p "$out/home"
+seed_settings "$out/home"
 log="$out/app.log"
 marks="$out/harness.log"
 : > "$marks"
@@ -63,6 +65,7 @@ watchdog=""
 cleanup() {
   [ -z "$watchdog" ] || kill "$watchdog" 2> /dev/null || true
   [ -z "$pid" ] || kill "$pid" 2> /dev/null || true
+  pkill -f "count=$marks" 2> /dev/null || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -81,19 +84,22 @@ if ! { [ -x "$bin" ] && [ -x "$test_bin" ] && [ -x "$verify_bin" ]; }; then
   fail "missing Fidget, fidget-verify, or fixture test binary"
 fi
 
-wait_for() {
-  local seconds=$1
-  shift
-  local n=$((seconds * 4))
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited early; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
+wait_for() { # <seconds> <command...>: wait_until, failing at once if Fidget exits
+  wait_until "$@" && return 0
+  kill -0 "$pid" 2> /dev/null || fail "Fidget exited early; see $log"
+  return 1
 }
 
 info() { "$tools/chat-window" info "$pid" BMO; }
+chat_at_y() {
+  local y
+  IFS=, read -r _ y _ <<< "$(info)"
+  [ "$y" -eq "$1" ]
+}
+composer_focused() {
+  "$tools/chat-window" focused-element > "$out/composer-focus.txt" &&
+    grep -Fxq "$pid|BMO|AXTextArea|" "$out/composer-focus.txt"
+}
 layer_zero() { [ "$("$tools/window-layer" "$pid" BMO)" = 0 ]; }
 chat_focused_and_normal() {
   [ "$("$tools/chat-window" focused-window)" = "$pid|BMO" ] && layer_zero
@@ -190,7 +196,6 @@ point_cursor_at() {
     fail "could not move cursor to Fidget target ($x,$y)"
   [ "$landed" = "$x $y" ] ||
     fail "cursor landed at $landed instead of Fidget target ($x,$y)"
-  sleep 0.2
 }
 
 overlay_state_at() {
@@ -218,6 +223,7 @@ printf 'focused_window_status=%s focused_window=%s\n' \
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-asking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "Harness path contains spaces"
 
+start_ms=$(now_ms)
 env HOME="$out/home" FIDGET_HARNESS="$harness" FIDGET_OPEN_CHAT=1 \
   FIDGET_DEBUG_IPC=1 FIDGET_DIRECTOR_WAKE_SECS=6 FIDGET_DIRECTOR_API_KEY=x \
   FIDGET_CAPTURABLE=1 FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_HITTEST=1 \
@@ -225,7 +231,7 @@ env HOME="$out/home" FIDGET_HARNESS="$harness" FIDGET_OPEN_CHAT=1 \
   "$bin" > "$log" 2>&1 &
 pid=$!
 (
-  sleep 300
+  sleep 120
   kill -TERM "$$" 2> /dev/null || true
 ) &
 watchdog=$!
@@ -233,8 +239,8 @@ echo "pid=$pid" > "$out/run.txt"
 echo "commit=$(git -C "$root" rev-parse HEAD)" >> "$out/run.txt"
 echo "screen=$screen" >> "$out/run.txt"
 
-wait_for 30 info || fail "Chat window did not open"
-wait_for 30 grep -qx asked "$marks" || fail "fixture did not ask its question"
+wait_for 10 info || fail "Chat window did not open"
+wait_for 10 grep -qx asked "$marks" || fail "fixture did not ask its question"
 IFS=, read -r chat_x chat_y chat_w chat_h chat_layer <<< "$(info)"
 if ! { [ "$chat_x" -ge "$screen_x" ] && [ $((chat_x + chat_w)) -le $((screen_x + screen_w)) ]; }; then
   fail "Chat is not wholly on the primary display"
@@ -262,7 +268,7 @@ target_y=$((screen_y + 160))
 if [ "$chat_y" -ne "$target_y" ]; then
   "$tools/chat-window" move "$pid" BMO "$chat_x" "$target_y" ||
     fail "could not move Chat to a perchable ledge"
-  sleep 1
+  wait_for 3 chat_at_y "$target_y" || fail "Chat did not reach y=$target_y after the move"
 fi
 IFS=, read -r chat_x chat_y chat_w chat_h chat_layer <<< "$(info)"
 echo "chat=$chat_x,$chat_y,$chat_w,$chat_h,$chat_layer" >> "$out/run.txt"
@@ -286,6 +292,7 @@ wait_for 5 grep -q 'showAsk instance=' "$log" ||
   fail "perching did not show the question bubble"
 wait_for 5 button_over_chat || fail "question bubble button did not overlap Chat"
 first_button="$button_x,$button_y"
+# A stability sample, not a wait: the button must hold still for 0.25 s.
 sleep 0.25
 button_over_chat || fail "question bubble button did not remain over Chat"
 [ "$first_button" = "$button_x,$button_y" ] ||
@@ -329,12 +336,9 @@ wait_for 4 overlay_state_at "$composer_x" "$composer_y" "$before_pointer_lines" 
 hit "$composer_x" "$composer_y" "$pid|BMO|AXTextArea|"
 "$tools/click-cursor" "$composer_x" "$composer_y" 1 > "$out/composer-click.txt" ||
   fail "could not click Chat composer"
-sleep 0.4
+wait_for 2 composer_focused ||
+  fail "composer did not receive keyboard focus after the click; see $out/composer-focus.txt"
 chat_focused_and_normal || fail "Chat lost focus after the composer click"
-"$tools/chat-window" focused-element > "$out/composer-focus.txt" ||
-  fail "cannot read keyboard focus after the composer click"
-grep -Fxq "$pid|BMO|AXTextArea|" "$out/composer-focus.txt" ||
-  fail "composer did not receive keyboard focus after the click"
 marker="macOS Chat perch"
 "$tools/ax" type "$pid" "$marker" > "$out/type.txt" ||
   fail "could not type into Chat"
@@ -343,4 +347,4 @@ grep -Fq "$marker" "$out/chat-after.ax.txt" ||
   fail "typed text did not appear in Chat composer"
 echo 'composer_click_and_type=pass' >> "$out/result.txt"
 
-echo "PASS: all four macOS checks; evidence in $out"
+echo "PASS: all four macOS checks; evidence in $out ($(($(now_ms) - start_ms))ms)"

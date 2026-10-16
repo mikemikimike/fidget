@@ -5,6 +5,31 @@ one launches Fidget, so each run is a GUI takeover. Read
 [`docs/agents/gui-takeover.md`](../../docs/agents/gui-takeover.md) before you
 run one: set up, post the prompt, and wait for a go-ahead for that run.
 
+## Run them all
+
+`run-all.sh` (macOS) and `run-all.win.ps1` (Windows) run every automated leaf
+for their host in one takeover and print one `PASS|FAIL|SKIP <leaf> (<ms>)`
+line each, then a summary:
+
+```sh
+bash scripts/scenarios/run-all.sh --go target/debug/fidget <fidget test binary> <evidence dir>
+```
+
+Leaves that need a person (sign-ins, `hero-gif`, `pill-dual-display`) join with
+`--manual`; on Windows, leaves that open the real default browser join with
+`--browser`.
+
+## Waits
+
+Leaves wait on the trace line, marker or window state they expect and return
+the moment it shows up, with a short named timeout. `wait-helpers.sh` (macOS),
+`wait-helpers.x11.sh` and `wait-helpers.win.ps1` hold the shared waits. The
+macOS one polls with grep: BSD tail has no `-s`, so the x11 helper's stream
+never matches there. On Windows, `Initialize-ScenarioData` points
+`FIDGET_DATA_DIR`, `HOME`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP` and
+`WEBVIEW2_USER_DATA_FOLDER` under the leaf's evidence folder and seeds the
+first-run tour as shown; `Stop-ScenarioTree` kills the app's whole tree.
+
 ## Run one
 
 Print the scenario's header. That is setup, not the takeover:

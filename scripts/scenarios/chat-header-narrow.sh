@@ -4,7 +4,7 @@
 #   itself and takes focus, then is resized to 420, 360 and 320 points wide.
 #   One screenshot of the Chat window per width. Fidget quits when it ends.
 # Input: none. The resizes go through the Accessibility API, not the mouse.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 20 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
 # Asserts: at each width the Instance name, the Character chip and the mind
 #   line share one row, all three end inside the window, and the page is no
@@ -24,9 +24,11 @@ test_bin=${3:?usage: chat-header-narrow.sh --go <fidget binary> <fidget test bin
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-chat-header-narrow-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
+seed_settings "$out/home"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
 
@@ -44,25 +46,15 @@ fail() {
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(now_ms)
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 mind='^AXStaticText\|[^|]*\|[^|]* · session [^|]+\|'
 dump() { # <name>
@@ -78,7 +70,8 @@ check() { # <width>
   "$tools/ax" size "$pid" BMO "$w" 560 > "$out/$w.frame.txt" 2>&1 || fail "$w: resize failed; see $out/$w.frame.txt"
   read -r wx _ got _ < <(tr , ' ' < "$out/$w.frame.txt")
   [ "$got" -eq "$w" ] || fail "$w: Chat is $got points wide after the resize"
-  sleep 1
+  # The page reflows after the resize: wait for a dump that shows the mind line.
+  wait_for_ax_dump 3 "$pid" BMO "$mind" || fail "$w: the mind line left after the resize; see $log"
   dump "$w" || fail "$w: AX dump failed; see $f"
   screencapture -x -o -l "$("$tools/window-id" "$pid" BMO)" "$out/$w.png"
   wr=$((wx + got))
@@ -104,9 +97,9 @@ check() { # <width>
   echo "ok: $w: one row inside the window, page $aw of $sw points"
 }
 
-wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-wait_for 15 "$tools/window-id" "$pid" BMO || fail "Chat did not open for the ask"
-wait_for 30 shows_session || fail "the mind line names no session; see $out/session.ax.txt"
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_until 3 "$tools/window-id" "$pid" BMO || fail "Chat did not open for the ask"
+wait_until 5 shows_session || fail "the mind line names no session; see $out/session.ax.txt"
 echo "ok: $(grep -oEm1 '[^|]* · session [^|]+' "$out/session.ax.txt")"
 for w in 420 360 320; do check "$w"; done
-echo "PASS: evidence in $out"
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"

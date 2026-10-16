@@ -1,48 +1,100 @@
 # Shared wait helpers for Windows scenario leaves.
-# Dot-source this file to get Wait-ForTrace, Wait-ForMarks, Wait-ForFile,
-# and Wait-ForAxDump functions that wait on actual events instead of
+# Dot-source this file to get Wait-ForTrace, Wait-ForMarks, Wait-Until,
+# Wait-ForFile, Wait-ForAxDump, Initialize-ScenarioData and Stop-ScenarioTree that wait on actual events instead of
 # fixed sleeps.
 
-# Wait for a trace line pattern in the app log (fast timeout: 2-3s)
-# Returns immediately when the pattern appears using Get-Content -Wait
-function Wait-ForTrace([int]$Seconds, [string]$LogFile, [string]$Pattern) {
-    if ($script:proc -and $script:proc.HasExited) { return $false }
-    if (Test-Path -LiteralPath $LogFile) {
-        if (Select-String -LiteralPath $LogFile -Pattern $Pattern -Quiet) {
+# Read whatever a growing file holds, sharing it with the writer that holds it open.
+function Read-Shared([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    try {
+        $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite, Delete')
+        try { return (New-Object System.IO.StreamReader($fs)).ReadToEnd() } finally { $fs.Dispose() }
+    } catch [System.IO.IOException] {
+        return $null
+    }
+}
+
+# Wait until a line of the file matches (fast timeout: 2-3s). Returns the
+# moment it does. A 50 ms poll in this process: Start-Job costs a second or
+# more to start on Windows PowerShell, longer than the timeouts it serves, and
+# its -Tail 0 missed lines written while it started.
+function Wait-ForLine([double]$Seconds, [string]$File, [string]$Pattern) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    do {
+        $text = Read-Shared $File
+        if ($null -ne $text -and ($text -split "`r?`n" | Where-Object { $_ -match $Pattern } | Select-Object -First 1)) {
             return $true
         }
-    }
-    $job = Start-Job -ScriptBlock {
-        param($file, $pattern)
-        Get-Content -Path $file -Wait -Tail 0 | Where-Object { $_ -match $pattern } | Select-Object -First 1
-    } -ArgumentList $LogFile, $Pattern
+        if ($script:proc -and $script:proc.HasExited) { return $false }
+        Start-Sleep -Milliseconds 50
+    } while ((Get-Date) -lt $deadline)
+    return $false
+}
 
-    $result = Wait-Job -Job $job -Timeout $Seconds
-    Stop-Job -Job $job -ErrorAction SilentlyContinue
-    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-
-    return $null -ne $result
+# Wait for a trace line pattern in the app log (fast timeout: 2-3s)
+function Wait-ForTrace([double]$Seconds, [string]$LogFile, [string]$Pattern) {
+    Wait-ForLine $Seconds $LogFile $Pattern
 }
 
 # Wait for a marker file to contain a pattern (fast timeout: 2-3s)
-# Returns immediately when the pattern appears using Get-Content -Wait
-function Wait-ForMarks([int]$Seconds, [string]$MarksFile, [string]$Pattern) {
-    if ($script:proc -and $script:proc.HasExited) { return $false }
-    if (Test-Path -LiteralPath $MarksFile) {
-        if (Select-String -LiteralPath $MarksFile -Pattern $Pattern -Quiet) {
-            return $true
-        }
+function Wait-ForMarks([double]$Seconds, [string]$MarksFile, [string]$Pattern) {
+    Wait-ForLine $Seconds $MarksFile $Pattern
+}
+
+# Wait until a probe script block returns true. Fails fast if Fidget exits.
+# For state with no file to watch: a UI Automation dump, a spawn count.
+function Wait-Until([double]$Seconds, [scriptblock]$Probe, [int]$StepMs = 100) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    do {
+        if (& $Probe) { return $true }
+        if ($script:proc -and $script:proc.HasExited) { return $false }
+        Start-Sleep -Milliseconds $StepMs
+    } while ((Get-Date) -lt $deadline)
+    return $false
+}
+
+# Point every folder Fidget writes at under $Out, and seed settings with the
+# first-run tour marked shown. On Windows a private HOME alone is not enough:
+# dirs::data_dir reads the known-folder API, so FIDGET_DATA_DIR moves it.
+# Returns the data folder; process.log is in it.
+function Initialize-ScenarioData([string]$Out, [hashtable]$Settings = @{}) {
+    $data = Join-Path $Out "data"
+    $homeDir = Join-Path $Out "home"
+    foreach ($d in @($data, "$homeDir\AppData\Roaming", "$homeDir\AppData\Local", "$Out\tmp", "$Out\webview2")) {
+        New-Item -ItemType Directory -Force -Path $d | Out-Null
     }
-    $job = Start-Job -ScriptBlock {
-        param($file, $pattern)
-        Get-Content -Path $file -Wait -Tail 0 | Where-Object { $_ -match $pattern } | Select-Object -First 1
-    } -ArgumentList $MarksFile, $Pattern
+    $seed = @{ first_run_tour_shown = $true }
+    foreach ($k in $Settings.Keys) { $seed[$k] = $Settings[$k] }
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText((Join-Path $data "settings.json"), ($seed | ConvertTo-Json -Compress), $utf8)
+    $env:FIDGET_DATA_DIR = $data
+    $env:HOME = $homeDir
+    $env:USERPROFILE = $homeDir
+    $env:APPDATA = "$homeDir\AppData\Roaming"
+    $env:LOCALAPPDATA = "$homeDir\AppData\Local"
+    $env:TEMP = "$Out\tmp"
+    $env:TMP = "$Out\tmp"
+    $env:WEBVIEW2_USER_DATA_FOLDER = "$Out\webview2"
+    return $data
+}
 
-    $result = Wait-Job -Job $job -Timeout $Seconds
-    Stop-Job -Job $job -ErrorAction SilentlyContinue
-    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+# Kill Fidget's whole tree (WebView2 and the Harness it spawned), then any
+# fixture Harness left with this run's count= file. Call from finally.
+function Stop-ScenarioTree($Proc, [string]$Marks) {
+    if ($Proc -and -not $Proc.HasExited) {
+        & taskkill.exe /T /F /PID $Proc.Id 2>&1 | Out-Null
+        if (-not $Proc.HasExited) { Stop-Process -Id $Proc.Id -Force -ErrorAction SilentlyContinue }
+    }
+    if ($Marks) {
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains("count=$Marks") } |
+            ForEach-Object { & taskkill.exe /T /F /PID $_.ProcessId 2>&1 | Out-Null }
+    }
+}
 
-    return $null -ne $result
+# Milliseconds since $StartMs, for the duration each leaf prints.
+function Get-ElapsedMs([long]$StartMs) {
+    [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $StartMs
 }
 
 # Wait for a file to exist (fast timeout: 2-3s)

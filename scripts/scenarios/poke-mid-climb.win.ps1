@@ -110,11 +110,8 @@ if ($env:FIDGET_SCENARIO_TRACE) {
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-poke-mid-climb-$stamp"
 $script:Evidence = $out
-$homeDir = Join-Path $out "home"
-New-Item -ItemType Directory -Force -Path (Join-Path $homeDir "AppData\Roaming\fidget") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $homeDir "AppData\Local") | Out-Null
+$data = Initialize-ScenarioData $out @{ hide_in_fullscreen = $false }
 $utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText((Join-Path $homeDir "AppData\Roaming\fidget\settings.json"), '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
 
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -190,11 +187,8 @@ if ($fullscreenApp) {
 $log = Join-Path $out "app.log"
 $err = Join-Path $out "app.err"
 $inputLog = Join-Path $out "input.txt"
-$trace = Join-Path $homeDir "AppData\Roaming\fidget\process.log"
+$trace = Join-Path $data "process.log"
 
-$env:HOME = $homeDir
-$env:USERPROFILE = $homeDir
-$env:APPDATA = Join-Path $homeDir "AppData\Roaming"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_TRACE_FRAMES = "1"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
@@ -397,7 +391,7 @@ try {
         Fail "sprite did not hold react during cooldown; see $trace"
     }
 } finally {
-    if (-not $script:proc.HasExited) { Stop-Process -Id $script:proc.Id -Force -ErrorAction SilentlyContinue }
+    Stop-ScenarioTree $script:proc $null
 }
 
 Check-Trace $trace

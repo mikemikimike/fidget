@@ -6,7 +6,7 @@
 #   wide, then Codex is pressed. Four UI Automation dumps. Fidget quits at the end.
 # Input: one real click on the taskbar icon; Invoke on Chat... and Codex; the
 #   resizes go through Win32 SetWindowPos; no keys.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 30 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. bash
 #   on PATH for the fixture Harness wrapper. The fidget icon shown on the
 #   taskbar, not in the hidden-icons overflow.
@@ -53,6 +53,7 @@ if (-not $Bin -or -not $TestBin) {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
@@ -137,7 +138,7 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-launcher-dies-at-startup-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home") | Out-Null
+$data = Initialize-ScenarioData $out
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
 $errLog = Join-Path $out "app.err"
@@ -150,8 +151,6 @@ if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $Harne
 $Name = "bash"
 
 # No ambient wake: one would respawn the Harness and pass the re-pick for it.
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
 $env:FIDGET_HARNESS = $Harness
 $env:FIDGET_DIRECTOR_WAKE_SECS = "600"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
@@ -170,62 +169,52 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
         "& '$ax' @args"
     ), $utf8)
 
-$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $errLog -PassThru -WindowStyle Normal
+$startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$script:proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $errLog -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $errLog" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
             Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
         return ($LASTEXITCODE -eq 0)
     }
     function Invoke-Dump([string]$Name) {
-        return (Invoke-Ax "$Name.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))
+        return (Invoke-Ax "$Name.ax" @("dump", "-ProcessId", $script:proc.Id, "-Title", "BMO", "frames"))
     }
     function Get-Spawns { @(Get-Content -LiteralPath $marks | Where-Object { $_ -eq "spawn" }).Count }
 
-    if (-not (Wait-For 20 { Select-String -LiteralPath $errLog -Pattern 'exited before initialize' -Quiet })) {
+    if (-not (Wait-ForTrace 5 $errLog 'exited before initialize')) {
         Fail "the launcher never died before initialize; see $errLog"
     }
     if ((Get-Spawns) -ne 1) { Fail "want one spawn before Chat opens, the fixture saw $(Get-Spawns)" }
-    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
+    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $script:proc.Id, "-Title", "BMO", "Chat"))) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
     $failed = Join-Path $out "failed.ax.txt"
-    $null = Wait-For 15 { (Invoke-Dump "failed") -and (Test-Failed $failed) }
+    $null = Wait-Until 5 { (Invoke-Dump "failed") -and (Test-Failed $failed) }
     Check-Failed $failed
 
     foreach ($w in @(420, 320)) {
-        if (-not (Invoke-Ax "$w.frame" @("size", "-ProcessId", $proc.Id, "-Title", "BMO", $w, 560))) {
+        if (-not (Invoke-Ax "$w.frame" @("size", "-ProcessId", $script:proc.Id, "-Title", "BMO", $w, 560))) {
             Fail "${w}: resize failed; see $out\$w.frame.txt"
         }
         $got = [int]((Get-Content -LiteralPath (Join-Path $out "$w.frame.txt") -Encoding utf8 | Select-Object -First 1) -split ',')[2]
         if ($got -ne $w) { Fail "${w}: Chat is $got wide after the resize" }
-        Start-Sleep -Seconds 1
-        if (-not (Invoke-Dump "$w")) { Fail "${w}: UI Automation dump failed; see $out\$w.ax.txt" }
+        # The page reflows after the resize: wait for a dump that still shows the error.
+        if (-not (Wait-Until 3 { (Invoke-Dump "$w") -and (Test-Failed (Join-Path $out "$w.ax.txt")) })) {
+            Fail "${w}: UI Automation dump failed; see $out\$w.ax.txt"
+        }
         Check-Fits $w (Join-Path $out "$w.ax.txt")
     }
 
     if ((Get-Spawns) -ne 1) { Fail "the Harness launched again before the re-pick ($(Get-Spawns) spawns)" }
-    if (-not (Invoke-Ax "press" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Codex"))) {
+    if (-not (Invoke-Ax "press" @("press", "-ProcessId", $script:proc.Id, "-Title", "BMO", "Codex"))) {
         Fail "could not press Codex on the landing; see $out\press.txt"
     }
-    if (-not (Wait-For 10 { (Get-Spawns) -ge 2 })) { Fail "the re-pick did not launch the Harness again; see $errLog" }
+    if (-not (Wait-Until 3 { (Get-Spawns) -ge 2 } 50)) { Fail "the re-pick did not launch the Harness again; see $errLog" }
     $live = Join-Path $out "live.ax.txt"
-    $null = Wait-For 15 { (Invoke-Dump "live") -and (Test-Live $live) }
+    $null = Wait-Until 5 { (Invoke-Dump "live") -and (Test-Live $live) }
     Check-Live $live
-    Write-Output "PASS: evidence in $out"
+    Write-Output "PASS: evidence in $out ($(Get-ElapsedMs $startMs)ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*count=$marks*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-ScenarioTree $script:proc $marks
 }

@@ -6,7 +6,7 @@
 #   one after showing the "Question for you in the chat" bubble. Fidget quits
 #   when the scenario ends.
 # Input: one real click on the sprite (the Poke).
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 20 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
 # Asserts: no "Question for you" bubble before the Poke, and after it lands
 #   while the question waits, the bubble's text and its "chat" link button.
@@ -24,9 +24,11 @@ test_bin=${3:?usage: question-bubble.sh --go <fidget binary> <fidget test binary
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-question-bubble-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
+seed_settings "$out/home"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
 
@@ -43,34 +45,25 @@ fail() {
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-asking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(now_ms)
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 FIDGET_TRACE_FRAMES=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 # Wait for the question to be asked and Chat to open.
-wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-sleep 1
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+# Aim at a landed frame, not one from the fall after spawn.
+wait_for_trace 5 "$log" '^frame: .* (Grounded|Perched) .* sprite\(' || fail "the sprite never landed; see $log"
 
 # The overlay spans the display, so its centre is not the sprite. The newest
 # frame trace line says where the sprite is drawn, in global points.
 read -r sw sh < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
-read -r sx sy < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame trace in $log"
+read -r sx sy < <(grep -E '^frame: .* (Grounded|Perched) ' "$log" | sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' | tail -1) || fail "no frame trace in $log"
 rect="$((sx - sw)),$((sy - 2 * sh)),$((3 * sw)),$((3 * sh))"
 screencapture -x -R "$rect" "$out/before-poke.png"
 "$tools/ax" dump "$pid" Fidget > "$out/before-poke.ax.txt" 2>&1 || fail "AX dump failed; see $out/before-poke.ax.txt"
@@ -78,8 +71,8 @@ screencapture -x -R "$rect" "$out/before-poke.png"
 
 # Send a Poke: one click on the sprite's center.
 "$tools/click-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" 1 > "$out/poke.txt" 2>&1 || fail "could not click the sprite; see $out/poke.txt"
-wait_for 3 grep -q '^verbs: .*Poke' "$log" || fail "the click did not land as a Poke; see $log"
-sleep 1
+wait_for_trace 3 "$log" '^verbs: .*Poke' || fail "the click did not land as a Poke; see $log"
+wait_for_ax_dump 3 "$pid" Fidget 'Question for you' || fail "the question cue never appeared; see $log"
 screencapture -x -R "$rect" "$out/after-poke.png"
 
 # Check the bubble content via the Accessibility API.
@@ -90,4 +83,9 @@ if ! grep -qF "AXStaticText||Question for you in the |" "$out/after-poke.ax.txt"
 fi
 echo "ok: bubble shows 'Question for you in the' and a 'chat' link button"
 
-echo "PASS: evidence in $out"
+# Answer the ask so the fixture never holds the scene, then the turn must end.
+if answer_permission "$pid" Allow; then echo "ok: pressed Allow on the ask"; else echo "note: no Allow button in Chat to press"; fi
+wait_for_marks 5 "$marks" '^replied$' || fail "the asking turn never finished; see $marks"
+echo "ok: the asking turn finished"
+
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"

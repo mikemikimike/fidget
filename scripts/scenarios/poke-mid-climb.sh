@@ -6,7 +6,7 @@
 # Input: a real drag that throws the sprite, then clicks on it until one lands
 #   as a Poke, for up to five throws. The cursor moves; keep hands off the
 #   mouse for the run.
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 20 s at most.
 # Grants: Accessibility for the terminal that runs it.
 # Asserts: the Poke starts react over, then the sprite stays Climbing at one
 #   position in one climb frame through the cooldown, and climbs on after it.
@@ -23,10 +23,12 @@ if [ "${1:-}" != --go ]; then
 fi
 bin=${2:?usage: poke-mid-climb.sh --go <fidget binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.sh"
 # Unique per run: the leaves' fixture tests run in parallel and would share check.txt.
 out=$(mktemp -d "${TMPDIR:-/tmp}/fidget-scenario-poke-mid-climb-$(date +%Y%m%d-%H%M%S)-XXXX")
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
+seed_settings "$out/home"
 log="$out/app.log"
 
 fail() {
@@ -64,6 +66,13 @@ wait_still() { # <tenths of a second>
   return 1
 }
 
+# True once a frame is logged 3.5 s after the first frame after a mid-climb Poke.
+traced_past_poke() {
+  awk '/^frame: / { t = $2; st = $3; if (armed && !t0) t0 = t; last = t; next }
+    /^verbs:/ && /Poke/ && st == "Climbing" && !armed { armed = 1 }
+    END { exit !(t0 && last - t0 >= 3500) }' "$log"
+}
+
 wait_climbing() { # <tenths of a second>
   local n=$1
   until in_state Climbing; do
@@ -73,6 +82,7 @@ wait_climbing() { # <tenths of a second>
   done
 }
 
+start_ms=$(now_ms)
 if [ -n "${FIDGET_SCENARIO_TRACE:-}" ]; then
   log=$FIDGET_SCENARIO_TRACE
 else
@@ -85,9 +95,9 @@ else
   env HOME="$out/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
     FIDGET_CHARACTERS="$root/characters" "$bin" > "$log" 2>&1 &
   pid=$!
-  trap 'kill "$pid" 2> /dev/null || true' EXIT
+  trap 'kill "$pid" 2> /dev/null || true' EXIT INT TERM
 
-  wait_still 300 || fail "the sprite never came to rest; see $log"
+  wait_still 100 || fail "the sprite never came to rest; see $log"
   size=$(sed -nE 's/^overlay: .* sprite ([0-9]+)x[0-9]+;.*/\1/p' "$log" | head -1)
   [ -n "$size" ] || fail "no sprite size in $log"
   half=$((size / 2))
@@ -148,6 +158,8 @@ else
       [ "$sy" -gt "$size" ] || break
       "$tools/click-cursor" "$px" "$((sy + half / 9))" 1 >> "$out/input.txt" 2>&1 || fail "could not click the sprite; see $out/input.txt"
       "$tools/warp-cursor" "$away" "$sy" --event >> "$out/input.txt" 2>&1 || fail "could not move the pointer off the sprite; see $out/input.txt"
+      # The double-click interval keeps each click its own Poke: input pacing,
+      # not a wait to look.
       sleep "$click_gap"
       if [ "$(pokes)" -gt "$before" ]; then
         poked=1
@@ -159,11 +171,13 @@ else
   done
   [ -n "$poked" ] || fail "five throws and no Poke landed mid-climb; see $out/input.txt"
 
-  sleep 4
+  # The check reads 3.5 s of frames after the Poke: wait for the trace to reach
+  # that far, then stop.
+  wait_until 6 traced_past_poke || fail "the trace stops short of 3.5 s after the Poke; see $log"
   kill "$pid" 2> /dev/null || true
   wait "$pid" 2> /dev/null || true
 fi
 
 python3 "$root/scripts/scenarios/poke-mid-climb-check.py" "$log" 2> "$out/check.txt" || fail "$(cat "$out/check.txt")"
 
-echo "PASS: evidence in $out"
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"
