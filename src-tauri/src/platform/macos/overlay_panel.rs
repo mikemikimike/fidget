@@ -175,19 +175,81 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
             let gone: bool = msg_send![previous, isTerminated];
             !gone
         };
-        match crate::pill_focus::hand_back(holding, alive) {
+        let decision = crate::pill_focus::hand_back(holding, alive);
+        let mut to = 0;
+        match decision {
             crate::pill_focus::HandBack::Stay => {}
             crate::pill_focus::HandBack::Restore => {
                 let _: bool = msg_send![previous, activateWithOptions: 0usize];
+                to = pid;
             }
-            // Nothing to give it back to: deactivate, and macOS activates the
-            // next app in front. Hiding would hide the sprite too.
+            // Nothing to give it back to. macOS 14 can ignore `deactivate`, so
+            // activate the next app in front; deactivate only when there is
+            // none. Hiding would hide the sprite too.
             crate::pill_focus::HandBack::StepAside => {
-                let _: () = msg_send![app, deactivate];
+                let next =
+                    crate::pill_focus::next_app_in_front(&app_windows(), std::process::id() as i32);
+                let target: *mut AnyObject = match next {
+                    Some(next) => msg_send![running, runningApplicationWithProcessIdentifier: next],
+                    None => std::ptr::null_mut(),
+                };
+                if target.is_null() {
+                    let _: () = msg_send![app, deactivate];
+                } else {
+                    let _: bool = msg_send![target, activateWithOptions: 0usize];
+                    to = next.unwrap_or(0);
+                }
             }
+        }
+        if crate::dev_flags::TRACE_BUBBLE.is_on() {
+            eprintln!(
+                "app: hand back {decision:?} holding={holding} remembered={pid} alive={alive} to={to}"
+            );
         }
     }
     Ok(())
+}
+
+/// On-screen windows front to back, each with its owner's pid, layer and
+/// whether that owner is a regular app. No permission needed.
+fn app_windows() -> Vec<crate::pill_focus::AppWindow> {
+    use objc2_core_graphics::{CGWindowListCopyWindowInfo, CGWindowListOption};
+    use objc2_foundation::{ns_string, NSArray, NSDictionary, NSNumber, NSString};
+    let options =
+        CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements;
+    let Some(list) = CGWindowListCopyWindowInfo(options, 0) else {
+        return Vec::new();
+    };
+    // SAFETY: CFArray of CFDictionary keyed by CFString, toll-free bridged.
+    let entries: &NSArray<NSDictionary<NSString, AnyObject>> =
+        unsafe { &*std::ptr::from_ref(&*list).cast() };
+    let running = AnyClass::get(c"NSRunningApplication").expect("AppKit defines it");
+    let number = |e: &NSDictionary<NSString, AnyObject>, key: &NSString| {
+        e.objectForKey(key)
+            .and_then(|o| o.downcast::<NSNumber>().ok())
+            .map(|n| n.as_i64())
+    };
+    entries
+        .iter()
+        .filter_map(|e| {
+            let pid = number(&e, ns_string!("kCGWindowOwnerPID"))? as i32;
+            let layer = number(&e, ns_string!("kCGWindowLayer"))?;
+            // SAFETY: plain NSRunningApplication getters; 0 is Regular.
+            let regular = unsafe {
+                let owner: *mut AnyObject =
+                    msg_send![running, runningApplicationWithProcessIdentifier: pid];
+                !owner.is_null() && {
+                    let policy: isize = msg_send![owner, activationPolicy];
+                    policy == 0
+                }
+            };
+            Some(crate::pill_focus::AppWindow {
+                pid,
+                layer,
+                regular,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -302,6 +302,8 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
       if (!visible || !ready) return false;
       if (key === "Enter" && !mods.shiftKey && !mods.composing) return submit();
       if (key === "Escape" && !mods.composing) {
+        // Like Send: a cursor still resting on the Character must not reopen it.
+        yielded = true;
         dismissOpen();
         return true;
       }

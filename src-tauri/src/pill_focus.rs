@@ -100,6 +100,26 @@ pub fn next_in_front(z_order: &[Candidate]) -> Option<usize> {
         .position(|w| !w.ours && w.visible && !w.tool && !w.cloaked)
 }
 
+/// One on-screen window, as macOS lists them front to back.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub struct AppWindow {
+    pub pid: i32,
+    /// The window server layer: 0 is ordinary app windows.
+    pub layer: i64,
+    /// Its app is a regular app, one with a Dock icon.
+    pub regular: bool,
+}
+
+/// Where a macOS step aside hands activation: the app owning the frontmost
+/// ordinary window that is not Fidget's.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn next_app_in_front(windows: &[AppWindow], own: i32) -> Option<i32> {
+    windows
+        .iter()
+        .find(|w| w.pid != own && w.layer == 0 && w.regular)
+        .map(|w| w.pid)
+}
+
 /// The process-wide record the overlay commands share.
 pub fn shared() -> &'static Mutex<OpenPills> {
     static PILLS: OnceLock<Mutex<OpenPills>> = OnceLock::new();
@@ -109,6 +129,18 @@ pub fn shared() -> &'static Mutex<OpenPills> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_step_aside_on_macos_picks_the_frontmost_ordinary_app_not_ours() {
+        let w = |pid, layer, regular| AppWindow {
+            pid,
+            layer,
+            regular,
+        };
+        let windows = [w(7, 0, true), w(9, 25, true), w(5, 0, false), w(3, 0, true)];
+        assert_eq!(next_app_in_front(&windows, 7), Some(3));
+        assert_eq!(next_app_in_front(&windows[..3], 7), None);
+    }
 
     #[test]
     fn a_removed_character_leaves_no_overlay_focusable() {

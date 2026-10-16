@@ -409,6 +409,18 @@ test("Escape closes the pill and drops its text", () => {
   assert.equal(qm.text, "");
 });
 
+test("Escape keeps the pill shut until the pointer leaves the Character", () => {
+  const { qm, advance } = shown();
+  qm.keydown("Escape");
+  qm.enterSprite();
+  advance(HOVER_DELAY_MS);
+  assert.equal(qm.visible, false, "a resting cursor must not reopen it");
+  qm.leaveSprite();
+  qm.enterSprite();
+  advance(HOVER_DELAY_MS);
+  assert.equal(qm.visible, true);
+});
+
 test("Send delivers the trimmed line and puts the pill away", () => {
   const { qm, sent } = shown();
   qm.enterPill();
