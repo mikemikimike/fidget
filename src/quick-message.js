@@ -67,14 +67,7 @@ export function keepOnDrag(text) {
   return text.trim().length > 0;
 }
 
-export function createQuickMessage({
-  schedule,
-  clear,
-  send,
-  onChange,
-  available = true,
-  trace = () => {},
-}) {
+export function createQuickMessage({ schedule, clear, send, onChange, available = true, trace }) {
   let visible = false;
   let text = "";
   let focused = false;
@@ -100,7 +93,7 @@ export function createQuickMessage({
   // Hover is re-reported every frame, so each refusal is traced once per reason.
   let refused = null;
   function refuse(reason) {
-    if (reason !== refused) trace(`timer refused: ${reason}`);
+    if (reason !== refused) trace?.(`timer refused: ${reason}`);
     refused = reason;
   }
 
@@ -200,7 +193,7 @@ export function createQuickMessage({
     },
     enterSprite() {
       if (disposed) return;
-      if (!overSprite) trace("hover enter");
+      if (!overSprite) trace?.("hover enter");
       overSprite = true;
       cancelAutoHide();
       const reason = yielded
@@ -214,19 +207,19 @@ export function createQuickMessage({
               : null;
       if (reason) return refuse(reason);
       refused = null;
-      trace("timer started");
+      trace?.("timer started");
       hoverTimer = schedule(() => {
         hoverTimer = null;
         if (disposed || !overSprite || chatOpen) {
-          trace(`timer fired: not shown (${chatOpen ? "chat open" : "left"})`);
+          trace?.(`timer fired: not shown (${chatOpen ? "chat open" : "left"})`);
           return;
         }
-        trace("timer fired: shown");
+        trace?.("timer fired: shown");
         show();
       }, HOVER_DELAY_MS);
     },
     leaveSprite() {
-      if (overSprite) trace("hover leave");
+      if (overSprite) trace?.("hover leave");
       refused = null;
       overSprite = false;
       yielded = false;
