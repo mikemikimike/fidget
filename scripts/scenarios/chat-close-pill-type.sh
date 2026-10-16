@@ -123,7 +123,7 @@ sprite_center() {
   local size at
   size=$(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1)
   at=$(sed -nE 's/^[0-9]+ frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1)
-  [ -n "$size" ] && [ -n "$at" ] || fail "no sprite size or position in $log"
+  if [ -z "$size" ] || [ -z "$at" ]; then fail "no sprite size or position in $log"; fi
   read -r sw sh <<< "$size"
   read -r sx sy <<< "$at"
   cx=$((sx + sw / 2)) cy=$((sy + sh / 2))
