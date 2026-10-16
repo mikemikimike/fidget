@@ -100,6 +100,13 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
             ns_window,
             setStyleMask: style | NSWindowStyleMask::NonactivatingPanel
         ];
+        // Set after the first show, the style alone can leave the window server
+        // letting a click activate Fidget; this private setter tells it too.
+        let prevents = sel!(_setPreventsActivation:);
+        let responds: bool = msg_send![ns_window, respondsToSelector: prevents];
+        if responds {
+            let _: () = msg_send![ns_window, _setPreventsActivation: Bool::YES];
+        }
         let _: () = msg_send![ns_window, setLevel: NSFloatingWindowLevel as NSWindowLevel];
         let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
         let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
@@ -109,6 +116,7 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
         let _: () = msg_send![ns_window, setSharingType: sharing_type()];
     }
 
+    super::activation_trace::start();
     Ok(())
 }
 

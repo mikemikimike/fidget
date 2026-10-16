@@ -6,6 +6,7 @@
 
 #![cfg(target_os = "macos")]
 
+mod activation_trace;
 mod dock;
 mod input_events;
 mod minimize;
