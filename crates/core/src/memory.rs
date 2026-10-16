@@ -32,8 +32,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// shipped app always has an Application Support directory; keep the fallback
 /// only for those environments, and drop it if a launch without a data dir
 /// should refuse instead.
-/// `FIDGET_DATA_DIR` replaces the whole folder, for verifiers on Windows,
-/// where `dirs` ignores `APPDATA` and a private `HOME` cannot isolate a run.
+/// `FIDGET_DATA_DIR` replaces the whole folder, so one variable isolates a
+/// verifier run. On Windows `home_dir` ignores `USERPROFILE`, so a private
+/// `HOME` alone leaves the debug IPC files in the real profile.
 pub fn data_dir() -> PathBuf {
     data_dir_override().unwrap_or_else(|| {
         dirs::data_dir()
