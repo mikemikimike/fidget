@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Scenario: chat-close-pill-type (macOS)
 # On screen: launches Fidget as BMO with a fixture Harness that holds its first
-#   turn, so nothing opens Chat by itself. The quick message pill is opened by
-#   resting the cursor on the sprite, clicked, and typed into: before Chat ever
-#   opens, after Chat is opened (double-click) and closed (Cmd+W), and with
-#   Finder in front. Last, TextEdit takes the keyboard, the sprite (not the
-#   pill) is clicked, and typing must stay in TextEdit. Fidget quits at the end.
-# Input: cursor moves, clicks, Cmd+W, and typed words.
+#   turn, so nothing opens Chat by itself. First TextEdit takes the keyboard
+#   and the sprite is clicked with no pill open; typing must stay in TextEdit.
+#   Then the quick message pill is opened by resting the cursor on the sprite
+#   and typed into with no click: before Chat ever opens, after Chat is opened
+#   (double-click) and closed (Cmd+W), and with TextEdit in front. Last, with
+#   the pill focused, TextEdit is clicked through a transparent part of the
+#   overlay and typing must land there. Fidget quits.
+# Input: cursor moves, sprite clicks, Cmd+W, and typed words.
 # Duration: about 15 s; every step gives up 3 s after its trigger.
 # Grants: Accessibility for the terminal that runs it.
-# Asserts: each pill draft ends with the word typed (#1565), and a sprite click
-#   leaves the word in TextEdit with no pill draft.
+# Asserts: a sprite click leaves the word in TextEdit with no pill draft, and
+#   each pill that opens takes the typed word with no click (#1565), and a
+#   click through the overlay sends typing to TextEdit, not back to the pill.
 #
 # Usage: chat-close-pill-type.sh --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -129,37 +132,41 @@ sprite_center() {
   cx=$((sx + sw / 2)) cy=$((sy + sh / 2))
 }
 
-# Rest on the sprite; the pill opens after HOVER_DELAY_MS (1.5 s).
+# Leave the sprite and come back; the pill opens after HOVER_DELAY_MS (1.5 s)
+# and takes the caret by itself.
 open_pill() { # <case>
   sprite_center
+  capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event > /dev/null 2>&1 || fail "$1: could not move the cursor away"
   wait_for_next 3 "$log" "$draft" "$tools/warp-cursor" "$cx" "$cy" --event ||
     fail "$1: the pill did not open; see $log"
 }
 
-# Sets fx, fy to the open pill field's center.
-pill_field() { # <case>
-  local rect
-  capped 3 "$tools/ax" dump "$pid" Fidget frames > "$out/$1.ax.txt" 2>&1 || fail "$1: AX dump failed; see $out/$1.ax.txt"
-  rect=$(sed -nE 's/^AXTextArea\|.*\|(-?[0-9]+,-?[0-9]+,[0-9]+,[0-9]+)$/\1/p' "$out/$1.ax.txt" | head -1)
-  [ -n "$rect" ] || fail "$1: no pill field in $out/$1.ax.txt"
-  IFS=, read -r fx fy fw fh <<< "$rect"
-  fx=$((fx + fw / 2)) fy=$((fy + fh / 2))
-}
-
-# Click the open pill's field and type <word>; the draft must end with it.
-click_and_type() { # <word> <case>
-  pill_field "$2"
-  capped 3 "$tools/click-cursor" "$fx" "$fy" 1 > "$out/$2.click.txt" 2>&1 || fail "$2: could not click the pill"
+# Type <word> with no click; the open pill's draft must end with it.
+type_into_pill() { # <word> <case>
   wait_for_next 3 "$log" "${draft}\"[^\"]*$1\"" "$tools/ax" type "$pid" "$1" ||
     fail "$2: \"$1\" never reached the pill (#1565); see $log"
-  echo "ok: $2: the pill took \"$1\""
+  echo "ok: $2: the pill took \"$1\" with no click"
 }
 
-# 1. Before Chat ever opens.
-open_pill before-chat
-click_and_type one before-chat
+# 1. No pill open, TextEdit holds the keyboard: a sprite click must not take it.
+# Typing and leaving finish well inside the 1.5 s hover that would open a pill.
+capped 3 osascript -e 'tell application "TextEdit"' -e 'make new document' -e 'activate' -e 'end tell' \
+  > "$out/textedit.txt" 2>&1 || fail "could not open a TextEdit document"
+sprite_center
+capped 3 "$tools/click-cursor" "$cx" "$cy" 1 > "$out/sprite-click.txt" 2>&1 || fail "could not click the sprite"
+capped 3 "$tools/ax" type "$pid" four > /dev/null 2>&1 || fail "could not type"
+capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event > /dev/null 2>&1 || fail "could not move the cursor away"
+typed() { [ "$(osascript -e 'tell application "TextEdit" to get text of document 1')" = four ]; }
+until_typed() { until typed; do :; done; }
+capped 3 until_typed || fail "a sprite click took the keyboard from TextEdit; see $log"
+! grep -qE "${draft}\"[^\"]*four\"" "$log" || fail "a sprite click sent typing to Fidget; see $log"
+echo "ok: a sprite click left typing in TextEdit"
 
-# 2. Chat opened by a Summon, then closed.
+# 2. Before Chat ever opens.
+open_pill before-chat
+type_into_pill one before-chat
+
+# 3. Chat opened by a Summon, then closed.
 sprite_center
 wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is open$' "$tools/click-cursor" "$cx" "$cy" 2 ||
   fail "Chat did not open; see $log"
@@ -168,22 +175,29 @@ wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is closed$' osascript \
   -e 'tell application "System Events" to keystroke "w" using command down' ||
   fail "Chat did not close; see $log"
 open_pill after-chat
-click_and_type two after-chat
+type_into_pill two after-chat
 
-# 3. Another app in front while the pill is still open.
-capped 3 osascript -e 'tell application "Finder" to activate' > "$out/finder.txt" 2>&1 || fail "could not bring Finder forward"
-click_and_type three other-app
-
-# 4. TextEdit holds the keyboard; a sprite click must not take it.
-capped 3 osascript -e 'tell application "TextEdit"' -e 'make new document' -e 'activate' -e 'end tell' \
-  > "$out/textedit.txt" 2>&1 || fail "could not open a TextEdit document"
+# 4. TextEdit in front when the pill opens. A minimized Chat lets the pill back.
 sprite_center
-capped 3 "$tools/click-cursor" "$cx" "$cy" 1 > "$out/sprite-click.txt" 2>&1 || fail "could not click the sprite"
-capped 3 "$tools/ax" type "$pid" four > /dev/null 2>&1 || fail "could not type"
-typed() { [ "$(osascript -e 'tell application "TextEdit" to get text of document 1')" = four ]; }
-until_typed() { until typed; do :; done; }
-capped 3 until_typed || fail "sprite click took the keyboard from TextEdit; see $log"
-! grep -qE "${draft}\"[^\"]*four\"" "$log" || fail "a sprite click sent typing to the pill; see $log"
-echo "ok: a sprite click left typing in TextEdit"
+wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is open$' "$tools/click-cursor" "$cx" "$cy" 2 ||
+  fail "Chat did not reopen; see $log"
+wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is minimized$' "$tools/ax" minimize "$pid" BMO true ||
+  fail "Chat did not minimize; see $log"
+capped 3 osascript -e 'tell application "TextEdit" to activate' > "$out/textedit-front.txt" 2>&1 || fail "could not bring TextEdit forward"
+open_pill other-app
+type_into_pill three other-app
+
+# 5. With the pill focused, a click through a transparent part of the overlay
+# lands in TextEdit, and typing follows it there.
+bounds=$(capped 3 osascript -e 'tell application "TextEdit" to get bounds of window 1') || fail "no TextEdit window bounds"
+IFS=', ' read -r left top right bottom <<< "$bounds"
+capped 3 "$tools/click-cursor" "$(((left + right) / 2))" "$(((top + bottom) / 2))" 1 > "$out/through-click.txt" 2>&1 ||
+  fail "could not click TextEdit through the overlay"
+capped 3 "$tools/ax" type "$pid" five > /dev/null 2>&1 || fail "could not type"
+landed() { case "$(osascript -e 'tell application "TextEdit" to get text of document 1')" in *five) ;; *) return 1 ;; esac }
+until_landed() { until landed; do :; done; }
+capped 3 until_landed || fail "typing after a click-through did not reach TextEdit; see $log"
+! grep -qE "${draft}\"[^\"]*five\"" "$log" || fail "the pill took typing back after a click-through; see $log"
+echo "ok: a click through the overlay moved typing to TextEdit"
 
 echo "PASS: evidence in $out"
