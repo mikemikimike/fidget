@@ -103,6 +103,12 @@ fi
 # Then one Apple event to each app the run drives.
 # -1743 is a refused Automation grant; no answer in 3 s is an unanswered prompt.
 # `get name` is answered locally, so each asks for something only the app knows.
+# TextEdit opens on these files. Started with no document, a cold TextEdit
+# shows its Open panel, which takes the keyboard from any new document.
+one=scenario-one.txt two=scenario-two.txt
+: > "$out/$one"
+printf abc > "$out/$two"
+capped 3 open -g -a TextEdit "$out/$one" || fail "could not open $one in TextEdit"
 for probe in "TextEdit:count documents" "System Events:count processes" "Finder:count windows"; do
   app=${probe%%:*}
   if ! answer=$(capped 3 osascript -e "tell application \"$app\" to ${probe#*:}" 2>&1); then
@@ -166,23 +172,30 @@ front_name() { capped 3 osascript -e 'tell application "System Events" to get na
 textedit_front() { [ "$(front_name)" = TextEdit ]; }
 # A cold TextEdit can answer `activate` before it is in front; typing then goes
 # to whatever is, such as the terminal running this.
-wait_textedit_front() { # <case>
-  wait_until 3 textedit_front || fail "$1: TextEdit did not come to the front (front: $(front_name))"
+# TextEdit's key window: typing lands there, not in document 1.
+textedit_window() { capped 3 osascript -e 'tell application "System Events" to get name of front window of process "TextEdit"'; }
+# The title may hide the extension, so it matches the name without it.
+textedit_front_on() { textedit_front && case "$(textedit_window)" in "${1%.txt}"*) ;; *) return 1 ;; esac }
+wait_textedit_front() { # <case> <document name>
+  wait_until 3 textedit_front_on "$2" ||
+    fail "$1: TextEdit with $2 did not come to the front (front: $(front_name), window: $(textedit_window))"
 }
+# The text of one of the run's TextEdit documents.
+text_of() { capped 3 osascript -e "tell application \"TextEdit\" to get text of first document whose path ends with \"/$1\""; }
 
 # 1. No pill open, TextEdit holds the keyboard: a sprite click must not take it.
 # Typing and leaving finish well inside the 1.5 s hover that would open a pill.
-capped 3 osascript -e 'tell application "TextEdit"' -e 'make new document' -e 'activate' -e 'end tell' \
-  > "$out/textedit.txt" 2>&1 || fail "could not open a TextEdit document"
-wait_textedit_front sprite-click
+capped 3 osascript -e 'tell application "TextEdit" to activate' > "$out/textedit.txt" 2>&1 ||
+  fail "could not bring TextEdit forward"
+wait_textedit_front sprite-click "$one"
 sprite_center
 capped 3 "$tools/click-cursor" "$cx" "$cy" 1 > "$out/sprite-click.txt" 2>&1 || fail "could not click the sprite"
 capped 3 "$tools/ax" type "$pid" four >> "$out/helpers.log" 2>&1 || fail "could not type"
 capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "could not move the cursor away"
-typed() { [ "$(capped 3 osascript -e 'tell application "TextEdit" to get text of document 1')" = four ]; }
+typed() { [ "$(text_of "$one")" = four ]; }
 if ! wait_until 3 typed; then
-  capped 3 osascript -e 'tell application "TextEdit" to get text of every document' > "$out/textedit-docs.txt" 2>&1 || true
-  fail "a sprite click took the keyboard from TextEdit (front: $(front_name); documents in $out/textedit-docs.txt); see $log"
+  { text_of "$one"; capped 3 osascript -e 'tell application "System Events" to get name of every window of process "TextEdit"'; } > "$out/textedit-docs.txt" 2>&1 || true
+  fail "a sprite click took the keyboard from TextEdit (front: $(front_name), window: $(textedit_window); text and windows in $out/textedit-docs.txt); see $log"
 fi
 ! grep -qE "${draft}\"[^\"]*four\"" "$log" || fail "a sprite click sent typing to Fidget; see $log"
 echo "ok: a sprite click left typing in TextEdit"
@@ -209,12 +222,12 @@ wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is open$' "$tools/click-cursor"
 wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is minimized$' "$tools/ax" minimize "$pid" BMO true ||
   fail "Chat did not minimize; see $log"
 capped 3 osascript -e 'tell application "TextEdit" to activate' > "$out/textedit-front.txt" 2>&1 || fail "could not bring TextEdit forward"
-wait_textedit_front other-app
+wait_textedit_front other-app "$one"
 open_pill other-app
 type_into_pill three other-app
 
 # TextEdit's text ends with <word>; re-checked on each new log line.
-textedit_ends() { case "$(capped 3 osascript -e 'tell application "TextEdit" to get text of document 1')" in *"$1") ;; *) return 1 ;; esac }
+textedit_ends() { case "$(text_of "$one")" in *"$1") ;; *) return 1 ;; esac }
 # After the pill closes, <word> typed with no click must land in TextEdit.
 typing_back_in_textedit() { # <word> <case>
   capped 3 "$tools/ax" type "$pid" "$1" >> "$out/helpers.log" 2>&1 || fail "$2: could not type"
@@ -247,18 +260,17 @@ echo "ok: app-quit: Fidget stepped aside"
 # 8. A click through a transparent part of the overlay moves TextEdit's caret
 # to the click: the word lands before the document's text, which only that
 # click can cause (a fresh document's caret is at the end).
-capped 3 osascript -e 'tell application "TextEdit"' -e 'make new document with properties {text:"abc"}' \
-  -e 'activate' -e 'end tell' > "$out/textedit2.txt" 2>&1 || fail "could not reopen TextEdit"
-wait_textedit_front click-away
+capped 3 open -a TextEdit "$out/$two" > "$out/textedit2.txt" 2>&1 || fail "could not reopen TextEdit"
+wait_textedit_front click-away "$two"
 open_pill click-away
 type_into_pill nine click-away
-bounds=$(capped 3 osascript -e 'tell application "TextEdit" to get bounds of window 1') || fail "no TextEdit window bounds"
+bounds=$(capped 3 osascript -e 'tell application "TextEdit" to get bounds of front window') || fail "no TextEdit window bounds"
 IFS=', ' read -r left top _ _ <<< "$bounds"
 # The first line's start: past the title bar and the text inset.
 capped 3 "$tools/click-cursor" "$((left + 8))" "$((top + 40))" 1 > "$out/through-click.txt" 2>&1 ||
   fail "click-away: could not click TextEdit"
 capped 3 "$tools/ax" type "$pid" ten >> "$out/helpers.log" 2>&1 || fail "click-away: could not type"
-caret_moved() { [ "$(capped 3 osascript -e 'tell application "TextEdit" to get text of document 1')" = tenabc ]; }
+caret_moved() { [ "$(text_of "$two")" = tenabc ]; }
 wait_until 3 caret_moved || fail "click-away: the click did not put TextEdit's caret at the click; see $log"
 ! grep -qE "${draft}\"[^\"]*ten\"" "$log" || fail "click-away: the pill took typing back; see $log"
 grep -qE "${draft}\"nine\"" "$log" || fail "click-away: the pill lost its text"
