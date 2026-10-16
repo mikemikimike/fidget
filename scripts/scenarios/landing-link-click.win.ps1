@@ -82,6 +82,22 @@ function Check-After([string]$File) {
     Write-Output "ok: Chat still shows the landing, and no note says the link did not open"
 }
 
+# What the click led to: the "did not open" note, a webview navigation (the
+# landing is gone), a new top-level window that is not Fidget's, or $null.
+function Get-LinkOutcome([string[]]$Dump, [string[]]$NewTitles) {
+    if ($Dump | Where-Object { $_.Contains("That link did not open") }) { return "refused" }
+    if (-not ($Dump | Where-Object { $_.Contains("|Codex needs ") })) { return "navigated" }
+    if ($NewTitles | Where-Object { $_ -and $_ -notin @("BMO", "Fidget") }) { return "opened" }
+    return $null
+}
+
+# Top-level windows on the desktop, by native handle and title.
+function Get-TopWindows {
+    $all = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($w in $all) { [pscustomobject]@{ Handle = $w.Current.NativeWindowHandle; Title = $w.Current.Name } }
+}
+
 $landing = $env:FIDGET_SCENARIO_AX_LANDING
 $after = $env:FIDGET_SCENARIO_AX_AFTER
 if ($landing -or $after) {
@@ -142,6 +158,7 @@ try {
     Check-Landing (Join-Path $out "landing.ax.txt")
     $x = $script:Link[0] + [int]($script:Link[2] / 2)
     $y = $script:Link[1] + [int]($script:Link[3] / 2)
+    $before = @(Get-TopWindows | ForEach-Object { $_.Handle })
     # UI Automation's Invoke first, so the real cursor stays put; a real click
     # at the link's centre only if the webview exposes no Invoke on it.
     if (Invoke-Ax "click" @{ Command = "link"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = $Url }) {
@@ -149,10 +166,17 @@ try {
     } elseif (-not (Invoke-Ax "click" @{ Command = "click"; X = $x; Y = $y })) {
         Fail "could not click the link; see $out\click.txt"
     }
-    # A webview navigation, or the "did not open" note, lands as the link hands off.
-    if (-not (Wait-ForUia 2 $proc.Id { Invoke-Ax "after.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" } })) {
-        Fail "UI Automation dump failed after the click; see $out\after.ax.txt"
+    # Block on UI Automation events from any process (a browser window opening,
+    # Chat changing) until the click shows an outcome, at most 3 s.
+    $script:Outcome = $null
+    $null = Wait-UiaChange 0 3 {
+        if (-not (Invoke-Ax "after.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "frames" })) { return $false }
+        $new = @(Get-TopWindows | Where-Object { $_.Handle -notin $before } | ForEach-Object { $_.Title })
+        $script:Outcome = Get-LinkOutcome (Read-Dump (Join-Path $out "after.ax.txt")) $new
+        [bool]$script:Outcome
     }
+    if (-not $script:Outcome) { Fail "the click showed no outcome (browser window, navigation or note) within 3 s; see $out\after.ax.txt" }
+    Write-Output "ok: the click's outcome is $script:Outcome"
     Check-After (Join-Path $out "after.ax.txt")
     Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
 } finally {

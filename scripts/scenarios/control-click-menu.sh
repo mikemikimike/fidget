@@ -53,13 +53,11 @@ env HOME="$out/home" \
 pid=$!
 trap 'stop_fidget; pkill -f "script=nop" || true' EXIT INT TERM
 
-sprite_still() { sprite_at_rest "$log"; }
-
 # The overlay spans the display, so its centre is not the sprite. The newest
 # frame trace line says where the sprite is drawn, in global points.
 wait_for_trace 3 "$log" '^frame: .* sprite\(' || fail "Fidget traced no frame; see $log"
 # A click on a walking sprite lands where it was, so wait for it to rest.
-wait_until 3 sprite_still || fail "the sprite never came to rest; see $log"
+wait_for_rest "$log" || fail "the sprite never came to rest; see $log"
 read -r w h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
 read -r x y < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame trace in $log"
 cx=$((x + w / 2))
@@ -99,11 +97,28 @@ func menuWindow() -> CGRect? {
         ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && (($0[kCGWindowLayer as String] as? Int) ?? 0) >= 100
     }.flatMap { CGRect(dictionaryRepresentation: $0[kCGWindowBounds as String] as! CFDictionary) }
 }
+// Wait on AXMenuOpened / AXMenuClosed from the app, never a sleep: the run
+// loop returns on the notification, or after the seconds given.
+var seen: Set<String> = []
+var observer: AXObserver?
+AXObserverCreate(pid, { _, _, name, _ in seen.insert(name as String) }, &observer)
+if let observer {
+    let app = AXUIElementCreateApplication(pid)
+    for name in [kAXMenuOpenedNotification, kAXMenuClosedNotification] {
+        AXObserverAddNotification(observer, app, name as CFString, nil)
+    }
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
+}
+func waitFor(_ name: String, seconds: Double, or done: () -> Bool = { false }) {
+    let deadline = Date().addingTimeInterval(seconds)
+    while !seen.contains(name) && !done() && Date() < deadline {
+        CFRunLoopRunInMode(.defaultMode, deadline.timeIntervalSinceNow, true)
+    }
+}
 mouse(.leftMouseDown)
+waitFor(kAXMenuOpenedNotification, seconds: 3) { menuWindow() != nil }
 var items: [String] = []
-for _ in 0..<20 where items.isEmpty {
-    usleep(250_000)
-    guard let rect = menuWindow() else { continue }
+if let rect = menuWindow() {
     let system = AXUIElementCreateSystemWide()
     for y in stride(from: rect.minY + 4, to: rect.maxY, by: 6) {
         var hit: AXUIElement?
@@ -124,7 +139,8 @@ if let rect = menuWindow() {
     shot.waitUntilExit()
 }
 key(53)
-usleep(200_000)
+// Release only once the menu has closed, so the release cannot pick a row.
+waitFor(kAXMenuClosedNotification, seconds: 2) { menuWindow() == nil }
 mouse(.leftMouseUp)
 items.forEach { print($0) }
 exit(items.isEmpty ? 1 : 0)

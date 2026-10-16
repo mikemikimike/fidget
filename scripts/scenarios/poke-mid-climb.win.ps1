@@ -193,8 +193,7 @@ $env:FIDGET_TRACE_FRAMES = "1"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
 
 # In-process, not ax-window-win.ps1 click: a new PowerShell compiles its
-# Add-Type before the click, and a climbing sprite has moved its own height by
-# then. Timings are click-cursor.swift's, and X11's for the drag.
+# Add-Type before the click, and a climbing sprite has moved its own height by then.
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -205,13 +204,17 @@ public class ClimbInput {
     const uint Down = 0x0002, Up = 0x0004;
     public static void Place(int x, int y, int toX) {
         SetCursorPos(x, y);
+        // The frame loop reads the cursor per tick and turns click-through off under it; 120 ms spans several ticks.
         Thread.Sleep(120);
         mouse_event(Down, 0, 0, 0, UIntPtr.Zero);
+        // A press held past the drag threshold time becomes a grab, not a click.
         Thread.Sleep(250);
         for (int step = 1; step <= 10; step++) {
             SetCursorPos(x + (toX - x) * step / 10, y);
+            // One step per frame tick or two, so the drag follows the path instead of one jump.
             Thread.Sleep(30);
         }
+        // Held still before release, so the release measures no speed and nothing is thrown.
         Thread.Sleep(300);
         mouse_event(Up, 0, 0, 0, UIntPtr.Zero);
     }
@@ -220,8 +223,11 @@ public class ClimbInput {
     }
     public static void Click(int x, int y) {
         SetCursorPos(x, y);
+        // As in Place: ticks to turn click-through off under the cursor. A hit-test file
+        // wait from PowerShell is slower than the climbing sprite stays under it.
         Thread.Sleep(120);
         mouse_event(Down, 0, 0, 0, UIntPtr.Zero);
+        // A press and release in one tick read as no click; 60 ms spans a tick.
         Thread.Sleep(60);
         mouse_event(Up, 0, 0, 0, UIntPtr.Zero);
     }
