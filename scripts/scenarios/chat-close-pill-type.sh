@@ -44,13 +44,16 @@ trap 'kill "$pid" 2> /dev/null || true' EXIT
 # Wait for overlay to appear
 wait_for_trace 3 "$log" '^overlay: ' || fail "no overlay appeared; see $log"
 
+# Wait for the first frame to appear before reading sprite position
+wait_for_trace 2 "$log" '^frame: ' || fail "no frame line in $log"
+
 # Get sprite position and move cursor to show the pill
 read -r sx sy < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no sprite position in $log"
 read -r sw sh < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
 "$tools/warp-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" --event > "$out/hover1.txt" 2>&1 || fail "could not move cursor; see $out/hover1.txt"
 
 # Wait for pill to appear (bubble: quick trace)
-wait_for_trace 2 "$log" 'bubble: quick' || fail "pill did not appear; see $log"
+wait_for_trace 3 "$log" 'bubble: quick' || fail "pill did not appear; see $log"
 
 # Click "Open chat" button
 "$tools/ax" click "$pid" Fidget "Open chat" > "$out/open-chat.txt" 2>&1 || fail "could not click Open chat; see $out/open-chat.txt"
@@ -67,11 +70,15 @@ wait_for_trace 2 "$log" 'chat: after close' || fail "chat close was not traced; 
 
 # Move cursor away then back to show pill again
 "$tools/warp-cursor" 100 100 --event > "$out/away.txt" 2>&1 || true
-sleep 0.2
+# Wait for cursor move to be processed (overlay reacts to cursor movement)
+wait_for_trace 2 "$log" 'bubble: none' || true
 "$tools/warp-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" --event > "$out/hover2.txt" 2>&1 || fail "could not move cursor back; see $out/hover2.txt"
 
-# Wait for pill to appear again
-wait_for_trace 2 "$log" 'bubble: quick' || fail "pill did not reappear after chat close; see $log"
+# Wait for pill to appear again (second occurrence of bubble: quick)
+wait_for_count 3 "$log" 'bubble: quick' 2 || fail "pill did not reappear after chat close; see $log"
+
+# Click the pill text field to focus it
+"$tools/ax" click "$pid" Fidget "Type a quick message" > "$out/click-pill.txt" 2>&1 || fail "could not click pill text field; see $out/click-pill.txt"
 
 # Type "hello" into the pill
 osascript > "$out/type.txt" 2>&1 << 'EOF' || fail "could not type; see $out/type.txt"

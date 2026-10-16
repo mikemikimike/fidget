@@ -50,3 +50,36 @@ wait_for_file() { # <seconds> <file path>
   done
   return 1
 }
+
+# Wait for a pattern to appear N times in a log file (fast timeout: 2-3s)
+# Returns immediately when the count is reached
+wait_for_count() { # <seconds> <log file> <pattern> <count>
+  local timeout=$1 log=$2 pattern=$3 count=$4 tail_pid awk_pid result deadline fifo
+  if [ -n "${pid:-}" ]; then
+    kill -0 "$pid" 2> /dev/null || return 1
+  fi
+  if [ -f "$log" ]; then
+    local current
+    current=$(grep -cE "$pattern" "$log" 2> /dev/null || echo 0)
+    [ "$current" -ge "$count" ] && return 0
+  fi
+  deadline=$(($(date +%s) + timeout))
+  fifo=$(mktemp -u)
+  mkfifo "$fifo"
+  tail -F "$log" > "$fifo" 2> /dev/null &
+  tail_pid=$!
+  awk -v pattern="$pattern" -v count="$count" 'BEGIN {n=0} $0 ~ pattern {n++; if (n >= count) exit 0}' < "$fifo" &
+  awk_pid=$!
+  result=1
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if ! kill -0 "$awk_pid" 2> /dev/null; then
+      wait "$awk_pid" 2> /dev/null && result=0 || result=1
+      break
+    fi
+    sleep 0.01
+  done
+  kill "$awk_pid" "$tail_pid" 2> /dev/null || true
+  wait "$awk_pid" "$tail_pid" 2> /dev/null || true
+  rm -f "$fifo"
+  return "$result"
+}
