@@ -1,10 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 
-// Each CDP call gets 3s. Only a fresh Chrome's first reply gets longer: the first
-// Chrome on a new CI runner took 10-12s, later ones under 1s. Exiting while
-// starting still fails at once.
+// Every CDP call, the first included, gets 3s. CI warms Chrome up once before the
+// tests, so a slow first start fails loudly instead of hiding behind a longer wait.
 const CALL_MS = 3000;
-const COLD_START_MS = 30000;
 
 export function findChrome() {
   if (process.env.FIDGET_CHROME) {
@@ -129,19 +127,10 @@ export function launchWithPipe(chrome, args) {
     sessionHandlers.delete(sessionId);
   }
 
-  // Readiness: Chrome has answered its first call. Page calls wait for this.
-  const launchedAt = Date.now();
-  const ready = send("Browser.getVersion", {}, undefined, COLD_START_MS).then(() => {
-    const ms = Date.now() - launchedAt;
-    if (ms > CALL_MS) console.error(`chrome-cdp: Chrome took ${ms}ms to answer its first call`);
-  });
-  ready.catch(() => {});
-
-  return { proc, send, on, off, closePromise, ready };
+  return { proc, send, on, off, closePromise };
 }
 
 export async function createPageTarget(cdp) {
-  await cdp.ready;
   const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   await cdp.send("Runtime.enable", {}, sessionId);

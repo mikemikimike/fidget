@@ -273,6 +273,12 @@ jobs:
         with:
           node-version: 'lts/*'
 
+      # The first Chrome on a fresh runner took 10-12s to start, which broke the
+      # 3s CDP waits in tests/chrome-cdp.js. Start it once here so the tests don't pay that.
+      - name: Warm up Chrome
+        if: steps.changes.outputs.code == 'true'
+        run: time google-chrome --headless=new --disable-gpu --no-sandbox --dump-dom about:blank > /dev/null
+
       - name: Renderer tests
         if: steps.changes.outputs.code == 'true'
         # A glob, not `tests/`: Node 24 reads a bare directory as a test file.

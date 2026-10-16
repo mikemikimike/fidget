@@ -48,28 +48,24 @@ const PAGE = {
   "Page.enable": {},
 };
 
-test("a Chrome that answers only after a slow start still gets a page", { timeout: 20000 }, async () => {
-  const fake = fakeChrome(3100, PAGE);
+test("a Chrome that has not answered its first call within 3s fails with its stderr", { timeout: 20000 }, async () => {
+  const fake = fakeChrome(3100, PAGE, "still loading fonts");
   const cdp = launchWithPipe(fake.bin, []);
   try {
-    const page = await createPageTarget(cdp);
-    assert.equal(page.sessionId, "S1");
+    const started = Date.now();
+    await assert.rejects(createPageTarget(cdp), /Target\.createTarget: CDP call timeout after 3000ms.*still loading fonts/);
+    assert.ok(Date.now() - started < 3500);
   } finally {
     await cleanupChrome(cdp);
     fake.dispose();
   }
 });
 
-test("once Chrome is ready, a page call it never answers fails within 3s and shows its stderr", { timeout: 20000 }, async () => {
-  const { "Target.createTarget": _, ...rest } = PAGE;
-  const fake = fakeChrome(3100, rest, "renderer stuck in GPU init");
+test("a Chrome that answers at once gets a page", { timeout: 20000 }, async () => {
+  const fake = fakeChrome(0, PAGE);
   const cdp = launchWithPipe(fake.bin, []);
   try {
-    await cdp.ready;
-    const readyAt = Date.now();
-    await assert.rejects(createPageTarget(cdp), /Target\.createTarget: CDP call timeout after 3000ms.*renderer stuck in GPU init/);
-    const waited = Date.now() - readyAt;
-    assert.ok(waited < 3500, `failed ${waited}ms after Chrome was ready`);
+    assert.equal((await createPageTarget(cdp)).sessionId, "S1");
   } finally {
     await cleanupChrome(cdp);
     fake.dispose();
