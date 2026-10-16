@@ -79,7 +79,10 @@ const BACKOFF_CAP: Duration = Duration::from_secs(5 * 60);
 /// How long a superseding wake waits for the cancelled turn to hand the lock
 /// back, and how often it looks. Generous for a Harness that answers
 /// `session/cancel` at all, since the loser only has a log line left to write.
+#[cfg(not(test))]
 const HANDOVER: Duration = Duration::from_secs(3);
+#[cfg(test)]
+const HANDOVER: Duration = Duration::from_millis(300);
 const HANDOVER_POLL: Duration = Duration::from_millis(20);
 
 /// What every caller is told when the child is gone.
@@ -1603,7 +1606,7 @@ impl Session {
                 );
                 Ok(reply)
             }
-            Err(TurnError::Lost) => Err(LOST.to_string()),
+            Err(TurnError::Lost | TurnError::Silent) => Err(LOST.to_string()),
             Err(TurnError::Timeout) => {
                 action_log::append(
                     self.data.as_path(),
@@ -1693,6 +1696,7 @@ impl Session {
         if let Ok(mut state) = self.state.lock() {
             match &outcome {
                 Err(TurnError::Lost) => self.lost(&wire, &mut state),
+                Err(TurnError::Silent) => self.retire(&wire),
                 _ => state.answered(),
             }
             // A finished turn is the proof `session/load` was not, so any
@@ -1850,6 +1854,12 @@ impl Session {
     /// Empty the slot here. `alive()` flips only once the wire's thread has
     /// dropped its receiver, and a wake arriving before then would reuse it.
     fn lost(&self, wire: &Wire, state: &mut State) {
+        self.retire(wire);
+        self.charge_loss(state);
+    }
+
+    /// Drop a wire that is gone or going, without charging for it.
+    fn retire(&self, wire: &Wire) {
         wire.shutdown();
         if let Ok(mut slot) = self.wire.lock() {
             *slot = None;
@@ -1858,7 +1868,6 @@ impl Session {
             inspect.alive = false;
             inspect.initializing = false;
         });
-        self.charge_loss(state);
     }
 
     /// Record that the binary we spawn is not on `PATH`. The name is
@@ -4443,7 +4452,9 @@ mod tests {
                                 }}),
                             );
                         }
-                        "slow" | "load-slow" if prompts == 1 => pending_prompt = Some(id),
+                        "slow" | "load-slow" | "load-deaf" | "deaf-busy" if prompts == 1 => {
+                            pending_prompt = Some(id)
+                        }
                         // Works for a while and then answers, asking nothing.
                         // A turn long enough for another wake to land inside
                         // it, with no ask to confuse the two.
@@ -4658,6 +4669,21 @@ mod tests {
                 }
                 Some("session/cancel") => {
                     record(count, "cancel");
+                    // Alive but deaf to cancel, then silent: a hung child.
+                    if script == "load-deaf" {
+                        continue;
+                    }
+                    // Ignores the cancel but keeps working past the silence limit.
+                    if script == "deaf-busy" {
+                        if let Some(id) = pending_prompt.take() {
+                            for _ in 0..5 {
+                                thread::sleep(Duration::from_millis(150));
+                                chunk(&session, "Hello");
+                            }
+                            stop(&id, "end_turn");
+                        }
+                        continue;
+                    }
                     if let Some(id) = pending_prompt.take() {
                         stop(&id, "cancelled");
                     }
@@ -9652,6 +9678,54 @@ mod tests {
         assert_eq!(session.state.lock().unwrap().spawn_failures, 0);
         let turns = fx.events("turn");
         assert_eq!(turns[0]["stop"], json!("cancelled"), "{turns:?}");
+        session.shutdown();
+    }
+
+    /// A cancel the Harness drops is not a death (#1529): the newer wake is
+    /// refused and the child kept. Silence after the cancel is one, retired
+    /// without a backoff charge, and the next wake reloads the conversation.
+    #[test]
+    fn a_silent_cancelled_turn_retires_the_child_uncharged() {
+        let (fx, session) = Fixture::new("load-deaf");
+        let session = Arc::new(session.with_timeout(Duration::from_secs(10)));
+        let worker = {
+            let session = Arc::clone(&session);
+            thread::spawn(move || session.complete(&asking("hi"), &|_| {}))
+        };
+        assert!(fx.wait_for("prompt", 1), "the first turn never went out");
+        assert_eq!(
+            session.complete(&asking("again"), &|_| {}),
+            Err("harness busy".to_string())
+        );
+        assert_eq!(fx.count("spawn"), 1, "a dropped cancel retired the child");
+        assert_eq!(worker.join().unwrap(), Err(LOST.to_string()));
+        assert_eq!(session.state.lock().unwrap().spawn_failures, 0);
+        assert_eq!(
+            session.complete(&asking("later"), &|_| {}),
+            Ok(Reply::whole("Hello"))
+        );
+        assert_eq!(fx.count("spawn"), 2);
+        assert_eq!(fx.count("new"), 1, "the conversation was not kept");
+        assert_eq!(fx.count("load"), 1);
+        session.shutdown();
+    }
+
+    /// Frames after a dropped cancel are work, so the child is kept (#1529).
+    #[test]
+    fn a_cancelled_turn_that_keeps_talking_keeps_the_child() {
+        let (fx, session) = Fixture::new("deaf-busy");
+        let session = Arc::new(session.with_timeout(Duration::from_secs(10)));
+        let worker = {
+            let session = Arc::clone(&session);
+            thread::spawn(move || session.complete(&asking("hi"), &|_| {}))
+        };
+        assert!(fx.wait_for("prompt", 1), "the first turn never went out");
+        let _ = session.complete(&asking("again"), &|_| {});
+        assert!(
+            worker.join().unwrap().is_ok(),
+            "the working child was retired"
+        );
+        assert_eq!(fx.count("spawn"), 1);
         session.shutdown();
     }
 
