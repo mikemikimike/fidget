@@ -153,6 +153,19 @@ public class ChatPerchWin {
         }, IntPtr.Zero);
         return found;
     }
+    // One overlay per display, all titled Fidget: take the one holding (x, y).
+    public static IntPtr FindAt(uint pid, string title, int x, int y) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((h, l) => {
+            uint owner; GetWindowThreadProcessId(h, out owner);
+            if (owner != pid || !IsWindowVisible(h)) return true;
+            var sb = new StringBuilder(256); GetWindowText(h, sb, 256);
+            RECT r; GetWindowRect(h, out r);
+            if (sb.ToString() == title && x >= r.L && x < r.R && y >= r.T && y < r.B) { found = h; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
     public static IntPtr TopAt(int x, int y) {
         POINT p; p.X = x; p.Y = y;
         return GetAncestor(WindowFromPoint(p), 2);
@@ -277,8 +290,8 @@ try {
     Pass "perch" ($script:perched[-1])
 
     # 4. The bubble's chat button takes a click over Chat.
-    $overlay = [ChatPerchWin]::Find([uint32]$proc.Id, "Fidget", 1)
-    if ($overlay -eq [IntPtr]::Zero) { Fail "no overlay window titled Fidget" }
+    $overlay = [ChatPerchWin]::FindAt([uint32]$proc.Id, "Fidget", $ledgeX, $ledgeY)
+    if ($overlay -eq [IntPtr]::Zero) { Fail "no overlay window titled Fidget over Chat's ledge" }
     $script:button = $null
     if (-not (Wait-For 10 { $script:button = Get-ButtonRect (Dump $overlay "bubble") "chat"; $null -ne $script:button })) {
         Fail "question bubble has no chat button; see $out\bubble.ax.txt"
