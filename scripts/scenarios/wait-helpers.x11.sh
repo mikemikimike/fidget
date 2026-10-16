@@ -3,68 +3,34 @@
 # shellcheck source=wait-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wait-helpers.sh"
 
-# Wait for a file to exist (fast timeout: 2-3s)
-# Returns immediately when the file appears
+# Wait for a file to exist: inotifywait blocks on the directory's create
+# event; without it, the core's wait on the app log.
 wait_for_file() { # <seconds> <file path>
-  local timeout=$1 file=$2 dir fname deadline
-  if [ -n "${pid:-}" ]; then
-    kill -0 "$pid" 2> /dev/null || return 1
-  fi
-  [ -f "$file" ] && return 0
-  dir=$(dirname "$file")
-  fname=$(basename "$file")
-  if command -v inotifywait > /dev/null 2>&1; then
-    timeout "$timeout" inotifywait -q -e create,moved_to "$dir" 2> /dev/null |
-      grep -qF "$fname"
-  else
-    deadline=$(($(date +%s) + timeout))
-    while [ "$(date +%s)" -lt "$deadline" ]; do
-      [ -f "$file" ] && return 0
-      [ -n "${pid:-}" ] && ! kill -0 "$pid" 2> /dev/null && return 1
-      sleep 0.1
-    done
-    return 1
-  fi
+  fidget_alive || return 1
+  [ -f "$2" ] && return 0
+  command -v inotifywait > /dev/null 2>&1 || {
+    wait_until "$1" test -f "$2"
+    return
+  }
+  timeout "$1" inotifywait -q -m -e create,moved_to --format %f "$(dirname "$2")" 2> /dev/null |
+    grep -qxFm1 "$(basename "$2")" || [ -f "$2" ]
 }
 
-# Wait for an accessibility dump to match a pattern (fast timeout: 2-3s)
-# This polls because AX dumps are expensive queries with no event mechanism
+# True when an AT-SPI dump of a window matches a pattern.
+ax_dump_matches() { # <pid> <window title> <pattern>
+  # shellcheck disable=SC2154
+  python3 "${root}/scripts/ax-window-linux.py" dump "$1" "$2" 2> /dev/null | grep -qE "$3"
+}
+
+# Wait for an AT-SPI dump to match a pattern. AT-SPI has no change event a
+# shell can block on, so the dump runs again on each new app log line.
 wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern>
-  local timeout=$1 wpid=$2 title=$3 pattern=$4
-  local deadline tmp
-  deadline=$(($(date +%s) + timeout))
-  tmp=$(mktemp)
-  # shellcheck disable=SC2154
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    if python3 "${root}/scripts/ax-window-linux.py" dump "$wpid" "$title" > "$tmp" 2> /dev/null; then
-      if grep -qE "$pattern" "$tmp"; then
-        rm -f "$tmp"
-        return 0
-      fi
-    fi
-    kill -0 "$wpid" 2> /dev/null || {
-      rm -f "$tmp"
-      return 1
-    }
-    sleep 0.2
-  done
-  rm -f "$tmp"
-  return 1
+  wait_until "$1" ax_dump_matches "$2" "$3" "$4"
 }
 
-# Answer a permission ask by clicking the named button (Allow or Reject)
-# Waits for the Chat window to appear, then presses the button
-# Uses polling at 200ms: AX queries are expensive and have no event mechanism
+# Answer a permission ask by pressing the named button (Allow or Reject) in
+# Chat once it shows. Gives up after 3 s.
 answer_permission() { # <pid> <button name>
-  local wpid=$1 button=$2
-  local deadline
-  deadline=$(($(date +%s) + 3))
-  # shellcheck disable=SC2154
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    if python3 "${root}/scripts/ax-window-linux.py" dump "$wpid" "BMO" 2> /dev/null | grep -q "button|$button"; then
-      python3 "${root}/scripts/ax-window-linux.py" press "$wpid" "BMO" "$button" 2> /dev/null && return 0
-    fi
-    sleep 0.2
-  done
-  return 1
+  wait_for_ax_dump 3 "$1" BMO "button\|$2" || return 1
+  python3 "${root}/scripts/ax-window-linux.py" press "$1" BMO "$2" 2> /dev/null
 }

@@ -14,7 +14,7 @@ const helper = path.join(scenarios, "wait-helpers.sh");
 
 function run(body, file = helper) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wait-mac-"));
-  const script = `set -u\n. "${file}"\ndir="${dir}"\n${body}`;
+  const script = `set -u\n. "${file}"\ndir="${dir}"\nlog="$dir/app.log"; : > "$log"\n${body}`;
   const started = Date.now();
   const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
   const ms = Date.now() - started;
@@ -47,9 +47,15 @@ test("waits fail at once when Fidget has exited", () => {
 });
 
 test("wait_for_file returns soon after the file appears", () => {
-  const r = run(`(sleep 0.15; : > "$dir/f") & wait_for_file 2 "$dir/f"`);
+  const r = run(`(sleep 0.15; : > "$dir/f"; echo frame >> "$log") & wait_for_file 2 "$dir/f"`);
   assert.strictEqual(r.code, 0, r.out);
   assert.ok(r.ms < 1000, `took ${r.ms} ms`);
+});
+
+test("wait_until checks again when the app log grows", () => {
+  const r = run(`(sleep 0.2; : > "$dir/flag"; echo frame >> "$log") & wait_until 2 test -f "$dir/flag"`);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(r.ms >= 200 && r.ms < 1000, `took ${r.ms} ms`);
 });
 
 test("wait_until gives up within its seconds", () => {
@@ -98,4 +104,64 @@ for (const leaf of ["mac", "x11"]) {
 test("seed_tour_shown marks the first-run tour as shown", () => {
   const r = run(`seed_tour_shown "$dir/home"; grep -q '"first_run_tour_shown": true' "$dir/home/Library/Application Support/fidget/settings.json"`, path.join(scenarios, "wait-helpers.mac.sh"));
   assert.strictEqual(r.code, 0, r.out);
+});
+
+// The Windows helper blocks on FileSystemWatcher events. pwsh runs it here.
+const pwsh = spawnSync("pwsh", ["-NoProfile", "-Command", "1"], { encoding: "utf8" });
+const noPwsh = pwsh.status !== 0;
+const winHelper = path.join(scenarios, "wait-helpers.win.ps1");
+
+function ps(body) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wait-win-"));
+  const script = `. '${winHelper}'
+function Later($c) { $p = New-Object Diagnostics.ProcessStartInfo "bash"; $p.ArgumentList.Add("-c"); $p.ArgumentList.Add("sleep 0.3; $c"); $null = [Diagnostics.Process]::Start($p) }
+$W = '${dir}'
+$data = Initialize-ScenarioData $W
+${body}`;
+  const r = spawnSync("pwsh", ["-NoProfile", "-Command", script], { encoding: "utf8" });
+  fs.rmSync(dir, { recursive: true, force: true });
+  return { code: r.status, lines: r.stdout.trim().split("\n").map((l) => l.trim()), err: r.stderr };
+}
+
+test("Windows: Wait-ForMarks returns soon after the line lands", { skip: noPwsh }, () => {
+  const r = ps(`$m = "$W/marks"; Set-Content $m ""; Later "echo asked >> $m"; $t = Get-NowMs; Wait-ForMarks 2 $m '^asked$'; (Get-NowMs) - $t`);
+  assert.strictEqual(r.lines[0], "True", r.err);
+  assert.ok(Number(r.lines[1]) >= 250 && Number(r.lines[1]) < 1000, `took ${r.lines[1]} ms`);
+});
+
+test("Windows: Wait-ForCount ignores the line already there", { skip: noPwsh }, () => {
+  const r = ps(`$m = "$W/marks"; Set-Content $m "spawn"; Wait-ForCount 1 $m '^spawn$' 1; Later "echo spawn >> $m"; Wait-ForCount 2 $m '^spawn$' 1`);
+  assert.deepStrictEqual(r.lines.slice(0, 2), ["False", "True"], r.err);
+});
+
+test("Windows: Wait-Until re-checks on a trace change and gives up in time", { skip: noPwsh }, () => {
+  const r = ps(`Later "echo x > $W/flag; echo frame >> $data/process.log"; Wait-Until 2 { Test-Path "$W/flag" }; $t = Get-NowMs; Wait-Until 1 { $false }; (Get-NowMs) - $t`);
+  assert.deepStrictEqual(r.lines.slice(0, 2), ["True", "False"], r.err);
+  assert.ok(Number(r.lines[2]) >= 900 && Number(r.lines[2]) < 2000, `took ${r.lines[2]} ms`);
+});
+
+test("Windows: Wait-ForFile sees the file appear", { skip: noPwsh }, () => {
+  const r = ps(`Later "touch $data/process.log"; Wait-ForFile 2 "$data/process.log"`);
+  assert.strictEqual(r.lines[0], "True", r.err);
+});
+
+test("Windows: Initialize-ScenarioData moves every data folder and seeds the tour", { skip: noPwsh }, () => {
+  const r = ps(`$d = Initialize-ScenarioData $W @{ hide_in_fullscreen = $false }
+$env:FIDGET_DATA_DIR -eq $d
+$env:APPDATA.StartsWith($W)
+$env:WEBVIEW2_USER_DATA_FOLDER.StartsWith($W)
+Get-Content -Raw (Join-Path $d "settings.json")`);
+  assert.deepStrictEqual(r.lines.slice(0, 3), ["True", "True", "True"], r.err);
+  assert.deepStrictEqual(JSON.parse(r.lines[3]), { first_run_tour_shown: true, hide_in_fullscreen: false });
+});
+
+test("Windows: Get-SpriteAtRest needs five resting frames in one spot", { skip: noPwsh }, () => {
+  const r = ps(`$t = "$W/p.log"
+1..4 | % { Add-Content $t "1 frame: 1 Grounded pos(1,1) sprite(10,20) idle#1 x" }
+[bool](Get-SpriteAtRest $t)
+Add-Content $t "1 frame: 1 Grounded pos(1,1) sprite(10,20) idle#1 x"
+(Get-SpriteAtRest $t).X
+Add-Content $t "1 frame: 1 Falling pos(1,1) sprite(10,40) fall#1 x"
+[bool](Get-SpriteAtRest $t)`);
+  assert.deepStrictEqual(r.lines.slice(0, 3), ["False", "10", "False"], r.err);
 });

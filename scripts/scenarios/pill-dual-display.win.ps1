@@ -123,14 +123,10 @@ if ($displays.Count -lt 2) {
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-pill-dual-display-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home") | Out-Null
-Set-TourShown (Join-Path $out "home")
+$data = Initialize-ScenarioData $out
 $traceFile = Join-Path $out "app.err"
 
 Write-Host "scenario: launching Fidget with FIDGET_TRACE_BUBBLE=1, static director"
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
-$env:APPDATA = Join-Path $env:HOME "AppData\Roaming"
 $env:FIDGET_TRACE_BUBBLE = "1"
 $env:FIDGET_DIRECTOR = "static"
 $env:FIDGET_DIRECTOR_WAKE_SECS = "1"

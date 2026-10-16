@@ -178,12 +178,13 @@ chat_at_y() { # <y>
   [ "$y" = "$1" ]
 }
 
+# True when two reads in a row put the button in the same spot.
+last_button=
 button_steady() {
-  local first
+  local was=$last_button
   button_over_chat || return 1
-  first="$button_x,$button_y"
-  sleep 0.1
-  button_over_chat && [ "$first" = "$button_x,$button_y" ]
+  last_button="$button_x,$button_y"
+  [ "$was" = "$last_button" ]
 }
 
 composer_focused() {
@@ -286,7 +287,7 @@ screencapture -x -R "$capture_x,$capture_y,$chat_w,$capture_h" "$out/perched.png
 wait_for_trace 3 "$log" 'showAsk instance=' ||
   fail "perching did not show the question bubble"
 wait_until 3 button_over_chat || fail "question bubble button did not overlap Chat"
-# Two reads 100 ms apart in the same spot: the button holds still before the click.
+# The button holds still before the click.
 wait_until 2 button_steady || fail "question bubble button moved or left Chat before the click"
 echo "button=$button_x,$button_y" >> "$out/run.txt"
 echo 'bubble_over_chat=pass' >> "$out/result.txt"

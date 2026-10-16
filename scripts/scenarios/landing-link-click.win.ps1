@@ -5,8 +5,8 @@
 #   invoked, so Chat opens on the "Codex needs `npx`" landing and takes focus.
 #   The install link is clicked, which opens https://nodejs.org/ in the default
 #   browser. Two UI Automation dumps. Fidget quits at the end.
-# Input: one real click on the taskbar icon, Invoke on Chat..., one real click
-#   on the link; no keys.
+# Input: one real click on the taskbar icon, Invoke on Chat..., Invoke on the
+#   link (a real click only if it has no Invoke); no keys.
 # Duration: a few seconds, 10 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. The
 #   fidget icon shown on the taskbar, not in the hidden-icons overflow.
@@ -95,8 +95,7 @@ if ($landing -or $after) {
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-landing-link-click-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home") | Out-Null
-Set-TourShown (Join-Path $out "home")
+$data = Initialize-ScenarioData $out
 $log = Join-Path $out "app.log"
 
 $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
@@ -105,9 +104,6 @@ if (Get-Command npx -ErrorAction SilentlyContinue) {
     exit 2
 }
 
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
-$env:APPDATA = Join-Path $env:HOME "AppData\Roaming"
 $env:FIDGET_HARNESS = "codex"
 $env:FIDGET_DIRECTOR_WAKE_SECS = "600"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
@@ -149,7 +145,11 @@ try {
     Check-Landing (Join-Path $out "landing.ax.txt")
     $x = $script:Link[0] + [int]($script:Link[2] / 2)
     $y = $script:Link[1] + [int]($script:Link[3] / 2)
-    if (-not (Invoke-Ax "click" @("click", "-X", $x, "-Y", $y))) {
+    # UI Automation's Invoke first, so the real cursor stays put; a real click
+    # at the link's centre only if the webview exposes no Invoke on it.
+    if (Invoke-Ax "click" @("link", "-ProcessId", $proc.Id, "-Title", "BMO", $Url)) {
+        Write-Output "ok: invoked the link through UI Automation"
+    } elseif (-not (Invoke-Ax "click" @("click", "-X", $x, "-Y", $y))) {
         Fail "could not click the link; see $out\click.txt"
     }
     # A webview navigation, or the "did not open" note, lands as the link hands off.

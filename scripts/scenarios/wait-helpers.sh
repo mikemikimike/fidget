@@ -13,18 +13,42 @@ fidget_alive() {
   [ -z "${pid:-}" ] || kill -0 "$pid" 2> /dev/null
 }
 
-# Wait for a line matching an extended regex to land in a file. Re-reads the
-# file every 20 ms: a grep that cheap behaves the same on BSD and GNU tools,
-# where tail -F would fall back to a 1 s poll on some file systems.
+# tail -F follows a file through kqueue (BSD) or inotify (GNU). GNU tail
+# treats some file systems as remote (overlayfs, NFS) and falls back to a
+# poll every second, so ask it for 50 ms there; it stops with Fidget, too.
+follow() { # <first line: +1 for the whole file, 0 for new lines> <file>
+  if tail --version > /dev/null 2>&1; then
+    tail -s 0.05 ${pid:+--pid="$pid"} -n "$1" -F "$2" 2> /dev/null
+  else
+    tail -n "$1" -F "$2" 2> /dev/null
+  fi
+}
+
+# Feed a file's lines to a reader until the reader exits or the seconds run
+# out. A timer kills the reader, so nothing here re-reads or polls.
+wait_on_lines() { # <seconds> <+1|0> <file> <reader...>
+  local seconds=$1 from=$2 file=$3 fifo tail_pid reader_pid timer_pid result
+  shift 3
+  fidget_alive || return 1
+  fifo=$(mktemp -u "${TMPDIR:-/tmp}/fidget-wait.XXXXXX")
+  mkfifo "$fifo"
+  follow "$from" "$file" > "$fifo" &
+  tail_pid=$!
+  "$@" < "$fifo" &
+  reader_pid=$!
+  { sleep "$seconds" && kill "$reader_pid"; } > /dev/null 2>&1 &
+  timer_pid=$!
+  wait "$reader_pid" 2> /dev/null && result=0 || result=1
+  pkill -P "$timer_pid" 2> /dev/null || true
+  kill "$timer_pid" "$tail_pid" 2> /dev/null || true
+  wait "$timer_pid" "$tail_pid" 2> /dev/null || true
+  rm -f "$fifo"
+  return "$result"
+}
+
+# Wait for a line matching an extended regex to land in a file.
 wait_for_line() { # <seconds> <file> <pattern>
-  local seconds=$1 file=$2 pattern=$3 deadline
-  deadline=$(($(now_ms) + seconds * 1000))
-  while :; do
-    grep -qE "$pattern" "$file" 2> /dev/null && return 0
-    fidget_alive || return 1
-    [ "$(now_ms)" -lt "$deadline" ] || return 1
-    sleep 0.02
-  done
+  wait_on_lines "$1" +1 "$2" grep -qEm1 "$3"
 }
 
 # Wait for a trace line in the app log or process.log.
@@ -37,16 +61,10 @@ wait_for_marks() { # <seconds> <marks file> <pattern>
   wait_for_line "$@"
 }
 
-# Wait for a file to exist. macOS has no inotifywait, so this polls at 50 ms.
+# Wait for a file to exist. tail -F cannot see an empty file appear, so this
+# checks again on each new line of the app log ($log), Fidget's own clock.
 wait_for_file() { # <seconds> <file path>
-  local seconds=$1 file=$2 deadline
-  deadline=$(($(now_ms) + seconds * 1000))
-  while :; do
-    [ -f "$file" ] && return 0
-    fidget_alive || return 1
-    [ "$(now_ms)" -lt "$deadline" ] || return 1
-    sleep 0.05
-  done
+  wait_until "$1" test -f "$2"
 }
 
 # Check the last frame trace line for a state pattern.
@@ -54,29 +72,42 @@ in_state() { # <log> <state pattern>
   grep '^frame: ' "$1" 2> /dev/null | tail -1 | grep -qE " ($2) "
 }
 
-# Wait until a command succeeds, for state with no line or file to follow
-# (a window id, a window layer, an Accessibility frame). Polls at 50 ms.
+# Wait until a command succeeds, for state with no line of its own (a window
+# id, a window layer, an Accessibility frame). The command runs now and again
+# on each new line of the app log ($log, or $wait_log when set), which Fidget
+# writes as it draws and acts.
 wait_until() { # <seconds> <command...>
-  local seconds=$1 deadline
+  local seconds=$1
   shift
-  deadline=$(($(now_ms) + seconds * 1000))
-  until "$@" > /dev/null 2>&1; do
-    fidget_alive || return 1
-    [ "$(now_ms)" -lt "$deadline" ] || return 1
-    sleep 0.05
+  "$@" > /dev/null 2>&1 && return 0
+  wait_on_lines "$seconds" 0 "${wait_log:-${log:?wait_until needs \$log}}" probe_each_line "$@" || "$@" > /dev/null 2>&1
+}
+
+# Read lines and run the command after each, until it succeeds.
+probe_each_line() { # <command...>
+  while read -r _; do
+    "$@" > /dev/null 2>&1 && return 0
   done
+  return 1
 }
 
 # Wait until a file holds more than <count> lines matching a pattern, for a
 # line that repeats (a second minimize, a second Poke). Take the count before
 # the trigger.
 wait_for_count() { # <seconds> <file> <pattern> <count before the trigger>
-  wait_until "$1" more_lines "$2" "$3" "$4"
+  wait_on_lines "$1" +1 "$2" count_past "$3" "$4"
 }
 
-# True when a file holds more than <count> lines matching a pattern.
-more_lines() { # <file> <pattern> <count>
-  [ "$(line_count "$1" "$2")" -gt "$3" ]
+# Read lines until more than <count> match the pattern.
+count_past() { # <pattern> <count>
+  local line seen=0
+  while IFS= read -r line; do
+    if [[ $line =~ $1 ]]; then
+      seen=$((seen + 1))
+      [ "$seen" -gt "$2" ] && return 0
+    fi
+  done
+  return 1
 }
 
 # Lines matching a pattern in a file so far, for wait_for_count.
@@ -97,4 +128,14 @@ process_tree() { # <pid>
 stop_fidget() {
   [ -n "${pid:-}" ] || return 0
   process_tree "$pid" | xargs kill 2> /dev/null || true
+}
+
+# True when the newest five frame lines all show the sprite resting
+# (Grounded or Perched, not walking) in one spot. Frames land every draw, so
+# this needs no second look after a pause.
+sprite_at_rest() { # <log>
+  grep '^frame: ' "$1" 2> /dev/null | tail -5 | awk '
+    !/ (Grounded|Perched) / || / walk#/ { bad = 1 }
+    { match($0, /sprite\(-?[0-9]+,-?[0-9]+\)/); at = substr($0, RSTART, RLENGTH); if (n++ && at != last) bad = 1; last = at }
+    END { exit (bad || n < 5) }'
 }

@@ -4,18 +4,16 @@
 # shellcheck source=wait-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wait-helpers.sh"
 
-# Wait for an Accessibility dump of a window to match a pattern. AX has no
-# change event a shell can wait on, so this polls at 200 ms.
+# True when an Accessibility dump of a window matches a pattern.
+ax_dump_matches() { # <pid> <window title> <pattern>
+  # shellcheck disable=SC2154
+  "$tools/ax" dump "$1" "$2" 2> /dev/null | grep -qE "$3"
+}
+
+# Wait for an Accessibility dump to match a pattern. AX has no change event a
+# shell can block on, so the dump runs again on each new app log line.
 wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern>
-  local seconds=$1 wpid=$2 title=$3 pattern=$4 deadline
-  deadline=$(($(now_ms) + seconds * 1000))
-  while :; do
-    # shellcheck disable=SC2154
-    "$tools/ax" dump "$wpid" "$title" 2> /dev/null | grep -qE "$pattern" && return 0
-    kill -0 "$wpid" 2> /dev/null || return 1
-    [ "$(now_ms)" -lt "$deadline" ] || return 1
-    sleep 0.2
-  done
+  wait_until "$1" ax_dump_matches "$2" "$3" "$4"
 }
 
 # Answer a permission ask by pressing its button (Allow or Reject) in Chat,

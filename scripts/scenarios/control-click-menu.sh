@@ -53,15 +53,7 @@ env HOME="$out/home" \
 pid=$!
 trap 'stop_fidget; pkill -f "script=nop" || true' EXIT INT TERM
 
-sprite_xy() { grep '^frame: ' "$log" | tail -1 | sed -E 's/.*sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1 \2/'; }
-# Two frames 100 ms apart in the same spot, resting.
-sprite_still() {
-  local a
-  in_state "$log" 'Grounded|Perched' || return 1
-  a=$(sprite_xy)
-  sleep 0.1
-  [ "$a" = "$(sprite_xy)" ] && in_state "$log" 'Grounded|Perched'
-}
+sprite_still() { sprite_at_rest "$log"; }
 
 # The overlay spans the display, so its centre is not the sprite. The newest
 # frame trace line says where the sprite is drawn, in global points.

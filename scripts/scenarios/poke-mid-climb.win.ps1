@@ -110,11 +110,7 @@ if ($env:FIDGET_SCENARIO_TRACE) {
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-poke-mid-climb-$stamp"
 $script:Evidence = $out
-$homeDir = Join-Path $out "home"
-New-Item -ItemType Directory -Force -Path (Join-Path $homeDir "AppData\Roaming\fidget") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $homeDir "AppData\Local") | Out-Null
-$utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText((Join-Path $homeDir "AppData\Roaming\fidget\settings.json"), '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
+$data = Initialize-ScenarioData $out @{ hide_in_fullscreen = $false }
 
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -190,11 +186,8 @@ if ($fullscreenApp) {
 $log = Join-Path $out "app.log"
 $err = Join-Path $out "app.err"
 $inputLog = Join-Path $out "input.txt"
-$trace = Join-Path $homeDir "AppData\Roaming\fidget\process.log"
+$trace = Join-Path $data "process.log"
 
-$env:HOME = $homeDir
-$env:USERPROFILE = $homeDir
-$env:APPDATA = Join-Path $homeDir "AppData\Roaming"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_TRACE_FRAMES = "1"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
@@ -267,34 +260,27 @@ function Get-RestDecision([string]$State, [bool]$Still, [int]$RestMs, [int]$Wall
 # the drag then throws whatever window is underneath.
 function Wait-Still([int]$Tenths) {
     $budgetMs = $Tenths * 100
-    $restMs = 0
     $wall = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($true) {
-        if ($proc.HasExited) { Fail "Fidget exited; see $err" }
+    $script:airborneMs = 0
+    $script:lastLook = 0
+    $script:restDecision = "wait"
+    # Re-decided on each trace change; the rest budget only counts time on the ground.
+    $null = Wait-OnChanges ($RestCeilingMs / 1000) (Split-Path -Parent $trace) {
+        $now = [int]$wall.ElapsedMilliseconds
         $a = Last-Frame
         $state = if ($a) { $a.State } else { "" }
-        $still = $false
-        $airborne = $state -cmatch '^(Falling|Climbing)$'
-        if ($a -and $state -cmatch '^(Grounded|Perched)$') {
-            Start-Sleep -Milliseconds 200
-            $b = Last-Frame
-            if ($b.X -eq $a.X -and $b.Y -eq $a.Y -and $b.State -cmatch '^(Grounded|Perched)$') { $still = $true }
-            $restMs += 200
-        }
-        $decision = Get-RestDecision $state $still $restMs ([int]$wall.ElapsedMilliseconds) $budgetMs
-        if ($decision -ceq "done") { return $true }
-        if ($decision -ceq "give-up") { return $false }
-        Start-Sleep -Milliseconds 100
-        if (-not $airborne) { $restMs += 100 }
+        if ($state -cmatch '^(Falling|Climbing)$') { $script:airborneMs += $now - $script:lastLook }
+        $script:lastLook = $now
+        $still = [bool](Get-SpriteAtRest $trace)
+        $script:restDecision = Get-RestDecision $state $still ($now - $script:airborneMs) $now $budgetMs
+        $script:restDecision -cne "wait"
     }
+    if ($proc.HasExited) { Fail "Fidget exited; see $err" }
+    return ($script:restDecision -ceq "done")
 }
 
 function Wait-Climbing([int]$Tenths) {
-    for ($n = $Tenths; $n -gt 0; $n--) {
-        if (In-State "Climbing") { return $true }
-        Start-Sleep -Milliseconds 100
-    }
-    $false
+    return (Wait-OnChanges ($Tenths / 10) (Split-Path -Parent $trace) { In-State "Climbing" })
 }
 
 function Get-ClimbEdges([string[]]$Lines) {
@@ -381,8 +367,7 @@ try {
         $py = $sy + [int][Math]::Floor($half / 9)
         [ClimbInput]::Click($px, $py)
         Add-Content -LiteralPath $inputLog -Value "clicked ($px,$py)"
-        Start-Sleep -Milliseconds $clickGap
-        if ((Pokes) -gt $before) {
+        if (Wait-ForCount ($clickGap / 1000) $trace $pokePattern $before) {
             $poked = $true
             break
         }
@@ -397,7 +382,7 @@ try {
         Fail "sprite did not hold react during cooldown; see $trace"
     }
 } finally {
-    if (-not $script:proc.HasExited) { Stop-Process -Id $script:proc.Id -Force -ErrorAction SilentlyContinue }
+    Stop-FidgetTree $script:proc
 }
 
 Check-Trace $trace

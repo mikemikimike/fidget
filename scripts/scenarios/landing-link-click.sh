@@ -50,7 +50,7 @@ start_ms=$(now_ms)
 env HOME="$out/home" PATH="$path" \
   FIDGET_HARNESS=codex \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!

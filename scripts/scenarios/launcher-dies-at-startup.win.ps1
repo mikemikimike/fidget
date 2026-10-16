@@ -153,8 +153,7 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-launcher-dies-at-startup-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home") | Out-Null
-Set-TourShown (Join-Path $out "home")
+$data = Initialize-ScenarioData $out
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
 $errLog = Join-Path $out "app.err"
@@ -167,9 +166,6 @@ if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $Harne
 $Name = "bash"
 
 # No ambient wake: one would respawn the Harness and pass the re-pick for it.
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
-$env:APPDATA = Join-Path $env:HOME "AppData\Roaming"
 $env:FIDGET_HARNESS = $Harness
 $env:FIDGET_DIRECTOR_WAKE_SECS = "600"
 $env:FIDGET_DIRECTOR_API_KEY = "x"

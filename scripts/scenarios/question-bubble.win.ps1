@@ -69,9 +69,9 @@ $script:Evidence = $null
 function Fail([string]$Message) {
     [Console]::Error.WriteLine("FAIL: $Message")
     if ($script:Evidence) { [Console]::Error.WriteLine("evidence in $($script:Evidence)") }
-    $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
+    $traceFile = Join-Path $data "process.log"
     if (-not (Test-Path -LiteralPath $traceFile -ErrorAction SilentlyContinue)) {
-        [Console]::Error.WriteLine("data_dir did not resolve under $out\home")
+        [Console]::Error.WriteLine("data_dir did not resolve to $data")
     }
     exit 1
 }
@@ -116,14 +116,7 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-question-bubble-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home\AppData\Roaming") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home\AppData\Local") | Out-Null
-
-$settingsDir = Join-Path $out "home\AppData\Roaming\fidget"
-New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
-$settingsFile = Join-Path $settingsDir "settings.json"
-$utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($settingsFile, '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
+$data = Initialize-ScenarioData $out @{ hide_in_fullscreen = $false }
 
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
@@ -138,9 +131,6 @@ $harness = "$bashPath $rootBash/scripts/scenarios/fixture-harness.sh $testBinBas
 $paths = @($harness -split '\s+' | Select-Object -Skip 1)
 if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
 
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
-$env:APPDATA = Join-Path $env:HOME "AppData\Roaming"
 $env:FIDGET_HARNESS = $harness
 $env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
@@ -250,7 +240,7 @@ try {
     }
     function Marked([string]$Line) { [bool](Get-Content -LiteralPath $marks | Where-Object { $_ -eq $Line }) }
     function Traced([string]$Pattern) {
-        $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
+        $traceFile = Join-Path $data "process.log"
         if (Test-Path -LiteralPath $traceFile) {
             [bool](Get-Content -LiteralPath $traceFile | Where-Object { $_ -match $Pattern })
         } else {
@@ -265,10 +255,10 @@ try {
         return $script:rest
     }
 
-    $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
+    $traceFile = Join-Path $data "process.log"
     if (-not (Wait-ForFile 3 $traceFile)) { Fail "process.log never appeared; see $err" }
 
-    $settingsFile = Join-Path $out "home\AppData\Roaming\fidget\settings.json"
+    $settingsFile = Join-Path $data "settings.json"
     if (Test-Path -LiteralPath $settingsFile) {
         $settingsContent = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
         if ($settingsContent.hide_in_fullscreen -ne $false) {

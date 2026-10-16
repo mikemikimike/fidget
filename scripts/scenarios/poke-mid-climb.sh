@@ -49,15 +49,8 @@ sprite_xy() { last_frame | sed -E 's/.*sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1 \2/'
 pokes() { grep -c '^verbs: .*Poke' "$log" || true; }
 
 # Resting and not walking: a press on a walking sprite lands where it was, and
-# the drag then throws whatever window is underneath. Two frames 100 ms apart
-# in the same spot count as resting.
-still() {
-  local a
-  in_state 'Grounded|Perched' || return 1
-  a=$(sprite_xy)
-  sleep 0.1
-  [ "$a" = "$(sprite_xy)" ] && in_state 'Grounded|Perched'
-}
+# the drag then throws whatever window is underneath.
+still() { sprite_at_rest "$log"; }
 climbing() { in_state Climbing; }
 # The checker passes once the trace runs past the Poke's 2.5 s cooldown.
 cooldown_traced() { python3 "$root/scripts/scenarios/poke-mid-climb-check.py" "$log" 2> "$out/check.txt"; }
@@ -138,8 +131,7 @@ else
       [ "$sy" -gt "$size" ] || break
       "$tools/click-cursor" "$px" "$((sy + half / 9))" 1 >> "$out/input.txt" 2>&1 || fail "could not click the sprite; see $out/input.txt"
       "$tools/warp-cursor" "$away" "$sy" --event >> "$out/input.txt" 2>&1 || fail "could not move the pointer off the sprite; see $out/input.txt"
-      sleep "$click_gap"
-      if [ "$(pokes)" -gt "$before" ]; then
+      if wait_for_count "$click_gap" "$log" '^verbs: .*Poke' "$before"; then
         poked=1
         break
       fi
