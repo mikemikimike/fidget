@@ -48,7 +48,10 @@ wait_after() { # <file> <line count> <seconds> <ERE>
   local grep_pid dog ok=0
   tail -n +"$(($2 + 1))" -F "$1" 2> /dev/null | grep -qEm1 -- "$4" &
   grep_pid=$!
-  { sleep "$3"; kill "$grep_pid" 2> /dev/null; } &
+  {
+    sleep "$3"
+    kill "$grep_pid" 2> /dev/null
+  } &
   dog=$!
   wait "$grep_pid" || ok=1
   kill "$dog" 2> /dev/null || true
