@@ -7,7 +7,7 @@
 #   Enter and Escape; TextEdit quits under it; a click-through moves the caret.
 # Input: cursor moves, clicks, Cmd+W, Enter, Escape, and typed words.
 # Duration: about 20 s; every step gives up 3 s after its trigger.
-# Grants: Accessibility, and Automation of TextEdit, System Events and Finder,
+# Grants: Accessibility, and Automation of TextEdit and System Events,
 #   for the terminal that runs it.
 # Asserts: a sprite click leaves the word in TextEdit with no pill draft, and
 #   each pill that opens takes the typed word with no click (#1565), each way
@@ -109,7 +109,7 @@ one=scenario-one.txt two=scenario-two.txt
 : > "$out/$one"
 printf abc > "$out/$two"
 capped 3 open -g -a TextEdit "$out/$one" || fail "could not open $one in TextEdit"
-for probe in "TextEdit:count documents" "System Events:count processes" "Finder:count windows"; do
+for probe in "TextEdit:count documents" "System Events:count processes"; do
   app=${probe%%:*}
   if ! answer=$(capped 3 osascript -e "tell application \"$app\" to ${probe#*:}" 2>&1); then
     case "$answer" in
@@ -181,11 +181,12 @@ wait_textedit_front() { # <case> <document name>
     fail "$1: TextEdit with $2 did not come to the front (front: $(front_name), window: $(textedit_window))"
 }
 # The text of one of the run's TextEdit documents.
-# The front document's text. Every read, with its exit status and any error,
+# The text where TextEdit's caret is, read through Accessibility: an Apple event
+# for it timed out after typing. Every read, with its exit status and any error,
 # goes to textedit-reads.log, so a read that fails is never mistaken for text.
 text_front() {
   local text status=0
-  text=$(capped 2 osascript -e 'tell application "TextEdit" to get text of front document' 2>> "$out/textedit-reads.log") || status=$?
+  text=$(capped 2 "$tools/ax" value "$(pgrep -x TextEdit | head -1)" 2>> "$out/textedit-reads.log") || status=$?
   echo "$(date +%T) status=$status text=$text" >> "$out/textedit-reads.log"
   printf '%s' "$text"
   return "$status"
@@ -271,7 +272,9 @@ typing_back_in_textedit eight escape
 # 7. The remembered app quits while the pill is open: closing the pill steps
 # Fidget aside for the next app instead of keeping the keyboard.
 open_pill app-quit
-capped 3 osascript -e 'tell application "TextEdit" to quit saving no' > "$out/quit.txt" 2>&1 || fail "could not quit TextEdit"
+# A quit that gets no answer in 3 s ends TextEdit by signal: either way it quits.
+capped 3 osascript -e 'tell application "TextEdit" to quit saving no' > "$out/quit.txt" 2>&1 ||
+  pkill -x TextEdit || fail "could not quit TextEdit"
 wait_for_next 3 "$log" "$closed" "$tools/ax" key "$pid" escape || fail "app-quit: the pill did not close; see $log"
 front_pid() { capped 3 osascript -e 'tell application "System Events" to get unix id of first process whose frontmost is true'; }
 not_front() { [ "$(front_pid)" != "$pid" ]; }
@@ -285,8 +288,9 @@ capped 3 open -a TextEdit "$out/$two" > "$out/textedit2.txt" 2>&1 || fail "could
 wait_textedit_front click-away "$two"
 open_pill click-away
 type_into_pill nine click-away
-bounds=$(capped 3 osascript -e 'tell application "TextEdit" to get bounds of front window') || fail "no TextEdit window bounds"
-IFS=', ' read -r left top _ _ <<< "$bounds"
+bounds=$(capped 3 osascript -e 'tell application "System Events" to get position of front window of process "TextEdit"') ||
+  fail "no TextEdit window position"
+IFS=', ' read -r left top <<< "$bounds"
 # The first line's start: past the title bar and the text inset.
 capped 3 "$tools/click-cursor" "$((left + 8))" "$((top + 40))" 1 > "$out/through-click.txt" 2>&1 ||
   fail "click-away: could not click TextEdit"

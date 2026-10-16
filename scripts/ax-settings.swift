@@ -22,7 +22,7 @@ func die(_ message: String) -> Never {
 
 guard args.count >= 2, let pid = pid_t(args[1]) else {
     die(
-        "usage: ax-settings <open|tab|pick|dump|frame|popup-frame|open-popup|type-select|move|size|key|type|focused|focus-window|menus|press-button> <pid> [args]"
+        "usage: ax-settings <open|tab|pick|dump|frame|popup-frame|open-popup|type-select|move|size|key|type|value|focused|focus-window|menus|press-button> <pid> [args]"
     )
 }
 
@@ -479,6 +479,20 @@ case "key":
 case "type":
     guard args.count >= 3 else { die("usage: ax-settings type <pid> <text>") }
     typeText(args[2])
+
+case "value":
+    // The focused element's text in any app, read through Accessibility: no
+    // Apple event, so it needs no Automation grant and can't wait on a busy app.
+    var valueRef: CFTypeRef?
+    let valueErr = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &valueRef)
+    guard valueErr == .success, let element = valueRef, CFGetTypeID(element) == AXUIElementGetTypeID()
+    else {
+        die("no focused element")
+    }
+    guard let text = string(element as! AXUIElement, kAXValueAttribute) else {
+        die("the focused element has no text value")
+    }
+    print(text)
 
 case "focused":
     // The control Tab last landed on: dump's columns minus placeholder, settable and focusable.
