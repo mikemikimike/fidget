@@ -358,6 +358,18 @@ pub fn prefer_x11_backend() {
 #[cfg(any(target_os = "macos", not(unix)))]
 pub fn prefer_x11_backend() {}
 
+/// Remember the frontmost app before a pill takes the keyboard. Main thread.
+#[cfg(target_os = "macos")]
+pub fn remember_front_app() {
+    macos::remember_front_app();
+}
+
+/// The overlay's last pill closed: hand the keyboard back. Main thread.
+#[cfg(target_os = "macos")]
+pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    macos::hand_back_keyboard(window)
+}
+
 /// Make the overlay a floating, non-activating panel.
 #[cfg(target_os = "macos")]
 pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {

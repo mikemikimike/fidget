@@ -1,5 +1,6 @@
 //! Turning a Tauri window into a non-activating overlay panel.
 
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::OnceLock;
 
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
@@ -118,6 +119,58 @@ fn sharing_type() -> NSWindowSharingType {
     } else {
         NSWindowSharingType::None
     }
+}
+
+/// The app that was in front when a pill took the keyboard, by pid; 0 is none.
+static FRONT_BEFORE_PILL: AtomicI32 = AtomicI32::new(0);
+
+/// Remember the frontmost app before the pill activates Fidget. Main thread.
+pub fn remember_front_app() {
+    let workspace = AnyClass::get(c"NSWorkspace").expect("AppKit defines NSWorkspace");
+    // SAFETY: plain NSWorkspace / NSRunningApplication getters.
+    unsafe {
+        let shared: *mut AnyObject = msg_send![workspace, sharedWorkspace];
+        let front: *mut AnyObject = msg_send![shared, frontmostApplication];
+        if front.is_null() {
+            return;
+        }
+        let pid: i32 = msg_send![front, processIdentifier];
+        if pid != std::process::id() as i32 {
+            FRONT_BEFORE_PILL.store(pid, Ordering::Relaxed);
+        }
+    }
+}
+
+/// The last pill on `window` closed: give up key status and hand activation
+/// back to the remembered app, unless the user already moved to another
+/// window. Main thread.
+pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let pid = FRONT_BEFORE_PILL.swap(0, Ordering::Relaxed);
+    let ns_window = window
+        .ns_window()
+        .map_err(|e| format!("overlay has no native window handle: {e}"))?
+        as *mut AnyObject;
+    let application = AnyClass::get(c"NSApplication").expect("AppKit defines NSApplication");
+    let running = AnyClass::get(c"NSRunningApplication").expect("AppKit defines it");
+    // SAFETY: AppKit getters and two actions on live objects, on the main thread.
+    unsafe {
+        let app: *mut AnyObject = msg_send![application, sharedApplication];
+        let active: bool = msg_send![app, isActive];
+        let key: *mut AnyObject = msg_send![app, keyWindow];
+        if !active || (!key.is_null() && key != ns_window) {
+            return Ok(());
+        }
+        let _: () = msg_send![ns_window, resignKeyWindow];
+        if pid == 0 {
+            return Ok(());
+        }
+        let previous: *mut AnyObject =
+            msg_send![running, runningApplicationWithProcessIdentifier: pid];
+        if !previous.is_null() {
+            let _: bool = msg_send![previous, activateWithOptions: 0usize];
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

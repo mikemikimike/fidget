@@ -856,6 +856,12 @@ async function start() {
   });
   petDrag = null;
   gestureActive = false;
+  // The overlay lost the keyboard to another window: a click away (#1565).
+  window.addEventListener("blur", () => {
+    for (const view of views.values()) {
+      if (view.quickMachine.typing) view.quickMachine.outside();
+    }
+  });
   document.addEventListener("pointerdown", (event) => {
     const composer = event.target.closest?.(".quick-message");
     const sprite = event.target.closest?.(".sprite");

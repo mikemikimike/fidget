@@ -270,6 +270,10 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
     keydown(key, mods = {}) {
       if (!visible || !ready) return false;
       if (key === "Enter" && !mods.shiftKey && !mods.composing) return submit();
+      if (key === "Escape" && !mods.composing) {
+        dismissOpen();
+        return true;
+      }
       return false;
     },
     // A press on the composer is text, not a Poke. The character still is.

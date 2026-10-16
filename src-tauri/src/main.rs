@@ -46,6 +46,7 @@ mod model;
 mod names_hint;
 mod package;
 mod pi_mcp;
+mod pill_focus;
 mod platform;
 #[cfg_attr(not(unix), allow(dead_code))] // see the note on `consent`
 mod secrets;
@@ -2029,15 +2030,32 @@ fn overlay_report_qm_draft(
     instance: String,
     payload: Option<fidget_core::quick_message::QmDraft>,
 ) {
-    // macOS: an open pill lets the overlay become key, so a click on it always
-    // takes the keyboard (#1565). A closed one gives sprite clicks back their
-    // refusal, which keeps typing elsewhere (323b7faf).
+    // macOS: an overlay with an open pill may become key, so the pill always
+    // takes the keyboard (#1565). When its last pill closes it refuses again
+    // and hands the keyboard back. Counted per window: a pill can move.
+    let flips = pill_focus::shared()
+        .lock()
+        .map(|mut pills| pills.note(window.label(), &instance, payload.is_some()))
+        .unwrap_or_default();
     #[cfg(target_os = "macos")]
-    if let Err(why) = window.set_focusable(payload.is_some()) {
-        eprintln!("overlay: could not set the pill's key state: {why}");
+    for (label, open) in flips {
+        let Some(overlay) = window.app_handle().get_webview_window(&label) else {
+            continue;
+        };
+        if let Err(why) = overlay.set_focusable(open) {
+            eprintln!("overlay: {label} could not set its key state: {why}");
+        }
+        if !open {
+            let handed = overlay.clone();
+            let _ = overlay.run_on_main_thread(move || {
+                if let Err(why) = platform::hand_back_keyboard(&handed) {
+                    eprintln!("overlay: {why}");
+                }
+            });
+        }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    let _ = flips;
     if dev_flags::TRACE_BUBBLE.is_on() {
         match &payload {
             Some(draft) => eprintln!(
@@ -2196,7 +2214,12 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
         // macOS: the overlay refuses key until now. Making it key is what
         // routes keys to the pill once the app is already active (#1565).
         #[cfg(target_os = "macos")]
-        window.set_focusable(true).map_err(|e| e.to_string())?;
+        {
+            window.set_focusable(true).map_err(|e| e.to_string())?;
+            window
+                .run_on_main_thread(platform::remember_front_app)
+                .map_err(|e| e.to_string())?;
+        }
         window.set_focus().map_err(|e| e.to_string())
     }
 }

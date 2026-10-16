@@ -382,10 +382,12 @@ test("dispose clears the composer so composing cannot stick", () => {
   assert.equal(qm.typing, false);
 });
 
-test("Escape does not dismiss", () => {
+test("Escape closes the pill and drops its text", () => {
   const { qm } = shown();
-  assert.equal(qm.keydown("Escape"), false);
-  assert.equal(qm.visible, true);
+  qm.setText("half a thought");
+  assert.equal(qm.keydown("Escape"), true);
+  assert.equal(qm.visible, false);
+  assert.equal(qm.text, "");
 });
 
 test("Send delivers the trimmed line and puts the pill away", () => {

@@ -5,15 +5,16 @@
 #   and the sprite is clicked with no pill open; typing must stay in TextEdit.
 #   Then the quick message pill is opened by resting the cursor on the sprite
 #   and typed into with no click: before Chat ever opens, after Chat is opened
-#   (double-click) and closed (Cmd+W), and with TextEdit in front. Last, with
-#   the pill focused, TextEdit is clicked through a transparent part of the
-#   overlay and typing must land there. Fidget quits.
-# Input: cursor moves, sprite clicks, Cmd+W, and typed words.
-# Duration: about 15 s; every step gives up 3 s after its trigger.
+#   (double-click) and closed (Cmd+W), and with TextEdit in front. Then the
+#   pill is closed by Enter, by Escape, and by clicking TextEdit through a
+#   transparent part of the overlay; after each, typing must land in TextEdit.
+#   Fidget quits.
+# Input: cursor moves, clicks, Cmd+W, Enter, Escape, and typed words.
+# Duration: about 20 s; every step gives up 3 s after its trigger.
 # Grants: Accessibility for the terminal that runs it.
 # Asserts: a sprite click leaves the word in TextEdit with no pill draft, and
-#   each pill that opens takes the typed word with no click (#1565), and a
-#   click through the overlay sends typing to TextEdit, not back to the pill.
+#   each pill that opens takes the typed word with no click (#1565), and each
+#   way of closing it hands the keyboard back to TextEdit.
 #
 # Usage: chat-close-pill-type.sh --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -163,16 +164,35 @@ capped 3 osascript -e 'tell application "TextEdit" to activate' > "$out/textedit
 open_pill other-app
 type_into_pill three other-app
 
-# 5. With the pill focused, a click through a transparent part of the overlay
-# lands in TextEdit, and typing follows it there.
+# TextEdit's text ends with <word>; re-checked on each new log line.
+textedit_ends() { case "$(capped 3 osascript -e 'tell application "TextEdit" to get text of document 1')" in *"$1") ;; *) return 1 ;; esac }
+# After the pill closes, <word> typed with no click must land in TextEdit.
+typing_back_in_textedit() { # <word> <case>
+  capped 3 "$tools/ax" type "$pid" "$1" > /dev/null 2>&1 || fail "$2: could not type"
+  wait_until 3 textedit_ends "$1" || fail "$2: \"$1\" did not reach TextEdit after the pill closed; see $log"
+  ! grep -qE "${draft}\"[^\"]*$1\"" "$log" || fail "$2: the pill kept the keyboard; see $log"
+  echo "ok: $2: typing went back to TextEdit"
+}
+closed='^[0-9]+ overlay: draft .* closed$'
+
+# 5. Enter sends the pill's line and closes it; the keyboard goes back to TextEdit.
+wait_for_next 3 "$log" "$closed" "$tools/ax" key "$pid" return || fail "enter: the pill did not close; see $log"
+typing_back_in_textedit six enter
+
+# 6. Escape closes the pill the same way.
+open_pill escape
+type_into_pill seven escape
+wait_for_next 3 "$log" "$closed" "$tools/ax" key "$pid" escape || fail "escape: the pill did not close; see $log"
+typing_back_in_textedit eight escape
+
+# 7. A click on TextEdit through a transparent part of the overlay closes the
+# pill, and typing follows the click.
+open_pill click-away
+type_into_pill nine click-away
 bounds=$(capped 3 osascript -e 'tell application "TextEdit" to get bounds of window 1') || fail "no TextEdit window bounds"
 IFS=', ' read -r left top right bottom <<< "$bounds"
-capped 3 "$tools/click-cursor" "$(((left + right) / 2))" "$(((top + bottom) / 2))" 1 > "$out/through-click.txt" 2>&1 ||
-  fail "could not click TextEdit through the overlay"
-capped 3 "$tools/ax" type "$pid" five > /dev/null 2>&1 || fail "could not type"
-landed() { case "$(capped 3 osascript -e 'tell application "TextEdit" to get text of document 1')" in *five) ;; *) return 1 ;; esac }
-wait_until 3 landed || fail "typing after a click-through did not reach TextEdit; see $log"
-! grep -qE "${draft}\"[^\"]*five\"" "$log" || fail "the pill took typing back after a click-through; see $log"
-echo "ok: a click through the overlay moved typing to TextEdit"
+wait_for_next 3 "$log" "$closed" "$tools/click-cursor" "$(((left + right) / 2))" "$(((top + bottom) / 2))" 1 ||
+  fail "click-away: the pill did not close; see $log"
+typing_back_in_textedit ten click-away
 
 echo "PASS: evidence in $out"
