@@ -205,15 +205,23 @@ function Chat-State {
     "foreground_is_chat=$($fg -eq $chat) topmost=$(Topmost $chat) exstyle=0x{0:X8} rect={1}" -f `
         [ChatPerchWin]::GetWindowLong($chat, -20), ((Rect $chat) -join ",")
 }
+# UI Automation straight from the HWND: the overlays share one title, so a
+# title lookup can dump the wrong display's overlay.
 function Dump([IntPtr]$Hwnd, [string]$Label) {
-    $file = Join-Path $out "$Label.ax.txt"
-    $axPid = 0
-    [ChatPerchWin]::GetWindowThreadProcessId($Hwnd, [ref]$axPid) | Out-Null
-    $title = New-Object System.Text.StringBuilder 256
-    [ChatPerchWin]::GetWindowText($Hwnd, $title, 256) | Out-Null
-    & powershell -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\ax-window-win.ps1" dump `
-        -ProcessId $axPid -Title $title.ToString() frames | Out-File -LiteralPath $file -Encoding utf8
-    @(Get-Content -LiteralPath $file -Encoding utf8)
+    $all = $UIA::FromHandle($Hwnd).FindAll([System.Windows.Automation.TreeScope]::Subtree,
+        [System.Windows.Automation.Condition]::TrueCondition)
+    $lines = @(foreach ($el in $all) {
+        try {
+            $b = $el.Current.BoundingRectangle
+            $frame = if ($b.IsEmpty) { "" } else { "{0},{1},{2},{3}" -f [int]$b.X, [int]$b.Y, [int]$b.Width, [int]$b.Height }
+            $role = switch ($el.Current.ControlType.ProgrammaticName) {
+                "ControlType.Button" { "button" } "ControlType.Edit" { "entry" } default { "other" }
+            }
+            "$role|$($el.Current.Name -replace "`n", '\n')|$frame"
+        } catch { }
+    })
+    $lines | Set-Content -LiteralPath (Join-Path $out "$Label.ax.txt") -Encoding utf8
+    $lines
 }
 # The point must be Fidget's: Win32 names the top-level window there and UI
 # Automation names the element, both without moving the cursor.
