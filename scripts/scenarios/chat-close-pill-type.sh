@@ -153,11 +153,20 @@ sprite_center() {
 
 # Leave the sprite and come back; the pill opens after HOVER_DELAY_MS (1.5 s)
 # and takes the caret by itself.
+# The Character can shift after Chat minimizes, off a cursor aimed at its old
+# spot; then this aims once more at where it went.
 open_pill() { # <case>
+  local was
   sprite_center
   capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "$1: could not move the cursor away"
+  wait_for_next 3 "$log" "$draft" "$tools/warp-cursor" "$cx" "$cy" --event && return
+  was="$cx $cy"
+  sprite_center
+  [ "$cx $cy" != "$was" ] || fail "$1: the pill did not open; see $log"
+  echo "note: $1: the Character moved from ($was) to ($cx $cy); aiming again" >> "$out/helpers.log"
+  capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "$1: could not move the cursor away"
   wait_for_next 3 "$log" "$draft" "$tools/warp-cursor" "$cx" "$cy" --event ||
-    fail "$1: the pill did not open; see $log"
+    fail "$1: the pill did not open, even aimed at where the Character moved; see $log"
 }
 
 # Type <word> with no click; the open pill's draft must end with it.
