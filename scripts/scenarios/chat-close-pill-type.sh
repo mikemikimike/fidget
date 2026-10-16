@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Scenario: chat-close-pill-type (macOS)
-# On screen: launches Fidget as BMO with a fixture Harness. Chat opens by
-#   itself and is closed with Cmd+W. The cursor then rests on the sprite until
-#   the quick message pill opens, clicks into its field, and types "hello".
-#   Fidget quits when it ends.
-# Input: one cursor move, one click on the pill field, Cmd+W, and five keys.
-# Duration: about 5 s; each wait gives up 2-3 s after its trigger.
+# On screen: launches Fidget as BMO with a fixture Harness. The quick message
+#   pill is opened by resting the cursor on the sprite, clicked, and typed into
+#   three times: before Chat ever opens, after Chat is opened (double-click) and
+#   closed (Cmd+W), and after Finder is brought forward. Fidget quits at the end.
+# Input: cursor moves, clicks on the sprite and pill, Cmd+W, and typed words.
+# Duration: about 10 s; each wait gives up 2-3 s after its trigger.
 # Grants: Accessibility for the terminal that runs it.
-# Asserts: after Chat closes, the pill's draft reads "hello" (#1565).
+# Asserts: each time, the pill's draft ends with the word typed (#1565).
 #
 # Usage: chat-close-pill-type.sh --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -64,39 +64,63 @@ harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-th
 
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=1 \
+  FIDGET_DIRECTOR_WAKE_SECS=600 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_BUBBLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
-# The first wake is the trigger; its turn opens Chat and replies.
-wait_after "$marks" 0 3 '^asked$' || fail "no wake reached the Harness; see $log"
-wait_after "$marks" 0 3 '^replied$' || fail "the Harness never replied; see $marks"
+# The sprite's center, from the newest frame line, in global points.
+sprite_center() {
+  local sw sh sx sy
+  read -r sw sh < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
+  read -r sx sy < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame line in $log"
+  echo "$((sx + sw / 2)) $((sy + sh / 2))"
+}
 
+# Click the open pill's field and type <word>; the draft must end with it.
+click_and_type() { # <word> <case>
+  local at fx fy fw fh
+  "$tools/ax" dump "$pid" Fidget frames > "$out/$2.ax.txt" 2>&1 || fail "$2: AX dump failed; see $out/$2.ax.txt"
+  IFS=, read -r fx fy fw fh < <(sed -nE 's/^AXTextArea\|.*\|(-?[0-9]+,-?[0-9]+,[0-9]+,[0-9]+)$/\1/p' "$out/$2.ax.txt" | head -1) ||
+    fail "$2: no pill field in $out/$2.ax.txt"
+  at=$(lines "$log")
+  "$tools/click-cursor" "$((fx + fw / 2))" "$((fy + fh / 2))" 1 > "$out/$2.click.txt" 2>&1 || fail "$2: could not click the pill"
+  "$tools/ax" type "$pid" "$1" > "$out/$2.type.txt" 2>&1 || fail "$2: could not type"
+  wait_after "$log" "$at" 2 "^overlay: draft .*text=\"[^\"]*$1\"" || fail "$2: \"$1\" never reached the pill (#1565); see $log"
+  echo "ok: $2: the pill took \"$1\""
+}
+
+# Rest on the sprite; the pill opens after HOVER_DELAY_MS (1.5 s).
+open_pill() { # <case>
+  local at x y
+  read -r x y < <(sprite_center)
+  at=$(lines "$log")
+  "$tools/warp-cursor" "$x" "$y" --event > "$out/$1.hover.txt" 2>&1 || fail "$1: could not move the cursor"
+  wait_after "$log" "$at" 3 '^overlay: draft .*text=' || fail "$1: the pill did not open; see $log"
+}
+
+# 1. Before Chat ever opens. The frame trace is the trigger that the sprite is drawn.
+wait_after "$log" 0 3 '^frame: ' || fail "no frame line; see $log"
+open_pill before-chat
+click_and_type one before-chat
+
+# 2. Chat opened by a Summon, then closed.
+read -r x y < <(sprite_center)
+at=$(lines "$log")
+"$tools/click-cursor" "$x" "$y" 2 > "$out/summon.txt" 2>&1 || fail "could not double-click the sprite"
+wait_after "$log" "$at" 3 '^chat: chat-[^ ]+ is open$' || fail "Chat did not open; see $log"
 at=$(lines "$log")
 osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true" \
   -e 'tell application "System Events" to keystroke "w" using command down' > "$out/close.txt" 2>&1 ||
   fail "could not press Cmd+W; see $out/close.txt"
 wait_after "$log" "$at" 2 '^chat: chat-[^ ]+ is closed$' || fail "Chat did not close; see $log"
+open_pill after-chat
+click_and_type two after-chat
 
-# The newest frame line says where the sprite is drawn, in global points.
-read -r sw sh < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
-read -r sx sy < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame line in $log"
-at=$(lines "$log")
-"$tools/warp-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" --event > "$out/hover.txt" 2>&1 || fail "could not move the cursor; see $out/hover.txt"
-# The pill opens after a 1.5 s rest on the sprite.
-wait_after "$log" "$at" 3 '^overlay: draft .*text=""' || fail "the pill did not open; see $log"
+# 3. Another app in front while the pill is still open.
+osascript -e 'tell application "Finder" to activate' > "$out/finder.txt" 2>&1 || fail "could not bring Finder forward"
+click_and_type three other-app
 
-"$tools/ax" dump "$pid" Fidget frames > "$out/pill.ax.txt" 2>&1 || fail "AX dump failed; see $out/pill.ax.txt"
-IFS=, read -r fx fy fw fh < <(sed -nE 's/^AXTextArea\|.*\|(-?[0-9]+,-?[0-9]+,[0-9]+,[0-9]+)$/\1/p' "$out/pill.ax.txt" | head -1) ||
-  fail "no pill field in $out/pill.ax.txt"
-at=$(lines "$log")
-"$tools/click-cursor" "$((fx + fw / 2))" "$((fy + fh / 2))" 1 > "$out/click.txt" 2>&1 ||
-  fail "could not click the pill field; see $out/click.txt"
-"$tools/ax" type "$pid" hello > "$out/type.txt" 2>&1 || fail "could not type; see $out/type.txt"
-wait_after "$log" "$at" 2 '^overlay: draft .*text="hello"' || fail "typed text never reached the pill (#1565); see $log"
-
-echo "ok: the pill took \"hello\" after Chat closed"
 echo "PASS: evidence in $out"

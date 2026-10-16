@@ -2027,21 +2027,22 @@ fn overlay_report_qm_draft(
     instance: String,
     payload: Option<fidget_core::quick_message::QmDraft>,
 ) {
-    // A closed pill hands key back to the refusal sprite clicks rely on.
+    // macOS: an open pill lets the overlay become key, so a click on it always
+    // takes the keyboard (#1565). A closed one gives sprite clicks back their
+    // refusal, which keeps typing elsewhere (323b7faf).
     #[cfg(target_os = "macos")]
-    if payload.is_none() {
-        if let Err(why) = window.set_focusable(false) {
-            eprintln!("overlay: could not refuse key again: {why}");
-        }
+    if let Err(why) = window.set_focusable(payload.is_some()) {
+        eprintln!("overlay: could not set the pill's key state: {why}");
     }
     #[cfg(not(target_os = "macos"))]
     let _ = window;
     if dev_flags::TRACE_BUBBLE.is_on() {
-        if let Some(draft) = &payload {
-            eprintln!(
+        match &payload {
+            Some(draft) => eprintln!(
                 "overlay: draft instance={instance} text={:?} focused={}",
                 draft.text, draft.focused
-            );
+            ),
+            None => eprintln!("overlay: draft instance={instance} closed"),
         }
     }
     platform::set_qm_draft(instance, payload);
@@ -2433,6 +2434,7 @@ fn open_chat(app: &tauri::AppHandle, id: &InstanceId, title: String, feet: Optio
         if let Err(why) = platform::activate_for_typing(&window) {
             eprintln!("chat: {label} could not be raised: {why}");
         }
+        eprintln!("chat: {label} is open");
     }) {
         eprintln!("chat: could not reach the main thread: {why}");
     }
