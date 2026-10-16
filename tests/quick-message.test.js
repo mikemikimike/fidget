@@ -382,6 +382,20 @@ test("dispose clears the composer so composing cannot stick", () => {
   assert.equal(qm.typing, false);
 });
 
+test("Losing the keyboard keeps typed text the way a drag does", () => {
+  const { qm } = shown();
+  qm.setText("half a thought");
+  qm.away();
+  assert.equal(qm.visible, true);
+  assert.equal(qm.text, "half a thought");
+});
+
+test("Losing the keyboard closes an empty pill", () => {
+  const { qm } = shown();
+  qm.away();
+  assert.equal(qm.visible, false);
+});
+
 test("Escape closes the pill and drops its text", () => {
   const { qm } = shown();
   qm.setText("half a thought");

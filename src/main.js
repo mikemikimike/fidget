@@ -859,7 +859,7 @@ async function start() {
   // The overlay lost the keyboard to another window: a click away (#1565).
   window.addEventListener("blur", () => {
     for (const view of views.values()) {
-      if (view.quickMachine.typing) view.quickMachine.outside();
+      if (view.quickMachine.typing) view.quickMachine.away();
     }
   });
   document.addEventListener("pointerdown", (event) => {

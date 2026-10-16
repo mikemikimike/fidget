@@ -285,6 +285,11 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
     drag() {
       if (!keepOnDrag(text)) dismissOpen();
     },
+    // The overlay lost the keyboard to another window. Like a drag, typed
+    // text keeps the pill; an empty one goes.
+    away() {
+      if (!keepOnDrag(text)) dismissOpen();
+    },
     summon() {
       yielded = true;
       dismissOpen();

@@ -37,12 +37,48 @@ impl OpenPills {
         flips
     }
 
+    /// The Instance is gone: drop its pill from every overlay.
+    pub fn forget(&mut self, instance: &str) -> Vec<(String, bool)> {
+        let before = self.on();
+        for pills in self.0.values_mut() {
+            pills.remove(instance);
+        }
+        let after = self.on();
+        let mut flips: Vec<(String, bool)> = before
+            .difference(&after)
+            .map(|label| (label.clone(), false))
+            .collect();
+        flips.sort();
+        flips
+    }
+
     fn on(&self) -> HashSet<String> {
         self.0
             .iter()
             .filter(|(_, pills)| !pills.is_empty())
             .map(|(label, _)| label.clone())
             .collect()
+    }
+}
+
+/// What to do with the keyboard when an overlay's last pill closes.
+#[derive(Debug, PartialEq, Eq)]
+pub enum HandBack {
+    /// The user already moved on: leave the keyboard where it is.
+    Stay,
+    /// Give it back to the app or window in front when the pill took it.
+    Restore,
+    /// That app or window is gone: step Fidget aside for whatever is next.
+    StepAside,
+}
+
+/// `holding`: Fidget's overlay still has the keyboard. `previous_alive`: the
+/// app or window remembered at focus time still exists. Same on every OS.
+pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
+    match (holding, previous_alive) {
+        (false, _) => HandBack::Stay,
+        (true, true) => HandBack::Restore,
+        (true, false) => HandBack::StepAside,
     }
 }
 
@@ -55,6 +91,24 @@ pub fn shared() -> &'static Mutex<OpenPills> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_removed_character_leaves_no_overlay_focusable() {
+        let mut pills = OpenPills::default();
+        pills.note("overlay-1", "a", true);
+        // overlay-0 drops the Character; only the roster says it is gone.
+        assert_eq!(pills.note("overlay-0", "a", false), flips(&[]));
+        assert_eq!(pills.forget("a"), flips(&[("overlay-1", false)]));
+        assert_eq!(pills.forget("a"), flips(&[]));
+    }
+
+    #[test]
+    fn the_keyboard_goes_back_only_while_fidget_still_holds_it() {
+        assert_eq!(hand_back(false, true), HandBack::Stay);
+        assert_eq!(hand_back(false, false), HandBack::Stay);
+        assert_eq!(hand_back(true, true), HandBack::Restore);
+        assert_eq!(hand_back(true, false), HandBack::StepAside);
+    }
 
     fn flips(pairs: &[(&str, bool)]) -> Vec<(String, bool)> {
         pairs.iter().map(|(w, o)| (w.to_string(), *o)).collect()

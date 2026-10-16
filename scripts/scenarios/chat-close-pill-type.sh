@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
 # Scenario: chat-close-pill-type (macOS)
-# On screen: launches Fidget as BMO with a fixture Harness that holds its first
-#   turn, so nothing opens Chat by itself. First TextEdit takes the keyboard
-#   and the sprite is clicked with no pill open; typing must stay in TextEdit.
-#   Then the quick message pill is opened by resting the cursor on the sprite
-#   and typed into with no click: before Chat ever opens, after Chat is opened
-#   (double-click) and closed (Cmd+W), and with TextEdit in front. Then the
-#   pill is closed by Enter, by Escape, and by clicking TextEdit through a
-#   transparent part of the overlay; after each, typing must land in TextEdit.
-#   Fidget quits.
+# On screen: Fidget as BMO with a fixture Harness that holds its first turn.
+#   TextEdit takes the keyboard and the sprite is clicked with no pill open.
+#   The pill opens on hover and takes typing with no click: before Chat ever
+#   opens, after Chat opens and closes, with TextEdit in front. It closes by
+#   Enter and Escape; TextEdit quits under it; a click-through moves the caret.
 # Input: cursor moves, clicks, Cmd+W, Enter, Escape, and typed words.
 # Duration: about 20 s; every step gives up 3 s after its trigger.
 # Grants: Accessibility for the terminal that runs it.
 # Asserts: a sprite click leaves the word in TextEdit with no pill draft, and
-#   each pill that opens takes the typed word with no click (#1565), and each
-#   way of closing it hands the keyboard back to TextEdit.
+#   each pill that opens takes the typed word with no click (#1565), each way
+#   of closing it hands the keyboard back, and a click-through moves the caret.
 #
 # Usage: chat-close-pill-type.sh --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -185,14 +181,33 @@ type_into_pill seven escape
 wait_for_next 3 "$log" "$closed" "$tools/ax" key "$pid" escape || fail "escape: the pill did not close; see $log"
 typing_back_in_textedit eight escape
 
-# 7. A click on TextEdit through a transparent part of the overlay closes the
-# pill, and typing follows the click.
+# 7. The remembered app quits while the pill is open: closing the pill steps
+# Fidget aside for the next app instead of keeping the keyboard.
+open_pill app-quit
+capped 3 osascript -e 'tell application "TextEdit" to quit saving no' > "$out/quit.txt" 2>&1 || fail "could not quit TextEdit"
+wait_for_next 3 "$log" "$closed" "$tools/ax" key "$pid" escape || fail "app-quit: the pill did not close; see $log"
+front_pid() { capped 3 osascript -e 'tell application "System Events" to get unix id of first process whose frontmost is true'; }
+not_front() { [ "$(front_pid)" != "$pid" ]; }
+wait_until 3 not_front || fail "app-quit: Fidget kept the keyboard after its app quit; see $log"
+echo "ok: app-quit: Fidget stepped aside"
+
+# 8. A click through a transparent part of the overlay moves TextEdit's caret
+# to the click: the word lands before the document's text, which only that
+# click can cause (a fresh document's caret is at the end).
+capped 3 osascript -e 'tell application "TextEdit"' -e 'make new document with properties {text:"abc"}' \
+  -e 'activate' -e 'end tell' > "$out/textedit2.txt" 2>&1 || fail "could not reopen TextEdit"
 open_pill click-away
 type_into_pill nine click-away
 bounds=$(capped 3 osascript -e 'tell application "TextEdit" to get bounds of window 1') || fail "no TextEdit window bounds"
-IFS=', ' read -r left top right bottom <<< "$bounds"
-wait_for_next 3 "$log" "$closed" "$tools/click-cursor" "$(((left + right) / 2))" "$(((top + bottom) / 2))" 1 ||
-  fail "click-away: the pill did not close; see $log"
-typing_back_in_textedit ten click-away
+IFS=', ' read -r left top _ _ <<< "$bounds"
+# The first line's start: past the title bar and the text inset.
+capped 3 "$tools/click-cursor" "$((left + 8))" "$((top + 40))" 1 > "$out/through-click.txt" 2>&1 ||
+  fail "click-away: could not click TextEdit"
+capped 3 "$tools/ax" type "$pid" ten > /dev/null 2>&1 || fail "click-away: could not type"
+caret_moved() { [ "$(capped 3 osascript -e 'tell application "TextEdit" to get text of document 1')" = tenabc ]; }
+wait_until 3 caret_moved || fail "click-away: the click did not put TextEdit's caret at the click; see $log"
+! grep -qE "${draft}\"[^\"]*ten\"" "$log" || fail "click-away: the pill took typing back; see $log"
+grep -qE "${draft}\"nine\"" "$log" || fail "click-away: the pill lost its text"
+echo "ok: click-away: the caret moved to the click and typing followed"
 
 echo "PASS: evidence in $out"

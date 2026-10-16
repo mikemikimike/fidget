@@ -152,22 +152,31 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
         as *mut AnyObject;
     let application = AnyClass::get(c"NSApplication").expect("AppKit defines NSApplication");
     let running = AnyClass::get(c"NSRunningApplication").expect("AppKit defines it");
-    // SAFETY: AppKit getters and two actions on live objects, on the main thread.
+    // SAFETY: AppKit getters and one action on live objects, on the main thread.
     unsafe {
         let app: *mut AnyObject = msg_send![application, sharedApplication];
         let active: bool = msg_send![app, isActive];
         let key: *mut AnyObject = msg_send![app, keyWindow];
-        if !active || (!key.is_null() && key != ns_window) {
-            return Ok(());
-        }
-        let _: () = msg_send![ns_window, resignKeyWindow];
-        if pid == 0 {
-            return Ok(());
-        }
-        let previous: *mut AnyObject =
-            msg_send![running, runningApplicationWithProcessIdentifier: pid];
-        if !previous.is_null() {
-            let _: bool = msg_send![previous, activateWithOptions: 0usize];
+        let holding = active && (key.is_null() || key == ns_window);
+        let previous: *mut AnyObject = if pid == 0 {
+            std::ptr::null_mut()
+        } else {
+            msg_send![running, runningApplicationWithProcessIdentifier: pid]
+        };
+        let alive = !previous.is_null() && {
+            let gone: bool = msg_send![previous, isTerminated];
+            !gone
+        };
+        match crate::pill_focus::hand_back(holding, alive) {
+            crate::pill_focus::HandBack::Stay => {}
+            crate::pill_focus::HandBack::Restore => {
+                let _: bool = msg_send![previous, activateWithOptions: 0usize];
+            }
+            // Nothing to give it back to: deactivate, and macOS activates the
+            // next app in front. Hiding would hide the sprite too.
+            crate::pill_focus::HandBack::StepAside => {
+                let _: () = msg_send![app, deactivate];
+            }
         }
     }
     Ok(())

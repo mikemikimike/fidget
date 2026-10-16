@@ -370,6 +370,48 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
     macos::hand_back_keyboard(window)
 }
 
+/// The window in front when a pill took the keyboard; 0 is none.
+#[cfg(target_os = "windows")]
+static FOREGROUND_BEFORE_PILL: std::sync::atomic::AtomicIsize =
+    std::sync::atomic::AtomicIsize::new(0);
+
+/// Remember the foreground window before a pill takes the keyboard.
+#[cfg(target_os = "windows")]
+pub fn remember_foreground(window: windows_sys::Win32::Foundation::HWND) {
+    FOREGROUND_BEFORE_PILL.store(window as isize, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The overlay's last pill closed: give the foreground back to the window
+/// that had it, if the overlay still holds it and that window still exists.
+#[cfg(target_os = "windows")]
+pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use crate::pill_focus::{hand_back, HandBack};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, IsWindow, SetForegroundWindow,
+    };
+
+    let previous = FOREGROUND_BEFORE_PILL.swap(0, std::sync::atomic::Ordering::Relaxed) as HWND;
+    let handle = window
+        .window_handle()
+        .map_err(|e| format!("overlay has no window handle: {e}"))?;
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return Ok(());
+    };
+    let overlay = win32.hwnd.get() as HWND;
+    // SAFETY: Win32 queries on window handles; IsWindow vets the remembered one.
+    unsafe {
+        let holding = GetForegroundWindow() == overlay;
+        let alive = !previous.is_null() && IsWindow(previous) != 0;
+        // StepAside has nothing to step to: Windows picks the next window itself.
+        if hand_back(holding, alive) == HandBack::Restore {
+            SetForegroundWindow(previous);
+        }
+    }
+    Ok(())
+}
+
 /// Make the overlay a floating, non-activating panel.
 #[cfg(target_os = "macos")]
 pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {

@@ -2033,15 +2033,35 @@ fn overlay_report_qm_draft(
     // macOS: an overlay with an open pill may become key, so the pill always
     // takes the keyboard (#1565). When its last pill closes it refuses again
     // and hands the keyboard back. Counted per window: a pill can move.
+    // A Character removed from the roster loses its pill on every overlay.
+    let gone = payload.is_none()
+        && window
+            .app_handle()
+            .try_state::<SettingsState>()
+            .and_then(|state| {
+                state
+                    .instances
+                    .lock()
+                    .ok()
+                    .map(|rows| !rows.iter().any(|row| row.id == instance))
+            })
+            .unwrap_or(false);
     let flips = pill_focus::shared()
         .lock()
-        .map(|mut pills| pills.note(window.label(), &instance, payload.is_some()))
+        .map(|mut pills| {
+            let mut flips = pills.note(window.label(), &instance, payload.is_some());
+            if gone {
+                flips.extend(pills.forget(&instance));
+            }
+            flips
+        })
         .unwrap_or_default();
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     for (label, open) in flips {
         let Some(overlay) = window.app_handle().get_webview_window(&label) else {
             continue;
         };
+        #[cfg(target_os = "macos")]
         if let Err(why) = overlay.set_focusable(open) {
             eprintln!("overlay: {label} could not set its key state: {why}");
         }
@@ -2054,7 +2074,10 @@ fn overlay_report_qm_draft(
             });
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    // Linux keeps the keyboard where the window manager puts it: handing it to
+    // another client's window needs _NET_ACTIVE_WINDOW, which focus-stealing
+    // prevention may refuse, and Wayland has no such request.
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = flips;
     if dev_flags::TRACE_BUBBLE.is_on() {
         match &payload {
@@ -2188,6 +2211,9 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
             // Win32 for live windows, and any attach is undone before returning.
             unsafe {
                 let foreground = GetForegroundWindow();
+                if !foreground.is_null() && foreground != hwnd {
+                    platform::remember_foreground(foreground);
+                }
                 let mut attached = None;
                 if !foreground.is_null() {
                     let foreground_thread =
