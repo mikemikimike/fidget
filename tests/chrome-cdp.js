@@ -1,5 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
 
+// Every CDP call, the first included, gets 3s. CI warms Chrome up once before the
+// tests, so a slow first start fails loudly instead of hiding behind a longer wait.
+const CALL_MS = 3000;
+
 export function findChrome() {
   if (process.env.FIDGET_CHROME) {
     return process.env.FIDGET_CHROME;
@@ -88,12 +92,12 @@ export function launchWithPipe(chrome, args) {
     proc.stdio[fd].on("close", () => failPending("Chrome pipe closed"));
   }
 
-  function send(method, params = {}, sessionId = undefined, timeoutMs = 3000) {
+  function send(method, params = {}, sessionId = undefined, timeoutMs = CALL_MS) {
     const id = nextId++;
     return new Promise((res, rej) => {
       const timer = setTimeout(() => {
         pending.delete(id);
-        rej(new Error(`${method}: CDP call timeout after ${timeoutMs}ms`));
+        rej(new Error(`${method}: CDP call timeout after ${timeoutMs}ms${stderrTail ? `. stderr: ${stderrTail.trim()}` : ""}`));
       }, timeoutMs);
 
       pending.set(id, {
@@ -127,7 +131,7 @@ export function launchWithPipe(chrome, args) {
 }
 
 export async function createPageTarget(cdp) {
-  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" }, undefined, 10000);
+  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   await cdp.send("Runtime.enable", {}, sessionId);
   await cdp.send("Log.enable", {}, sessionId);
