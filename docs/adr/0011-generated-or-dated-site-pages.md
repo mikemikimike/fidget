@@ -61,7 +61,7 @@ its own name if a merged issue links a proposal that is later replaced.
 security model. #289's gallery needs a few hundred PNGs, too many to name as
 reviewed lines, so the script names every file *and* every generated tree, one
 line per generator, and a guard after assembly fails the build if `_site` holds
-anything but `.html`, `.css`, `.js`, `.png` or `.svg`.
+anything but `.html`, `.css`, `.js`, `.png`, `.svg`, `.jpg` or `.webp`.
 
 The guarantee moves from a reviewed line in a diff to a reviewed script, taken
 on purpose. What the allowlist exists to prevent is `docs/research/` and
