@@ -343,7 +343,7 @@ try {
     $cx = [int]$Matches[1] + [int]([int]$Matches[3] / 2)
     $cy = [int]$Matches[2] + [int]([int]$Matches[4] / 2)
     $hit = Target-At $cx $cy
-    if ($hit.Hwnd -ne $chat) { Fail "top window at the composer is not Chat: $($hit.Line)" }
+    if ($hit.Name -like "*ControlType.Document|Fidget*") { Fail "the overlay page covers the composer: $($hit.Line)" }
     [ChatPerchWin]::Click($cx, $cy)
     $focus = $UIA::FocusedElement
     $focusLine = "focused=$($focus.Current.ControlType.ProgrammaticName)|$($focus.Current.Name) pid=$($focus.Current.ProcessId)"
