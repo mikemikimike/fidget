@@ -28,6 +28,7 @@ test_bin=${3:?usage: chat-close-pill-type.sh --go <fidget binary> <fidget test b
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.mac.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-chat-close-pill-type-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 data="$out/home/Library/Application Support/fidget"
@@ -44,14 +45,8 @@ fail() {
   exit 1
 }
 
-# Kills <pid> and everything under it.
-kill_tree() { # <pid>
-  local child
-  for child in $(pgrep -P "$1" 2> /dev/null); do kill_tree "$child"; done
-  kill "$1" 2> /dev/null || true
-}
-
-# Runs <command>, killing it and its children after <seconds>.
+# Runs a helper tool, stopping it and its children after <seconds>, so a
+# stuck osascript or AX call cannot hang the run.
 capped() { # <seconds> <command...>
   local secs=$1 cmd dog status=0
   shift
@@ -59,39 +54,21 @@ capped() { # <seconds> <command...>
   cmd=$!
   (
     sleep "$secs"
-    kill_tree "$cmd"
+    process_tree "$cmd" | xargs kill 2> /dev/null
   ) 2> /dev/null &
   dog=$!
   wait "$cmd" || status=$?
-  kill_tree "$dog"
+  process_tree "$dog" | xargs kill 2> /dev/null || true
   return "$status"
 }
 
-# Blocks until <file> holds <count> lines matching <ERE>, fed by tail -F.
-count_reaches() { # <file> <ERE> <count>
-  local fifo tailer status=0
-  fifo=$(mktemp -u "$out/fifo.XXXXXX")
-  mkfifo "$fifo"
-  tail -n +1 -F "$1" > "$fifo" 2> /dev/null &
-  tailer=$!
-  [ "$(grep -cEm "$3" -- "$2" < "$fifo")" -ge "$3" ] || status=1
-  kill "$tailer" 2> /dev/null || true
-  rm -f "$fifo"
-  return "$status"
-}
-
-# Shaped like #1564's shared helper so the swap is one source line.
-wait_for_count() { # <seconds> <file> <ERE> <count>
-  capped "$1" count_reaches "$2" "$3" "$4"
-}
-matches() { grep -cE -- "$2" "$1" || true; }
-# Waits for one more <ERE> line than <file> holds now.
+# Runs <command> as the trigger, then waits for one more <ERE> line in <file>.
 wait_for_next() { # <seconds> <file> <ERE> <command...>
   local secs=$1 file=$2 pattern=$3 before
   shift 3
-  before=$(matches "$file" "$pattern")
+  before=$(line_count "$file" "$pattern")
   capped 3 "$@" > /dev/null 2>&1 || fail "could not run $*"
-  wait_for_count "$secs" "$file" "$pattern" "$((before + 1))"
+  wait_for_count "$secs" "$file" "$pattern" "$before"
 }
 
 build_tool() { # <name> <source>
@@ -113,13 +90,13 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$out/app.log" 2>&1 &
 pid=$!
-trap 'kill_tree "$pid"; pkill -f "count=$marks" || true' EXIT INT TERM
+trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
 
 frame='^[0-9]+ frame: '
 draft='^[0-9]+ overlay: draft .*text='
 
 # Startup: the launch is the trigger for the first drawn frame.
-wait_for_count 3 "$log" "$frame" 1 || fail "no frame within 3 s of launch; see $log and $out/app.log"
+wait_for_count 3 "$log" "$frame" 0 || fail "no frame within 3 s of launch; see $log and $out/app.log"
 
 # Sets cx, cy to the sprite's center, from the newest frame line.
 sprite_center() {
@@ -156,9 +133,8 @@ sprite_center
 capped 3 "$tools/click-cursor" "$cx" "$cy" 1 > "$out/sprite-click.txt" 2>&1 || fail "could not click the sprite"
 capped 3 "$tools/ax" type "$pid" four > /dev/null 2>&1 || fail "could not type"
 capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event > /dev/null 2>&1 || fail "could not move the cursor away"
-typed() { [ "$(osascript -e 'tell application "TextEdit" to get text of document 1')" = four ]; }
-until_typed() { until typed; do :; done; }
-capped 3 until_typed || fail "a sprite click took the keyboard from TextEdit; see $log"
+typed() { [ "$(capped 3 osascript -e 'tell application "TextEdit" to get text of document 1')" = four ]; }
+wait_until 3 typed || fail "a sprite click took the keyboard from TextEdit; see $log"
 ! grep -qE "${draft}\"[^\"]*four\"" "$log" || fail "a sprite click sent typing to Fidget; see $log"
 echo "ok: a sprite click left typing in TextEdit"
 
@@ -194,9 +170,8 @@ IFS=', ' read -r left top right bottom <<< "$bounds"
 capped 3 "$tools/click-cursor" "$(((left + right) / 2))" "$(((top + bottom) / 2))" 1 > "$out/through-click.txt" 2>&1 ||
   fail "could not click TextEdit through the overlay"
 capped 3 "$tools/ax" type "$pid" five > /dev/null 2>&1 || fail "could not type"
-landed() { case "$(osascript -e 'tell application "TextEdit" to get text of document 1')" in *five) ;; *) return 1 ;; esac }
-until_landed() { until landed; do :; done; }
-capped 3 until_landed || fail "typing after a click-through did not reach TextEdit; see $log"
+landed() { case "$(capped 3 osascript -e 'tell application "TextEdit" to get text of document 1')" in *five) ;; *) return 1 ;; esac }
+wait_until 3 landed || fail "typing after a click-through did not reach TextEdit; see $log"
 ! grep -qE "${draft}\"[^\"]*five\"" "$log" || fail "the pill took typing back after a click-through; see $log"
 echo "ok: a click through the overlay moved typing to TextEdit"
 
