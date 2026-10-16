@@ -5,7 +5,7 @@
 #   sprite and its bubble: two while the reply streams, one after it lands.
 #   Fidget quits when the scenario ends.
 # Input: none.
-# Duration: about 25 s, 1 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
 # Asserts: the bubble grows word by word with `talk` playing, never shows the
 #   Behavior name, and ends on the whole line.
@@ -23,9 +23,11 @@ test_bin=${3:?usage: streaming-bubble.sh --go <fidget binary> <fidget test binar
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.mac.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-streaming-bubble-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
+seed_tour_shown "$out/home"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
 
@@ -41,25 +43,15 @@ fail() {
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-streaming count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(now_ms)
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 FIDGET_TRACE_FRAMES=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
 
 # The bubble is at most 260 points wide and sits above the head, so the
 # region is centred on the sprite and reaches well above it.
@@ -85,13 +77,14 @@ capture() {
   echo "ok: $1"
 }
 
-wait_for 30 grep -qx 'word 2' "$marks" || fail "no streamed turn reached the Harness; see $log"
-sleep 0.3
+# The fixture sends a word every 700 ms, so each wait below ends within 3 s.
+wait_for_marks 3 "$marks" '^word 2$' || fail "no streamed turn reached the Harness; see $log"
+wait_for_ax_dump 2 "$pid" Fidget 'Watch these' || fail "early: the bubble never showed the first words; see $log"
 capture early "Watch these" "arrive" talk
-wait_for 10 grep -qx 'word 5' "$marks" || fail "the stream stalled; see $log"
-sleep 0.3
+wait_for_marks 3 "$marks" '^word 5$' || fail "the stream stalled; see $log"
+wait_for_ax_dump 2 "$pid" Fidget 'Watch these words arrive one' || fail "mid: the bubble never caught up to word 5; see $log"
 capture mid "Watch these words arrive one" "time." talk
-wait_for 10 grep -qx spoken "$marks" || fail "the reply never ended; see $log"
-sleep 0.5
+wait_for_marks 3 "$marks" '^spoken$' || fail "the reply never ended; see $log"
+wait_for_ax_dump 2 "$pid" Fidget 'one at a time\.' || fail "landed: the bubble never showed the whole line; see $log"
 capture landed "Watch these words arrive one at a time."
-echo "PASS: evidence in $out"
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"

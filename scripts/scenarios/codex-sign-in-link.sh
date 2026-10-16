@@ -23,9 +23,11 @@ if [ "${1:-}" != --go ]; then
 fi
 bin=${2:?usage: codex-sign-in-link.sh --go <fidget binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.mac.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-codex-sign-in-link-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools/npm-cache"
+seed_tour_shown "$out/home"
 log="$out/app.log"
 session_file="$out/home/Library/Application Support/fidget/harness-session.json"
 # Outside $out, which outlives the run: this directory ends up holding tokens.
@@ -46,7 +48,7 @@ cleanup() {
   fi
   rm -rf "$codex_home"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 fail() {
   echo "FAIL: $*" >&2
@@ -59,6 +61,7 @@ fail() {
 
 # NO_BROWSER drops codex-acp's browser sign-in, so the device code is the one
 # button. The npm cache is shared across runs so npx fetches codex-acp once.
+start_ms=$(now_ms)
 env HOME="$out/home" \
   CODEX_HOME="$codex_home" NO_BROWSER=1 \
   npm_config_cache="$tools/npm-cache" \
@@ -67,17 +70,6 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
 
 dump() { # <name>
   "$tools/ax" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1
@@ -91,26 +83,31 @@ shot() { # <name>
   screencapture -x -o -l "$id" "$out/$1.png"
 }
 
+# Every other wait gives up within 3 s. These three wait on a person at the
+# keyboard or in the browser, and on npx fetching codex-acp on a cold cache,
+# so they keep human-sized limits.
+human=120 cold_npx=180 browser_sign_in=600
+
 echo ">>> Double-click BMO to open Chat."
-wait_for 180 "$tools/window-id" "$pid" BMO || fail "Chat did not open"
+wait_until "$human" "$tools/window-id" "$pid" BMO || fail "Chat did not open"
 # npx fetches codex-acp on a cold cache, and codex then reports signed out.
-wait_for 180 shows sign-in '^AXButton\|ChatGPT \(device code\)\|' ||
+wait_until "$cold_npx" shows sign-in '^AXButton\|ChatGPT \(device code\)\|' ||
   fail "Chat offered no device-code sign-in; see $out/sign-in.ax.txt and $log"
 echo "ok: Chat offers ChatGPT (device code)"
 
 echo '>>> Click "ChatGPT (device code)" in Chat.'
-wait_for 120 shows ask '^AXButton\|Open\|' || fail "no Open button; see $out/ask.ax.txt"
+wait_until "$human" shows ask '^AXButton\|Open\|' || fail "no Open button; see $out/ask.ax.txt"
 shot ask
 grep -qE '^AXButton\|Decline\|' "$out/ask.ax.txt" || fail "the ask row has no Decline; see $out/ask.ax.txt"
 link=$(grep -oEm1 'https://[^|[:space:]]+' "$out/ask.ax.txt") || fail "the ask row shows no https link; see $out/ask.ax.txt"
 echo "ok: the ask row shows $link with Open and Decline"
 
 echo ">>> Click Open, then sign in and enter the code in the browser."
-wait_for 600 grep -q '"harness":"codex"' "$session_file" || fail "no codex session was saved; see $log"
+wait_until "$browser_sign_in" grep -q '"harness":"codex"' "$session_file" || fail "no codex session was saved; see $log"
 grep -qE '"session_id":"[^"]+"' "$session_file" || fail "the saved session has no id; see $session_file"
-wait_for 30 shows after-sign-in 'codex · session [^|]+' ||
+wait_until 3 shows after-sign-in 'codex · session [^|]+' ||
   fail "Chat's mind line names no session; see $out/after-sign-in.ax.txt"
 shot after-sign-in
 echo "ok: $(grep -oEm1 'codex · session [^|]+' "$out/after-sign-in.ax.txt")"
 cp "$session_file" "$out/"
-echo "PASS: evidence in $out"
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"

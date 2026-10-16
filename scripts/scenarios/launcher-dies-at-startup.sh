@@ -6,7 +6,7 @@
 #   points, then Codex is pressed. Three screenshots. Fidget quits at the end.
 # Input: one real click on the menu bar icon; AXPress on Chat… and Codex, a
 #   click only if one refuses it (three at most); AX resizes; no keys.
-# Duration: about 30 s, 2 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
 # Asserts: what only a live run can: the tray's Chat… row opens the Harness
 #   error landing; at 420 and 320 its Error output and Command boxes end inside
@@ -27,9 +27,11 @@ test_bin=${3:?usage: launcher-dies-at-startup.sh --go <fidget binary> <fidget te
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.mac.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-launcher-dies-at-startup-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
+seed_tour_shown "$out/home"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
 
@@ -51,6 +53,7 @@ chmod +x "$harness"
 [ "$(wc -w <<< "$harness")" -eq 1 ] || fail "FIDGET_HARNESS splits on spaces, and $harness holds one"
 
 # No ambient wake: one would respawn the Harness and pass the re-pick for it.
+start_ms=$(now_ms)
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
@@ -58,18 +61,7 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
 
 spawns() { grep -cx spawn "$marks" || true; }
 respawned() { [ "$(spawns)" -ge 2 ]; }
@@ -85,14 +77,20 @@ shot() { screencapture -x -o -l "$("$tools/window-id" "$pid" BMO)" "$out/$1.png"
 rect() { tr , ' ' <<< "${1##*|}"; }                          # <dump line>: its frame as "x y w h"
 box() { grep -E '^AXStaticText\|' "$2" | grep -m1 -F "$1"; } # <text> <dump>
 
+reflowed() { # <width>
+  local aw
+  "$tools/ax" dump "$pid" BMO frames > "$out/$1.ax.txt" 2>&1 || return 1
+  read -r _ _ aw _ <<< "$(rect "$(grep -m1 '^AXWebArea|' "$out/$1.ax.txt")")"
+  [ -n "$aw" ] && [ "$aw" -le "$1" ]
+}
 name=$harness dyld="dyld[0]: Library not loaded"
 fits() { # <width>: both boxes end inside Chat, and Error output starts above the composer
   local w=$1 f=$out/$1.ax.txt wx got x y ww fold text row
   "$tools/ax" size "$pid" BMO "$w" 560 > "$out/$w.frame.txt" 2>&1 || fail "$w: resize failed; see $out/$w.frame.txt"
   read -r wx _ got _ < <(tr , ' ' < "$out/$w.frame.txt")
   [ "$got" -eq "$w" ] || fail "$w: Chat is $got points wide after the resize"
-  sleep 1
-  "$tools/ax" dump "$pid" BMO frames > "$f" 2>&1 || fail "$w: AX dump failed; see $f"
+  # The resize lands before WebKit reflows, so wait for the page to fit the new width.
+  wait_until 2 reflowed "$w" || fail "$w: the page never reflowed to fit; see $f"
   shot "failed-$w"
   for text in "$dyld" "|$harness|"; do
     row=$(box "$text" "$f") || fail "$w: no box holds '$text' in $f"
@@ -107,18 +105,18 @@ fits() { # <width>: both boxes end inside Chat, and Error output starts above th
   echo "ok: $w: both boxes inside the window, Error output at y $y above the composer at $fold"
 }
 
-wait_for 20 grep -q 'exited before initialize' "$log" || fail "the launcher never died before initialize; see $log"
+wait_for_trace 3 "$log" 'exited before initialize' || fail "the launcher never died before initialize; see $log"
 [ "$(spawns)" -eq 1 ] || fail "want one spawn before Chat opens, the fixture saw $(spawns)"
 "$tools/ax" open "$pid" Chat BMO > "$out/open.txt" 2>&1 || fail "the menu's Chat row did not open Chat; see $out/open.txt"
-wait_for 15 dump_has failed "|Harness couldn't start|" || fail "Chat shows no Harness error landing; see $out/failed.ax.txt"
+wait_until 3 dump_has failed "|Harness couldn't start|" || fail "Chat shows no Harness error landing; see $out/failed.ax.txt"
 echo "ok: the tray's Chat row opened the Harness error landing"
 for w in 420 320; do fits "$w"; done
 
 [ "$(spawns)" -eq 1 ] || fail "the Harness launched again before the re-pick ($(spawns) spawns)"
 "$tools/ax" press-button "$pid" Codex 1 BMO > "$out/press.txt" 2>&1 || fail "could not press Codex on the landing; see $out/press.txt"
-wait_for 10 respawned || fail "the re-pick did not launch the Harness again; see $log"
-wait_for 15 dump_has live "|$name · session " "|$name · no session yet|" ||
+wait_until 3 respawned || fail "the re-pick did not launch the Harness again; see $log"
+wait_until 3 dump_has live "|$name · session " "|$name · no session yet|" ||
   fail "after the re-pick the mind line names no live Harness; see $out/live.ax.txt"
 shot live
 echo "ok: the re-pick launched it again at once: $(grep -oEm1 '· (session [^|]+|no session yet)' "$out/live.ax.txt")"
-echo "PASS: evidence in $out"
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"

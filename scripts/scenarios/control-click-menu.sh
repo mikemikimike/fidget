@@ -7,7 +7,7 @@
 #   Fidget quits when the scenario ends.
 # Input: one Control-click on the sprite (synthetic, via CGEvent), held while
 #   the menu is read; Escape closes the menu before the release.
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
 # Asserts: the Control-click lands as Menu, and the open menu's Accessibility
 #   items include Chat…, Settings… and Quit.
@@ -24,9 +24,11 @@ bin=${2:?usage: control-click-menu.sh --go <fidget binary> <fidget test binary>}
 test_bin=${3:?usage: control-click-menu.sh --go <fidget binary> <fidget test binary>}
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.mac.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-control-click-menu-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
+seed_tour_shown "$out/home"
 log="$out/app.log"
 
 fail() {
@@ -41,6 +43,7 @@ fail() {
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=nop"
 [ "$(wc -w <<< "$harness")" -eq 3 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(now_ms)
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=3600 \
@@ -48,23 +51,23 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "script=nop" || true' EXIT
+trap 'stop_fidget; pkill -f "script=nop" || true' EXIT INT TERM
 
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
+sprite_xy() { grep '^frame: ' "$log" | tail -1 | sed -E 's/.*sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1 \2/'; }
+# Two frames 100 ms apart in the same spot, resting.
+sprite_still() {
+  local a
+  in_state "$log" 'Grounded|Perched' || return 1
+  a=$(sprite_xy)
+  sleep 0.1
+  [ "$a" = "$(sprite_xy)" ] && in_state "$log" 'Grounded|Perched'
 }
 
 # The overlay spans the display, so its centre is not the sprite. The newest
 # frame trace line says where the sprite is drawn, in global points.
-wait_for 15 grep -q '^frame: .* sprite(' "$log" || fail "Fidget traced no frame; see $log"
-sleep 2
+wait_for_trace 3 "$log" '^frame: .* sprite\(' || fail "Fidget traced no frame; see $log"
+# A click on a walking sprite lands where it was, so wait for it to rest.
+wait_until 3 sprite_still || fail "the sprite never came to rest; see $log"
 read -r w h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
 read -r x y < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame trace in $log"
 cx=$((x + w / 2))
@@ -135,7 +138,7 @@ items.forEach { print($0) }
 exit(items.isEmpty ? 1 : 0)
 SWIFT
 
-wait_for 3 grep -q '^verbs: .*\[Menu\]' "$log" || fail "the Control-click did not land as Menu; see $log"
+wait_for_trace 2 "$log" '^verbs: .*\[Menu\]' || fail "the Control-click did not land as Menu; see $log"
 echo "ok: the Control-click landed as Menu"
 
 for item in "Chat…" "Settings…" "Quit"; do
@@ -143,4 +146,4 @@ for item in "Chat…" "Settings…" "Quit"; do
   echo "ok: the menu holds $item"
 done
 
-echo "PASS: evidence in $out"
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"

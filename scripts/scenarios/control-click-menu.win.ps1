@@ -6,7 +6,7 @@
 #   ends.
 # Input: one real right-click on the sprite and one Escape. Fidget treats
 #   Control-click as the menu gesture only on macOS; here the right button is the menu gesture.
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. bash
 #   on PATH for the fixture Harness wrapper.
 # Asserts: the right-click lands as Menu, and the open menu's UI Automation
@@ -64,6 +64,7 @@ if (-not ($selfTestSettledFrame -match '^\d+\.?\d* frame: .* Grounded .* sprite\
 if ($selfTestSettledFrame -match 'walk#|Falling') { Write-Error "self-test: settled frame should not match walk# or Falling"; exit 1 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
@@ -107,7 +108,7 @@ $settingsDir = Join-Path $out "home\AppData\Roaming\fidget"
 New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
 $settingsFile = Join-Path $settingsDir "settings.json"
 $utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($settingsFile, '{"hide_in_fullscreen": false}', $utf8)
+[System.IO.File]::WriteAllText($settingsFile, '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
 
 $log = Join-Path $out "app.log"
 $err = Join-Path $out "app.err"
@@ -221,18 +222,9 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
         "& '$ax' @args"
     ), $utf8)
 
+$startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
             Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
@@ -247,7 +239,7 @@ try {
         }
     }
     function Wait-Settled {
-        $deadline = (Get-Date).AddSeconds(15)
+        $deadline = (Get-Date).AddSeconds(3)
         $lastX = $null
         $lastY = $null
         $firstSeenAt = $null
@@ -289,11 +281,11 @@ try {
             }
             Start-Sleep -Milliseconds 100
         }
-        Fail "sprite did not settle within 15s; see $traceFile"
+        Fail "sprite did not settle within 3s; see $traceFile"
     }
 
     $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
-    if (-not (Wait-For 15 { Test-Path -LiteralPath $traceFile })) { Fail "process.log never appeared; see $err" }
+    if (-not (Wait-ForFile 3 $traceFile)) { Fail "process.log never appeared; see $err" }
 
     $settingsFile = Join-Path $out "home\AppData\Roaming\fidget\settings.json"
     if (Test-Path -LiteralPath $settingsFile) {
@@ -303,7 +295,7 @@ try {
         }
     }
 
-    if (-not (Wait-For 15 { Traced '^\d+ frame: .* sprite\(' })) { Fail "Fidget traced no frame; see $traceFile" }
+    if (-not (Wait-ForTrace 3 $traceFile '^\d+ frame: .* sprite\(')) { Fail "Fidget traced no frame; see $traceFile" }
 
     if (Traced '^\d+ presence: hidden') {
         Fail "overlay hidden (presence: hidden) - see process.log window_source lines"
@@ -329,13 +321,9 @@ try {
             Add-Content -LiteralPath $attemptsFile -Value $msg
             if ($attempt -eq $maxAttempts) { Fail $msg }
             $settled = Wait-Settled
-            Start-Sleep -Milliseconds 700
             continue
         }
-        Start-Sleep -Milliseconds 500
-        $trace = Get-Content -LiteralPath $traceFile
-        $menuCountAfter = @($trace | Select-String -Pattern '^\d+ verbs: .*\[Menu\]').Count
-        if ($menuCountAfter -gt $menuCountBefore) {
+        if (Wait-ForCount 2 $traceFile '^\d+ verbs: .*\[Menu\]' $menuCountBefore) {
             $menuFile = Join-Path $out "menu-$attempt.txt"
             $destFile = Join-Path $out "menu.txt"
             Copy-Item -LiteralPath $menuFile -Destination $destFile -Force
@@ -344,7 +332,6 @@ try {
         }
         if ($attempt -lt $maxAttempts) {
             $settled = Wait-Settled
-            Start-Sleep -Milliseconds 700
         }
     }
     if (-not $success) {
@@ -352,10 +339,7 @@ try {
     }
     Write-Output "ok: the right-click landed as Menu"
     Check-Items (Join-Path $out "menu.txt")
-    Write-Output "PASS: evidence in $out"
+    Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*count=$marks*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-FidgetTree $proc "count=$marksBash"
 }

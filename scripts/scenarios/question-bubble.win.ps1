@@ -5,7 +5,7 @@
 #   the question waits. Two UI Automation dumps of the overlay: one before the
 #   Poke, one after it. Fidget quits when the scenario ends.
 # Input: one real click on the sprite (the Poke).
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. bash
 #   on PATH for the fixture Harness wrapper.
 # Asserts: no "Question for you" bubble before the Poke; the click lands as a
@@ -63,6 +63,7 @@ if (-not ($selfTestSettledFrame -match '^\d+\.?\d* frame: .* Grounded .* sprite\
 if ($selfTestSettledFrame -match 'walk#|Falling') { Write-Error "self-test: settled frame should not match walk# or Falling"; exit 1 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
@@ -122,7 +123,7 @@ $settingsDir = Join-Path $out "home\AppData\Roaming\fidget"
 New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
 $settingsFile = Join-Path $settingsDir "settings.json"
 $utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($settingsFile, '{"hide_in_fullscreen": false}', $utf8)
+[System.IO.File]::WriteAllText($settingsFile, '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
 
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
@@ -141,7 +142,7 @@ $env:HOME = Join-Path $out "home"
 $env:USERPROFILE = $env:HOME
 $env:APPDATA = Join-Path $env:HOME "AppData\Roaming"
 $env:FIDGET_HARNESS = $harness
-$env:FIDGET_DIRECTOR_WAKE_SECS = "6"
+$env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_TRACE_FRAMES = "1"
@@ -232,18 +233,9 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
         "& '$ax' @args"
     ), $utf8)
 
+$startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
             Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
@@ -266,7 +258,7 @@ try {
         }
     }
     function Wait-Settled {
-        $deadline = (Get-Date).AddSeconds(15)
+        $deadline = (Get-Date).AddSeconds(3)
         $lastX = $null
         $lastY = $null
         $firstSeenAt = $null
@@ -308,11 +300,11 @@ try {
             }
             Start-Sleep -Milliseconds 100
         }
-        Fail "sprite did not settle within 15s; see $traceFile"
+        Fail "sprite did not settle within 3s; see $traceFile"
     }
 
     $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
-    if (-not (Wait-For 30 { Test-Path -LiteralPath $traceFile })) { Fail "process.log never appeared; see $err" }
+    if (-not (Wait-ForFile 3 $traceFile)) { Fail "process.log never appeared; see $err" }
 
     $settingsFile = Join-Path $out "home\AppData\Roaming\fidget\settings.json"
     if (Test-Path -LiteralPath $settingsFile) {
@@ -322,14 +314,13 @@ try {
         }
     }
 
-    if (-not (Wait-For 30 { Marked "asked" })) { Fail "no wake reached the Harness; see $err" }
+    if (-not (Wait-ForMarks 3 $marks '^asked$')) { Fail "no wake reached the Harness; see $err" }
 
     if (Traced '^\d+ presence: hidden') {
         Fail "overlay hidden (presence: hidden) - see process.log window_source lines"
     }
 
-    Start-Sleep -Seconds 1
-
+    if (-not (Wait-ForTrace 2 $traceFile '^\d+ frame: .* sprite\(')) { Fail "Fidget traced no frame; see $traceFile" }
     Check-Before (Invoke-Dump "before-poke")
 
     $settled = Wait-Settled
@@ -347,14 +338,15 @@ try {
         Add-Content -LiteralPath $attemptsFile -Value $attemptLog
         $trace = Get-Content -LiteralPath $traceFile
         $clickCountBefore = @($trace | Select-String -Pattern '^\d+ click: down ').Count
+        $verbCountBefore = @($trace | Select-String -Pattern '^\d+ verbs: ').Count
         if (-not (Invoke-Ax "poke-$attempt" @("click", "-TraceFile", $traceFile, "-SpriteW", $w, "-SpriteH", $h))) {
             $msg = "could not click the sprite on attempt $attempt; see $out\poke-$attempt.txt"
             Add-Content -LiteralPath $attemptsFile -Value $msg
             if ($attempt -eq $maxAttempts) { Fail $msg }
-            Start-Sleep -Milliseconds 600
             continue
         }
-        Start-Sleep -Milliseconds 500
+        # A Poke resolves once the double-click interval passes, so wait for its verbs line.
+        $null = Wait-ForCount 2 $traceFile '^\d+ verbs: ' $verbCountBefore
         $trace = Get-Content -LiteralPath $traceFile
         $clicksAfter = @($trace | Select-String -Pattern '^\d+ click: down ')
         $thisAttemptClick = $null
@@ -379,19 +371,19 @@ try {
                 break
             }
         }
-        if ($attempt -lt $maxAttempts) {
-            Start-Sleep -Milliseconds 600
-        }
     }
     if (-not $success) {
         Fail "click did not land as Poke after $maxAttempts attempts; see $attemptsFile"
     }
-    Start-Sleep -Seconds 1
-    Check-After (Invoke-Dump "after-poke")
-    Write-Output "PASS: evidence in $out"
+    $null = Wait-Until 3 { Read-Dump (Invoke-Dump "after-poke") | Where-Object { $_.Contains("Question for you") } }
+    Check-After (Join-Path $out "after-poke.ax.txt")
+    # Answer the ask, so the fixture Harness finishes its turn instead of waiting.
+    if (-not (Wait-Until 3 { Invoke-Ax "allow" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Allow") })) {
+        Fail "could not press Allow on the permission ask; see $out\allow.txt"
+    }
+    if (-not (Wait-ForMarks 3 $marks '^replied$')) { Fail "the Harness never replied after Allow; see $marks" }
+    Write-Output "ok: answered the permission ask, and the Harness replied"
+    Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*count=$marks*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-FidgetTree $proc "count=$marksBash"
 }

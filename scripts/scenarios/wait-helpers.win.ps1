@@ -115,3 +115,56 @@ function In-State([string]$LogFile, [string]$StatePattern) {
     if (-not $frame) { return $false }
     return $frame -match " ($StatePattern) "
 }
+
+# Milliseconds since the epoch, for the printed duration.
+function Get-NowMs {
+    return [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+}
+
+# Wait until a probe returns true, for state with no line or file to follow
+# (a UI Automation dump, a window frame). Polls at 50 ms, gives up after
+# $Seconds, and fails at once when Fidget has exited.
+function Wait-Until([double]$Seconds, [scriptblock]$Probe) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ($true) {
+        if (& $Probe) { return $true }
+        if ($script:proc -and $script:proc.HasExited) { return $false }
+        if ((Get-Date) -ge $deadline) { return $false }
+        Start-Sleep -Milliseconds 50
+    }
+}
+
+# Seed settings so the first-run tour counts as shown and never covers the
+# windows a scenario reads. $HomeDir is the private HOME/USERPROFILE the
+# scenario launches Fidget with.
+function Set-TourShown([string]$HomeDir) {
+    $dir = Join-Path $HomeDir "AppData\Roaming\fidget"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText((Join-Path $dir "settings.json"), '{"first_run_tour_shown": true}', $utf8)
+}
+
+# Cleanup for a finally block: kill Fidget and every process under it, then
+# any fixture Harness whose command line holds $Pattern (bash can outlive the
+# tree when its parent is already gone).
+function Stop-FidgetTree($Process, [string]$Pattern) {
+    if ($Process -and -not $Process.HasExited) {
+        & taskkill.exe /PID $Process.Id /T /F 2>&1 | Out-Null
+        if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue }
+    }
+    if ($Pattern) {
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -like "*$Pattern*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# Wait until a file holds more than $Before lines matching a pattern, for a
+# line that repeats (a second spawn, a second Poke). Take the count before the
+# trigger.
+function Wait-ForCount([double]$Seconds, [string]$FilePath, [string]$Pattern, [int]$Before) {
+    return (Wait-Until $Seconds {
+            (Test-Path -LiteralPath $FilePath) -and
+            @(Get-Content -LiteralPath $FilePath | Where-Object { $_ -match $Pattern }).Count -gt $Before
+        })
+}
