@@ -49,7 +49,7 @@ const PAGE = {
 };
 
 test("a Chrome that answers only after a slow start still gets a page", { timeout: 20000 }, async () => {
-  const fake = fakeChrome(4000, PAGE);
+  const fake = fakeChrome(3100, PAGE);
   const cdp = launchWithPipe(fake.bin, []);
   try {
     const page = await createPageTarget(cdp);
@@ -62,7 +62,7 @@ test("a Chrome that answers only after a slow start still gets a page", { timeou
 
 test("once Chrome is ready, a page call it never answers fails within 3s and shows its stderr", { timeout: 20000 }, async () => {
   const { "Target.createTarget": _, ...rest } = PAGE;
-  const fake = fakeChrome(4000, rest, "renderer stuck in GPU init");
+  const fake = fakeChrome(3100, rest, "renderer stuck in GPU init");
   const cdp = launchWithPipe(fake.bin, []);
   try {
     await cdp.ready;

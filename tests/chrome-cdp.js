@@ -1,10 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 
-// Every CDP call gets 3s, counted from when it is sent. Only the first reply from
-// a fresh Chrome gets longer: on a new CI runner the first Chrome of the run took
-// over 10s to answer (chat-connect-scroll's first launch took 12s in the same
-// run), while later launches answered in under 1s. A Chrome that exits or closes
-// its pipe while starting still fails at once.
+// Each CDP call gets 3s. Only a fresh Chrome's first reply gets longer: the first
+// Chrome on a new CI runner took 10-12s, later ones under 1s. Exiting while
+// starting still fails at once.
 const CALL_MS = 3000;
 const COLD_START_MS = 30000;
 
