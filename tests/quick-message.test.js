@@ -14,6 +14,7 @@ import {
   createDraftReporter,
   crossedDrag,
   keepOnDrag,
+  spriteHovered,
   placeQuickMessage,
   quickMessageConnects,
   quickMessageMirror,
@@ -995,4 +996,11 @@ test("the trace tells each hover change and why the timer did or did not start, 
     "timer refused: timer running",
     "timer fired: shown",
   ]);
+});
+
+test("the pill's overlay trusts the Shell's hit test over a :hover stuck after Chat", () => {
+  assert.equal(spriteHovered({ owner: true, shell: false, dom: true }), false);
+  assert.equal(spriteHovered({ owner: true, shell: true, dom: false }), true);
+  assert.equal(spriteHovered({ owner: false, shell: false, dom: true }), true);
+  assert.equal(spriteHovered({ owner: false, shell: false, dom: false }), false);
 });

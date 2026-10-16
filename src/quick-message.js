@@ -67,6 +67,12 @@ export function keepOnDrag(text) {
   return text.trim().length > 0;
 }
 
+// Whether the cursor is on the Character. The overlay that draws the pill has
+// the Shell's hit test, which a :hover left stuck after Chat closes can't fool.
+export function spriteHovered({ owner, shell, dom }) {
+  return owner ? Boolean(shell) : Boolean(dom);
+}
+
 export function createQuickMessage({ schedule, clear, send, onChange, available = true, trace }) {
   let visible = false;
   let text = "";

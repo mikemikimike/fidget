@@ -18,6 +18,7 @@ import {
   crossedDrag,
   placeQuickMessage,
   quickMessageMirror,
+  spriteHovered,
 } from "./quick-message.js";
 
 const stage = document.getElementById("stage");
@@ -377,8 +378,12 @@ function syncQuick(view) {
 // Runs before the pill is up too: a leave during the dwell cancels it.
 function notePointerLeft(view) {
   if (!gestureActive) {
-    // The Shell's hit test as well: :hover misses the cursor once Chat closes (#1565).
-    if (view.sprite.matches(":hover") || view.latest?.hovered) view.quickMachine.enterSprite();
+    const over = spriteHovered({
+      owner: Boolean(view.latest?.bubble),
+      shell: view.latest?.hovered,
+      dom: view.sprite.matches(":hover"),
+    });
+    if (over) view.quickMachine.enterSprite();
     else view.quickMachine.leaveSprite();
     if (view.quick.matches(":hover")) view.quickMachine.enterPill();
     else view.quickMachine.leavePill();
