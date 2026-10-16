@@ -95,10 +95,12 @@ dump() { # <name>
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_marks 2 "$marks" '^thought 1$' || fail "no thinking turn; see $log"
 wait_for_marks 2 "$marks" '^thought 2$' || fail "no second thought; see $log"
+wait_for_ax_dump 2 "$pid" BMO 'THINKING' || fail "no thinking row in AX dump; see $log"
 dump mid-thought ▾
 wait_for_marks 2 "$marks" '^thought 3$' || fail "no third thought; see $log"
 wait_for_marks 2 "$marks" '^thought 4$' || fail "no fourth thought; see $log"
 wait_for_marks 2 "$marks" '^replied$' || fail "no reply; see $log"
+wait_for_ax_dump 2 "$pid" BMO '▸.*THINKING' || fail "thinking row did not collapse; see $log"
 dump after-reply ▸
 elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))
 echo "PASS: thinking-row completed (${elapsed_ms}ms)"
