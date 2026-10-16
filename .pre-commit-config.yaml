@@ -28,7 +28,8 @@ repos:
       - id: check-case-conflict
       - id: mixed-line-ending
         args: [--fix=lf]
-        exclude: *vendored
+        # .gitattributes pins *.cmd to CRLF on checkout, so --fix=lf skips them.
+        exclude: ^((.*/)?Cargo\.lock|.*\.png|.*\.b64|branding/_b64/parts/.*|src/vendor/marked\.esm\.js)$|^\.agents/(agents/|pstack/(SKILLS\.md|LICENSE)|skills/(?!verify-fidget/))|\.cmd$
 
   # Hooks that must see every file, vendored ones included, in their own
   # block so an edit to the excludes above cannot reach them.
