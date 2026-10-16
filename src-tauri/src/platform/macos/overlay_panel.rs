@@ -1,6 +1,7 @@
 //! Turning a Tauri window into a non-activating overlay panel.
 
-use std::sync::OnceLock;
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
 
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
 use objc2::{msg_send, sel};
@@ -8,6 +9,16 @@ use objc2_app_kit::{
     NSFloatingWindowLevel, NSWindowCollectionBehavior, NSWindowLevel, NSWindowSharingType,
     NSWindowStyleMask,
 };
+
+/// Track which windows are temporarily allowed to become key. Keyed by window
+/// pointer addresses. The flag is consulted when deciding to make a window key,
+/// not when keeping it key, so removing it after the window is already key won't
+/// cause it to resign.
+static ALLOWED_KEY_WINDOWS: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+
+fn allowed_key_windows() -> &'static Mutex<HashSet<usize>> {
+    ALLOWED_KEY_WINDOWS.get_or_init(|| Mutex::new(HashSet::new()))
+}
 
 /// An `NSPanel` subclass that refuses to become the key or main window, so
 /// the sprite can be clicked while the user keeps typing into whatever was
@@ -27,13 +38,22 @@ fn overlay_panel_class() -> &'static AnyClass {
         extern "C" fn refuse(_this: &AnyObject, _sel: Sel) -> Bool {
             Bool::NO
         }
+        
+        extern "C" fn can_become_key_window(this: &AnyObject, _sel: Sel) -> Bool {
+            let ptr = this as *const AnyObject as usize;
+            if let Ok(guard) = allowed_key_windows().lock() {
+                if guard.contains(&ptr) {
+                    return Bool::YES;
+                }
+            }
+            Bool::NO
+        }
 
-        // SAFETY: both selectors return BOOL and take no arguments, which is
-        // what `refuse` is declared as.
+        // SAFETY: selectors match the function signatures.
         unsafe {
             builder.add_method(
                 sel!(canBecomeKeyWindow),
-                refuse as extern "C" fn(_, _) -> Bool,
+                can_become_key_window as extern "C" fn(_, _) -> Bool,
             );
             builder.add_method(
                 sel!(canBecomeMainWindow),
@@ -105,6 +125,29 @@ fn sharing_type() -> NSWindowSharingType {
     } else {
         NSWindowSharingType::None
     }
+}
+
+/// Allow or disallow the overlay to become the key window. The flag is
+/// consulted when deciding to make a window key, not when keeping it key, so
+/// setting it back to false after the window is already key won't cause it to
+/// resign.
+pub fn allow_overlay_focus(window: &tauri::WebviewWindow, allow: bool) -> Result<(), String> {
+    let ptr = window
+        .ns_window()
+        .map_err(|e| format!("overlay has no native window handle: {e}"))?
+        as usize;
+
+    let mut guard = allowed_key_windows()
+        .lock()
+        .map_err(|e| format!("failed to lock allowed key windows: {e}"))?;
+
+    if allow {
+        guard.insert(ptr);
+    } else {
+        guard.remove(&ptr);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

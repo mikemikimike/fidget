@@ -2020,6 +2020,11 @@ fn overlay_composing(instance: String) {
 /// closed pill: sent, dismissed, dragged away empty, or the Instance gone.
 #[tauri::command]
 fn overlay_report_qm_draft(instance: String, payload: Option<fidget_core::quick_message::QmDraft>) {
+    if dev_flags::TRACE_BUBBLE.is_on() {
+        if let Some(ref draft) = payload {
+            eprintln!("overlay: draft instance={} text={:?} focused={}", instance, draft.text, draft.focused);
+        }
+    }
     platform::set_qm_draft(instance, payload);
 }
 
@@ -2190,7 +2195,14 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
             }
         }
 
-        window.set_focus().map_err(|e| e.to_string())
+        if let Some(webview_window) = window.as_webview_window() {
+            platform::allow_overlay_focus(webview_window, true)?;
+            let result = window.set_focus().map_err(|e| e.to_string());
+            platform::allow_overlay_focus(webview_window, false)?;
+            result
+        } else {
+            Err("Window is not a WebviewWindow".to_string())
+        }
     }
 
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
