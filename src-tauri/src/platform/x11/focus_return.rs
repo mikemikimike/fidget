@@ -32,7 +32,8 @@ pub(crate) fn active_window<C: Connection>(conn: &C, root: Window, atom: u32) ->
         .ok()?
         .reply()
         .ok()?;
-    reply.value32()?.next().filter(|&w| w != 0)
+    let active = reply.value32()?.next();
+    active.filter(|&w| w != 0)
 }
 
 /// Hand the keyboard back to `previous` when `overlay` still holds it and
@@ -161,10 +162,10 @@ mod tests {
         };
 
         let editor = open(0);
-        let overlay = open(300);
         activate(editor);
         assert!(active_within_3s(editor), "the editor never took focus");
         let previous = active_window(&conn, root, atom).unwrap();
+        let overlay = open(300);
         activate(overlay);
         assert!(active_within_3s(overlay), "the pill never took focus");
         assert_eq!(
