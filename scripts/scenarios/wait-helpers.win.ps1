@@ -1,16 +1,17 @@
-# Shared wait helpers for Windows scenario leaves. Every wait blocks on a
-# FileSystemWatcher event, re-checks on each change, and gives up after the
-# seconds it is given (2-3 s at the call sites). Nothing reads in a sleep loop.
+# Shared wait helpers for Windows scenario leaves. File waits block on
+# FileSystemWatcher events, UI waits on UI Automation events; each re-checks
+# on a change and gives up after its seconds (2-3 s). Nothing sleeps.
+
+. (Join-Path $PSScriptRoot "..\uia-signal-win.ps1")
 
 # Milliseconds since the epoch, for the printed duration.
 function Get-NowMs {
     return [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 }
 
-# Point every folder Fidget writes at under $Out, and seed settings with the
-# first-run tour marked shown. A private HOME alone is not enough on Windows:
-# dirs::data_dir reads the known-folder API, so FIDGET_DATA_DIR moves it.
-# Returns the data folder; process.log is in it. Waits watch this folder.
+# Point every folder Fidget writes under $Out (FIDGET_DATA_DIR too, as a private
+# HOME does not move dirs::data_dir) and mark the first-run tour shown.
+# Returns the data folder, which holds process.log.
 function Initialize-ScenarioData([string]$Out, [hashtable]$Settings = @{}) {
     $data = Join-Path $Out "data"
     $homeDir = Join-Path $Out "home"
@@ -102,18 +103,43 @@ function Wait-Until([double]$Seconds, [scriptblock]$Probe) {
     return (Wait-OnChanges $Seconds $script:WatchDir $Probe)
 }
 
+# Run ax-window-win.ps1 in this session (no new powershell per check) with
+# the args a command line would take, writing its output to $OutFile.
+# True when it exits 0.
+function Invoke-AxWin([string]$OutFile, [string[]]$AxArgs) {
+    $named = @{}
+    $positional = @()
+    for ($i = 0; $i -lt $AxArgs.Count; $i++) {
+        if ($AxArgs[$i] -match '^-([A-Za-z]\w*)$') { $named[$Matches[1]] = $AxArgs[$i + 1]; $i++ } else { $positional += $AxArgs[$i] }
+    }
+    $global:LASTEXITCODE = 0
+    try {
+        & (Join-Path $PSScriptRoot "..\ax-window-win.ps1") @positional @named 2>&1 |
+            Out-File -FilePath $OutFile -Encoding utf8
+    } catch {
+        $_ | Out-File -FilePath $OutFile -Encoding utf8 -Append
+        return $false
+    }
+    return ($LASTEXITCODE -eq 0)
+}
+
+# Run a UI Automation check now and again on each UIA change event from
+# the process until it returns true or the seconds run out.
+function Wait-ForUia([double]$Seconds, [int]$ProcessId, [scriptblock]$Check) {
+    return [bool](Wait-UiaChange $ProcessId $Seconds $Check)
+}
+
 # Wait for a UI Automation dump of a window to match a pattern.
 function Wait-ForAxDump([double]$Seconds, [int]$ProcessId, [string]$Title, [string]$Pattern) {
-    $tmp = [System.IO.Path]::GetTempFileName()
-    try {
-        return (Wait-Until $Seconds {
-                & powershell -NoProfile -ExecutionPolicy Bypass -File "$root\scripts\ax-window-win.ps1" dump -ProcessId $ProcessId -Title $Title |
-                    Out-File -FilePath $tmp -Encoding utf8 2>$null
-                ($LASTEXITCODE -eq 0) -and [bool](Select-String -LiteralPath $tmp -Pattern $Pattern -Quiet)
-            })
-    } finally {
-        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
-    }
+    $ax = Join-Path $PSScriptRoot "..\ax-window-win.ps1"
+    return [bool](Wait-UiaChange $ProcessId $Seconds {
+            try {
+                $lines = & $ax dump -ProcessId $ProcessId -Title $Title 2>$null
+            } catch {
+                return $false
+            }
+            [bool]($lines | Select-String -Pattern $Pattern -Quiet)
+        })
 }
 
 # The sprite's position when it is at rest, else $null: the newest five frame
@@ -127,8 +153,9 @@ function Get-SpriteAtRest([string]$TraceFile) {
     foreach ($line in $frames) {
         if ($line -match 'walk#|Falling' -or $line -notmatch ' (?:Grounded|Perched) .* sprite\((-?\d+),(-?\d+)\) ') { return $null }
         $here = @{ X = [int]$Matches[1]; Y = [int]$Matches[2] }
+        # Within 2 px of the first frame, so a slow drift is not rest.
         if ($at -and ([Math]::Abs($here.X - $at.X) -gt 2 -or [Math]::Abs($here.Y - $at.Y) -gt 2)) { return $null }
-        $at = $here
+        if (-not $at) { $at = $here }
     }
     return $at
 }

@@ -66,7 +66,7 @@ env HOME="$out/home" \
   CODEX_HOME="$codex_home" NO_BROWSER=1 \
   npm_config_cache="$tools/npm-cache" \
   FIDGET_HARNESS=codex \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_CAPTURABLE=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
@@ -89,14 +89,14 @@ shot() { # <name>
 human=120 cold_npx=180 browser_sign_in=600
 
 echo ">>> Double-click BMO to open Chat."
-wait_until "$human" "$tools/window-id" "$pid" BMO || fail "Chat did not open"
+wait_for_ax "$human" "$pid" "$tools/window-id" "$pid" BMO || fail "Chat did not open"
 # npx fetches codex-acp on a cold cache, and codex then reports signed out.
-wait_until "$cold_npx" shows sign-in '^AXButton\|ChatGPT \(device code\)\|' ||
+wait_for_ax "$cold_npx" "$pid" shows sign-in '^AXButton\|ChatGPT \(device code\)\|' ||
   fail "Chat offered no device-code sign-in; see $out/sign-in.ax.txt and $log"
 echo "ok: Chat offers ChatGPT (device code)"
 
 echo '>>> Click "ChatGPT (device code)" in Chat.'
-wait_until "$human" shows ask '^AXButton\|Open\|' || fail "no Open button; see $out/ask.ax.txt"
+wait_for_ax "$human" "$pid" shows ask '^AXButton\|Open\|' || fail "no Open button; see $out/ask.ax.txt"
 shot ask
 grep -qE '^AXButton\|Decline\|' "$out/ask.ax.txt" || fail "the ask row has no Decline; see $out/ask.ax.txt"
 link=$(grep -oEm1 'https://[^|[:space:]]+' "$out/ask.ax.txt") || fail "the ask row shows no https link; see $out/ask.ax.txt"
@@ -105,7 +105,7 @@ echo "ok: the ask row shows $link with Open and Decline"
 echo ">>> Click Open, then sign in and enter the code in the browser."
 wait_until "$browser_sign_in" grep -q '"harness":"codex"' "$session_file" || fail "no codex session was saved; see $log"
 grep -qE '"session_id":"[^"]+"' "$session_file" || fail "the saved session has no id; see $session_file"
-wait_until 3 shows after-sign-in 'codex · session [^|]+' ||
+wait_for_ax 3 "$pid" shows after-sign-in 'codex · session [^|]+' ||
   fail "Chat's mind line names no session; see $out/after-sign-in.ax.txt"
 shot after-sign-in
 echo "ok: $(grep -oEm1 'codex · session [^|]+' "$out/after-sign-in.ax.txt")"

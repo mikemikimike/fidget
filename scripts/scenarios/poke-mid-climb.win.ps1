@@ -244,39 +244,37 @@ function In-State([string]$Pattern) {
 
 function Pokes { @(Select-String -LiteralPath $trace -Pattern $pokePattern -CaseSensitive).Count }
 
-# A tall-display climb can outlast the grounded rest budget. This is the wall-clock stop.
-$RestCeilingMs = 90000
-
-# Falling and Climbing do not spend the rest budget; the ceiling stops a stuck sprite.
-function Get-RestDecision([string]$State, [bool]$Still, [int]$RestMs, [int]$WallMs, [int]$BudgetMs) {
-    if ($WallMs -ge $RestCeilingMs) { return "give-up" }
-    if ($State -cmatch '^(Falling|Climbing)$') { return "wait" }
+# A climbing or falling frame where the sprite moved is progress, however
+# long a tall display makes the climb. 3 s with no progress gives up.
+function Get-RestDecision([string]$State, [bool]$Moved, [bool]$Still, [int]$SinceProgressMs) {
     if ($Still -and $State -cmatch '^(Grounded|Perched)$') { return "done" }
-    if ($RestMs -ge $BudgetMs) { return "give-up" }
+    if ($Moved -and $State -cmatch '^(Falling|Climbing)$') { return "progress" }
+    if ($SinceProgressMs -ge 3000) { return "give-up" }
     "wait"
 }
 
 # Resting and not walking: a press on a walking sprite lands where it was, and
 # the drag then throws whatever window is underneath.
-function Wait-Still([int]$Tenths) {
-    $budgetMs = $Tenths * 100
-    $wall = [System.Diagnostics.Stopwatch]::StartNew()
-    $script:airborneMs = 0
-    $script:lastLook = 0
+function Wait-Still {
     $script:restDecision = "wait"
-    # Re-decided on each trace change; the rest budget only counts time on the ground.
-    $null = Wait-OnChanges ($RestCeilingMs / 1000) (Split-Path -Parent $trace) {
-        $now = [int]$wall.ElapsedMilliseconds
-        $a = Last-Frame
-        $state = if ($a) { $a.State } else { "" }
-        if ($state -cmatch '^(Falling|Climbing)$') { $script:airborneMs += $now - $script:lastLook }
-        $script:lastLook = $now
-        $still = [bool](Get-SpriteAtRest $trace)
-        $script:restDecision = Get-RestDecision $state $still ($now - $script:airborneMs) $now $budgetMs
-        $script:restDecision -cne "wait"
+    $script:lastFrame = Last-Frame
+    while ($true) {
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        # Re-decided on each trace change; progress restarts the 3 s window.
+        $null = Wait-OnChanges 3 (Split-Path -Parent $trace) {
+            $a = Last-Frame
+            $state = if ($a) { $a.State } else { "" }
+            $last = $script:lastFrame
+            $moved = [bool]($a -and $last -and ($a.X -ne $last.X -or $a.Y -ne $last.Y))
+            $script:lastFrame = $a
+            $still = [bool](Get-SpriteAtRest $trace)
+            $script:restDecision = Get-RestDecision $state $moved $still ([int]$clock.ElapsedMilliseconds)
+            $script:restDecision -cne "wait"
+        }
+        if ($proc.HasExited) { Fail "Fidget exited; see $err" }
+        if ($script:restDecision -ceq "done") { return $true }
+        if ($script:restDecision -cne "progress") { return $false }
     }
-    if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-    return ($script:restDecision -ceq "done")
 }
 
 function Wait-Climbing([int]$Tenths) {
@@ -307,7 +305,7 @@ $startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
     if (-not (Wait-ForFile 3 $trace)) { Fail "process.log never appeared; see $err" }
 
-    if (-not (Wait-Still 300)) { Fail "the sprite never came to rest; see $trace" }
+    if (-not (Wait-Still)) { Fail "the sprite never came to rest; see $trace" }
     $overlay = @(Get-Content -LiteralPath $trace | Where-Object { $_ -match '^(?:\d+ )?overlay: ' })
     $sizeLine = $overlay | Where-Object { $_ -match ' sprite (\d+)x\d+;' } | Select-Object -First 1
     if (-not ($sizeLine -match ' sprite (\d+)x\d+;')) { Fail "no sprite size in $trace" }

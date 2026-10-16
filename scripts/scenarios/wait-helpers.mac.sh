@@ -10,10 +10,23 @@ ax_dump_matches() { # <pid> <window title> <pattern>
   "$tools/ax" dump "$1" "$2" 2> /dev/null | grep -qE "$3"
 }
 
-# Wait for an Accessibility dump to match a pattern. AX has no change event a
-# shell can block on, so the dump runs again on each new app log line.
+# Run an Accessibility check now and again on each AXObserver notification
+# from the app (printed by ax-events) until it succeeds or the seconds run out.
+wait_for_ax() { # <seconds> <pid> <command...>
+  local seconds=$1
+  # shellcheck disable=SC2154
+  [ "$tools/ax-events" -nt "$root/scripts/ax-events.swift" ] ||
+    swiftc -O "$root/scripts/ax-events.swift" -o "$tools/ax-events" || return 1
+  ax_events_pid=$2
+  shift 2
+  "$@" > /dev/null 2>&1 && return 0
+  wait_on_source "$seconds" ax_events probe_each_line "$@"
+}
+ax_events() { exec "$tools/ax-events" "$ax_events_pid" 2> /dev/null; }
+
+# Wait for an Accessibility dump of a window to match a pattern.
 wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern>
-  wait_until "$1" ax_dump_matches "$2" "$3" "$4"
+  wait_for_ax "$1" "$2" ax_dump_matches "$2" "$3" "$4"
 }
 
 # Answer a permission ask by pressing its button (Allow or Reject) in Chat,

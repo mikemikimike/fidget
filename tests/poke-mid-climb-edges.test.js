@@ -29,9 +29,8 @@ foreach ($name in @("Get-ClimbEdges", "Get-RestDecision")) {
   if ($fn.Count -ne 1) { throw "missing function $name" }
   Invoke-Expression $fn[0].Extent.Text
 }
-$assign = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$RestCeilingMs' }, $true)
-if ($assign.Count -ne 1) { throw "missing RestCeilingMs" }
-Invoke-Expression $assign[0].Extent.Text
+$ceiling = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$RestCeilingMs' }, $true)
+if ($ceiling.Count -ne 0) { throw "RestCeilingMs is back: no wall-clock limit on the rest wait" }
 ${body}
 `;
 }
@@ -42,11 +41,14 @@ if ($null -eq $edges) { throw "no edges" }
 Write-Output "$($edges.Left) $($edges.Right) $($edges.LeftTarget) $($edges.RightTarget)"
 `);
 
+// Get-RestDecision <state> <moved> <still> <ms since progress>
 const REST = loader(`
-$budget = 30000
-$climb = Get-RestDecision "Climbing" $false $budget $budget $budget
-$grounded = Get-RestDecision "Grounded" $true $budget $budget $budget
-Write-Output "$climb $grounded"
+$climbAfterAMinute = Get-RestDecision "Climbing" $true $false 0
+$fallStuck = Get-RestDecision "Falling" $false $false 3000
+$climbPaused = Get-RestDecision "Climbing" $false $false 2900
+$groundedStill = Get-RestDecision "Grounded" $false $true 0
+$walkingLong = Get-RestDecision "Walking" $true $false 3000
+Write-Output "$climbAfterAMinute $fallStuck $climbPaused $groundedStill $walkingLong"
 `);
 
 const PWSH_HOST_ABORT =
@@ -82,8 +84,8 @@ test("the right edge target is the far side of the wide display", { skip }, (t) 
   assert.deepEqual(got, { left: -1200, right: 3440, leftTarget: -1200, rightTarget: 3439 });
 });
 
-test("a climb at 30s is still waiting, and grounded still is done", { skip }, (t) => {
+test("an airborne frame that moved is progress; 3 s with none gives up", { skip }, (t) => {
   const got = runLeaf(t, REST);
   if (got == null) return;
-  assert.equal(got, "wait done");
+  assert.equal(got, "progress give-up wait done give-up");
 });

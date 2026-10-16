@@ -156,9 +156,7 @@ $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStand
 try {
     function Invoke-Dump([string]$Name) {
         $dump = Join-Path $out "$Name.ax.txt"
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $ax dump -ProcessId $proc.Id -Title "BMO" frames |
-            Out-File -FilePath $dump -Encoding utf8
-        if ($LASTEXITCODE -ne 0) { return $null }
+        if (-not (Invoke-AxWin $dump @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) { return $null }
         return $dump
     }
     # The page is no wider than its scroll area once WebView2 has reflowed.
@@ -180,7 +178,7 @@ try {
     if (-not (Wait-ForMarks 3 $marks '^asked$')) {
         Fail "no wake reached the Harness; see $log"
     }
-    if (-not (Wait-Until 3 { Shows-Session })) {
+    if (-not (Wait-ForUia 3 $proc.Id { Shows-Session })) {
         Fail "the mind line names no session; see $(Join-Path $out 'session.ax.txt')"
     }
     $sessionLine = Get-Content -LiteralPath (Join-Path $out "session.ax.txt") -Encoding utf8 |
@@ -195,7 +193,7 @@ try {
         $got = [int]((Get-Content -LiteralPath $frameFile -Encoding utf8 | Select-Object -First 1) -split ',')[2]
         if ($got -ne $w) { Fail "${w}: Chat is $got wide after the resize" }
         # The resize lands before WebView2 reflows, so wait for the page to fit the new width.
-        $null = Wait-Until 3 { Test-Reflowed $w }
+        $null = Wait-ForUia 3 $proc.Id { Test-Reflowed $w }
         $dump = Join-Path $out "$w.ax.txt"
         if (-not (Test-Path -LiteralPath $dump)) { Fail "${w}: UI Automation dump failed; see $dump" }
         Check-Dump $w $dump

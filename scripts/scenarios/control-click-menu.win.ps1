@@ -216,9 +216,7 @@ $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
 try {
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
-            Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
-        return ($LASTEXITCODE -eq 0)
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Traced([string]$Pattern) {
         $traceFile = Join-Path $data "process.log"

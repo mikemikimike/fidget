@@ -126,20 +126,17 @@ $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
 try {
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
-            Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
-        return ($LASTEXITCODE -eq 0)
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Shows-Landing([string]$Name) {
         if (-not (Invoke-Ax "$Name.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) { return $false }
         return (Test-Landing (Join-Path $out "$Name.ax.txt"))
     }
 
-    # The tray's Chat row exists once Fidget is up; retry the open until it does.
-    if (-not (Wait-Until 3 { Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat") })) {
+    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
-    if (-not (Wait-Until 3 { Shows-Landing "landing" })) {
+    if (-not (Wait-ForUia 3 $proc.Id { Shows-Landing "landing" })) {
         Fail "Chat shows no Codex needs npx landing; see $out\landing.ax.txt"
     }
     Check-Landing (Join-Path $out "landing.ax.txt")
@@ -153,7 +150,7 @@ try {
         Fail "could not click the link; see $out\click.txt"
     }
     # A webview navigation, or the "did not open" note, lands as the link hands off.
-    if (-not (Wait-Until 2 { Invoke-Ax "after.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames") })) {
+    if (-not (Wait-ForUia 2 $proc.Id { Invoke-Ax "after.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames") })) {
         Fail "UI Automation dump failed after the click; see $out\after.ax.txt"
     }
     Check-After (Join-Path $out "after.ax.txt")

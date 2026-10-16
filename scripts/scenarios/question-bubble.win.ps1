@@ -227,9 +227,7 @@ $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
 try {
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
-            Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
-        return ($LASTEXITCODE -eq 0)
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     # The overlay window is titled Fidget; Chat takes the Character's name.
     function Invoke-Dump([string]$Label) {
@@ -327,10 +325,10 @@ try {
     if (-not $success) {
         Fail "click did not land as Poke after $maxAttempts attempts; see $attemptsFile"
     }
-    $null = Wait-Until 3 { Read-Dump (Invoke-Dump "after-poke") | Where-Object { $_.Contains("Question for you") } }
+    $null = Wait-ForUia 3 $proc.Id { Read-Dump (Invoke-Dump "after-poke") | Where-Object { $_.Contains("Question for you") } }
     Check-After (Join-Path $out "after-poke.ax.txt")
     # Answer the ask, so the fixture Harness finishes its turn instead of waiting.
-    if (-not (Wait-Until 3 { Invoke-Ax "allow" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Allow") })) {
+    if (-not (Wait-ForUia 3 $proc.Id { Invoke-Ax "allow" @("press", "-ProcessId", $proc.Id, "-Title", "BMO", "Allow") })) {
         Fail "could not press Allow on the permission ask; see $out\allow.txt"
     }
     if (-not (Wait-ForMarks 3 $marks '^replied$')) { Fail "the Harness never replied after Allow; see $marks" }

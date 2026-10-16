@@ -144,9 +144,7 @@ $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
 try {
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
-            Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
-        return ($LASTEXITCODE -eq 0)
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Invoke-Dump([string]$Label) {
         if (-not (Invoke-Ax "$Label.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))) {
@@ -158,7 +156,7 @@ try {
     if (-not (Wait-ForMarks 3 $marks '^spawn$')) { Fail "Harness never spawned; see $log" }
     # Open Chat. The 1 s timed wake sends session/new (refused: auth required), which
     # shows the needs-login UI. A session/new only comes from a wake, not from attach alone.
-    if (-not (Wait-Until 3 { Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat") })) {
+    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
     if (-not (Wait-ForMarks 2 $marks '^new$')) { Fail "timed wake did not send session/new; see $marks" }

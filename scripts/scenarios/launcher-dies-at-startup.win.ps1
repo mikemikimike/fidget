@@ -188,9 +188,7 @@ $startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $errLog -PassThru -WindowStyle Normal
 try {
     function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
-            Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
-        return ($LASTEXITCODE -eq 0)
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     function Invoke-Dump([string]$Name) {
         return (Invoke-Ax "$Name.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "BMO", "frames"))
@@ -201,11 +199,11 @@ try {
         Fail "the launcher never died before initialize; see $errLog"
     }
     if ((Get-Spawns) -ne 1) { Fail "want one spawn before Chat opens, the fixture saw $(Get-Spawns)" }
-    if (-not (Wait-Until 3 { Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat") })) {
+    if (-not (Invoke-Ax "open" @("tray", "-ProcessId", $proc.Id, "-Title", "BMO", "Chat"))) {
         Fail "the tray's Chat row did not open Chat; see $out\open.txt"
     }
     $failed = Join-Path $out "failed.ax.txt"
-    $null = Wait-Until 3 { (Invoke-Dump "failed") -and (Test-Failed $failed) }
+    $null = Wait-ForUia 3 $proc.Id { (Invoke-Dump "failed") -and (Test-Failed $failed) }
     Check-Failed $failed
 
     foreach ($w in @(420, 320)) {
@@ -215,7 +213,7 @@ try {
         $got = [int]((Get-Content -LiteralPath (Join-Path $out "$w.frame.txt") -Encoding utf8 | Select-Object -First 1) -split ',')[2]
         if ($got -ne $w) { Fail "${w}: Chat is $got wide after the resize" }
         # The resize lands before WebView2 reflows, so wait until both boxes end inside the new width.
-        $null = Wait-Until 3 { (Invoke-Dump "$w") -and (Test-Fits $w (Join-Path $out "$w.ax.txt")) }
+        $null = Wait-ForUia 3 $proc.Id { (Invoke-Dump "$w") -and (Test-Fits $w (Join-Path $out "$w.ax.txt")) }
         if (-not (Test-Path -LiteralPath (Join-Path $out "$w.ax.txt"))) { Fail "${w}: UI Automation dump failed; see $out\$w.ax.txt" }
         Check-Fits $w (Join-Path $out "$w.ax.txt")
     }
@@ -226,7 +224,7 @@ try {
     }
     if (-not (Wait-ForCount 3 $marks '^spawn$' 1)) { Fail "the re-pick did not launch the Harness again; see $errLog" }
     $live = Join-Path $out "live.ax.txt"
-    $null = Wait-Until 3 { (Invoke-Dump "live") -and (Test-Live $live) }
+    $null = Wait-ForUia 3 $proc.Id { (Invoke-Dump "live") -and (Test-Live $live) }
     Check-Live $live
     Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
 } finally {

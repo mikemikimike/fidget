@@ -50,7 +50,7 @@ start_ms=$(now_ms)
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=1 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_CAPTURABLE=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
@@ -77,7 +77,7 @@ check() { # <width>
   read -r wx _ got _ < <(tr , ' ' < "$out/$w.frame.txt")
   [ "$got" -eq "$w" ] || fail "$w: Chat is $got points wide after the resize"
   # The resize lands before WebKit reflows, so wait for the page to fit the new width.
-  wait_until 2 fits_width "$w" || fail "$w: the page never reflowed to fit; see $f"
+  wait_for_ax 2 "$pid" fits_width "$w" || fail "$w: the page never reflowed to fit; see $f"
   screencapture -x -o -l "$("$tools/window-id" "$pid" BMO)" "$out/$w.png"
   wr=$((wx + got))
 
@@ -103,8 +103,8 @@ check() { # <width>
 }
 
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-wait_until 3 "$tools/window-id" "$pid" BMO || fail "Chat did not open for the ask"
-wait_until 3 shows_session || fail "the mind line names no session; see $out/session.ax.txt"
+wait_for_ax 3 "$pid" "$tools/window-id" "$pid" BMO || fail "Chat did not open for the ask"
+wait_for_ax 3 "$pid" shows_session || fail "the mind line names no session; see $out/session.ax.txt"
 echo "ok: $(grep -oEm1 '[^|]* · session [^|]+' "$out/session.ax.txt")"
 for w in 420 360 320; do check "$w"; done
 echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"

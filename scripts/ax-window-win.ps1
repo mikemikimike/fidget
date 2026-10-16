@@ -34,8 +34,7 @@ if ($Command -notin @("click", "menu") -and ($ProcessId -eq 0 -or -not $Title)) 
     Write-Error "$Command takes -ProcessId and -Title"
     exit 2
 }
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
+. (Join-Path $PSScriptRoot "uia-signal-win.ps1")
 Add-Type @"
 using System;
 using System.Text;
@@ -220,153 +219,115 @@ function Get-PopupMenuItems {
     return @()
 }
 
-if ($Command -eq "click") {
-    $clickX = $X
-    $clickY = $Y
-    if ($TraceFile -and (Test-Path -LiteralPath $TraceFile) -and $SpriteW -gt 0 -and $SpriteH -gt 0) {
-        $settled = $false
-        $lastX = $null
-        $lastY = $null
-        $firstSeenAt = $null
-        $deadline = (Get-Date).AddSeconds(3)
-        while ((Get-Date) -lt $deadline -and -not $settled) {
-            $trace = Get-Content -LiteralPath $TraceFile
-            $recent = $trace | Select-String -Pattern '^\d+\.?\d* frame: .* sprite\((-?\d+),(-?\d+)\) ' | Select-Object -Last 1
-            if (-not $recent) {
-                Start-Sleep -Milliseconds 150
-                continue
-            }
-            $sx = [int]$recent.Matches[0].Groups[1].Value
-            $sy = [int]$recent.Matches[0].Groups[2].Value
-            if ($null -eq $lastX) {
-                $lastX = $sx
-                $lastY = $sy
-                $firstSeenAt = Get-Date
-                Start-Sleep -Milliseconds 150
-                continue
-            }
-            $dx = [Math]::Abs($sx - $lastX)
-            $dy = [Math]::Abs($sy - $lastY)
-            if ($dx -le 2 -and $dy -le 2) {
-                $clickX = $sx + [int]($SpriteW / 2)
-                $clickY = $sy + [int]($SpriteH / 2)
-                $settled = $true
-            } else {
-                $lastX = $sx
-                $lastY = $sy
-                $firstSeenAt = Get-Date
-                Start-Sleep -Milliseconds 150
-            }
-        }
-    } else {
-        $clickX = $X
-        $clickY = $Y
+# Where to click: the sprite's middle once two frame lines in a row put it
+# within 2 px, else -X/-Y. Re-reads the trace only when it changes.
+function Get-ClickPoint {
+    if (-not ($TraceFile -and (Test-Path -LiteralPath $TraceFile) -and $SpriteW -gt 0 -and $SpriteH -gt 0)) {
+        return @($X, $Y)
     }
-    [FidgetWinEnum]::Click($clickX, $clickY)
+    $full = [System.IO.Path]::GetFullPath($TraceFile)
+    $watcher = New-Object System.IO.FileSystemWatcher ([System.IO.Path]::GetDirectoryName($full)), ([System.IO.Path]::GetFileName($full))
+    $watcher.NotifyFilter = [System.IO.NotifyFilters]'Size, LastWrite'
+    $deadline = [DateTime]::UtcNow.AddSeconds(3)
+    try {
+        while ($true) {
+            $frames = @(Get-Content -LiteralPath $TraceFile |
+                    Select-String -Pattern '^\d+\.?\d* frame: .* sprite\((-?\d+),(-?\d+)\) ' | Select-Object -Last 2)
+            if ($frames.Count -eq 2) {
+                $a = $frames[0].Matches[0].Groups; $b = $frames[1].Matches[0].Groups
+                if ([Math]::Abs([int]$a[1].Value - [int]$b[1].Value) -le 2 -and [Math]::Abs([int]$a[2].Value - [int]$b[2].Value) -le 2) {
+                    return @(([int]$b[1].Value + [int]($SpriteW / 2)), ([int]$b[2].Value + [int]($SpriteH / 2)))
+                }
+            }
+            $left = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds
+            if ($left -le 0) { return @($X, $Y) }
+            $watcher.WaitForChanged([System.IO.WatcherChangeTypes]::Changed, $left) | Out-Null
+        }
+    } finally {
+        $watcher.Dispose()
+    }
+}
+
+if ($Command -eq "click") {
+    $point = Get-ClickPoint
+    [FidgetWinEnum]::Click($point[0], $point[1])
     exit 0
 }
 
 if ($Command -eq "menu") {
-    $clickX = $X
-    $clickY = $Y
-    if ($TraceFile -and (Test-Path -LiteralPath $TraceFile) -and $SpriteW -gt 0 -and $SpriteH -gt 0) {
-        $settled = $false
-        $lastX = $null
-        $lastY = $null
-        $firstSeenAt = $null
-        $deadline = (Get-Date).AddSeconds(3)
-        while ((Get-Date) -lt $deadline -and -not $settled) {
-            $trace = Get-Content -LiteralPath $TraceFile
-            $recent = $trace | Select-String -Pattern '^\d+\.?\d* frame: .* sprite\((-?\d+),(-?\d+)\) ' | Select-Object -Last 1
-            if (-not $recent) {
-                Start-Sleep -Milliseconds 150
-                continue
-            }
-            $sx = [int]$recent.Matches[0].Groups[1].Value
-            $sy = [int]$recent.Matches[0].Groups[2].Value
-            if ($null -eq $lastX) {
-                $lastX = $sx
-                $lastY = $sy
-                $firstSeenAt = Get-Date
-                Start-Sleep -Milliseconds 150
-                continue
-            }
-            $dx = [Math]::Abs($sx - $lastX)
-            $dy = [Math]::Abs($sy - $lastY)
-            if ($dx -le 2 -and $dy -le 2) {
-                $clickX = $sx + [int]($SpriteW / 2)
-                $clickY = $sy + [int]($SpriteH / 2)
-                $settled = $true
-            } else {
-                $lastX = $sx
-                $lastY = $sy
-                $firstSeenAt = Get-Date
-                Start-Sleep -Milliseconds 150
-            }
-        }
-    } else {
-        $clickX = $X
-        $clickY = $Y
-    }
-    [FidgetWinEnum]::RightClick($clickX, $clickY)
-    Start-Sleep -Milliseconds 300
-    $items = @()
+    $point = Get-ClickPoint
     $pidArg = if ($ProcessId -gt 0) { $ProcessId } else { 0 }
-    for ($n = 0; $n -lt 32 -and $items.Count -eq 0; $n++) {
-        Start-Sleep -Milliseconds 150
+    # Listen before the click so a fast MenuOpened is not missed.
+    $signal = [FidgetUiaSignal]::new(0)
+    try {
+        [FidgetWinEnum]::RightClick($point[0], $point[1])
+        $deadline = [DateTime]::UtcNow.AddSeconds(3)
         $items = @(Get-PopupMenuItems -FidgetPid $pidArg)
+        while ($items.Count -eq 0 -and $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) {
+            $items = @(Get-PopupMenuItems -FidgetPid $pidArg)
+        }
+        if ($items.Count -eq 0) {
+            $allMenus = [FidgetWinEnum]::OfClass("#32768", $false)
+            Write-Error ("no menu items found via UIA or Win32; {0} #32768 windows exist" -f $allMenus.Count)
+            exit 1
+        }
+        if ($items[0] -is [string]) {
+            $items | ForEach-Object { Write-Output $_ }
+        } else {
+            $items | ForEach-Object { Write-Output $_.Current.Name }
+        }
+        [FidgetWinEnum]::Escape()
+        # Return once MenuClosed (or any change) shows the menu gone.
+        $deadline = [DateTime]::UtcNow.AddSeconds(2)
+        while (@(Get-PopupMenuItems -FidgetPid $pidArg).Count -gt 0 -and
+            $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) {
+        }
+    } finally {
+        $signal.Dispose()
     }
-    if ($items.Count -eq 0) {
-        $allMenus = [FidgetWinEnum]::OfClass("#32768", $false)
-        Write-Error ("no menu items found via UIA or Win32; {0} #32768 windows exist" -f $allMenus.Count)
-        exit 1
-    }
-    if ($items[0] -is [string]) {
-        $items | ForEach-Object { Write-Output $_ }
-    } else {
-        $items | ForEach-Object { Write-Output $_.Current.Name }
-    }
-    [FidgetWinEnum]::Escape()
-    $closedDeadline = (Get-Date).AddSeconds(1)
-    while ((Get-Date) -lt $closedDeadline) {
-        $remaining = @(Get-PopupMenuItems -FidgetPid $pidArg)
-        if ($remaining.Count -eq 0) { break }
-        Start-Sleep -Milliseconds 50
-    }
-    Start-Sleep -Milliseconds 500
     exit 0
 }
 
 if ($Command -eq "tray") {
     # tray-icon attaches its menu on the click itself, so a real click, not Invoke.
     $taskbar = [FidgetWinEnum]::FindWindow("Shell_TrayWnd", $null)
-    $icon = $null
-    for ($n = 0; $n -lt 80 -and $null -eq $icon; $n++) {
+    $icon = Wait-UiaChange 0 3 {
         $buttons = Find-ByControlType ([System.Windows.Automation.AutomationElement]::FromHandle($taskbar)) ([System.Windows.Automation.ControlType]::Button)
-        $icon = $buttons | Where-Object { $_.Current.Name -like "fidget*" } | Select-Object -First 1
-        if ($null -eq $icon) { Start-Sleep -Milliseconds 250 }
+        $buttons | Where-Object { $_.Current.Name -like "fidget*" } | Select-Object -First 1
     }
     if ($null -eq $icon) {
-        Write-Error "no fidget icon on the taskbar after 20s; is it in the hidden-icons overflow?"
+        Write-Error "no fidget icon on the taskbar after 3s; is it in the hidden-icons overflow?"
         exit 1
     }
     $r = $icon.Current.BoundingRectangle
-    [FidgetWinEnum]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
-    $row = $null
-    for ($n = 0; $n -lt 20 -and $null -eq $row; $n++) {
-        Start-Sleep -Milliseconds 250
-        $row = Get-PopupMenuItems | Where-Object { $_.Current.Name.StartsWith($Arg3) } | Select-Object -First 1
+    $signal = [FidgetUiaSignal]::new(0)
+    try {
+        [FidgetWinEnum]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
+        $deadline = [DateTime]::UtcNow.AddSeconds(3)
+        $findRow = { Get-PopupMenuItems | Where-Object { $_ -isnot [string] -and $_.Current.Name.StartsWith($Arg3) } | Select-Object -First 1 }
+        $row = & $findRow
+        while ($null -eq $row -and $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) {
+            $row = & $findRow
+        }
+    } finally {
+        $signal.Dispose()
     }
     if ($null -eq $row) {
         Write-Error "the tray menu has no $Arg3 row"
         exit 1
     }
-    Invoke-Element $row
-    for ($n = 0; $n -lt 40; $n++) {
-        if ([FidgetWinEnum]::Find([uint32]$ProcessId, $Title) -ne [IntPtr]::Zero) { exit 0 }
-        Start-Sleep -Milliseconds 250
+    $signal = [FidgetUiaSignal]::new($ProcessId)
+    try {
+        Invoke-Element $row
+        $deadline = [DateTime]::UtcNow.AddSeconds(3)
+        while ($true) {
+            if ([FidgetWinEnum]::Find([uint32]$ProcessId, $Title) -ne [IntPtr]::Zero) { exit 0 }
+            if (-not $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) { break }
+        }
+    } finally {
+        $signal.Dispose()
     }
-    Write-Error "$Title did not open within 10s"
+    Write-Error "$Title did not open within 3s"
     exit 1
 }
 

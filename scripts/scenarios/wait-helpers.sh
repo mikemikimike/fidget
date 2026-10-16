@@ -27,21 +27,32 @@ follow() { # <first line: +1 for the whole file, 0 for new lines> <file>
 # Feed a file's lines to a reader until the reader exits or the seconds run
 # out. A timer kills the reader, so nothing here re-reads or polls.
 wait_on_lines() { # <seconds> <+1|0> <file> <reader...>
-  local seconds=$1 from=$2 file=$3 fifo tail_pid reader_pid timer_pid result
+  local seconds=$1
+  follow_from=$2 follow_file=$3
   shift 3
+  wait_on_source "$seconds" follow_wait_file "$@"
+}
+follow_wait_file() { follow "$follow_from" "$follow_file"; }
+
+# Feed a source command's lines (a log tail or an OS event stream) to a
+# reader until the reader exits or the seconds run out.
+wait_on_source() { # <seconds> <source command> <reader...>
+  local seconds=$1 source=$2 fifo source_pid reader_pid timer_pid result
+  shift 2
   fidget_alive || return 1
   fifo=$(mktemp -u "${TMPDIR:-/tmp}/fidget-wait.XXXXXX")
   mkfifo "$fifo"
-  follow "$from" "$file" > "$fifo" &
-  tail_pid=$!
+  "$source" > "$fifo" &
+  source_pid=$!
   "$@" < "$fifo" &
   reader_pid=$!
   { sleep "$seconds" && kill "$reader_pid"; } > /dev/null 2>&1 &
   timer_pid=$!
   wait "$reader_pid" 2> /dev/null && result=0 || result=1
   pkill -P "$timer_pid" 2> /dev/null || true
-  kill "$timer_pid" "$tail_pid" 2> /dev/null || true
-  wait "$timer_pid" "$tail_pid" 2> /dev/null || true
+  pkill -P "$source_pid" 2> /dev/null || true
+  kill "$timer_pid" "$source_pid" 2> /dev/null || true
+  wait "$timer_pid" "$source_pid" 2> /dev/null || true
   rm -f "$fifo"
   return "$result"
 }
@@ -72,10 +83,9 @@ in_state() { # <log> <state pattern>
   grep '^frame: ' "$1" 2> /dev/null | tail -1 | grep -qE " ($2) "
 }
 
-# Wait until a command succeeds, for state with no line of its own (a window
-# id, a window layer, an Accessibility frame). The command runs now and again
-# on each new line of the app log ($log, or $wait_log when set), which Fidget
-# writes as it draws and acts.
+# Wait until a command succeeds, for window position or layer, which have no
+# OS event. It runs now and on each new line of $log (or $wait_log).
+# Accessibility waits use OS events instead: see wait_for_ax_dump.
 wait_until() { # <seconds> <command...>
   local seconds=$1
   shift

@@ -107,6 +107,16 @@ test("seed_tour_shown marks the first-run tour as shown", () => {
 });
 
 // The Windows helper blocks on FileSystemWatcher events. pwsh runs it here.
+test("sprite_at_rest needs the same spot in all five frames", () => {
+  const frames = (xs) => xs.map((x) => `echo "frame: 1 Grounded pos(1,1) sprite(${x},20) idle#1" >> "$log"`).join("; ");
+  const still = run(`${frames([10, 10, 10, 10, 10])}; sprite_at_rest "$log"`);
+  assert.strictEqual(still.code, 0, still.out);
+  const moved = run(`${frames([10, 10, 10, 10, 11])}; sprite_at_rest "$log"`);
+  assert.notStrictEqual(moved.code, 0, "a frame in another spot counted as rest");
+  const walked = run(`${frames([10, 30, 50, 70, 90])}; sprite_at_rest "$log"`);
+  assert.notStrictEqual(walked.code, 0, "five spots counted as rest");
+});
+
 const pwsh = spawnSync("pwsh", ["-NoProfile", "-Command", "1"], { encoding: "utf8" });
 const noPwsh = pwsh.status !== 0;
 const winHelper = path.join(scenarios, "wait-helpers.win.ps1");
@@ -164,4 +174,26 @@ Add-Content $t "1 frame: 1 Grounded pos(1,1) sprite(10,20) idle#1 x"
 Add-Content $t "1 frame: 1 Falling pos(1,1) sprite(10,40) fall#1 x"
 [bool](Get-SpriteAtRest $t)`);
   assert.deepStrictEqual(r.lines.slice(0, 3), ["False", "10", "False"], r.err);
+});
+
+test("Windows: a process.log write one folder below the watched folder wakes the wait", { skip: noPwsh }, () => {
+  // The flag is outside the watched folder, so only the process.log write can wake it.
+  const flag = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "wait-flag-")), "flag");
+  const r = ps(`Later "touch ${flag}; echo frame >> $data/process.log"; $t = Get-NowMs; Wait-Until 3 { Test-Path '${flag}' }; (Get-NowMs) - $t`);
+  assert.strictEqual(r.lines[0], "True", r.err);
+  assert.ok(Number(r.lines[1]) < 1500, `took ${r.lines[1]} ms: the watcher missed the subfolder`);
+});
+
+test("Windows: Get-SpriteAtRest allows 2 px of jitter, not drift", { skip: noPwsh }, () => {
+  const frame = (x) => `Add-Content $t "1 frame: 1 Grounded pos(1,1) sprite(${x},20) idle#1 x"`;
+  const r = ps(`$t = "$W/p.log"
+${[10, 11, 12, 11, 10].map(frame).join("\n")}
+(Get-SpriteAtRest $t).X
+${[10, 12, 14, 16, 18].map(frame).join("\n")}
+[bool](Get-SpriteAtRest $t)
+${[10, 10, 10, 10, 13].map(frame).join("\n")}
+[bool](Get-SpriteAtRest $t)
+${[10, 10, 10, 10, 210].map(frame).join("\n")}
+[bool](Get-SpriteAtRest $t)`);
+  assert.deepStrictEqual(r.lines.slice(0, 4), ["10", "False", "False", "False"], r.err);
 });

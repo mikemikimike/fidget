@@ -50,7 +50,7 @@ start_ms=$(now_ms)
 env HOME="$out/home" PATH="$path" \
   FIDGET_HARNESS=codex \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_CAPTURABLE=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
@@ -59,11 +59,10 @@ trap 'stop_fidget' EXIT INT TERM
 dump() { "$tools/ax" dump "$pid" BMO frames > "$out/$1.ax.txt" 2>&1; }
 landing() { dump "$1" && grep -qF '|Codex needs ' "$out/$1.ax.txt"; }
 shot() { screencapture -x -o -l "$("$tools/window-id" "$pid" BMO)" "$out/$1.png"; }
-handed() { [ "$(cat "$opened")" = "$url" ]; }
 
 # The menu's Chat row exists once Fidget is up; retry the open until it does.
-wait_until 3 "$tools/ax" open "$pid" Chat BMO || "$tools/ax" open "$pid" Chat BMO > "$out/open.txt" 2>&1 || fail "the menu's Chat row did not open Chat; see $out/open.txt"
-wait_until 3 landing landing || fail "Chat shows no Codex needs npx landing; see $out/landing.ax.txt"
+"$tools/ax" open "$pid" Chat BMO > "$out/open.txt" 2>&1 || fail "the menu's Chat row did not open Chat; see $out/open.txt"
+wait_for_ax 3 "$pid" landing landing || fail "Chat shows no Codex needs npx landing; see $out/landing.ax.txt"
 shot landing
 f=$out/landing.ax.txt
 ! grep -qF '`' "$f" || fail "a backtick is left in the landing copy; see $f"
@@ -75,7 +74,7 @@ echo "ok: the landing draws npx and $url apart from the copy, no backtick left"
 
 [ ! -s "$opened" ] || fail "something reached open before the click: $(cat "$opened")"
 "$tools/click-cursor" "$((x + w / 2))" "$((y + h / 2))" 1 > "$out/click.txt" 2>&1 || fail "could not click the link; see $out/click.txt"
-wait_until 3 handed || fail "the click handed '$(cat "$opened")' to open, want $url"
+wait_for_line 3 "$opened" '^https://nodejs\.org/$' || fail "the click handed '$(cat "$opened")' to open, want $url"
 echo "ok: the click handed $url to open"
 
 # A webview navigation would replace the landing as the link hands off.

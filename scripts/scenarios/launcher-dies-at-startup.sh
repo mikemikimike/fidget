@@ -57,7 +57,7 @@ start_ms=$(now_ms)
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_CAPTURABLE=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
@@ -90,7 +90,7 @@ fits() { # <width>: both boxes end inside Chat, and Error output starts above th
   read -r wx _ got _ < <(tr , ' ' < "$out/$w.frame.txt")
   [ "$got" -eq "$w" ] || fail "$w: Chat is $got points wide after the resize"
   # The resize lands before WebKit reflows, so wait for the page to fit the new width.
-  wait_until 2 reflowed "$w" || fail "$w: the page never reflowed to fit; see $f"
+  wait_for_ax 2 "$pid" reflowed "$w" || fail "$w: the page never reflowed to fit; see $f"
   shot "failed-$w"
   for text in "$dyld" "|$harness|"; do
     row=$(box "$text" "$f") || fail "$w: no box holds '$text' in $f"
@@ -108,14 +108,14 @@ fits() { # <width>: both boxes end inside Chat, and Error output starts above th
 wait_for_trace 3 "$log" 'exited before initialize' || fail "the launcher never died before initialize; see $log"
 [ "$(spawns)" -eq 1 ] || fail "want one spawn before Chat opens, the fixture saw $(spawns)"
 "$tools/ax" open "$pid" Chat BMO > "$out/open.txt" 2>&1 || fail "the menu's Chat row did not open Chat; see $out/open.txt"
-wait_until 3 dump_has failed "|Harness couldn't start|" || fail "Chat shows no Harness error landing; see $out/failed.ax.txt"
+wait_for_ax 3 "$pid" dump_has failed "|Harness couldn't start|" || fail "Chat shows no Harness error landing; see $out/failed.ax.txt"
 echo "ok: the tray's Chat row opened the Harness error landing"
 for w in 420 320; do fits "$w"; done
 
 [ "$(spawns)" -eq 1 ] || fail "the Harness launched again before the re-pick ($(spawns) spawns)"
 "$tools/ax" press-button "$pid" Codex 1 BMO > "$out/press.txt" 2>&1 || fail "could not press Codex on the landing; see $out/press.txt"
 wait_until 3 respawned || fail "the re-pick did not launch the Harness again; see $log"
-wait_until 3 dump_has live "|$name · session " "|$name · no session yet|" ||
+wait_for_ax 3 "$pid" dump_has live "|$name · session " "|$name · no session yet|" ||
   fail "after the re-pick the mind line names no live Harness; see $out/live.ax.txt"
 shot live
 echo "ok: the re-pick launched it again at once: $(grep -oEm1 '· (session [^|]+|no session yet)' "$out/live.ax.txt")"
