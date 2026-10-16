@@ -100,9 +100,14 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
             ns_window,
             setStyleMask: style | NSWindowStyleMask::NonactivatingPanel
         ];
-        // No open animation: as a panel it overshoots the display on show.
-        // NSWindowAnimationBehaviorNone.
-        let _: () = msg_send![ns_window, setAnimationBehavior: 2isize];
+        // The style alone still lets a sprite click activate Fidget. The public
+        // way, configuring before the first show, failed live (run 022305 at
+        // 3171fa9b), so this private setter stays, guarded.
+        let prevents = sel!(_setPreventsActivation:);
+        let responds: bool = msg_send![ns_window, respondsToSelector: prevents];
+        if responds {
+            let _: () = msg_send![ns_window, _setPreventsActivation: Bool::YES];
+        }
         let _: () = msg_send![ns_window, setLevel: NSFloatingWindowLevel as NSWindowLevel];
         let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
         let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
