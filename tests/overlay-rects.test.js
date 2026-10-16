@@ -162,16 +162,19 @@ const skip = chrome ? false : "headless Chromium is not installed";
 test("Open chat and the pill take clicks; the bubble and its dots are only drawn", { skip, timeout: 60000 }, () => {
   const { reported, expected } = drive();
   assert.ok(reported, "the overlay reported its rects");
+  // Each names the sprite it rides with and where that sprite was, so the
+  // Shell can keep it in the region while a drag moves the sprite (#1568).
   const rows = [
-    ["Open chat", expected.openChat, true],
-    ["the quick pill", expected.pill, true],
-    ["a line of speech", expected.speech, false],
-    ["the thinking dots", expected.dots, false],
+    ["Open chat", expected.openChat, true, { instance: "talker", at: [100, 400] }],
+    ["the quick pill", expected.pill, true, { instance: "idler", at: [1000, 400] }],
+    ["a line of speech", expected.speech, false, { instance: "talker", at: [100, 400] }],
+    ["the thinking dots", expected.dots, false, { instance: "thinker", at: [600, 400] }],
   ];
-  for (const [name, rect, clickable] of rows) {
+  for (const [name, rect, clickable, follows] of rows) {
+    const want = JSON.stringify({ rect, clickable, follows });
     assert.ok(
-      reported.some((r) => JSON.stringify(r) === JSON.stringify({ rect, clickable })),
-      `${name}: want ${JSON.stringify({ rect, clickable })} in ${JSON.stringify(reported)}`,
+      reported.some((r) => JSON.stringify(r) === want),
+      `${name}: want ${want} in ${JSON.stringify(reported)}`,
     );
   }
   assert.equal(reported.length, rows.length, "nothing else is reported");

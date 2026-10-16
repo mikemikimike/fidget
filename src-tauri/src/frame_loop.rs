@@ -2505,7 +2505,21 @@ pub(crate) fn run_frame_loop(
                                     .unwrap_or_default()
                             })
                             .unwrap_or_default();
-                        let mask_params = (art, platform::overlay_rects_for(&label));
+                        // A bubble rides with its sprite, so it is kept over the
+                        // same trail the sprite's ink is swept over (#1568).
+                        let rects = fidget_core::overlay_region::follow_placements(
+                            &platform::overlay_rects_for(&label),
+                            |id| {
+                                let instance = placed.iter().find(|instance| instance.id == id)?;
+                                let local = instance.sprite.in_overlay(*display);
+                                let offset =
+                                    (local.x - instance.sprite.x, local.y - instance.sprite.y);
+                                trails
+                                    .get(id)
+                                    .map(|trail| trail.placements(offset).to_vec())
+                            },
+                        );
+                        let mask_params = (art, rects);
 
                         let region_action =
                             decide_region_action(&mask_params.0, &mask_params.1, ignore);
@@ -3250,6 +3264,7 @@ mod tests {
         let bubble = [fidget_core::overlay_region::OverlayRect {
             rect: [50, 60, 200, 80],
             clickable: false,
+            follows: None,
         }];
         assert_eq!(
             decide_region_action(&[], &bubble, true),

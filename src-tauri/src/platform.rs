@@ -180,7 +180,7 @@ pub fn overlay_rects_for(label: &str) -> Vec<OverlayRect> {
         |all| {
             all.iter()
                 .filter(|(owner, _)| owner == label)
-                .map(|(_, rect)| *rect)
+                .map(|(_, rect)| rect.clone())
                 .collect()
         },
     )
@@ -1352,15 +1352,20 @@ mod tests {
         let open_chat = OverlayRect {
             rect: [10, 20, 30, 40],
             clickable: true,
+            follows: None,
         };
         let bubble = OverlayRect {
             rect: [0, 0, 100, 80],
             clickable: false,
+            follows: None,
         };
-        set_overlay_rects("overlay-test-a", vec![open_chat, bubble]);
-        set_overlay_rects("overlay-test-b", vec![bubble]);
+        set_overlay_rects("overlay-test-a", vec![open_chat.clone(), bubble.clone()]);
+        set_overlay_rects("overlay-test-b", vec![bubble.clone()]);
 
-        assert_eq!(overlay_rects_for("overlay-test-a"), vec![open_chat, bubble]);
+        assert_eq!(
+            overlay_rects_for("overlay-test-a"),
+            vec![open_chat, bubble.clone()]
+        );
         assert_eq!(overlay_rects_for("overlay-test-b"), vec![bubble]);
         assert!(overlay_rects_for("overlay-test-none").is_empty());
         assert!(over_overlay_hotspot("overlay-test-a", 20, 30), "Open chat");

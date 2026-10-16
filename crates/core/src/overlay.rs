@@ -299,6 +299,12 @@ impl DrawTrail {
         }
     }
 
+    /// The last three top-lefts, shifted from shared space by `offset`: where
+    /// anything placed from this sprite, like its bubble, may be drawn.
+    pub fn placements(&self, (dx, dy): (i32, i32)) -> [(i32, i32); 3] {
+        self.at.map(|(x, y)| (x + dx, y + dy))
+    }
+
     /// Rectangles covering both spans the renderer may be drawing, shifted
     /// from shared space by `offset`. A Windows window region clips drawing,
     /// and it can land before or after the placement it was built from.

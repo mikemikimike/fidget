@@ -110,6 +110,9 @@ function createView(id) {
     // for why the renderer is the one who has to.
     hotspot: null,
     bubbleRect: null,
+    // The sprite's top-left the bubble and pill were last placed from. The
+    // Shell sweeps their rects from here over the sprite's trail (#1568).
+    placedFrom: null,
     // The two most recent placements and when each arrived. Drawing one sample
     // behind, interpolated, buys continuous motion (see interpolate.js); the
     // hit-test uses the unlagged position, so it leads the screen by one sample.
@@ -241,6 +244,7 @@ function positionBubble(view, spriteRect, displayBounds) {
       ]
     : null;
   view.bubbleRect = readableBubbleRect(view.bubble, pos);
+  view.placedFrom = [Math.round(spriteRect.x), Math.round(spriteRect.y)];
   reportOverlayRects();
 }
 
@@ -264,6 +268,7 @@ function positionQuick(view, spriteRect) {
   view.quick.style.left = `${pos.x}px`;
   view.quick.style.top = `${pos.y}px`;
   view.quick.classList.toggle("inverted", pos.inverted);
+  view.placedFrom = [Math.round(spriteRect.x), Math.round(spriteRect.y)];
   view.quickHotspot =
     clickableOffArt && size.width > 0 && size.height > 0
       ? [Math.round(pos.x), Math.round(pos.y), size.width, size.height]
@@ -530,9 +535,14 @@ let reportedRects = "";
 function reportOverlayRects() {
   const rects = [];
   for (const view of views.values()) {
-    if (view.hotspot) rects.push({ rect: view.hotspot, clickable: true });
-    if (view.quickHotspot) rects.push({ rect: view.quickHotspot, clickable: true });
-    if (view.bubbleRect) rects.push({ rect: view.bubbleRect, clickable: false });
+    // Each rides with its sprite. A rect lands in the Shell a frame or more
+    // after it was measured, so Windows keeps it over the sprite's whole trail
+    // from where it was placed, not only there (#1568).
+    const follows = view.placedFrom ? { instance: view.id, at: view.placedFrom } : null;
+    const push = (rect, clickable) => rects.push(follows ? { rect, clickable, follows } : { rect, clickable });
+    if (view.hotspot) push(view.hotspot, true);
+    if (view.quickHotspot) push(view.quickHotspot, true);
+    if (view.bubbleRect) push(view.bubbleRect, false);
   }
   const serialized = JSON.stringify(rects);
   if (serialized === reportedRects) return;

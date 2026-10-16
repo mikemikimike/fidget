@@ -8,13 +8,62 @@ use serde::Deserialize;
 pub type RegionRect = [i32; 4];
 
 /// Something the renderer draws outside the art, in overlay coordinates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct OverlayRect {
     /// `[x, y, width, height]`.
     pub rect: [i32; 4],
     /// "Open chat" and the quick pill take clicks. The bubble body and the
     /// thinking dots are only drawn, so clicks pass through them.
     pub clickable: bool,
+    /// The sprite this rect rides with, and where that sprite was drawn when
+    /// the rect was measured. `None` for a rect that stays put.
+    #[serde(default)]
+    pub follows: Option<Follows>,
+}
+
+/// Which Instance a rect is placed from, and that Instance's top-left, in
+/// overlay coordinates, at the moment the renderer measured the rect.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Follows {
+    pub instance: String,
+    pub at: [i32; 2],
+}
+
+/// The rects a Windows region has to hold while the sprites they ride with
+/// move. A rect reaches the Shell a frame or more after the renderer measured
+/// it, and the region lands before or after the renderer draws the next
+/// placement, so a bubble kept only where it was measured loses its leading
+/// edge under a drag (#1568). Each following rect is stretched over every
+/// spot it is drawn at as its sprite crosses `placements`, the same trail the
+/// sprite's own ink is swept over (#1378). `placements` answers an Instance's
+/// recent top-lefts in overlay coordinates, or `None` when it is not here.
+pub fn follow_placements(
+    rects: &[OverlayRect],
+    placements: impl Fn(&str) -> Option<Vec<(i32, i32)>>,
+) -> Vec<OverlayRect> {
+    rects
+        .iter()
+        .map(|overlay_rect| {
+            let Some(Follows { instance, at }) = &overlay_rect.follows else {
+                return overlay_rect.clone();
+            };
+            let [x, y, width, height] = overlay_rect.rect;
+            let (mut left, mut top) = (x, y);
+            let (mut right, mut bottom) = (x + width, y + height);
+            for (px, py) in placements(instance).unwrap_or_default() {
+                let (dx, dy) = (px - at[0], py - at[1]);
+                left = left.min(x + dx);
+                top = top.min(y + dy);
+                right = right.max(x + width + dx);
+                bottom = bottom.max(y + height + dy);
+            }
+            OverlayRect {
+                rect: [left, top, right - left, bottom - top],
+                clickable: overlay_rect.clickable,
+                follows: None,
+            }
+        })
+        .collect()
 }
 
 impl OverlayRect {
@@ -60,6 +109,7 @@ pub fn clickable_rects(rects: &[OverlayRect]) -> Vec<[i32; 4]> {
 }
 
 #[cfg(test)]
+#[allow(non_upper_case_globals)]
 mod tests {
     use super::*;
 
@@ -73,6 +123,7 @@ mod tests {
         OverlayRect {
             rect,
             clickable: true,
+            follows: None,
         }
     }
 
@@ -80,17 +131,62 @@ mod tests {
         OverlayRect {
             rect,
             clickable: false,
+            follows: None,
         }
+    }
+
+    fn riding(rect: [i32; 4], instance: &str, at: [i32; 2]) -> OverlayRect {
+        OverlayRect {
+            follows: Some(Follows {
+                instance: instance.to_string(),
+                at,
+            }),
+            ..drawn(rect)
+        }
+    }
+
+    /// #1568: a bubble measured with its sprite at (100, 200) while the drag
+    /// has since carried the sprite to (130, 190) is drawn 30px right and 10px
+    /// up. The region must hold it there and where it was measured, or Windows
+    /// clips the bubble's leading edge.
+    #[test]
+    fn a_bubble_is_kept_over_every_spot_its_dragged_sprite_puts_it() {
+        let bubble = riding([120, 80, 200, 90], "buddy", [100, 200]);
+        const parked: OverlayRect = drawn([0, 0, 40, 20]);
+        let elsewhere = riding([500, 80, 200, 90], "gone", [480, 200]);
+        let trail = |id: &str| (id == "buddy").then(|| vec![(110, 200), (120, 195), (130, 190)]);
+
+        let got = follow_placements(&[bubble, parked.clone(), elsewhere], trail);
+
+        assert_eq!(
+            got,
+            vec![
+                drawn([120, 70, 230, 100]),
+                parked,
+                drawn([500, 80, 200, 90]),
+            ],
+        );
+        let RegionPlan::Apply(region) = region_plan(&[], &got) else {
+            panic!("a bubble keeps a region");
+        };
+        let at_drag_tip = [150, 70, 350, 160];
+        assert!(
+            region.iter().any(|[l, t, r, b]| *l <= at_drag_tip[0]
+                && *t <= at_drag_tip[1]
+                && *r >= at_drag_tip[2]
+                && *b >= at_drag_tip[3]),
+            "the bubble where the drag has taken it is outside {region:?}"
+        );
     }
 
     /// Only a clickable rect stops the overlay passing a click, over its
     /// pixels and not one past them.
     #[test]
     fn only_a_clickable_rect_takes_a_click() {
-        let open_chat = clickable([220, 140, 72, 18]);
-        let qm_pill = clickable([130, 60, 160, 36]);
-        let bubble = drawn([120, 80, 200, 90]);
-        let thinking = drawn([150, 100, 48, 24]);
+        const open_chat: OverlayRect = clickable([220, 140, 72, 18]);
+        const qm_pill: OverlayRect = clickable([130, 60, 160, 36]);
+        const bubble: OverlayRect = drawn([120, 80, 200, 90]);
+        const thinking: OverlayRect = drawn([150, 100, 48, 24]);
 
         let rows = [
             ("Open chat, top left", open_chat, (220, 140), true),
@@ -105,7 +201,8 @@ mod tests {
             ("the bubble body", bubble, (200, 120), false),
             ("the thinking dots", thinking, (170, 110), false),
         ];
-        for (name, rect, (x, y), takes) in rows {
+        for (name, rect, (x, y), takes) in &rows {
+            let (x, y, takes) = (*x, *y, *takes);
             assert_eq!(rect.takes_click_at(x, y), takes, "{name}");
         }
     }
@@ -114,10 +211,10 @@ mod tests {
     /// the bubble body and the thinking dots stay out so clicks pass them.
     #[test]
     fn clickable_rects_table() {
-        let open_chat = clickable([220, 140, 72, 18]);
-        let qm_pill = clickable([130, 60, 160, 36]);
-        let bubble = drawn([120, 80, 200, 90]);
-        let thinking = drawn([150, 100, 48, 24]);
+        const open_chat: OverlayRect = clickable([220, 140, 72, 18]);
+        const qm_pill: OverlayRect = clickable([130, 60, 160, 36]);
+        const bubble: OverlayRect = drawn([120, 80, 200, 90]);
+        const thinking: OverlayRect = drawn([150, 100, 48, 24]);
 
         let rows: &[ClickRow] = &[
             ("nothing reported", &[], &[]),
@@ -150,10 +247,10 @@ mod tests {
     #[test]
     fn region_plan_table() {
         let art = [[100, 200, 180, 328]]; // sprite swept bounds
-        let open_chat = clickable([220, 140, 72, 18]);
-        let bubble = drawn([120, 80, 200, 90]);
-        let thinking = drawn([150, 100, 48, 24]);
-        let qm_pill = clickable([130, 60, 160, 36]);
+        const open_chat: OverlayRect = clickable([220, 140, 72, 18]);
+        const bubble: OverlayRect = drawn([120, 80, 200, 90]);
+        const thinking: OverlayRect = drawn([150, 100, 48, 24]);
+        const qm_pill: OverlayRect = clickable([130, 60, 160, 36]);
 
         let rows: &[Row] = &[
             ("nothing to draw clears", &[], &[], &[]),
