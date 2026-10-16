@@ -228,9 +228,15 @@ function Dump([IntPtr]$Hwnd, [string]$Label) {
 function Target-At([int]$X, [int]$Y) {
     $top = [ChatPerchWin]::TopAt($X, $Y)
     $el = $UIA::FromPoint((New-Object System.Windows.Point $X, $Y))
-    $name = $el.Current.Name
-    $type = $el.Current.ControlType.ProgrammaticName
-    $line = "point=$X,$Y hwnd=$top element=$type|$name"
+    $path = @()
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    for ($i = 0; $i -lt 4 -and $null -ne $el; $i++) {
+        $path += "$($el.Current.ControlType.ProgrammaticName)|$($el.Current.Name)"
+        $el = $walker.GetParent($el)
+    }
+    $name = $path -join " < "
+    $type = $path[0]
+    $line = "point=$X,$Y hwnd=$top element=$name"
     Add-Content -LiteralPath (Join-Path $out "target-checks.txt") -Value $line
     [pscustomobject]@{ Hwnd = $top; Name = $name; Type = $type; Line = $line }
 }
@@ -311,7 +317,9 @@ try {
     $bx = $button[0] + [int]($button[2] / 2)
     $by = $button[1] + [int]($button[3] / 2)
     $hit = Target-At $bx $by
-    if ($hit.Hwnd -ne $overlay -or $hit.Name -ne "chat") { Fail "top target at the chat button is not Fidget's: $($hit.Line)" }
+    if ($hit.Hwnd -ne $overlay -or -not ($hit.Name -like "*ControlType.Button|chat*")) {
+        Fail "top target at the chat button is not the overlay's chat button (overlay hwnd=$overlay): $($hit.Line)"
+    }
     $ask = Get-AskInstance (Lines $stderr)
     if (-not $ask) { Fail "no showAsk trace names the asking Character; see $stderr" }
     $beforeClick = (Lines $stderr).Count
