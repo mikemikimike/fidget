@@ -181,7 +181,24 @@ wait_textedit_front() { # <case> <document name>
     fail "$1: TextEdit with $2 did not come to the front (front: $(front_name), window: $(textedit_window))"
 }
 # The text of one of the run's TextEdit documents.
-text_of() { capped 3 osascript -e "tell application \"TextEdit\" to get text of first document whose path ends with \"/$1\""; }
+# The front document's text. Every read, with its exit status and any error,
+# goes to textedit-reads.log, so a read that fails is never mistaken for text.
+text_front() {
+  local text status=0
+  text=$(capped 2 osascript -e 'tell application "TextEdit" to get text of front document' 2>> "$out/textedit-reads.log") || status=$?
+  echo "$(date +%T) status=$status text=$text" >> "$out/textedit-reads.log"
+  printf '%s' "$text"
+  return "$status"
+}
+# Re-read on each new log line, up to 3 s; fail loudly if no read succeeded.
+wait_text() { # <case> <check command...>
+  local case=$1
+  shift
+  wait_until 3 "$@" && return 0
+  text_front > /dev/null ||
+    fail "$case: could not read TextEdit's front document; see $out/textedit-reads.log"
+  return 1
+}
 
 # 1. No pill open, TextEdit holds the keyboard: a sprite click must not take it.
 # Typing and leaving finish well inside the 1.5 s hover that would open a pill.
@@ -192,9 +209,13 @@ sprite_center
 capped 3 "$tools/click-cursor" "$cx" "$cy" 1 > "$out/sprite-click.txt" 2>&1 || fail "could not click the sprite"
 capped 3 "$tools/ax" type "$pid" four >> "$out/helpers.log" 2>&1 || fail "could not type"
 capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "could not move the cursor away"
-typed() { [ "$(text_of "$one")" = four ]; }
-if ! wait_until 3 typed; then
-  { text_of "$one"; capped 3 osascript -e 'tell application "System Events" to get name of every window of process "TextEdit"'; } > "$out/textedit-docs.txt" 2>&1 || true
+typed() { [ "$(text_front)" = four ]; }
+if ! wait_text sprite-click typed; then
+  {
+    text_front
+    echo
+    capped 3 osascript -e 'tell application "System Events" to get name of every window of process "TextEdit"'
+  } > "$out/textedit-docs.txt" 2>&1 || true
   fail "a sprite click took the keyboard from TextEdit (front: $(front_name), window: $(textedit_window); text and windows in $out/textedit-docs.txt); see $log"
 fi
 ! grep -qE "${draft}\"[^\"]*four\"" "$log" || fail "a sprite click sent typing to Fidget; see $log"
@@ -227,11 +248,11 @@ open_pill other-app
 type_into_pill three other-app
 
 # TextEdit's text ends with <word>; re-checked on each new log line.
-textedit_ends() { case "$(text_of "$one")" in *"$1") ;; *) return 1 ;; esac }
+textedit_ends() { case "$(text_front)" in *"$1") ;; *) return 1 ;; esac }
 # After the pill closes, <word> typed with no click must land in TextEdit.
 typing_back_in_textedit() { # <word> <case>
   capped 3 "$tools/ax" type "$pid" "$1" >> "$out/helpers.log" 2>&1 || fail "$2: could not type"
-  wait_until 3 textedit_ends "$1" || fail "$2: \"$1\" did not reach TextEdit after the pill closed; see $log"
+  wait_text "$2" textedit_ends "$1" || fail "$2: \"$1\" did not reach TextEdit after the pill closed; see $log"
   ! grep -qE "${draft}\"[^\"]*$1\"" "$log" || fail "$2: the pill kept the keyboard; see $log"
   echo "ok: $2: typing went back to TextEdit"
 }
@@ -270,8 +291,8 @@ IFS=', ' read -r left top _ _ <<< "$bounds"
 capped 3 "$tools/click-cursor" "$((left + 8))" "$((top + 40))" 1 > "$out/through-click.txt" 2>&1 ||
   fail "click-away: could not click TextEdit"
 capped 3 "$tools/ax" type "$pid" ten >> "$out/helpers.log" 2>&1 || fail "click-away: could not type"
-caret_moved() { [ "$(text_of "$two")" = tenabc ]; }
-wait_until 3 caret_moved || fail "click-away: the click did not put TextEdit's caret at the click; see $log"
+caret_moved() { [ "$(text_front)" = tenabc ]; }
+wait_text click-away caret_moved || fail "click-away: the click did not put TextEdit's caret at the click; see $log"
 ! grep -qE "${draft}\"[^\"]*ten\"" "$log" || fail "click-away: the pill took typing back; see $log"
 grep -qE "${draft}\"nine\"" "$log" || fail "click-away: the pill lost its text"
 echo "ok: click-away: the caret moved to the click and typing followed"
