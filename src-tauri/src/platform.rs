@@ -481,11 +481,9 @@ pub fn remember_foreground(window: &tauri::Window) {
     }
 }
 
-/// The overlay's last pill closed: on X11, if the overlay still has focus, ask
-/// the window manager to activate the window that was active before, or, if it
-/// is gone, the topmost window that is not Fidget's. Wayland has no way for one client to activate another
-/// client's surface without a token from that client (xdg-activation), so there
-/// the compositor picks where focus goes.
+/// Last pill closed: on X11, if the overlay still has focus, activate the window
+/// that was active before, or else the topmost one that isn't Fidget's. Wayland
+/// lets no client activate another's surface, so the compositor decides there.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
     match x11_window(window) {

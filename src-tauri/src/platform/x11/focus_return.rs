@@ -1,11 +1,6 @@
-//! Give the keyboard back after a quick message pill closes (#1565).
-//!
-//! The pill takes focus with `set_focus`. Before it does, remember the window
-//! that `_NET_ACTIVE_WINDOW` names. When the overlay's last pill closes and the
-//! overlay still has focus, ask the window manager to activate that window
-//! again, or, if it is gone, the topmost window in `_NET_CLIENT_LIST_STACKING`
-//! that is not Fidget's. Source indication 2 (pager) marks the request as
-//! user-driven, so focus-stealing prevention lets it through.
+//! Give the keyboard back after a quick message pill closes (#1565): to the
+//! window `_NET_ACTIVE_WINDOW` named before, or the topmost other client, sent
+//! as a pager request (source 2) so focus-stealing prevention lets it through.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 

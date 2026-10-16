@@ -2030,10 +2030,9 @@ fn overlay_report_qm_draft(
     instance: String,
     payload: Option<fidget_core::quick_message::QmDraft>,
 ) {
-    // macOS: an overlay with an open pill may become key, so the pill always
-    // takes the keyboard (#1565). When its last pill closes it refuses again
-    // and hands the keyboard back. Counted per window: a pill can move.
-    // A Character removed from the roster loses its pill on every overlay.
+    // An overlay takes the keyboard while it has an open pill (#1565) and
+    // hands it back when its last one closes. Counted per window, since a
+    // pill can move; a removed Character closes its pill everywhere.
     let gone = payload.is_none()
         && window
             .app_handle()
