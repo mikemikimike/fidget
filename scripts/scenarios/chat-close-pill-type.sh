@@ -76,6 +76,21 @@ build_tool ax "$root/scripts/ax-settings.swift"
 build_tool warp-cursor "$root/scripts/warp-cursor.swift"
 build_tool click-cursor "$root/scripts/click-cursor.swift"
 
+# Case 7 quits TextEdit, which would take unsaved work with it.
+! pgrep -x TextEdit > /dev/null || fail "TextEdit is running. Quit it first: this run opens and quits TextEdit itself."
+# Close the documents this run made, then quit the TextEdit it launched. Each
+# step is capped, and none can fail the run. Runs on pass, fail and Ctrl-C.
+close_textedit() {
+  if pgrep -x TextEdit > /dev/null; then
+    capped 3 osascript -e 'tell application "TextEdit" to close every document saving no' > /dev/null 2>&1 || true
+    capped 3 osascript -e 'tell application "TextEdit" to quit saving no' > /dev/null 2>&1 || true
+    if pgrep -x TextEdit > /dev/null; then pkill -x TextEdit 2> /dev/null || true; fi
+  fi
+}
+trap close_textedit EXIT
+# Ctrl-C ends the run; the EXIT trap does the cleanup.
+trap 'exit 130' INT TERM
+
 # Preflight, before Fidget starts: helpers post input only with an Accessibility
 # grant, and macOS drops synthetic clicks and keys from an ungranted terminal.
 if ! answer=$(capped 3 "$tools/ax" menus $$ 2>&1); then
@@ -111,7 +126,7 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$out/app.log" 2>&1 &
 pid=$!
-trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
+trap 'stop_fidget; pkill -f "count=$marks" || true; close_textedit' EXIT
 
 frame='^[0-9]+ frame: '
 draft='^[0-9]+ overlay: draft .*text='

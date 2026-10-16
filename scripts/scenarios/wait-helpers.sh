@@ -42,7 +42,8 @@ wait_on_source() { # <seconds> <source command> <reader...>
   fidget_alive || return 1
   fifo=$(mktemp -u "${TMPDIR:-/tmp}/fidget-wait.XXXXXX")
   mkfifo "$fifo"
-  "$source" > "$fifo" &
+  # Its shell reports the tail this kills; that stop is expected.
+  "$source" > "$fifo" 2> /dev/null &
   source_pid=$!
   "$@" < "$fifo" &
   reader_pid=$!
