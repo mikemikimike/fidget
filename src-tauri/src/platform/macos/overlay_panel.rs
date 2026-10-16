@@ -38,7 +38,7 @@ fn overlay_panel_class() -> &'static AnyClass {
         extern "C" fn refuse(_this: &AnyObject, _sel: Sel) -> Bool {
             Bool::NO
         }
-        
+
         extern "C" fn can_become_key_window(this: &AnyObject, _sel: Sel) -> Bool {
             let ptr = this as *const AnyObject as usize;
             if let Ok(guard) = allowed_key_windows().lock() {
@@ -134,8 +134,7 @@ fn sharing_type() -> NSWindowSharingType {
 pub fn allow_overlay_focus(window: &tauri::WebviewWindow, allow: bool) -> Result<(), String> {
     let ptr = window
         .ns_window()
-        .map_err(|e| format!("overlay has no native window handle: {e}"))?
-        as usize;
+        .map_err(|e| format!("overlay has no native window handle: {e}"))? as usize;
 
     let mut guard = allowed_key_windows()
         .lock()
