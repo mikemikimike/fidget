@@ -34,11 +34,10 @@ ${body}`;
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      "-",
+      loader,
     ],
     {
-      input: loader,
-      env: { ...process.env, CHAT_PERCH_SCRIPT: script },
+      env: { ...process.env, CHAT_PERCH_SCRIPT: script, TERM: "dumb" },
       encoding: "utf8",
     },
   );
