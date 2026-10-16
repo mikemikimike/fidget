@@ -59,7 +59,7 @@ test(
       .join(",");
     const falling = [
       ...Array(4).fill(`'${perched(160)}'`),
-      `'17 frame: 18 Falling pos(1720,170) sprite(0,0) fall#0 id'`,
+      `'17 frame: 18 Falling pos(1720,160) sprite(0,0) fall#0 id'`,
     ].join(",");
     const off = Array(5)
       .fill(`'${perched(200)}'`)
