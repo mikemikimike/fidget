@@ -2056,7 +2056,6 @@ fn overlay_report_qm_draft(
             flips
         })
         .unwrap_or_default();
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
     for (label, open) in flips {
         let Some(overlay) = window.app_handle().get_webview_window(&label) else {
             continue;
@@ -2074,11 +2073,6 @@ fn overlay_report_qm_draft(
             });
         }
     }
-    // Linux keeps the keyboard where the window manager puts it: handing it to
-    // another client's window needs _NET_ACTIVE_WINDOW, which focus-stealing
-    // prevention may refuse, and Wayland has no such request.
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let _ = flips;
     if dev_flags::TRACE_BUBBLE.is_on() {
         match &payload {
             Some(draft) => eprintln!(
@@ -2246,6 +2240,8 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
                 .run_on_main_thread(platform::remember_front_app)
                 .map_err(|e| e.to_string())?;
         }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        platform::remember_foreground(&window);
         window.set_focus().map_err(|e| e.to_string())
     }
 }

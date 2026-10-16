@@ -62,8 +62,6 @@ impl OpenPills {
 }
 
 /// What to do with the keyboard when an overlay's last pill closes.
-// Linux has no hand-back yet: see overlay_report_qm_draft.
-#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 #[derive(Debug, PartialEq, Eq)]
 pub enum HandBack {
     /// The user already moved on: leave the keyboard where it is.
@@ -76,13 +74,30 @@ pub enum HandBack {
 
 /// `holding`: Fidget's overlay still has the keyboard. `previous_alive`: the
 /// app or window remembered at focus time still exists. Same on every OS.
-#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
     match (holding, previous_alive) {
         (false, _) => HandBack::Stay,
         (true, true) => HandBack::Restore,
         (true, false) => HandBack::StepAside,
     }
+}
+
+/// One top-level window, as Windows lists them in z-order.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub struct Candidate {
+    pub ours: bool,
+    pub visible: bool,
+    pub tool: bool,
+    pub cloaked: bool,
+}
+
+/// Where a step aside hands the foreground: the first window in z-order that
+/// is not Fidget's, is visible, and is neither a tool window nor cloaked.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn next_in_front(z_order: &[Candidate]) -> Option<usize> {
+    z_order
+        .iter()
+        .position(|w| !w.ours && w.visible && !w.tool && !w.cloaked)
 }
 
 /// The process-wide record the overlay commands share.
@@ -103,6 +118,29 @@ mod tests {
         assert_eq!(pills.note("overlay-0", "a", false), flips(&[]));
         assert_eq!(pills.forget("a"), flips(&[("overlay-1", false)]));
         assert_eq!(pills.forget("a"), flips(&[]));
+    }
+
+    fn window(ours: bool, visible: bool, tool: bool, cloaked: bool) -> Candidate {
+        Candidate {
+            ours,
+            visible,
+            tool,
+            cloaked,
+        }
+    }
+
+    #[test]
+    fn a_step_aside_skips_fidget_hidden_tool_and_cloaked_windows() {
+        let z_order = [
+            window(true, true, false, false),
+            window(false, false, false, false),
+            window(false, true, true, false),
+            window(false, true, false, true),
+            window(false, true, false, false),
+            window(false, true, false, false),
+        ];
+        assert_eq!(next_in_front(&z_order), Some(4));
+        assert_eq!(next_in_front(&z_order[..4]), None);
     }
 
     #[test]

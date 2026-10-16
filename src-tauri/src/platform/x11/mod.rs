@@ -8,6 +8,7 @@
 
 mod atoms;
 mod connection;
+mod focus_return;
 mod input_events;
 mod overlay;
 mod pointer;
@@ -21,5 +22,6 @@ pub use pointer::{buttons_down, double_click_interval_ms};
 pub use sensing::X11ActivitySource;
 
 pub(super) use connection::connection;
+pub(super) use focus_return::{remember_active_window, return_keyboard};
 pub(super) use settings_raise::raise_settings_ewmh_above;
 pub(super) use window_source::{visible_window_titles, X11WindowSource};

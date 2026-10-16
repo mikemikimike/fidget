@@ -7,7 +7,8 @@
 #   Enter and Escape; TextEdit quits under it; a click-through moves the caret.
 # Input: cursor moves, clicks, Cmd+W, Enter, Escape, and typed words.
 # Duration: about 20 s; every step gives up 3 s after its trigger.
-# Grants: Accessibility for the terminal that runs it.
+# Grants: Accessibility, and Automation of TextEdit, System Events and Finder,
+#   for the terminal that runs it.
 # Asserts: a sprite click leaves the word in TextEdit with no pill draft, and
 #   each pill that opens takes the typed word with no click (#1565), each way
 #   of closing it hands the keyboard back, and a click-through moves the caret.
@@ -74,6 +75,20 @@ build_tool() { # <name> <source>
 build_tool ax "$root/scripts/ax-settings.swift"
 build_tool warp-cursor "$root/scripts/warp-cursor.swift"
 build_tool click-cursor "$root/scripts/click-cursor.swift"
+
+# Preflight, before Fidget starts: one Apple event to each app the run drives.
+# -1743 is a refused Automation grant; no answer in 3 s is an unanswered prompt.
+# `get name` is answered locally, so each asks for something only the app knows.
+for probe in "TextEdit:count documents" "System Events:count processes" "Finder:count windows"; do
+  app=${probe%%:*}
+  if ! answer=$(capped 3 osascript -e "tell application \"$app\" to ${probe#*:}" 2>&1); then
+    case "$answer" in
+      *-1743*) why="Automation access to $app is denied" ;;
+      *) why="no answer from $app in 3 s (an Automation prompt may be waiting)" ;;
+    esac
+    fail "$why. Grant it in System Settings > Privacy & Security > Automation for this terminal, then run again."
+  fi
+done
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
 # `slow` holds the first turn, so a startup wake neither speaks nor opens Chat.

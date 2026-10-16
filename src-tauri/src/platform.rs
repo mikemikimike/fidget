@@ -404,12 +404,94 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
     unsafe {
         let holding = GetForegroundWindow() == overlay;
         let alive = !previous.is_null() && IsWindow(previous) != 0;
-        // StepAside has nothing to step to: Windows picks the next window itself.
-        if hand_back(holding, alive) == HandBack::Restore {
-            SetForegroundWindow(previous);
+        match hand_back(holding, alive) {
+            HandBack::Restore => {
+                SetForegroundWindow(previous);
+            }
+            HandBack::StepAside => {
+                if let Some(next) = next_window_in_front() {
+                    SetForegroundWindow(next);
+                }
+            }
+            HandBack::Stay => {}
         }
     }
     Ok(())
+}
+
+/// The top-level window a step aside hands the foreground to: the first in
+/// z-order that is not Fidget's, is visible, and is neither a tool window nor
+/// cloaked (another virtual desktop, a suspended UWP app).
+#[cfg(target_os = "windows")]
+fn next_window_in_front() -> Option<windows_sys::Win32::Foundation::HWND> {
+    use crate::pill_focus::{next_in_front, Candidate};
+    use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetTopWindow, GetWindow, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindowVisible,
+        GWL_EXSTYLE, GW_HWNDNEXT, WS_EX_TOOLWINDOW,
+    };
+
+    let ours = std::process::id();
+    let mut windows = Vec::new();
+    let mut z_order = Vec::new();
+    // SAFETY: read-only Win32 queries on handles Windows just listed; a window
+    // that closes mid-walk answers with zeros and is skipped.
+    unsafe {
+        let mut hwnd = GetTopWindow(std::ptr::null_mut());
+        while !hwnd.is_null() && windows.len() < 4096 {
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            let mut cloaked = 0u32;
+            let cloak_read = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_CLOAKED as _,
+                (&mut cloaked as *mut u32).cast(),
+                std::mem::size_of::<u32>() as u32,
+            );
+            z_order.push(Candidate {
+                ours: pid == ours,
+                visible: IsWindowVisible(hwnd) != 0,
+                tool: GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW != 0,
+                cloaked: cloak_read >= 0 && cloaked != 0,
+            });
+            windows.push(hwnd);
+            hwnd = GetWindow(hwnd, GW_HWNDNEXT);
+        }
+    }
+    next_in_front(&z_order).map(|i| windows[i])
+}
+
+/// The X11 window behind a webview, or None on Wayland.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn x11_window(window: &impl raw_window_handle::HasWindowHandle) -> Option<u32> {
+    use raw_window_handle::RawWindowHandle;
+    match window.window_handle().ok()?.as_raw() {
+        RawWindowHandle::Xlib(xlib) => Some(xlib.window as u32),
+        RawWindowHandle::Xcb(xcb) => Some(xcb.window.get()),
+        _ => None,
+    }
+}
+
+/// Remember the active window before a pill takes the keyboard.
+/// Wayland: nothing to remember, see `hand_back_keyboard`.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn remember_foreground(window: &tauri::Window) {
+    if let Some(overlay) = x11_window(window) {
+        x11::remember_active_window(overlay);
+    }
+}
+
+/// The overlay's last pill closed: on X11, ask the window manager to activate
+/// the window that was active before, if the overlay still has focus and that
+/// window still exists. Wayland has no way for one client to activate another
+/// client's surface without a token from that client (xdg-activation), so there
+/// the compositor picks where focus goes.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    match x11_window(window) {
+        Some(overlay) => x11::return_keyboard(overlay),
+        None => Ok(()),
+    }
 }
 
 /// Make the overlay a floating, non-activating panel.
