@@ -1,7 +1,8 @@
 //! File-based IPC for debug commands: place character at (x,y) and snapshot state.
 //!
-//! The verify binary writes commands to `~/.fidget-debug-cmd`, then polls
-//! `~/.fidget-debug-result` for responses from the running fidget instance.
+//! The verify binary writes commands to `~/.fidget-debug-cmd` (or under
+//! `FIDGET_DATA_DIR` when set), then polls
+//! `.fidget-debug-result` beside it for responses from the running fidget instance.
 //! Requires fidget to run with FIDGET_DEBUG_IPC=1.
 
 use std::fs;

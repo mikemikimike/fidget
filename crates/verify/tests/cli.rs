@@ -164,3 +164,47 @@ fn an_unknown_scenario_is_a_tool_error_that_names_the_known_ones() {
     assert!(stdout.contains("thinking-row"), "stdout was:\n{stdout}");
     assert!(!stdout.contains("fixture-harness"), "stdout was:\n{stdout}");
 }
+
+#[test]
+fn data_dir_override_moves_debug_ipc_out_of_home() {
+    let dir = TempDir::new().unwrap();
+    let data = dir.path().join("data");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let evidence = evidence_in(&dir);
+    let child = Command::new(BIN)
+        .args([
+            "--evidence-dir",
+            evidence.to_str().unwrap(),
+            "--run-id",
+            "clitest",
+        ])
+        .args(["place", "--x", "3", "--y", "4"])
+        .env("FIDGET_DATA_DIR", &data)
+        .env("HOME", &home)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let cmd = data.join(".fidget-debug-cmd");
+    let mut sent = None;
+    for _ in 0..40 {
+        if let Ok(text) = std::fs::read_to_string(&cmd) {
+            sent = Some(text);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    std::fs::write(data.join(".fidget-debug-result"), "ok").unwrap();
+    let out = child.wait_with_output().unwrap();
+
+    assert_eq!(sent.as_deref(), Some("place x=3 y=4"));
+    assert!(!home.join(".fidget-debug-cmd").exists());
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

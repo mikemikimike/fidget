@@ -32,10 +32,21 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// shipped app always has an Application Support directory; keep the fallback
 /// only for those environments, and drop it if a launch without a data dir
 /// should refuse instead.
+/// `FIDGET_DATA_DIR` replaces the whole folder, for verifiers on Windows,
+/// where `dirs` ignores `APPDATA` and a private `HOME` cannot isolate a run.
 pub fn data_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("fidget")
+    data_dir_override().unwrap_or_else(|| {
+        dirs::data_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("fidget")
+    })
+}
+
+/// Test-only: a non-empty `FIDGET_DATA_DIR`. Debug IPC files move with it.
+pub fn data_dir_override() -> Option<PathBuf> {
+    std::env::var_os("FIDGET_DATA_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
 }
 
 /// User home, distinct from `data_dir`. Empty attach cwd is `data_dir` (#782);
