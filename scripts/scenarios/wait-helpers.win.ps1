@@ -168,3 +168,23 @@ function Wait-ForCount([double]$Seconds, [string]$FilePath, [string]$Pattern, [i
             @(Get-Content -LiteralPath $FilePath | Where-Object { $_ -match $Pattern }).Count -gt $Before
         })
 }
+
+# The sprite's position when it is at rest, else $null: the newest Grounded
+# frame in the trace, not walking or falling, in the same spot (within 2 px)
+# 100 ms later. Pass it to Wait-Until to wait for the sprite to settle.
+function Get-SpriteAtRest([string]$TraceFile) {
+    $pattern = '^\d+\.?\d* frame: .* Grounded .* sprite\((-?\d+),(-?\d+)\) '
+    function Read-Rest {
+        if (-not (Test-Path -LiteralPath $TraceFile)) { return $null }
+        $line = Get-Content -LiteralPath $TraceFile | Select-String -Pattern '^\d+\.?\d* frame: ' | Select-Object -Last 1
+        if (-not $line -or $line.Line -match 'walk#|Falling' -or $line.Line -notmatch $pattern) { return $null }
+        return @{ X = [int]$Matches[1]; Y = [int]$Matches[2] }
+    }
+    $first = Read-Rest
+    if (-not $first) { return $null }
+    Start-Sleep -Milliseconds 100
+    $second = Read-Rest
+    if (-not $second) { return $null }
+    if ([Math]::Abs($second.X - $first.X) -le 2 -and [Math]::Abs($second.Y - $first.Y) -le 2) { return $second }
+    return $null
+}

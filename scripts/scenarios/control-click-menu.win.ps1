@@ -239,49 +239,11 @@ try {
         }
     }
     function Wait-Settled {
-        $deadline = (Get-Date).AddSeconds(3)
-        $lastX = $null
-        $lastY = $null
-        $firstSeenAt = $null
-        while ((Get-Date) -lt $deadline) {
-            if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-            $trace = Get-Content -LiteralPath $traceFile
-            $recent = $trace | Select-String -Pattern '^\d+\.?\d* frame: .* Grounded .* sprite\((-?\d+),(-?\d+)\) ' | Select-Object -Last 1
-            if (-not $recent) {
-                Start-Sleep -Milliseconds 100
-                continue
-            }
-            if ($recent.Line -match 'walk#|Falling') {
-                $lastX = $null
-                $lastY = $null
-                $firstSeenAt = $null
-                Start-Sleep -Milliseconds 100
-                continue
-            }
-            $x = [int]$recent.Matches[0].Groups[1].Value
-            $y = [int]$recent.Matches[0].Groups[2].Value
-            if ($null -eq $lastX) {
-                $lastX = $x
-                $lastY = $y
-                $firstSeenAt = Get-Date
-                Start-Sleep -Milliseconds 100
-                continue
-            }
-            $dx = [Math]::Abs($x - $lastX)
-            $dy = [Math]::Abs($y - $lastY)
-            if ($dx -le 2 -and $dy -le 2) {
-                $elapsed = ((Get-Date) - $firstSeenAt).TotalMilliseconds
-                if ($elapsed -ge 400) {
-                    return @{X=$x; Y=$y}
-                }
-            } else {
-                $lastX = $x
-                $lastY = $y
-                $firstSeenAt = Get-Date
-            }
-            Start-Sleep -Milliseconds 100
+        $script:rest = $null
+        if (-not (Wait-Until 3 { ($script:rest = Get-SpriteAtRest $traceFile) })) {
+            Fail "sprite did not settle within 3s; see $traceFile"
         }
-        Fail "sprite did not settle within 3s; see $traceFile"
+        return $script:rest
     }
 
     $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
