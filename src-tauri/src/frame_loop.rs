@@ -623,6 +623,13 @@ pub(crate) fn run_frame_loop(
             // both be picked up by one press.
             let gesturing = lives.iter().position(|live| live.pointer.gesturing());
             let target = press_target(&pressed, gesturing);
+            // The art under the cursor, told to the overlays as hover (#1565).
+            let hovered: std::collections::HashSet<_> = lives
+                .iter()
+                .zip(&pressed)
+                .filter(|(_, over)| **over)
+                .map(|(live, _)| live.id.clone())
+                .collect();
 
             // Last tick's click-through decided whether the overlay could
             // hear this press. Passing through drops a lost pointerup. Must
@@ -2133,6 +2140,7 @@ pub(crate) fn run_frame_loop(
                     thinking,
                     asking,
                     chatting: chat_is_up(&app, &live.id),
+                    hovered: hovered.contains(&live.id),
                     cue: frame.cue,
                     contact: frame.contact,
                     owner,

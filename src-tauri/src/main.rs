@@ -573,6 +573,9 @@ struct SpritePlacement<'a> {
     /// Whether this Instance has a Chat window that is not minimized. Sent to
     /// every overlay, because the pill that must stay down can open on any of them.
     chatting: bool,
+    /// Whether the cursor is over this Instance's art, by the Shell's own hit
+    /// test. The webview's :hover misses it once Chat has closed (#1565).
+    hovered: bool,
     /// Whether this overlay draws this Instance's bubble (#178, `bubble_owner`).
     /// Still sent to the overlays that lost, which drop the bubble they were
     /// showing on the tick the answer changes.
@@ -618,6 +621,7 @@ impl<'a> SpritePlacement<'a> {
             thinking: bubble && instance.thinking,
             asking: bubble && instance.asking,
             chatting: instance.chatting,
+            hovered: instance.hovered,
             bubble,
             cue: instance.cue.filter(|_| bubble).map(Cue::name),
             ripple_x: contact.map(|c| c.point.x.round() as i32 - display.x.round() as i32),
@@ -697,6 +701,7 @@ struct Placed {
     thinking: bool,
     asking: bool,
     chatting: bool,
+    hovered: bool,
     cue: Option<Cue>,
     /// Where this tick's landing touched, in the space every display shares.
     contact: Option<fidget_core::engine::RippleContact>,
@@ -6667,6 +6672,7 @@ mod tests {
             thinking: true,
             asking: true,
             chatting: true,
+            hovered: true,
             cue: Some(Cue::Drop),
             contact: Some(fidget_core::engine::RippleContact {
                 point: fidget_core::engine::Point {
@@ -6719,6 +6725,10 @@ mod tests {
             owner.chatting && elsewhere.chatting,
             "the pill can open on any overlay, so each one hears that Chat is up"
         );
+        assert!(
+            owner.hovered && elsewhere.hovered,
+            "the pill can open on any overlay, so each one hears the cursor is on the art"
+        );
 
         assert_eq!(
             (elsewhere.animation, elsewhere.frame_index, elsewhere.mirror),
@@ -6764,6 +6774,7 @@ mod tests {
             thinking: false,
             asking: false,
             chatting: false,
+            hovered: false,
             cue: None,
             contact: None,
             owner: Some(1),

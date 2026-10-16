@@ -377,7 +377,8 @@ function syncQuick(view) {
 // Runs before the pill is up too: a leave during the dwell cancels it.
 function notePointerLeft(view) {
   if (!gestureActive) {
-    if (view.sprite.matches(":hover")) view.quickMachine.enterSprite();
+    // The Shell's hit test as well: :hover misses the cursor once Chat closes (#1565).
+    if (view.sprite.matches(":hover") || view.latest?.hovered) view.quickMachine.enterSprite();
     else view.quickMachine.leaveSprite();
     if (view.quick.matches(":hover")) view.quickMachine.enterPill();
     else view.quickMachine.leavePill();
