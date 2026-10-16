@@ -62,6 +62,8 @@ impl OpenPills {
 }
 
 /// What to do with the keyboard when an overlay's last pill closes.
+// Linux has no hand-back yet: see overlay_report_qm_draft.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 #[derive(Debug, PartialEq, Eq)]
 pub enum HandBack {
     /// The user already moved on: leave the keyboard where it is.
@@ -74,6 +76,7 @@ pub enum HandBack {
 
 /// `holding`: Fidget's overlay still has the keyboard. `previous_alive`: the
 /// app or window remembered at focus time still exists. Same on every OS.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
     match (holding, previous_alive) {
         (false, _) => HandBack::Stay,
