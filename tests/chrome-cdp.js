@@ -1,5 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
 
+// Every CDP call gets 3s, counted from when it is sent. Only the first reply from
+// a fresh Chrome gets longer: on a new CI runner the first Chrome of the run took
+// over 10s to answer (chat-connect-scroll's first launch took 12s in the same
+// run), while later launches answered in under 1s. A Chrome that exits or closes
+// its pipe while starting still fails at once.
+const CALL_MS = 3000;
+const COLD_START_MS = 30000;
+
 export function findChrome() {
   if (process.env.FIDGET_CHROME) {
     return process.env.FIDGET_CHROME;
@@ -88,12 +96,12 @@ export function launchWithPipe(chrome, args) {
     proc.stdio[fd].on("close", () => failPending("Chrome pipe closed"));
   }
 
-  function send(method, params = {}, sessionId = undefined, timeoutMs = 3000) {
+  function send(method, params = {}, sessionId = undefined, timeoutMs = CALL_MS) {
     const id = nextId++;
     return new Promise((res, rej) => {
       const timer = setTimeout(() => {
         pending.delete(id);
-        rej(new Error(`${method}: CDP call timeout after ${timeoutMs}ms`));
+        rej(new Error(`${method}: CDP call timeout after ${timeoutMs}ms${stderrTail ? `. stderr: ${stderrTail.trim()}` : ""}`));
       }, timeoutMs);
 
       pending.set(id, {
@@ -123,11 +131,20 @@ export function launchWithPipe(chrome, args) {
     sessionHandlers.delete(sessionId);
   }
 
-  return { proc, send, on, off, closePromise };
+  // Readiness: Chrome has answered its first call. Page calls wait for this.
+  const launchedAt = Date.now();
+  const ready = send("Browser.getVersion", {}, undefined, COLD_START_MS).then(() => {
+    const ms = Date.now() - launchedAt;
+    if (ms > CALL_MS) console.error(`chrome-cdp: Chrome took ${ms}ms to answer its first call`);
+  });
+  ready.catch(() => {});
+
+  return { proc, send, on, off, closePromise, ready };
 }
 
 export async function createPageTarget(cdp) {
-  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" }, undefined, 10000);
+  await cdp.ready;
+  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   await cdp.send("Runtime.enable", {}, sessionId);
   await cdp.send("Log.enable", {}, sessionId);
