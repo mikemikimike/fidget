@@ -17,8 +17,10 @@ as delivered; do not recompress or resize.
 ### Landing page hero banner (`docs/assets/`)
 The banner atop the GitHub Pages landing page lives in `docs/assets/`, not
 here, because `scripts/assemble-site.sh` copies it from there by name:
-- `hero-banner-desktop.jpg` / `.webp` — 1600×533, the default sources.
-- `hero-banner-mobile.jpg` / `.webp` — 960×533, picked at 760px wide or less.
+- `hero-banner-desktop.jpg` / `.webp` — 1600×533, 93 KB / 52 KB, the
+  default sources.
+- `hero-banner-mobile.jpg` / `.webp` — 960×533, 52 KB / 28 KB, picked at
+  760px wide or less.
 
 `docs/design/landing.html` names all four; `tests/landing-page.test.js` fails
 if one it names is missing from the assembled site.
