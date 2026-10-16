@@ -326,7 +326,9 @@ impl MinimizedChats {
             tauri::WindowEvent::Focused(focused) => (Some(*focused), minimized()),
             tauri::WindowEvent::Resized(_) => (None, minimized()),
             tauri::WindowEvent::Destroyed => {
-                eprintln!("chat: {label} is closed");
+                if dev_flags::TRACE_BUBBLE.is_on() {
+                    eprintln!("chat: {label} is closed");
+                }
                 (None, false)
             }
             _ => return None,
@@ -2434,7 +2436,9 @@ fn open_chat(app: &tauri::AppHandle, id: &InstanceId, title: String, feet: Optio
         if let Err(why) = platform::activate_for_typing(&window) {
             eprintln!("chat: {label} could not be raised: {why}");
         }
-        eprintln!("chat: {label} is open");
+        if dev_flags::TRACE_BUBBLE.is_on() {
+            eprintln!("chat: {label} is open");
+        }
     }) {
         eprintln!("chat: could not reach the main thread: {why}");
     }
