@@ -350,8 +350,9 @@ try {
     $focus = $UIA::FocusedElement
     $focusLine = "focused=$($focus.Current.ControlType.ProgrammaticName)|$($focus.Current.Name) pid=$($focus.Current.ProcessId)"
     Set-Content -LiteralPath (Join-Path $out "composer-focus.txt") -Value $focusLine
+    # msedgewebview2.exe owns the page, so the element pid is not Fidget's.
     if ($focus.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit -or
-        $focus.Current.ProcessId -ne $proc.Id -or [ChatPerchWin]::GetForegroundWindow() -ne $chat) {
+        -not $focus.Current.Name.StartsWith("Ask ") -or [ChatPerchWin]::GetForegroundWindow() -ne $chat) {
         Fail "composer did not take keyboard focus: $focusLine"
     }
     $marker = "Windows Chat perch"
