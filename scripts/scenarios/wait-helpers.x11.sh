@@ -1,138 +1,32 @@
 # shellcheck shell=bash
-# Shared wait helpers for X11 scenario leaves.
-# Source this file to get wait_for_trace, wait_for_marks, wait_for_file,
-# and wait_for_ax_dump functions that wait on actual events instead of
-# fixed sleeps.
+# X11 wait helpers: the shared core plus an inotify file wait and AT-SPI waits.
+# shellcheck source=wait-helpers.sh
+. "$(dirname "${BASH_SOURCE[0]}")/wait-helpers.sh"
 
-# Wait for a trace line pattern in the app log (fast timeout: 2-3s)
-# Returns immediately when the pattern appears
-wait_for_trace() { # <seconds> <log file> <pattern>
-  local timeout=$1 log=$2 pattern=$3 tail_pid grep_pid result deadline fifo
-  if [ -n "${pid:-}" ]; then
-    kill -0 "$pid" 2> /dev/null || return 1
-  fi
-  if [ -f "$log" ] && grep -qE "$pattern" "$log" 2> /dev/null; then
-    return 0
-  fi
-  deadline=$(($(date +%s) + timeout))
-  fifo=$(mktemp -u)
-  mkfifo "$fifo"
-  tail -s 0.05 -F "$log" > "$fifo" 2> /dev/null &
-  tail_pid=$!
-  grep -qEm1 "$pattern" < "$fifo" &
-  grep_pid=$!
-  result=1
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    if ! kill -0 "$grep_pid" 2> /dev/null; then
-      wait "$grep_pid" 2> /dev/null && result=0 || result=1
-      break
-    fi
-    sleep 0.01
-  done
-  kill "$grep_pid" "$tail_pid" 2> /dev/null || true
-  wait "$grep_pid" "$tail_pid" 2> /dev/null || true
-  rm -f "$fifo"
-  return "$result"
-}
-
-# Wait for a marker file to contain a pattern (fast timeout: 2-3s)
-# Returns immediately when the pattern appears
-wait_for_marks() { # <seconds> <marks file> <pattern>
-  local timeout=$1 marks=$2 pattern=$3 tail_pid grep_pid result deadline fifo
-  if [ -n "${pid:-}" ]; then
-    kill -0 "$pid" 2> /dev/null || return 1
-  fi
-  if [ -f "$marks" ] && grep -qE "$pattern" "$marks" 2> /dev/null; then
-    return 0
-  fi
-  deadline=$(($(date +%s) + timeout))
-  fifo=$(mktemp -u)
-  mkfifo "$fifo"
-  tail -s 0.05 -F "$marks" > "$fifo" 2> /dev/null &
-  tail_pid=$!
-  grep -qEm1 "$pattern" < "$fifo" &
-  grep_pid=$!
-  result=1
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    if ! kill -0 "$grep_pid" 2> /dev/null; then
-      wait "$grep_pid" 2> /dev/null && result=0 || result=1
-      break
-    fi
-    sleep 0.01
-  done
-  kill "$grep_pid" "$tail_pid" 2> /dev/null || true
-  wait "$grep_pid" "$tail_pid" 2> /dev/null || true
-  rm -f "$fifo"
-  return "$result"
-}
-
-# Wait for a file to exist (fast timeout: 2-3s)
-# Returns immediately when the file appears
+# Wait for a file to exist: inotifywait blocks on the directory's create
+# event; without it, the core's wait on the app log.
 wait_for_file() { # <seconds> <file path>
-  local timeout=$1 file=$2 dir fname deadline
-  if [ -n "${pid:-}" ]; then
-    kill -0 "$pid" 2> /dev/null || return 1
-  fi
-  [ -f "$file" ] && return 0
-  dir=$(dirname "$file")
-  fname=$(basename "$file")
-  if command -v inotifywait > /dev/null 2>&1; then
-    timeout "$timeout" inotifywait -q -e create,moved_to "$dir" 2> /dev/null |
-      grep -qF "$fname"
-  else
-    deadline=$(($(date +%s) + timeout))
-    while [ "$(date +%s)" -lt "$deadline" ]; do
-      [ -f "$file" ] && return 0
-      [ -n "${pid:-}" ] && ! kill -0 "$pid" 2> /dev/null && return 1
-      sleep 0.1
-    done
-    return 1
-  fi
+  fidget_alive || return 1
+  [ -f "$2" ] && return 0
+  command -v inotifywait > /dev/null 2>&1 || {
+    wait_until "$1" test -f "$2"
+    return
+  }
+  timeout "$1" inotifywait -q -m -e create,moved_to --format %f "$(dirname "$2")" 2> /dev/null |
+    grep -qxFm1 "$(basename "$2")" || [ -f "$2" ]
 }
 
-# Wait for an accessibility dump to match a pattern (fast timeout: 2-3s)
-# This polls because AX dumps are expensive queries with no event mechanism
+# Wait for an AT-SPI dump to match a pattern. ax-wait-linux.py checks again
+# on each AT-SPI change event from Fidget, so nothing polls.
 wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern>
-  local timeout=$1 wpid=$2 title=$3 pattern=$4
-  local deadline tmp
-  deadline=$(($(date +%s) + timeout))
-  tmp=$(mktemp)
+  fidget_alive || return 1
   # shellcheck disable=SC2154
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    if python3 "${root}/scripts/ax-window-linux.py" dump "$wpid" "$title" > "$tmp" 2> /dev/null; then
-      if grep -qE "$pattern" "$tmp"; then
-        rm -f "$tmp"
-        return 0
-      fi
-    fi
-    kill -0 "$wpid" 2> /dev/null || {
-      rm -f "$tmp"
-      return 1
-    }
-    sleep 0.2
-  done
-  rm -f "$tmp"
-  return 1
+  python3 "${root}/scripts/ax-wait-linux.py" "$2" "$3" "$1" "$4" 2> /dev/null
 }
 
-# Answer a permission ask by clicking the named button (Allow or Reject)
-# Waits for the Chat window to appear, then presses the button
-# Uses polling at 200ms: AX queries are expensive and have no event mechanism
+# Answer a permission ask by pressing the named button (Allow or Reject) in
+# Chat once it shows. Gives up after 3 s.
 answer_permission() { # <pid> <button name>
-  local wpid=$1 button=$2
-  local deadline
-  deadline=$(($(date +%s) + 3))
-  # shellcheck disable=SC2154
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    if python3 "${root}/scripts/ax-window-linux.py" dump "$wpid" "BMO" 2> /dev/null | grep -q "button|$button"; then
-      python3 "${root}/scripts/ax-window-linux.py" press "$wpid" "BMO" "$button" 2> /dev/null && return 0
-    fi
-    sleep 0.2
-  done
-  return 1
-}
-
-# Check the last frame for a state pattern
-in_state() { # <log> <state pattern>
-  grep '^frame: ' "$1" 2> /dev/null | tail -1 | grep -qE " ($2) "
+  wait_for_ax_dump 3 "$1" BMO "button\|$2" || return 1
+  python3 "${root}/scripts/ax-window-linux.py" press "$1" BMO "$2" 2> /dev/null
 }

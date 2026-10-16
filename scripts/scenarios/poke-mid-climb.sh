@@ -6,7 +6,7 @@
 # Input: a real drag that throws the sprite, then clicks on it until one lands
 #   as a Poke, for up to five throws. The cursor moves; keep hands off the
 #   mouse for the run.
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds per throw, 30 s at most over five throws.
 # Grants: Accessibility for the terminal that runs it.
 # Asserts: the Poke starts react over, then the sprite stays Climbing at one
 #   position in one climb frame through the cooldown, and climbs on after it.
@@ -23,10 +23,12 @@ if [ "${1:-}" != --go ]; then
 fi
 bin=${2:?usage: poke-mid-climb.sh --go <fidget binary>}
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.mac.sh"
 # Unique per run: the leaves' fixture tests run in parallel and would share check.txt.
 out=$(mktemp -d "${TMPDIR:-/tmp}/fidget-scenario-poke-mid-climb-$(date +%Y%m%d-%H%M%S)-XXXX")
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
+seed_tour_shown "$out/home"
 log="$out/app.log"
 
 fail() {
@@ -48,31 +50,11 @@ pokes() { grep -c '^verbs: .*Poke' "$log" || true; }
 
 # Resting and not walking: a press on a walking sprite lands where it was, and
 # the drag then throws whatever window is underneath.
-wait_still() { # <tenths of a second>
-  local n=$1 a b
-  while [ "$n" -gt 0 ]; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    if in_state 'Grounded|Perched'; then
-      a=$(sprite_xy)
-      sleep 0.2
-      b=$(sprite_xy)
-      [ "$a" = "$b" ] && in_state 'Grounded|Perched' && return 0
-    fi
-    n=$((n - 1))
-    sleep 0.1
-  done
-  return 1
-}
+climbing() { in_state Climbing; }
+# The checker passes once the trace runs past the Poke's 2.5 s cooldown.
+cooldown_traced() { python3 "$root/scripts/scenarios/poke-mid-climb-check.py" "$log" 2> "$out/check.txt"; }
 
-wait_climbing() { # <tenths of a second>
-  local n=$1
-  until in_state Climbing; do
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.1
-  done
-}
-
+start_ms=$(now_ms)
 if [ -n "${FIDGET_SCENARIO_TRACE:-}" ]; then
   log=$FIDGET_SCENARIO_TRACE
 else
@@ -85,9 +67,9 @@ else
   env HOME="$out/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
     FIDGET_CHARACTERS="$root/characters" "$bin" > "$log" 2>&1 &
   pid=$!
-  trap 'kill "$pid" 2> /dev/null || true' EXIT
+  trap 'stop_fidget' EXIT INT TERM
 
-  wait_still 300 || fail "the sprite never came to rest; see $log"
+  wait_for_rest "$log" || fail "the sprite never came to rest; see $log"
   size=$(sed -nE 's/^overlay: .* sprite ([0-9]+)x[0-9]+;.*/\1/p' "$log" | head -1)
   [ -n "$size" ] || fail "no sprite size in $log"
   half=$((size / 2))
@@ -100,7 +82,7 @@ else
 
   poked=
   for attempt in 1 2 3 4 5; do
-    wait_still 100 || continue
+    wait_for_rest "$log" || continue
     read -r sx sy < <(sprite_xy)
     cx=$((sx + half))
     # Toward the nearer side of the sprite's own display, and the far side on
@@ -112,7 +94,7 @@ else
     if [ "$near_left" -eq 1 ]; then dx=-1500; else dx=1500; fi
     "$tools/throw-sprite" "$cx" "$((sy + half))" "$dx" >> "$out/input.txt" 2>&1 || fail "could not throw the sprite; see $out/input.txt"
 
-    if ! wait_climbing 40; then
+    if ! wait_until 2 climbing; then
       echo "attempt $attempt: no climb" >> "$out/input.txt"
       continue
     fi
@@ -148,8 +130,7 @@ else
       [ "$sy" -gt "$size" ] || break
       "$tools/click-cursor" "$px" "$((sy + half / 9))" 1 >> "$out/input.txt" 2>&1 || fail "could not click the sprite; see $out/input.txt"
       "$tools/warp-cursor" "$away" "$sy" --event >> "$out/input.txt" 2>&1 || fail "could not move the pointer off the sprite; see $out/input.txt"
-      sleep "$click_gap"
-      if [ "$(pokes)" -gt "$before" ]; then
+      if wait_for_count "$click_gap" "$log" '^verbs: .*Poke' "$before"; then
         poked=1
         break
       fi
@@ -159,11 +140,11 @@ else
   done
   [ -n "$poked" ] || fail "five throws and no Poke landed mid-climb; see $out/input.txt"
 
-  sleep 4
+  wait_until 3 cooldown_traced || true
   kill "$pid" 2> /dev/null || true
   wait "$pid" 2> /dev/null || true
 fi
 
 python3 "$root/scripts/scenarios/poke-mid-climb-check.py" "$log" 2> "$out/check.txt" || fail "$(cat "$out/check.txt")"
 
-echo "PASS: evidence in $out"
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"

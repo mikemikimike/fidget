@@ -5,7 +5,7 @@
 #   the question waits. Two UI Automation dumps of the overlay: one before the
 #   Poke, one after it. Fidget quits when the scenario ends.
 # Input: one real click on the sprite (the Poke).
-# Duration: about 20 s, 1 min at most.
+# Duration: a few seconds, 10 s at most.
 # Grants: a desktop session. UI Automation for the terminal that runs it. bash
 #   on PATH for the fixture Harness wrapper.
 # Asserts: no "Question for you" bubble before the Poke; the click lands as a
@@ -63,14 +63,15 @@ if (-not ($selfTestSettledFrame -match '^\d+\.?\d* frame: .* Grounded .* sprite\
 if ($selfTestSettledFrame -match 'walk#|Falling') { Write-Error "self-test: settled frame should not match walk# or Falling"; exit 1 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 $script:Evidence = $null
 
 function Fail([string]$Message) {
     [Console]::Error.WriteLine("FAIL: $Message")
     if ($script:Evidence) { [Console]::Error.WriteLine("evidence in $($script:Evidence)") }
-    $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
+    $traceFile = Join-Path $data "process.log"
     if (-not (Test-Path -LiteralPath $traceFile -ErrorAction SilentlyContinue)) {
-        [Console]::Error.WriteLine("data_dir did not resolve under $out\home")
+        [Console]::Error.WriteLine("data_dir did not resolve to $data")
     }
     exit 1
 }
@@ -115,14 +116,7 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "fidget-scenario-question-bubble-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home\AppData\Roaming") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $out "home\AppData\Local") | Out-Null
-
-$settingsDir = Join-Path $out "home\AppData\Roaming\fidget"
-New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
-$settingsFile = Join-Path $settingsDir "settings.json"
-$utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($settingsFile, '{"hide_in_fullscreen": false}', $utf8)
+$data = Initialize-ScenarioData $out @{ hide_in_fullscreen = $false }
 
 $marks = Join-Path $out "harness.log"
 $log = Join-Path $out "app.log"
@@ -137,14 +131,13 @@ $harness = "$bashPath $rootBash/scripts/scenarios/fixture-harness.sh $testBinBas
 $paths = @($harness -split '\s+' | Select-Object -Skip 1)
 if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
 
-$env:HOME = Join-Path $out "home"
-$env:USERPROFILE = $env:HOME
-$env:APPDATA = Join-Path $env:HOME "AppData\Roaming"
 $env:FIDGET_HARNESS = $harness
-$env:FIDGET_DIRECTOR_WAKE_SECS = "6"
+$env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $env:FIDGET_DIRECTOR_API_KEY = "x"
 $env:FIDGET_CAPTURABLE = "1"
 $env:FIDGET_TRACE_FRAMES = "1"
+# ax-window-win.ps1 presses once a hit-test line shows the click area followed the cursor.
+$env:FIDGET_TRACE_HITTEST = "1"
 $env:FIDGET_TRACE_WINDOWS = "1"
 $env:FIDGET_CHARACTER = "bmo"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
@@ -232,33 +225,22 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
         "& '$ax' @args"
     ), $utf8)
 
+$startMs = Get-NowMs
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
 try {
-    function Wait-For([int]$Seconds, [scriptblock]$Probe) {
-        $n = $Seconds * 4
-        while ($n -gt 0) {
-            if (& $Probe) { return $true }
-            if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-            Start-Sleep -Milliseconds 250
-            $n--
-        }
-        return $false
-    }
-    function Invoke-Ax([string]$Label, [string[]]$AxArgs) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $axPs1 @AxArgs |
-            Out-File -FilePath (Join-Path $out "$Label.txt") -Encoding utf8
-        return ($LASTEXITCODE -eq 0)
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
     }
     # The overlay window is titled Fidget; Chat takes the Character's name.
     function Invoke-Dump([string]$Label) {
-        if (-not (Invoke-Ax "$Label.ax" @("dump", "-ProcessId", $proc.Id, "-Title", "Fidget"))) {
+        if (-not (Invoke-Ax "$Label.ax" @{ Command = "dump"; ProcessId = $proc.Id; Title = "Fidget" })) {
             Fail "${Label}: UI Automation dump failed; see $out\$Label.ax.txt"
         }
         return (Join-Path $out "$Label.ax.txt")
     }
     function Marked([string]$Line) { [bool](Get-Content -LiteralPath $marks | Where-Object { $_ -eq $Line }) }
     function Traced([string]$Pattern) {
-        $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
+        $traceFile = Join-Path $data "process.log"
         if (Test-Path -LiteralPath $traceFile) {
             [bool](Get-Content -LiteralPath $traceFile | Where-Object { $_ -match $Pattern })
         } else {
@@ -266,55 +248,17 @@ try {
         }
     }
     function Wait-Settled {
-        $deadline = (Get-Date).AddSeconds(15)
-        $lastX = $null
-        $lastY = $null
-        $firstSeenAt = $null
-        while ((Get-Date) -lt $deadline) {
-            if ($proc.HasExited) { Fail "Fidget exited; see $err" }
-            $trace = Get-Content -LiteralPath $traceFile
-            $recent = $trace | Select-String -Pattern '^\d+\.?\d* frame: .* Grounded .* sprite\((-?\d+),(-?\d+)\) ' | Select-Object -Last 1
-            if (-not $recent) {
-                Start-Sleep -Milliseconds 100
-                continue
-            }
-            if ($recent.Line -match 'walk#|Falling') {
-                $lastX = $null
-                $lastY = $null
-                $firstSeenAt = $null
-                Start-Sleep -Milliseconds 100
-                continue
-            }
-            $x = [int]$recent.Matches[0].Groups[1].Value
-            $y = [int]$recent.Matches[0].Groups[2].Value
-            if ($null -eq $lastX) {
-                $lastX = $x
-                $lastY = $y
-                $firstSeenAt = Get-Date
-                Start-Sleep -Milliseconds 100
-                continue
-            }
-            $dx = [Math]::Abs($x - $lastX)
-            $dy = [Math]::Abs($y - $lastY)
-            if ($dx -le 2 -and $dy -le 2) {
-                $elapsed = ((Get-Date) - $firstSeenAt).TotalMilliseconds
-                if ($elapsed -ge 400) {
-                    return @{X=$x; Y=$y}
-                }
-            } else {
-                $lastX = $x
-                $lastY = $y
-                $firstSeenAt = Get-Date
-            }
-            Start-Sleep -Milliseconds 100
+        $script:rest = $null
+        if (-not (Wait-Until 3 { ($script:rest = Get-SpriteAtRest $traceFile) })) {
+            Fail "sprite did not settle within 3s; see $traceFile"
         }
-        Fail "sprite did not settle within 15s; see $traceFile"
+        return $script:rest
     }
 
-    $traceFile = Join-Path $out "home\AppData\Roaming\fidget\process.log"
-    if (-not (Wait-For 30 { Test-Path -LiteralPath $traceFile })) { Fail "process.log never appeared; see $err" }
+    $traceFile = Join-Path $data "process.log"
+    if (-not (Wait-ForFile 3 $traceFile)) { Fail "process.log never appeared; see $err" }
 
-    $settingsFile = Join-Path $out "home\AppData\Roaming\fidget\settings.json"
+    $settingsFile = Join-Path $data "settings.json"
     if (Test-Path -LiteralPath $settingsFile) {
         $settingsContent = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
         if ($settingsContent.hide_in_fullscreen -ne $false) {
@@ -322,14 +266,13 @@ try {
         }
     }
 
-    if (-not (Wait-For 30 { Marked "asked" })) { Fail "no wake reached the Harness; see $err" }
+    if (-not (Wait-ForMarks 3 $marks '^asked$')) { Fail "no wake reached the Harness; see $err" }
 
     if (Traced '^\d+ presence: hidden') {
         Fail "overlay hidden (presence: hidden) - see process.log window_source lines"
     }
 
-    Start-Sleep -Seconds 1
-
+    if (-not (Wait-ForTrace 2 $traceFile '^\d+ frame: .* sprite\(')) { Fail "Fidget traced no frame; see $traceFile" }
     Check-Before (Invoke-Dump "before-poke")
 
     $settled = Wait-Settled
@@ -347,14 +290,15 @@ try {
         Add-Content -LiteralPath $attemptsFile -Value $attemptLog
         $trace = Get-Content -LiteralPath $traceFile
         $clickCountBefore = @($trace | Select-String -Pattern '^\d+ click: down ').Count
-        if (-not (Invoke-Ax "poke-$attempt" @("click", "-TraceFile", $traceFile, "-SpriteW", $w, "-SpriteH", $h))) {
+        $verbCountBefore = @($trace | Select-String -Pattern '^\d+ verbs: ').Count
+        if (-not (Invoke-Ax "poke-$attempt" @{ Command = "click"; TraceFile = $traceFile; SpriteW = $w; SpriteH = $h })) {
             $msg = "could not click the sprite on attempt $attempt; see $out\poke-$attempt.txt"
             Add-Content -LiteralPath $attemptsFile -Value $msg
             if ($attempt -eq $maxAttempts) { Fail $msg }
-            Start-Sleep -Milliseconds 600
             continue
         }
-        Start-Sleep -Milliseconds 500
+        # A Poke resolves once the double-click interval passes, so wait for its verbs line.
+        $null = Wait-ForCount 2 $traceFile '^\d+ verbs: ' $verbCountBefore
         $trace = Get-Content -LiteralPath $traceFile
         $clicksAfter = @($trace | Select-String -Pattern '^\d+ click: down ')
         $thisAttemptClick = $null
@@ -379,19 +323,19 @@ try {
                 break
             }
         }
-        if ($attempt -lt $maxAttempts) {
-            Start-Sleep -Milliseconds 600
-        }
     }
     if (-not $success) {
         Fail "click did not land as Poke after $maxAttempts attempts; see $attemptsFile"
     }
-    Start-Sleep -Seconds 1
-    Check-After (Invoke-Dump "after-poke")
-    Write-Output "PASS: evidence in $out"
+    $null = Wait-ForUia 3 $proc.Id { Read-Dump (Invoke-Dump "after-poke") | Where-Object { $_.Contains("Question for you") } }
+    Check-After (Join-Path $out "after-poke.ax.txt")
+    # Answer the ask, so the fixture Harness finishes its turn instead of waiting.
+    if (-not (Wait-ForUia 3 $proc.Id { Invoke-Ax "allow" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Allow" } })) {
+        Fail "could not press Allow on the permission ask; see $out\allow.txt"
+    }
+    if (-not (Wait-ForMarks 3 $marks '^replied$')) { Fail "the Harness never replied after Allow; see $marks" }
+    Write-Output "ok: answered the permission ask, and the Harness replied"
+    Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name = 'bash.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*count=$marks*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-FidgetTree $proc "count=$marksBash"
 }

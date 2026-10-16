@@ -5,8 +5,9 @@
 #   the question waits. Two screenshots of the overlay: one before the Poke,
 #   one after showing the "Question for you in the chat" bubble. Fidget quits
 #   when the scenario ends.
-# Input: one real click on the sprite (the Poke).
-# Duration: about 20 s, 1 min at most.
+# Input: one real click on the sprite (the Poke), then Allow on the
+#   permission ask through the Accessibility API.
+# Duration: a few seconds, 10 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
 # Asserts: no "Question for you" bubble before the Poke, and after it lands
 #   while the question waits, the bubble's text and its "chat" link button.
@@ -24,9 +25,11 @@ test_bin=${3:?usage: question-bubble.sh --go <fidget binary> <fidget test binary
 # Absolute: the Harness spawns in the data folder, so a relative path misses.
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$root/scripts/scenarios/wait-helpers.mac.sh"
 out="${TMPDIR:-/tmp}/fidget-scenario-question-bubble-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
+seed_tour_shown "$out/home"
 log="$out/app.log" marks="$out/harness.log"
 : > "$marks"
 
@@ -38,34 +41,25 @@ fail() {
 
 [ -x "$tools/click-cursor" ] || swiftc -O "$root/scripts/click-cursor.swift" -o "$tools/click-cursor"
 [ "$tools/ax" -nt "$root/scripts/ax-settings.swift" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+build_ax_events
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-asking count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
+start_ms=$(now_ms)
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
-  FIDGET_DIRECTOR_WAKE_SECS=6 \
+  FIDGET_DIRECTOR_WAKE_SECS=1 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 FIDGET_TRACE_FRAMES=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
-
-wait_for() { # <seconds> <command...>
-  local n=$(($1 * 4))
-  shift
-  until "$@" > /dev/null 2>&1; do
-    kill -0 "$pid" 2> /dev/null || fail "Fidget exited; see $log"
-    n=$((n - 1))
-    [ "$n" -gt 0 ] || return 1
-    sleep 0.25
-  done
-}
+trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
 
 # Wait for the question to be asked and Chat to open.
-wait_for 30 grep -qx asked "$marks" || fail "no wake reached the Harness; see $log"
-sleep 1
+wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
+wait_for_trace 2 "$log" '^frame: .* sprite\(-?[0-9]+,-?[0-9]+\)' || fail "no frame trace in $log"
 
 # The overlay spans the display, so its centre is not the sprite. The newest
 # frame trace line says where the sprite is drawn, in global points.
@@ -78,8 +72,8 @@ screencapture -x -R "$rect" "$out/before-poke.png"
 
 # Send a Poke: one click on the sprite's center.
 "$tools/click-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" 1 > "$out/poke.txt" 2>&1 || fail "could not click the sprite; see $out/poke.txt"
-wait_for 3 grep -q '^verbs: .*Poke' "$log" || fail "the click did not land as a Poke; see $log"
-sleep 1
+wait_for_trace 2 "$log" '^verbs: .*Poke' || fail "the click did not land as a Poke; see $log"
+wait_for_ax_dump 2 "$pid" Fidget 'Question for you' || fail "the question cue never appeared; see $log"
 screencapture -x -R "$rect" "$out/after-poke.png"
 
 # Check the bubble content via the Accessibility API.
@@ -90,4 +84,9 @@ if ! grep -qF "AXStaticText||Question for you in the |" "$out/after-poke.ax.txt"
 fi
 echo "ok: bubble shows 'Question for you in the' and a 'chat' link button"
 
-echo "PASS: evidence in $out"
+# Answer the ask, so the fixture Harness finishes its turn instead of waiting.
+answer_permission "$pid" Allow || fail "could not answer the permission ask in Chat; see $log"
+wait_for_marks 3 "$marks" '^replied$' || fail "the Harness never replied after Allow; see $marks"
+echo "ok: answered the permission ask, and the Harness replied"
+
+echo "PASS: evidence in $out ($(($(now_ms) - start_ms))ms)"
