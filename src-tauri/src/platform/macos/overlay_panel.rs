@@ -9,9 +9,9 @@ use objc2_app_kit::{
     NSWindowStyleMask,
 };
 
-/// An `NSPanel` subclass that refuses to become the key or main window, so
-/// the sprite can be clicked while the user keeps typing into whatever was
-/// already frontmost.
+/// An `NSPanel` subclass that never becomes main and becomes key only while
+/// tao's `focusable` is set, so a sprite click leaves the keyboard where it was
+/// but the quick message pill can take it (#1565).
 fn overlay_panel_class() -> &'static AnyClass {
     static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
 
@@ -28,12 +28,18 @@ fn overlay_panel_class() -> &'static AnyClass {
             Bool::NO
         }
 
+        extern "C" fn focusable(this: &AnyObject, _sel: Sel) -> Bool {
+            let ivar = this.class().instance_variable(c"focusable").unwrap();
+            // SAFETY: the class declares `focusable` as a BOOL.
+            unsafe { *ivar.load::<Bool>(this) }
+        }
+
         // SAFETY: both selectors return BOOL and take no arguments, which is
         // what `refuse` is declared as.
         unsafe {
             builder.add_method(
                 sel!(canBecomeKeyWindow),
-                refuse as extern "C" fn(_, _) -> Bool,
+                focusable as extern "C" fn(_, _) -> Bool,
             );
             builder.add_method(
                 sel!(canBecomeMainWindow),
@@ -72,6 +78,13 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     // SAFETY: the new class is an NSPanel, hence an NSWindow, of the same size;
     // toolkit messages stay valid.
     unsafe { AnyObject::set_class(ns_window, to) };
+    // tao built it focusable; only the pill's focus request turns that on.
+    // SAFETY: the class declares `focusable` as a BOOL.
+    unsafe {
+        *to.instance_variable(c"focusable")
+            .unwrap()
+            .load_ptr::<Bool>(ns_window) = Bool::NO
+    };
 
     let behavior = NSWindowCollectionBehavior::CanJoinAllSpaces
         | NSWindowCollectionBehavior::Stationary

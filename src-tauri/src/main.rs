@@ -2022,7 +2022,20 @@ fn overlay_composing(instance: String) {
 /// The owning overlay's draft for one Instance, on every change. `None` is a
 /// closed pill: sent, dismissed, dragged away empty, or the Instance gone.
 #[tauri::command]
-fn overlay_report_qm_draft(instance: String, payload: Option<fidget_core::quick_message::QmDraft>) {
+fn overlay_report_qm_draft(
+    window: tauri::Window,
+    instance: String,
+    payload: Option<fidget_core::quick_message::QmDraft>,
+) {
+    // A closed pill hands key back to the refusal sprite clicks rely on.
+    #[cfg(target_os = "macos")]
+    if payload.is_none() {
+        if let Err(why) = window.set_focusable(false) {
+            eprintln!("overlay: could not refuse key again: {why}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
     if dev_flags::TRACE_BUBBLE.is_on() {
         if let Some(draft) = &payload {
             eprintln!(
@@ -2177,6 +2190,10 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
+        // macOS: the overlay refuses key until now. Making it key is what
+        // routes keys to the pill once the app is already active (#1565).
+        #[cfg(target_os = "macos")]
+        window.set_focusable(true).map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())
     }
 }
