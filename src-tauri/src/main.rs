@@ -2128,7 +2128,7 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
 /// SetForegroundWindow to a background thread, so the overlay borrows the
 /// foreground thread's input for the call.
 #[tauri::command]
-fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
+fn overlay_request_focus(window: tauri::WebviewWindow) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -2179,34 +2179,27 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
             use objc2_app_kit::NSApplication;
             use objc2_foundation::MainThreadMarker;
 
-            if let Some(webview_window) = window.as_webview_window() {
-                if let Ok(ptr) = webview_window.ns_window() {
-                    let ns_window = ptr as *const objc2::runtime::AnyObject;
-                    unsafe {
-                        let mtm = MainThreadMarker::new_unchecked();
-                        let app = NSApplication::sharedApplication(mtm);
-                        let is_active: bool = msg_send![&*app, isActive];
-                        let is_key: bool = msg_send![ns_window, isKeyWindow];
-                        let can_become_key: bool = msg_send![ns_window, canBecomeKeyWindow];
-                        let key_window: *const objc2::runtime::AnyObject =
-                            msg_send![&*app, keyWindow];
-                        eprintln!(
-                            "overlay: request_focus app_active={} window_is_key={} can_become_key={} has_key_window={}",
-                            is_active, is_key, can_become_key, !key_window.is_null()
-                        );
-                    }
+            if let Ok(ptr) = window.ns_window() {
+                let ns_window = ptr as *const objc2::runtime::AnyObject;
+                unsafe {
+                    let mtm = MainThreadMarker::new_unchecked();
+                    let app = NSApplication::sharedApplication(mtm);
+                    let is_active: bool = msg_send![&*app, isActive];
+                    let is_key: bool = msg_send![ns_window, isKeyWindow];
+                    let can_become_key: bool = msg_send![ns_window, canBecomeKeyWindow];
+                    let key_window: *const objc2::runtime::AnyObject = msg_send![&*app, keyWindow];
+                    eprintln!(
+                        "overlay: request_focus app_active={} window_is_key={} can_become_key={} has_key_window={}",
+                        is_active, is_key, can_become_key, !key_window.is_null()
+                    );
                 }
             }
         }
 
-        if let Some(webview_window) = window.as_webview_window() {
-            platform::allow_overlay_focus(webview_window, true)?;
-            let result = window.set_focus().map_err(|e| e.to_string());
-            platform::allow_overlay_focus(webview_window, false)?;
-            result
-        } else {
-            Err("Window is not a WebviewWindow".to_string())
-        }
+        platform::allow_overlay_focus(&window, true)?;
+        let result = window.set_focus().map_err(|e| e.to_string());
+        platform::allow_overlay_focus(&window, false)?;
+        result
     }
 
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
