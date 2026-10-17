@@ -3,12 +3,11 @@
 // chat-reply-code.test.js does.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 // What grok answered every `session/prompt` with once its balance ran out,
@@ -17,21 +16,7 @@ const BALANCE_EXHAUSTED =
   "Internal error: API error (status 402 Payment Required): Grok Build usage balance exhausted";
 const TIMEOUT = "harness turn exceeded 60s; cancelled";
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 function turnFailurePage(payloads) {
   const opening = {
@@ -70,6 +55,7 @@ function turnFailurePage(payloads) {
   };
   const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
+    console.log("__PROBE_READY__");
     for (const payload of ${JSON.stringify(payloads)}) {
       while (!handlers.chat || document.getElementById("line").disabled) await tick();
       const asked = document.querySelectorAll("#log .row.you").length;
@@ -96,56 +82,25 @@ function turnFailurePage(payloads) {
         log.scrollWidth - log.clientWidth,
       ),
     };
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify(report);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(report));
   }
   window.addEventListener("load", drive);
 </script>`;
-  const dir = mkdtempSync(join(tmpdir(), "chat-turn-failure-"));
-  const page = join(dir, "harness.html");
-  const html = spawnSync("cat", [join(SRC, "chat.html")], { encoding: "utf8" }).stdout.replace(
+  return readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-  return { dir, page };
 }
 
 function paint(payloads, width) {
-  const { dir, page } = turnFailurePage(payloads);
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      `--window-size=${width},560`,
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the Chat surface did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  const json = match[1]
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-  return JSON.parse(json);
+  return probePage(turnFailurePage(payloads), { args: [`--window-size=${width},560`], timeout: 10000 });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";
 
-test("a turn the Harness failed shows its words in a Harness error box", { skip, timeout: 90000 }, () => {
+test("a turn the Harness failed shows its words in a Harness error box", { skip, timeout: 90000 }, async () => {
   // The narrowest Chat, where a long unbroken error would push it sideways.
-  const report = paint([{ error: BALANCE_EXHAUSTED, failure: BALANCE_EXHAUSTED }], 320);
+  const report = await paint([{ error: BALANCE_EXHAUSTED, failure: BALANCE_EXHAUSTED }], 320);
   assert.equal(report.kicker, "Harness error");
   assert.equal(report.title, "Grok couldn't answer");
   assert.equal(report.lede, "It sent back an error instead of a reply:");
@@ -156,8 +111,8 @@ test("a turn the Harness failed shows its words in a Harness error box", { skip,
   assert.equal(report.sideways, 0, "the box pushed Chat sideways");
 });
 
-test("an error the Shell names stays a note", { skip, timeout: 90000 }, () => {
-  const report = paint([{ error: TIMEOUT }], 420);
+test("an error the Shell names stays a note", { skip, timeout: 90000 }, async () => {
+  const report = await paint([{ error: TIMEOUT }], 420);
   assert.deepEqual(report.notes, [TIMEOUT]);
   assert.equal(report.kicker, null);
 });
