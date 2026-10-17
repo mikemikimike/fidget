@@ -78,6 +78,7 @@ $T = [ordered]@{
     closed    = '(?:^|\s)overlay: draft instance=\S+ closed$'
     pillOpen  = '(?:^|\s)overlay: pill open SetForegroundWindow\((0x[0-9a-f]+)\) -> (-?\d+) GetForegroundWindow\(\) -> (0x[0-9a-f]+)$'
     hit       = '(?:^|\s)hit-test: cursor\(.*\bHIT\s+click-through OFF'
+    miss      = '(?:^|\s)hit-test: cursor\(.*\bmiss click-through '
     down      = '(?:^|\s)click: down '
     up        = '(?:^|\s)click: up '
 }
@@ -212,6 +213,17 @@ function Get-SpriteAim([string]$LogFile) {
     if (-not $size) { return $null }
     $null = $size -match $T.size
     @{ X = $at.X + [int]([int]$Matches[1] / 2); Y = $at.Y + [int]([int]$Matches[2] / 2) }
+}
+# Whether Fidget last saw the cursor on the sprite. Only then does moving off it
+# print a miss line at once (the flip); otherwise none comes until the periodic trace.
+function Test-LastHit([string[]]$Lines) {
+    $last = @($Lines | Where-Object { $_ -match '(?:^|\s)hit-test: ' }) | Select-Object -Last 1
+    [bool]($last -and $last -notmatch $T.miss)
+}
+if ($env:FIDGET_SCENARIO_AWAY_LOG) {
+    $wait = Test-LastHit @(Get-Content -LiteralPath $env:FIDGET_SCENARIO_AWAY_LOG)
+    Write-Output "away: $(if ($wait) { 'wait' } else { 'go' })"
+    exit 0
 }
 if ($env:FIDGET_SCENARIO_AIM_LOG) {
     $aim = Get-SpriteAim $env:FIDGET_SCENARIO_AIM_LOG
@@ -381,7 +393,9 @@ $profileLock = Join-Path (Join-Path $webviewProfile "EBWebView") "lockfile"
 $lockState = Get-ProfileLock $webviewProfile
 if ($lockState.State -eq "in-use") {
     $holder = if ($lockState.Pids.Count) { " by pid $($lockState.Pids -join ', ')" } else { "" }
-    [Console]::Error.WriteLine("FAIL: the shared WebView2 profile is in use$holder`: $profileLock is held open; close that WebView2 (or let it exit), then rerun")
+    $why = "FAIL: the shared WebView2 profile is in use$holder`: $profileLock is held open; close that WebView2 (or let it exit), then rerun"
+    [Console]::Error.WriteLine($why)
+    $why | Add-Content -LiteralPath $results
     exit 1
 }
 function Fail-Startup([string]$Message) {
@@ -448,19 +462,27 @@ function Press([uint16]$Vk) { [PillWin]::Key($Vk, $false); [PillWin]::Key($Vk, $
 function Aim([string]$Case) {
     if (-not (Wait-Until 3 { ($script:aim = Get-SpriteAim $log) })) { Fail "${Case}: the sprite was not at rest with a known size in 3 s; see $log" }
 }
-function Move-Away { $null = [PillWin]::SetCursorPos($script:aim.X + 400, $script:aim.Y) }
+# Off the sprite, and if Fidget last saw it there, until its hit test traces the
+# miss (3 s), so no hover dwell carries into the next case.
+function Move-Away([string]$Case) {
+    $wasOn = (Test-Path -LiteralPath $log) -and (Test-LastHit @(Get-Content -LiteralPath $log))
+    $misses = Count $T.miss
+    $null = [PillWin]::SetCursorPos($script:aim.X + 400, $script:aim.Y)
+    if ($wasOn -and -not (Wait-LogCount $T.miss $misses)) { Fail "${Case}: Fidget traced no hit-test miss in 3 s of the cursor leaving the sprite; see $log" }
+}
 # The overlay is click-through until its hit test sees the cursor, so the sprite is
 # pressed once that line lands; a press 1.5 s late would meet a hover-opened pill.
 function Click-Sprite([string]$Case) {
     Aim $Case
-    Move-Away
+    Move-Away $Case
     if (-not (Wait-ForNext $T.hit { $null = [PillWin]::SetCursorPos($script:aim.X, $script:aim.Y) })) { Fail "${Case}: the sprite's click area did not follow the cursor; see $log" }
     if (Count $T.opened) { Fail "${Case}: the pill opened before the press; see $log" }
     Press-Hold $script:aim.X $script:aim.Y $Case
+    Move-Away $Case
 }
 function Open-Pill([string]$Case) {
     Aim $Case
-    Move-Away
+    Move-Away $Case
     if (-not (Wait-ForNext $T.opened { $null = [PillWin]::SetCursorPos($script:aim.X, $script:aim.Y) })) { Fail "${Case}: hovering the sprite did not open a focused pill in 3 s; see $log" }
 }
 function Read-Doc { [System.IO.File]::ReadAllText($doc).TrimStart([char]0xFEFF) }
@@ -646,6 +668,6 @@ try {
         "FAIL: cleanup: $why" | Add-Content -LiteralPath $results
         $cleanupFailed = $true
     }
-    foreach ($d in @("webview2", "tmp", "home")) { Remove-Item -Recurse -Force -LiteralPath (Join-Path $Out $d) -ErrorAction SilentlyContinue }
+    foreach ($d in @("tmp", "home")) { Remove-Item -Recurse -Force -LiteralPath (Join-Path $Out $d) -ErrorAction SilentlyContinue }
 }
 if ($cleanupFailed) { exit 1 }
