@@ -132,7 +132,7 @@ $env:FIDGET_CHARACTERS = $chars
 
 # Open Notepad with the unique document
 $script:notepad = Start-Process -FilePath "notepad.exe" -ArgumentList $doc -PassThru
-if (-not (Wait-Until 3 { 
+if (-not (Wait-Until 3 {
     $tops = @([System.Diagnostics.Process]::GetProcesses() | Where-Object { $_.ProcessName -eq "Notepad" })
     foreach ($p in $tops) {
         try {
@@ -173,7 +173,7 @@ $closed = '(?:^|\s)overlay: pill closed'
 try {
     # Wait for first frame
     if (-not (Wait-ForTrace 10 $log $frame)) { Fail "Fidget drew no frame in 10 s" }
-    
+
     # Wait for overlay ready (first draft report = webview listening)
     if (-not (Wait-ForTrace 10 $log "$draft`"`" focused=")) { Fail "overlay did not report ready in 10 s" }
 
@@ -307,28 +307,28 @@ try {
     if (-not (Wait-ForCount 2 $log "$draft`"[^`"]*nine`"" $before)) {
         Fail "test 5: 'nine' never reached pill"
     }
-    
+
     # Click into Notepad (middle lower area)
     $r = New-Object PillInput+RECT
     [PillInput]::GetWindowRect($script:hwnd, [ref]$r) | Out-Null
     $clickX = [int](($r.L + $r.R) / 2)
     $clickY = [int]($r.T + ($r.B - $r.T) * 7 / 10)
-    
+
     # Verify click would land on Notepad
     [uint32]$pid = 0
     [PillInput]::GetWindowThreadProcessId([PillInput]::RootAt($clickX, $clickY), [ref]$pid) | Out-Null
     if ($pid -ne $script:notepad.Id) { Fail "test 5: click would not land on Notepad" }
-    
+
     $before = @(Get-Content -LiteralPath $log | Where-Object { $_ -match "$draft`"[Nn]ine`" focused=false" }).Count
     [PillInput]::SetCursorPos($clickX, $clickY) | Out-Null
     [PillInput]::Button($false)
     Start-Sleep -Milliseconds 120
     [PillInput]::Button($true)
-    
+
     if (-not (Wait-ForCount 2 $log "$draft`"[Nn]ine`" focused=false" $before)) {
         Fail "test 5: pill did not blur after click"
     }
-    
+
     Type-Word "ten"
     if (-not (Save-Doc)) { Fail "test 5: could not save" }
     if (-not (Wait-Until 2 { (Read-Doc) -ceq "foursixeightabcten" })) {
@@ -341,7 +341,7 @@ try {
 
 } finally {
     Stop-FidgetTree $script:proc "count=$marks"
-    
+
     # Cleanup Notepad tab
     $UiaEl = [System.Windows.Automation.AutomationElement]
     $isTabItem = New-Object System.Windows.Automation.PropertyCondition ($UiaEl::ControlTypeProperty), ([System.Windows.Automation.ControlType]::TabItem)
@@ -356,7 +356,7 @@ try {
                 if ($closeBtn) {
                     $closeBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
                     Start-Sleep -Milliseconds 500
-                    
+
                     # Handle "Don't save" prompt if it appears
                     $nameIs = New-Object System.Windows.Automation.PropertyCondition ($UiaEl::NameProperty), "Don't save"
                     $dontSave = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $nameIs)
@@ -366,7 +366,7 @@ try {
                 }
             }
         }
-        
+
         # If we started Notepad, close it
         if (-not $notepadWasRunning -and $script:notepad -and -not $script:notepad.HasExited) {
             $script:notepad.CloseMainWindow() | Out-Null

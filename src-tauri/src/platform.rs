@@ -390,7 +390,7 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
         return Ok(());
     };
     let overlay = win32.hwnd.get() as HWND;
-    
+
     windows::hand_back_keyboard(overlay)
 }
 
