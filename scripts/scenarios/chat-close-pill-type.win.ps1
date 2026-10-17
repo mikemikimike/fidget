@@ -6,7 +6,8 @@
 #   Notepad's restored session. If this run started Notepad, it also closes
 #   that one window, and only when every tab left in it was there at launch.
 # Input: SendInput cursor moves, clicks, typed words, Escape, Ctrl+Home, Ctrl+S.
-#   Each press is held until Fidget traces it down; each word is one SendInput.
+#   Each press is held until Fidget traces it down. A pill word is one SendInput;
+#   a Notepad word goes one character at a time, each saved and read back first.
 # Duration: about 15 s (an estimate until the first Windows run). Every wait
 #   gives up 3 s after its trigger; at startup that is the first frame after
 #   the launch, the overlay's page load after that frame, and its first report
@@ -40,7 +41,9 @@
 #   FIDGET_SCENARIO_PILL_LOG=<process.log> prints whether "two" typed into the
 #   pill landed or the pill went first, judged from FIDGET_SCENARIO_PILL_OPENED_AT
 #   (the pill's first line, 0-based); FIDGET_SCENARIO_READ_DOC=<file> prints
-#   the file as Notepad's is read, or busy;
+#   the file as Notepad's is read, or busy; FIDGET_SCENARIO_TYPE_BEFORE,
+#   FIDGET_SCENARIO_TYPE_WORD and FIDGET_SCENARIO_TYPE_EXPECTED print the file
+#   after each character typed into Notepad, split by |;
 #   FIDGET_SCENARIO_UNEXPECTED=<results.txt> throws, to check the FAIL line;
 #   FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
@@ -142,6 +145,21 @@ function Read-Doc([string]$Path = $doc) {
 if ($env:FIDGET_SCENARIO_READ_DOC) {
     $text = Read-Doc $env:FIDGET_SCENARIO_READ_DOC
     Write-Output "doc: $(if ($null -eq $text) { 'busy' } else { $text })"
+    exit 0
+}
+
+# The file after each character of $Word typed into $Before ends at $Expected,
+# or "fail: ..." when no single insertion of $Word gives $Expected.
+function Get-TypingSteps([string]$Before, [string]$Expected, [string]$Word) {
+    for ($at = 0; $at -le $Before.Length; $at++) {
+        if ($Before.Insert($at, $Word) -cne $Expected) { continue }
+        return ,@(for ($k = 1; $k -le $Word.Length; $k++) { $Before.Insert($at, $Word.Substring(0, $k)) })
+    }
+    "fail: `"$Word`" typed into `"$Before`" can't give `"$Expected`""
+}
+if ($null -ne $env:FIDGET_SCENARIO_TYPE_WORD) {
+    $steps = Get-TypingSteps $env:FIDGET_SCENARIO_TYPE_BEFORE $env:FIDGET_SCENARIO_TYPE_EXPECTED $env:FIDGET_SCENARIO_TYPE_WORD
+    Write-Output "steps: $(if ($steps -is [string]) { $steps } else { $steps -join '|' })"
     exit 0
 }
 
@@ -638,10 +656,17 @@ function Type-IntoPill([string]$Word, [string]$Typed, [string]$Case, [string]$De
     Fail "${Case}: the pill never showed text=`"$Word`" focused=true in 3 s; in front: $front$Detail; see $log"
 }
 # Types $Word with Notepad in front and checks it landed there, not in the pill.
+# One character per SendInput, saved and read back before the next: Windows
+# keeps a thread's last injected character, so a busy Notepad that reads
+# several queued at once types the last one for each ("four" gave "rrrr").
 function Type-IntoNotepad([string]$Word, [string]$Case, [string]$Expected) {
     if (-not (Wait-Ui 3 { Foreground-Is })) { Note-Keys "at $Case"; Fail "${Case}: Notepad was not in front to type into; see $focusLog" }
-    [PillWin]::Text($Word)
-    if (-not (Notepad-Holds $Expected)) { Note-Keys "at $Case"; Fail "${Case}: Notepad holds `"$(Read-Doc)`", not `"$Expected`"; see $focusLog" }
+    $steps = Get-TypingSteps (Read-Doc) $Expected $Word
+    if ($steps -is [string]) { Fail "${Case}: $($steps.Substring(6)); see $focusLog" }
+    for ($k = 0; $k -lt $Word.Length; $k++) {
+        [PillWin]::Text($Word.Substring($k, 1))
+        if (-not (Notepad-Holds $steps[$k])) { Note-Keys "at $Case"; Fail "${Case}: Notepad holds `"$(Read-Doc)`", not `"$($steps[$k])`"; see $focusLog" }
+    }
     if (Count (Draft-Holds $Word)) { Fail "${Case}: the pill took `"$Word`"; see $log" }
 }
 

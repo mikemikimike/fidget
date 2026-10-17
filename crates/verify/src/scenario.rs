@@ -1412,6 +1412,36 @@ mod tests {
         );
     }
 
+    // Notepad typing goes one character at a time, each checked in the file:
+    // "four" sent as one SendInput gave "rrrr" in a busy Notepad (#1593 live run).
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_checks_notepad_after_each_character() {
+        for (before, word, expected, want) in [
+            ("abc", "one", "oneabc", "steps: oabc|onabc|oneabc"),
+            (
+                "oneabc",
+                "four",
+                "oneabcfour",
+                "steps: oneabcf|oneabcfo|oneabcfou|oneabcfour",
+            ),
+            ("", "x", "x", "steps: x"),
+            (
+                "abc",
+                "three",
+                "onethreeabc",
+                "steps: fail: \"three\" typed into \"abc\" can't give \"onethreeabc\"",
+            ),
+        ] {
+            let got = pill_self_check_with(&[
+                ("FIDGET_SCENARIO_TYPE_BEFORE", before.as_ref()),
+                ("FIDGET_SCENARIO_TYPE_WORD", word.as_ref()),
+                ("FIDGET_SCENARIO_TYPE_EXPECTED", expected.as_ref()),
+            ]);
+            assert_eq!(got, want, "{word} into {before:?}");
+        }
+    }
+
     // Notepad's file reads through a share that lets Notepad keep writing; a
     // writer that shares nothing means not saved yet, never an error.
     #[cfg(windows)]
