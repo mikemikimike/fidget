@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageClock } from "./page-clock.js";
 
 import { STALL_MS } from "../src/turn-phase.js";
 
@@ -35,35 +36,7 @@ const OPENING = {
 function drive() {
   const stub = `
 <script>
-  const realSetTimeout = window.setTimeout.bind(window);
-  const timers = new Map();
-  let now = 0;
-  let nextId = 1;
-  Date.now = () => now;
-  window.setTimeout = (fn, ms) => {
-    const id = nextId++;
-    timers.set(id, { at: now + (ms || 0), fn });
-    return id;
-  };
-  window.clearTimeout = (id) => timers.delete(id);
-  window.__advance = (ms) => {
-    const target = now + ms;
-    for (;;) {
-      let dueId = null;
-      let due = null;
-      for (const [id, item] of timers) {
-        if (item.at <= target && (!due || item.at < due.at)) {
-          dueId = id;
-          due = item;
-        }
-      }
-      if (!due) break;
-      timers.delete(dueId);
-      now = due.at;
-      due.fn();
-    }
-    now = target;
-  };
+  ${pageClock()}
   const heard = {};
   window.__TAURI__ = {
     core: {

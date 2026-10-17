@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageClock } from "./page-clock.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -38,6 +39,7 @@ const SWITCHED = opening("hermes", { initializing: true });
 function drive() {
   const stub = `
 <script>
+  ${pageClock()}
   const heard = {};
   window.__TAURI__ = {
     core: {
@@ -54,7 +56,7 @@ function drive() {
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const tick = () => new Promise((r) => realSetTimeout(r, 0));
   const open = (payload) => heard["chat-opening"]({ payload });
   function selectable(node) {
     for (let at = node; at; at = at.parentElement) {
@@ -80,7 +82,9 @@ function drive() {
     while (!heard["chat-opening"]) await tick();
     while (document.getElementById("landing").hidden) await tick();
     const report = { missing: seen() };
-    await new Promise((r) => setTimeout(r, 20000));
+    // Fire every timer the page has due in the next twenty seconds: the window
+    // a launcher would have to answer in for the error to clear itself.
+    window.__advance(20000);
     report.later = seen();
     open(${JSON.stringify(RETRYING)});
     report.retrying = seen();
@@ -101,8 +105,7 @@ function drive() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  // The probe waits 20 real seconds to prove no timer clears the error.
-  return probePage(html, { args: ["--window-size=420,560"], timeout: 30000 });
+  return probePage(html, { args: ["--window-size=420,560"], timeout: 10000 });
 }
 
 test(
@@ -122,7 +125,7 @@ test(
       composer: false,
     };
     assert.deepEqual(report.missing, missing);
-    assert.deepEqual(report.later, missing, "twenty seconds later nothing has cleared it");
+    assert.deepEqual(report.later, missing, "twenty seconds of the page's own time later nothing has cleared it");
     assert.deepEqual(report.retrying, missing, "a retry in flight keeps the error up");
 
     assert.equal(report.answering.landing, false, "an attach that answers clears it");

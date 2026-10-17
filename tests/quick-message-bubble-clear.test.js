@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageClock } from "./page-clock.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -24,6 +25,7 @@ const opening = {
 function drive() {
   const stub = `
 <script type="module">
+  ${pageClock()}
   const handlers = {};
   window.__TAURI__ = {
     core: {
@@ -42,7 +44,7 @@ function drive() {
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "overlay-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 50));
+  const tick = () => new Promise((r) => realSetTimeout(r, 0));
   const spriteOf = (x, y, extra) => ({
     id: "bmo",
     character: "Buddy Bot",
@@ -74,10 +76,15 @@ function drive() {
     if (!a.visible || !b.visible || a.w <= 0 || b.w <= 0) return false;
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
+  // Each poll waits a real frame before it reads: a state that flips inside a
+  // task reaches the DOM on the next drawn one, and a seat read before it is
+  // the stale one. The clock then steps over whatever timer the page waits on.
   async function until(pred, why) {
     for (let i = 0; i < 80; i += 1) {
+      await new Promise((r) => requestAnimationFrame(r));
       if (pred()) return;
-      await tick();
+      const next = window.__nextDue();
+      if (next !== null) window.__advance(next);
     }
     throw new Error(why + " bubble=" + (bubble()?.className || "none") + "/" + (bubble()?.dataset.mode || "-"));
   }
@@ -107,9 +114,14 @@ function drive() {
     emit(x, y, null);
     await until(() => sprite() && field() && !field().disabled, "idle");
   }
-  async function openPill() {
+  // The gesture that opens the pill. The delay it waits out before showing is
+  // one of the page timers the poll below steps over.
+  function hover() {
     sprite().dispatchEvent(new PointerEvent("pointerleave"));
     sprite().dispatchEvent(new PointerEvent("pointerenter"));
+  }
+  async function openPill() {
+    hover();
     await until(() => pill().classList.contains("visible"), "pill");
   }
   function snap(name, expect) {
@@ -151,8 +163,7 @@ function drive() {
       () => bubble().classList.contains("visible") && bubble().dataset.mode === "thinking" && !pill().classList.contains("visible"),
       "send",
     );
-    sprite().dispatchEvent(new PointerEvent("pointerleave"));
-    sprite().dispatchEvent(new PointerEvent("pointerenter"));
+    hover();
     await until(
       () => pill().classList.contains("visible") && bubble().dataset.mode === "thinking",
       "rehover",
