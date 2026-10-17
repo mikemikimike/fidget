@@ -4617,7 +4617,7 @@ unsafe extern "system" fn anchor_wndproc(
             }
         }
     }
-    if msg == WM_ACTIVATE {
+    if msg == WM_ACTIVATE && dev_flags::TRACE_FRAMES.is_on() {
         // Verify scripts time their startup checks from this line.
         eprintln!("anchor: activated wa={}", wparam & 0xFFFF);
     }

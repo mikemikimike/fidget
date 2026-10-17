@@ -100,3 +100,31 @@ test("cleanup force-kills a Fidget that ignores TERM, after 3 s", () => {
   assert.match(r.out, new RegExp(`kill -9 ${pid}`));
   assert.ok(r.ms >= 2800 && r.ms < 4500, `took ${r.ms} ms`);
 });
+
+test("cleanup stops Fidget and a child in its own session, promptly", () => {
+  const { root, env } = scratch('setsid sleep 30 & echo $! > "$(dirname "$0")/child.pid"; echo "overlay: up" >&2; sleep 30 & wait $!');
+  helper("launch.sh", env);
+  const pid = pidOf(root);
+  const child = Number(fs.readFileSync(path.join(root, "child.pid"), "utf8"));
+  const r = helper("cleanup.sh", env);
+  const left = alive(child);
+  if (left) process.kill(child, "SIGKILL");
+  assert.equal(r.code, 0, r.out);
+  assert.equal(alive(pid), false, "Fidget still running");
+  assert.equal(left, false, "the child was left running");
+  assert.doesNotMatch(r.out, /kill -9/);
+  assert.ok(r.ms < 1500, `took ${r.ms} ms`);
+});
+
+test("cleanup force-kills at once when it has no way to watch the exit", () => {
+  const { root, env } = scratch('trap "" TERM; echo "overlay: up" >&2; exec sleep 30');
+  helper("launch.sh", env);
+  const pid = pidOf(root);
+  fs.rmSync(path.join(root, "scratch", "pids", "fidget.lock"), { force: true });
+  const r = helper("cleanup.sh", env);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(alive(pid), false, "still running");
+  assert.match(r.out, new RegExp(`kill -9 ${pid}`));
+  // macOS still watches the pid through caffeinate, so only Linux is immediate.
+  if (process.platform === "linux") assert.ok(r.ms < 1500, `took ${r.ms} ms`);
+});

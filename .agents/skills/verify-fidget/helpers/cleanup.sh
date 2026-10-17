@@ -9,12 +9,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/scripts/scenarios/wait-helpers.sh"
 
-# TERM, then up to 3 s for the exit; kill -9 only if it is still running.
+# TERM to Fidget's whole tree (its children hold the lock too), up to 3 s for
+# all of them to exit, then kill -9 on what is left of that tree.
 stop_pid() { # <pid>
-  kill "$1" 2> /dev/null || true
+  local tree
+  tree=$(process_tree "$1")
+  # shellcheck disable=SC2086
+  kill $tree 2> /dev/null || true
   wait_for_exit 3 "$1" "$FIDGET_VERIFY_LOCK" && return 0
   echo "cleanup: kill -9 $1"
-  kill -9 "$1" 2> /dev/null || true
+  # shellcheck disable=SC2086
+  kill -9 $tree 2> /dev/null || true
 }
 
 PIDLIST="$FIDGET_VERIFY_SCRATCH/pids/owned.pids"

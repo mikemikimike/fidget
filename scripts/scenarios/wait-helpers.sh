@@ -138,9 +138,9 @@ wait_for_exit() { # <seconds> <pid> <lock>
   exit_watched=$2
   wait_on_source "$1" watch_exit read -r
 }
+# No caffeinate (Linux without the lock) prints nothing, so the wait fails.
 watch_exit() {
-  caffeinate -w "$exit_watched"
-  echo gone
+  caffeinate -w "$exit_watched" 2> /dev/null && echo gone
 }
 
 # Fidget and every process under it, deepest first. The Harness runs in its
