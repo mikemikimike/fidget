@@ -129,10 +129,9 @@ test("cleanup force-kills at once when it has no way to watch the exit", () => {
   if (process.platform === "linux") assert.ok(r.ms < 1500, `took ${r.ms} ms`);
 });
 
-// Fidget exits on TERM, but its child ignores TERM and keeps the inherited
-// lock (#1585). stop_pid runs in-process with the stand-in Fidget as a direct
-// child: the child reports over a fifo once TERM is ignored, and Fidget is
-// reaped right after the TERM, so its pid is gone before the wait starts.
+// Fidget exits on TERM but its child ignores TERM and keeps the lock (#1585).
+// The child reports over a fifo once TERM is ignored, and Fidget is reaped
+// right after the TERM, so its pid is gone before the lock wait starts.
 test(
   "cleanup waits on the lock and force-kills a child that outlives Fidget",
   { skip: process.platform !== "linux" && "the lock wait needs flock" },
@@ -143,10 +142,10 @@ test(
       set +e
       mkdir -p "$(dirname "$FIDGET_VERIFY_LOCK")" && mkfifo "${root}/ready"
       exec 9> "$FIDGET_VERIFY_LOCK"; flock -n 9 || exit 90
-      bash -c '(trap "" TERM; echo "$BASHPID" > "$0"; exec sleep 30) & exec sleep 30' "${root}/ready" &
+      bash -c '(trap "" TERM; echo "$BASHPID" > "$0"; exec sleep 30) & exec sleep 30' "${root}/ready" > /dev/null 2>&1 &
       fidget=$!
       exec 9>&-
-      read -r child < "${root}/ready"
+      exec {r}<> "${root}/ready"; read -r -t 3 child <&"$r" || { pkill -9 -P "$fidget"; kill -9 "$fidget"; exit 91; }
       eval "real_$(declare -f wait_for_exit)"
       wait_for_exit() { wait "$fidget"; real_wait_for_exit "$@"; }
       start=$EPOCHREALTIME
@@ -155,7 +154,7 @@ test(
       if flock -n "$FIDGET_VERIFY_LOCK" true; then echo "lock free"; else echo "lock held"; kill -9 "$child"; fi
     `;
     const started = Date.now();
-    const r = spawnSync("bash", ["-c", script], { encoding: "utf8", env });
+    const r = spawnSync("bash", ["-c", script], { encoding: "utf8", env, timeout: 10000 });
     const out = r.stdout + r.stderr;
     const ms = Date.now() - started;
     assert.equal(r.status, 0, out);
