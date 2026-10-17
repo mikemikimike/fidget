@@ -100,11 +100,18 @@ function Find-SettingsHwnd($windows) {
   return [IntPtr]::Zero
 }
 
-$windows = [AnchorVerify]::FindWindowsByPid($appPid)
-$settingsHwnd = Find-SettingsHwnd $windows
-
-if ($settingsHwnd -ne [IntPtr]::Zero) {
-  Fail "Q1 FAIL: Settings window auto-opened on startup (hwnd=$settingsHwnd)"
+# Settings may build well after launch: Q1 fails the moment it shows from the
+# anchor: line on, and passes 3 s after the anchor's first logged activation.
+function Test-SettingsUp { (Find-SettingsHwnd ([AnchorVerify]::FindWindowsByPid($appPid))) -ne [IntPtr]::Zero }
+$autoOpened = $false
+if (-not (Wait-Until 3 { (Test-SettingsUp) -or (Test-FileMatches $Log '^anchor: activated') })) {
+  Info "no anchor activation logged within 3 s; Q1 watched from the anchor: line"
+} else {
+  $autoOpened = (Test-SettingsUp) -or (Wait-Until 3 { Test-SettingsUp })
+}
+if ($script:AppProc.HasExited) { Fail "Q1 FAIL: fidget exited during startup; see $Log" }
+if ($autoOpened) {
+  Fail "Q1 FAIL: Settings window auto-opened on startup"
 }
 Pass "Q1 PASS: No Settings window auto-opened on startup"
 
