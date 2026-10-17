@@ -174,8 +174,8 @@ It reads the editor's text by saving with Ctrl+S and waiting for the rename
 that lands the file. Its first sprite click waits until the overlay is ready,
 which is when its first draft report lands. #1578 is a related,
 unconfirmed issue.
-It sets `FIDGET_HOVER_DELAY_MS=100`, so each hover opens the pill in 0.1 s
-instead of 1.5 s.
+It sets `FIDGET_HOVER_DELAY_MS=300`, so each hover opens the pill in 0.3 s
+instead of 1.5 s, still longer than a press on the sprite takes.
 
 To check an assertion without a desktop, point the leaf at fixture dumps and
 skip the launch:

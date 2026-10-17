@@ -4,7 +4,7 @@
 #   mousepad on a scratch file, and Fidget as a standing BMO with the fixture
 #   Harness.
 # Input: xdotool cursor moves, clicks, typed words, Enter, Escape, Ctrl+S.
-# Duration: about 8 s; every wait gives up 3 s after its trigger.
+# Duration: about 4 s; every wait gives up 3 s after its trigger.
 # Grants: Xvfb, xfwm4, mousepad, xdotool, xprop and inotifywait (inotify-tools).
 # Asserts: a sprite click leaves typing in the editor; the pill opens on hover
 #   and takes typing with no click (#1565); Enter and Escape hand typing back
@@ -105,7 +105,7 @@ sed -E '/^play = /s/"walk"/"idle"/g' "$root/characters/bmo/character.manifest" >
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=slow count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 env HOME="$out/home" FIDGET_HARNESS="$harness" FIDGET_DIRECTOR_WAKE_SECS=600 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_BUBBLE=1 FIDGET_HOVER_DELAY_MS=100 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_BUBBLE=1 FIDGET_HOVER_DELAY_MS=300 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$out/characters" \
   "$bin" > "$out/app.log" 2>&1 &
 pid=$!
@@ -150,12 +150,13 @@ editor_text() {
   cat "$doc"
 }
 # Fidget samples the buttons each frame: the release waits for its press trace.
-click_at() { # <x> <y>
+# [<x> <y>] moves the pointer there with the release, off the sprite's dwell.
+click_at() { # <x> <y> [<x> <y>]
   local before
   before=$(line_count "$log" '^[0-9]+ click: down ')
   xdotool mousemove "$1" "$2" mousedown 1
   wait_for_count 3 "$log" '^[0-9]+ click: down ' "$before" || return 1
-  xdotool mouseup 1
+  xdotool mouseup 1 ${3:+mousemove "$3" "$4"}
 }
 open_pill() { # <case>
   sprite_center
@@ -179,10 +180,9 @@ typing_back_in_editor() { # <word> <case> <expected text>
 # unconfirmed: https://github.com/omesser/fidget/issues/1578
 wait_for_trace 3 "$log" "$closed" || fail "sprite-click: the overlay never reported its pill in 3 s; see $log"
 sprite_center
-click_at "$cx" "$cy" || fail "sprite-click: Fidget saw no press; see $log"
+click_at "$cx" "$cy" "$((cx + 400))" "$cy" || fail "sprite-click: Fidget saw no press; see $log"
 wait_for_trace 3 "$log" '^[0-9]+ click: up ' || fail "sprite-click: Fidget saw no click; see $log"
 xdotool type --delay 15 four
-xdotool mousemove "$((cx + 400))" "$cy"
 [ "$(editor_text)" = fourabc ] || fail "sprite-click: the editor holds \"$(cat "$doc")\", not fourabc (active: $(xdotool getactivewindow getwindowname 2> /dev/null))"
 ! grep -qE "$draft\"[^\"]*four\"" "$log" || fail "sprite-click: the pill took typing; see $log"
 ok "sprite-click: typing stayed in the editor"
