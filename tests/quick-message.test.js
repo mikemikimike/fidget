@@ -613,7 +613,7 @@ test("an unavailable pill appears but refuses text, focus, and send", () => {
 test("a refused send brings the frozen pill back without the line", () => {
   const { qm, sent } = shown();
   qm.setText("hey");
-  qm.outside();
+  qm.dismiss();
   qm.setAvailable(false);
 
   qm.restore("hey");
