@@ -112,14 +112,15 @@ function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) 
 }
 # WebView2's lock on a profile: the browser holds <profile>\EBWebView\lockfile
 # open for writing, sharing only reads, and the file goes when it closes
-# (Chromium process_singleton_win.cc L244 at bef1ce99). Returns missing, free,
-# or "in use" plus the holders' pids from the Restart Manager when it has them.
+# (Chromium process_singleton_win.cc L244 at bef1ce99).
 function Get-ProfileLock([string]$Folder) {
     $lock = Join-Path (Join-Path $Folder "EBWebView") "lockfile"
     $missing = [pscustomobject]@{ State = "missing"; Pids = @() }
     if (-not (Test-Path -LiteralPath $lock)) { return $missing }
     try {
-        [System.IO.File]::Open($lock, "Open", "Read", "None").Dispose()
+        # Read sharing still clashes with the browser's write handle, but lets
+        # a reader (an indexer, antivirus) through.
+        [System.IO.File]::Open($lock, "Open", "Read", "Read").Dispose()
         return [pscustomobject]@{ State = "free"; Pids = @() }
     } catch {
         # PowerShell wraps a .NET method's exception; look at the cause.
