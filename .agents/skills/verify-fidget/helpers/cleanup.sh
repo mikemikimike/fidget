@@ -9,14 +9,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/scripts/scenarios/wait-helpers.sh"
 
+# True when any of the pids still runs; a zombie has already exited.
+any_running() { # <pid...>
+  local p state
+  for p in "$@"; do
+    state=$(ps -o stat= -p "$p" 2> /dev/null) || continue
+    [[ $state == Z* ]] || return 0
+  done
+  return 1
+}
+
 # TERM to Fidget's whole tree (its children hold the lock too), up to 3 s for
-# all of them to exit, then kill -9 on what is left of that tree.
+# all of them to exit, then kill -9 on what is left of that tree. A child that
+# outlives Fidget gets it too, even when the wait could only watch Fidget's pid.
 stop_pid() { # <pid>
   local tree
   tree=$(process_tree "$1")
   # shellcheck disable=SC2086
   kill $tree 2> /dev/null || true
-  wait_for_exit 3 "$1" "$FIDGET_VERIFY_LOCK" && return 0
+  # shellcheck disable=SC2086
+  wait_for_exit 3 "$1" "$FIDGET_VERIFY_LOCK" && ! any_running $tree && return 0
   echo "cleanup: kill -9 $1"
   # shellcheck disable=SC2086
   kill -9 $tree 2> /dev/null || true

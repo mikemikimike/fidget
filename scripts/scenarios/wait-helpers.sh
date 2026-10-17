@@ -127,14 +127,15 @@ line_count() { # <file> <pattern>
 }
 
 # Wait for a process to exit. With flock, the process holds <lock> through an
-# inherited fd until it and its children are gone; macOS has no flock, so
+# inherited fd until it and its children are gone, so the lock is waited on
+# first: a child can outlive the pid (#1585). macOS has no flock, so
 # caffeinate -w watches the pid through kqueue. True once it is gone.
 wait_for_exit() { # <seconds> <pid> <lock>
-  kill -0 "$2" 2> /dev/null || return 0
   if command -v flock > /dev/null && [ -e "${3:-}" ]; then
     flock -w "$1" "$3" true
     return
   fi
+  kill -0 "$2" 2> /dev/null || return 0
   local pid=$2 # wait_on_source fails at once if this pid is already gone
   exit_watched=$2
   wait_on_source "$1" watch_exit read -r

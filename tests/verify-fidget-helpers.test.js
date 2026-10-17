@@ -128,3 +128,26 @@ test("cleanup force-kills at once when it has no way to watch the exit", () => {
   // macOS still watches the pid through caffeinate, so only Linux is immediate.
   if (process.platform === "linux") assert.ok(r.ms < 1500, `took ${r.ms} ms`);
 });
+
+// Fidget exits on TERM, but its child ignores TERM and keeps the inherited
+// lock (#1585). The wait must not return just because Fidget's pid is gone.
+test(
+  "cleanup waits on the lock and force-kills a child that outlives Fidget",
+  { skip: process.platform !== "linux" && "the lock wait needs flock" },
+  () => {
+    const { root, env } = scratch(
+      '(trap "" TERM; exec sleep 30) & echo $! > "$(dirname "$0")/child.pid"; echo "overlay: up" >&2; sleep 30 & wait $!',
+    );
+    helper("launch.sh", env);
+    const pid = pidOf(root);
+    const child = Number(fs.readFileSync(path.join(root, "child.pid"), "utf8"));
+    const r = helper("cleanup.sh", env);
+    const left = alive(child);
+    if (left) process.kill(child, "SIGKILL");
+    assert.equal(r.code, 0, r.out);
+    assert.equal(alive(pid), false, "Fidget still running");
+    assert.equal(left, false, "the child that ignores TERM was left running");
+    assert.match(r.out, new RegExp(`kill -9 ${pid}`));
+    assert.ok(r.ms >= 2800 && r.ms < 4500, `took ${r.ms} ms`);
+  },
+);
