@@ -938,6 +938,29 @@ mod tests {
         );
     }
 
+    /// `chat-close-pill-type.x11.sh` brings its own Xvfb, window manager and
+    /// editor, so a host missing any of them skips instead of failing.
+    #[cfg(unix)]
+    #[test]
+    fn chat_close_pill_type_x11_without_its_tools_skips() {
+        let bare = tempfile::tempdir().unwrap();
+        for tool in ["dirname", "mktemp", "date"] {
+            let found = Command::new("/bin/sh")
+                .args(["-c", &format!("command -v {tool}")])
+                .output()
+                .unwrap();
+            let path = String::from_utf8(found.stdout).unwrap();
+            std::os::unix::fs::symlink(path.trim(), bare.path().join(tool)).unwrap();
+        }
+        let out = Command::new("/bin/bash")
+            .arg(repo_scenarios().join("chat-close-pill-type.x11.sh"))
+            .args(["--go", "/bin/true", "/bin/true"])
+            .env("PATH", bare.path())
+            .output()
+            .unwrap();
+        assert_exit(&out, 2, "SKIP: Xvfb is not installed");
+    }
+
     #[cfg(unix)]
     #[test]
     fn x11_leaves_without_a_display_skip() {
