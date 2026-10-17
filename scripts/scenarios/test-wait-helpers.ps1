@@ -52,7 +52,11 @@ try {
     Check (Wake-On "two") "a second line wakes it again ($script:took ms)"
     $word = "h$([char]0xE9)llo $([char]0x2713) $([char]0x65E5)$([char]0x672C)"
     Check (Wake-On $word) "a non-ASCII line wakes it ($script:took ms)"
-    $bytes = [System.IO.File]::ReadAllBytes($err)
+    # Read while the writer still holds the file open for writing.
+    $read = New-Object System.IO.FileStream $err, "Open", "Read", "ReadWrite"
+    $copy = New-Object System.IO.MemoryStream
+    try { $read.CopyTo($copy) } finally { $read.Dispose() }
+    $bytes = $copy.ToArray()
     $want = $utf8.GetBytes("ready`none`ntwo`n$word`n")
     Check ([Convert]::ToBase64String($bytes) -eq [Convert]::ToBase64String($want)) "the log holds the lines as UTF-8 with LF, no BOM or CR"
 
