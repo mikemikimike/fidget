@@ -101,6 +101,34 @@ for (const leaf of ["mac", "x11"]) {
   });
 }
 
+// A child that ignores TERM keeps the inherited lock after the pid it was
+// given is gone (#1585): the wait holds until its seconds run out.
+test(
+  "wait_for_exit waits on a held lock even when the pid is already gone",
+  { skip: process.platform !== "linux" && "the lock wait needs flock" },
+  () => {
+    const r = run(`exec 9> "$dir/lock"; flock -n 9
+(trap "" TERM; exec sleep 30) & child=$!
+exec 9>&-
+sleep 0 & dead=$!; wait "$dead"
+wait_for_exit 1 "$dead" "$dir/lock"; rc=$?
+kill -9 "$child"
+exit "$rc"`);
+    assert.strictEqual(r.code, 1, r.out);
+    assert.ok(r.ms >= 900 && r.ms < 2000, `took ${r.ms} ms`);
+  },
+);
+
+test(
+  "wait_for_exit returns once the lock is free, with the pid already gone",
+  { skip: process.platform !== "linux" && "the lock wait needs flock" },
+  () => {
+    const r = run(`: > "$dir/lock"; sleep 0 & dead=$!; wait "$dead"; wait_for_exit 2 "$dead" "$dir/lock"`);
+    assert.strictEqual(r.code, 0, r.out);
+    assert.ok(r.ms < 500, `took ${r.ms} ms`);
+  },
+);
+
 test("seed_tour_shown marks the first-run tour as shown", () => {
   const r = run(`seed_tour_shown "$dir/home"; grep -q '"first_run_tour_shown": true' "$dir/home/Library/Application Support/fidget/settings.json"`, path.join(scenarios, "wait-helpers.mac.sh"));
   assert.strictEqual(r.code, 0, r.out);

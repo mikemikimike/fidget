@@ -128,3 +128,38 @@ test("cleanup force-kills at once when it has no way to watch the exit", () => {
   // macOS still watches the pid through caffeinate, so only Linux is immediate.
   if (process.platform === "linux") assert.ok(r.ms < 1500, `took ${r.ms} ms`);
 });
+
+// Fidget exits on TERM but its child ignores TERM and keeps the lock (#1585).
+// The child reports over a fifo once TERM is ignored, and Fidget is reaped
+// right after the TERM, so its pid is gone before the lock wait starts.
+test(
+  "cleanup waits on the lock and force-kills a child that outlives Fidget",
+  { skip: process.platform !== "linux" && "the lock wait needs flock" },
+  () => {
+    const { root, env } = scratch("");
+    const script = `
+      . "${path.join(helpers, "cleanup.sh")}" > /dev/null # no pids yet: defines stop_pid
+      set +e
+      mkdir -p "$(dirname "$FIDGET_VERIFY_LOCK")" && mkfifo "${root}/ready"
+      exec 9> "$FIDGET_VERIFY_LOCK"; flock -n 9 || exit 90
+      bash -c '(trap "" TERM; echo "$BASHPID" > "$0"; exec sleep 30) & exec sleep 30' "${root}/ready" > /dev/null 2>&1 &
+      fidget=$!
+      exec 9>&-
+      exec {r}<> "${root}/ready"; read -r -t 3 child <&"$r" || { pkill -9 -P "$fidget"; kill -9 "$fidget"; exit 91; }
+      eval "real_$(declare -f wait_for_exit)"
+      wait_for_exit() { wait "$fidget"; real_wait_for_exit "$@"; }
+      start=$EPOCHREALTIME
+      stop_pid "$fidget"
+      echo "stop_pid took $(( (\${EPOCHREALTIME/./} - \${start/./}) / 1000 )) ms"
+      if flock -n "$FIDGET_VERIFY_LOCK" true; then echo "lock free"; else echo "lock held"; kill -9 "$child"; fi
+    `;
+    const started = Date.now();
+    const r = spawnSync("bash", ["-c", script], { encoding: "utf8", env, timeout: 10000 });
+    const out = r.stdout + r.stderr;
+    const ms = Date.now() - started;
+    assert.equal(r.status, 0, out);
+    assert.match(out, /lock free/, `the child that ignores TERM was left running\n${out}`);
+    assert.match(out, /cleanup: kill -9 \d+/);
+    assert.ok(ms >= 2800 && ms < 4500, `took ${ms} ms\n${out}`);
+  },
+);
