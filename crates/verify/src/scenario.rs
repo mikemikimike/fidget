@@ -1406,6 +1406,34 @@ mod tests {
         );
     }
 
+    // Notepad goes on a monitor no fullscreen app covers, primary first, sized
+    // to its work area; with every monitor covered it stays on the primary.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_places_notepad_clear_of_a_fullscreen_app() {
+        for (monitors, want) in [
+            (
+                "DISPLAY2,1,1,0,0,3440,1392;DISPLAY1,0,0,-1200,-209,0,1663",
+                "place: DISPLAY1 (-1100,41) 1100x900 free",
+            ),
+            ("P,1,0,0,0,1920,1152", "place: P (400,250) 1400x900 free"),
+            (
+                "S,0,1,1920,0,3840,1080;P,1,0,0,0,1920,1152",
+                "place: P (400,250) 1400x900 free",
+            ),
+            (
+                "S,0,1,1920,0,3840,1080;P,1,1,0,0,1920,1152",
+                "place: P (400,250) 1400x900 covered",
+            ),
+        ] {
+            assert_eq!(
+                pill_self_check("FIDGET_SCENARIO_MONITORS", monitors.as_ref()),
+                want,
+                "{monitors}"
+            );
+        }
+    }
+
     // Move-Away waits for a hit-test miss only when Fidget last saw the cursor
     // on the sprite; off it, no line comes until the next periodic trace.
     #[cfg(windows)]
