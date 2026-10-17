@@ -117,7 +117,6 @@ function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) 
 function Get-ProfileLock([string]$Folder) {
     $lock = Join-Path (Join-Path $Folder "EBWebView") "lockfile"
     if (-not (Test-Path -LiteralPath $lock)) { return "missing" }
-    return "free"  # STUB for the red run: the next commit removes this line.
     try {
         [System.IO.File]::Open($lock, "Open", "Read", "None").Dispose()
         return "free"
