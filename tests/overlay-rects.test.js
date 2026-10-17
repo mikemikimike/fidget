@@ -3,30 +3,15 @@
 // click only over the clickable ones. Drives the real src/index.html and main.js.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 const sprite = (id, x, extra) => ({
   id,
@@ -70,7 +55,7 @@ function drive() {
   return probe;
 }
 
-function launch() {
+async function launch() {
   const stub = `
 <script type="module">
   const handlers = {};
@@ -86,12 +71,6 @@ function launch() {
   const wake = () => {
     for (let i = waiters.length - 1; i >= 0; i -= 1) if (waiters[i]()) waiters.splice(i, 1);
   };
-  // Headless Chrome under --virtual-time-budget does not always deliver a
-  // display frame: a requestAnimationFrame can stay pending until the budget
-  // runs out, so draw() never runs, no bubble shows, and only the pill (placed
-  // outside draw) is reported. Drive frames from a virtual 60 Hz clock, which
-  // virtual time always advances, so every arm() is drawn.
-  window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
   window.__invoked = [];
   window.__TAURI__ = {
     core: {
@@ -120,6 +99,7 @@ function launch() {
   const last = () => rects().at(-1) ?? null;
   const has = (instance, clickable) => (last() ?? []).some((r) => r.follows?.instance === instance && r.clickable === clickable);
   async function drive() {
+    console.log("__PROBE_READY__");
     await until(() => handlers.frame);
     handlers.frame({ payload: ${JSON.stringify(frame)} });
     const quick = document.querySelector('.quick-message[data-instance="idler"]');
@@ -136,52 +116,27 @@ function launch() {
     };
     handlers.frame({ payload: ${JSON.stringify(handedOff)} });
     await until(() => last()?.length === 0);
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({
+    console.log("__PROBE_RESULT__" + JSON.stringify({
       reported,
       expected,
       handedOff: last(),
       sent: rects().map((r) => JSON.stringify(r)),
-    });
-    document.body.append(out);
+    }));
   }
   window.addEventListener("load", drive);
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "overlay-rects-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--window-size=1400,900",
-      "--virtual-time-budget=8000",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the overlay did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&"));
+  return probePage(html, { args: ["--window-size=1400,900"] });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";
 
-test("Open chat and the pill take clicks; the bubble and its dots are only drawn", { skip, timeout: 60000 }, () => {
-  const { reported, expected } = drive();
+test("Open chat and the pill take clicks; the bubble and its dots are only drawn", { skip, timeout: 60000 }, async () => {
+  const { reported, expected } = await drive();
   assert.ok(reported, "the overlay reported its rects");
   // Each names the sprite it rides with and where that sprite was, so the
   // Shell can keep it in the region while a drag moves the sprite (#1568).
@@ -201,8 +156,8 @@ test("Open chat and the pill take clicks; the bubble and its dots are only drawn
   assert.equal(reported.length, rows.length, "nothing else is reported");
 });
 
-test("an overlay that hands its bubbles on clears its rects, and only a change is sent", { skip, timeout: 60000 }, () => {
-  const { handedOff, sent } = drive();
+test("an overlay that hands its bubbles on clears its rects, and only a change is sent", { skip, timeout: 60000 }, async () => {
+  const { handedOff, sent } = await drive();
   assert.deepEqual(handedOff, [], "an empty list clears");
   const repeats = sent.filter((rects, i) => i > 0 && rects === sent[i - 1]);
   assert.deepEqual(repeats, [], "no report repeats the one before it");

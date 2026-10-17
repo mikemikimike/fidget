@@ -3,19 +3,20 @@
 // (`window.__TAURI__` stubbed). Exit 1: answer above its ask, or the command's
 // <code> lacks kind/paths or paints unlike reply code. FIDGET_CHROME picks Chromium.
 
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { probePage } from "../tests/chrome-cdp.js";
+import { pageWait } from "../tests/page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-const CHROME =
-  process.env.FIDGET_CHROME ??
-  join(
-    homedir(),
-    "Library/Caches/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-mac-arm64/chrome-headless-shell",
-  );
+// findChrome() only looks on PATH, so keep the Playwright shell as this
+// script's own fallback instead of reporting Chromium missing.
+process.env.FIDGET_CHROME ??= join(
+  homedir(),
+  "Library/Caches/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-mac-arm64/chrome-headless-shell",
+);
 
 const OPENING = {
   name: "BMO",
@@ -52,6 +53,7 @@ const ANSWER = "Hmm. BMO still sees only shapes, no names. Try `open -a Calculat
 
 const stub = `
 <script>
+  ${pageWait()}
   const handlers = {};
   const calls = [];
   window.__TAURI__ = {
@@ -65,26 +67,27 @@ const stub = `
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
-    while (!handlers["chat-permission-settled"] || document.getElementById("line").disabled) {
-      await tick();
-    }
+    console.log("__PROBE_READY__");
+    await ready("chat-permission-settled");
+    await until(() => !document.getElementById("line").disabled);
     document.getElementById("line").value = "ok, tell me what you see now";
     document.getElementById("composer").requestSubmit();
-    while (!calls.includes("chat_send")) await tick();
+    await until(() => calls.includes("chat_send"));
     handlers["chat-permission"]({ payload: ${JSON.stringify(ASK)} });
-    await tick();
+    await until(() => document.querySelector('[data-option="allow-with-updates"]'));
     document.querySelector('[data-option="allow-with-updates"]').click();
-    while (!calls.includes("permission_answer")) await tick();
+    await until(() => calls.includes("permission_answer"));
     handlers["chat-permission-settled"]({ payload: { request: "5", option: "allow-with-updates" } });
     handlers["chat"]({ payload: { said: ${JSON.stringify(ANSWER)}, busy: false, reacting_to: null, you: false, at: null, error: null, superseded_by: null } });
-    await tick();
+    await until(() => [...document.querySelectorAll("#log .row")].some((row) =>
+      row.querySelector(".said")?.textContent.trim().startsWith(${JSON.stringify(ANSWER.slice(0, 20))})));
     const rows = [...document.querySelectorAll("#log .row")].map((row) => ({
       who: row.querySelector(".who-label")?.textContent ?? "",
       said: row.querySelector(".said")?.textContent.trim().slice(0, 60) ?? "",
@@ -97,40 +100,22 @@ const stub = `
       })(row.querySelector(".said code")),
       metadata: row.querySelector(".ask-metadata")?.textContent ?? "",
     }));
-    const out = document.createElement("pre");
-    out.id = "rows";
-    out.hidden = true;
-    out.textContent = JSON.stringify(rows);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(rows));
   }
   window.addEventListener("load", drive);
 </script>
 `;
 
-const dir = mkdtempSync(join(tmpdir(), "chat-ask-order-"));
-const page = join(dir, "harness.html");
 const html = readFileSync(join(SRC, "chat.html"), "utf8")
   .replace("<head>", `<head><base href="${pathToFileURL(SRC).href}">${stub}`);
-writeFileSync(page, html);
 
-const run = spawnSync(
-  CHROME,
-  [
-    "--headless",
-    "--disable-gpu",
-    "--allow-file-access-from-files",
-    "--virtual-time-budget=3000",
-    "--dump-dom",
-    pathToFileURL(page).href,
-  ],
-  { encoding: "utf8", maxBuffer: 1 << 24 },
-);
-const match = run.stdout.match(/<pre\b[^>]*id="rows"[^>]*>(.*?)<\/pre>/s);
-if (!match) {
-  console.error("the harness never reported; chromium said:", run.stderr.slice(-2000));
+let rows;
+try {
+  rows = await probePage(html);
+} catch (why) {
+  console.error("the harness never reported:", why.message);
   process.exit(2);
 }
-const rows = JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&"));
 for (const [i, row] of rows.entries()) {
   console.log(`${i + 1}. ${row.ask ? "[ask] " : ""}${row.who}: ${row.said}`);
 }

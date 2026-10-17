@@ -2,30 +2,16 @@
 // placement a late listener hears is still drawn.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 const frame = {
   sprites: [
@@ -59,9 +45,10 @@ const nextFrame = {
 function run() {
   const stub = `
 <script type="module">
+  ${pageWait()}
   const handlers = {};
-  // Headless Chromium under virtual time never runs a frame callback, so the
-  // test is the display: it counts what was asked for and runs it.
+  // A placement asks the page for one display frame. The test drives those
+  // frames, so the count between two deliveries is the listener's own.
   let asks = 0;
   let queued = [];
   window.requestAnimationFrame = (fn) => {
@@ -84,31 +71,32 @@ function run() {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "overlay-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 50));
   // Runs every frame asked for until none is pending, so the count that
   // follows is the listener's own and not a frame something else still holds.
-  const settle = async () => {
-    await tick();
+  const drain = async () => {
+    await Promise.resolve();
     while (queued.length) {
       paint();
-      await tick();
+      await Promise.resolve();
     }
   };
   const deliver = async (payload) => {
-    await settle();
+    await drain();
     const before = asks;
     handlers.frame({ payload });
     const asked = asks - before;
-    await settle();
+    await drain();
     return asked;
   };
   async function drive() {
-    while (!handlers.frame) await tick();
+    console.log("__PROBE_READY__");
+    await ready("frame");
     const first = await deliver(${JSON.stringify(frame)});
     const sprite = document.querySelector('.sprite[data-instance="bmo"]');
     const drawn = {
@@ -119,58 +107,28 @@ function run() {
     };
     const resend = await deliver(${JSON.stringify(frame)});
     const changed = await deliver(${JSON.stringify(nextFrame)});
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({
+    console.log("__PROBE_RESULT__" + JSON.stringify({
       asks: { first, resend, changed },
       drawn,
       frameIndex: sprite.dataset.frameIndex,
-    });
-    document.body.append(out);
+    }));
   }
   window.addEventListener("load", drive);
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "frame-resend-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const result = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=8000",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = result.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the overlay did not report. ${result.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(
-    match[1]
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">"),
-  );
+  return probePage(html);
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";
 let report = null;
 const probe = () => (report ??= run());
 
-test("a late listener's first placement is drawn", { skip, timeout: 60000 }, () => {
-  const { asks, drawn } = probe();
+test("a late listener's first placement is drawn", { skip, timeout: 60000 }, async () => {
+  const { asks, drawn } = await probe();
   assert.equal(asks.first, 1);
   assert.deepEqual(drawn, {
     visibility: "visible",
@@ -180,8 +138,8 @@ test("a late listener's first placement is drawn", { skip, timeout: 60000 }, () 
   });
 });
 
-test("an unchanged resend asks for no frame, and a change still does", { skip, timeout: 60000 }, () => {
-  const { asks, frameIndex } = probe();
+test("an unchanged resend asks for no frame, and a change still does", { skip, timeout: 60000 }, async () => {
+  const { asks, frameIndex } = await probe();
   assert.equal(asks.resend, 0, "the resend requested a display frame");
   assert.equal(asks.changed, 1);
   assert.equal(frameIndex, "1");

@@ -2,12 +2,12 @@
 // paint. This drives src/chat.html the way scripts/chat-ask-order.mjs does.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const REPLY =
@@ -15,21 +15,7 @@ const REPLY =
 const FENCE = "cargo test -p fidget-core -- --test-threads=1";
 const INLINE = "cargo test -p fidget-core";
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 function channel(color) {
   const text = String(color);
@@ -90,6 +76,7 @@ function paint(theme) {
   const markdown = pathToFileURL(join(SRC, "markdown.js")).href;
   const stub = `
 <script type="module">
+  ${pageWait()}
   import { appendReply, drawReply } from ${JSON.stringify(markdown)};
   const handlers = {};
   window.__TAURI__ = {
@@ -102,12 +89,12 @@ function paint(theme) {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   const full = ${JSON.stringify(REPLY)};
   const chunks = [
     "Run \`cargo",
@@ -123,10 +110,12 @@ function paint(theme) {
     };
   }
   async function drive() {
-    while (!handlers.chat || document.getElementById("line").disabled) await tick();
+    console.log("__PROBE_READY__");
+    await ready("chat");
+    await until(() => !document.getElementById("line").disabled);
     document.getElementById("line").value = "how do I run the tests?";
     document.getElementById("composer").requestSubmit();
-    while (!document.querySelector("#log .row.you")) await tick();
+    await until(() => document.querySelector("#log .row.you"));
     handlers.chat({
       payload: {
         said: full,
@@ -138,7 +127,7 @@ function paint(theme) {
         superseded_by: null,
       },
     });
-    await tick();
+    await until(() => document.querySelector("#log .row.them .said"));
     const said = document.querySelector("#log .row.them .said");
     const one = document.createElement("div");
     drawReply(one, full);
@@ -161,57 +150,24 @@ function paint(theme) {
       oneShotFence: one.querySelector("pre code")?.textContent ?? null,
       streamInline: streamed.querySelector("p code")?.textContent ?? null,
     };
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify(report);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(report));
   }
   window.addEventListener("load", drive);
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "chat-reply-code-"));
-  const page = join(dir, "harness.html");
-  const html = spawnSync("cat", [join(SRC, "chat.html")], { encoding: "utf8" }).stdout.replace(
+  const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      "--force-dark-mode",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(
-    match,
-    `the Chat surface did not report (${theme}). ${run.stderr?.slice(-500) ?? ""}`,
-  );
-  const json = match[1]
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-  return JSON.parse(json);
+  return probePage(html, { args: ["--force-dark-mode"] });
 }
 
 test(
   "a harness reply's inline and fenced code read apart from the panel",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 90000 },
-  () => {
+  async () => {
     for (const theme of ["minimal", "terminal"]) {
-      const report = paint(theme);
+      const report = await paint(theme);
       assert.equal(report.scheme, "dark", theme);
       assert.equal(report.saidClass, "said md", theme);
       assert.equal(report.backticksLeft, false, theme);

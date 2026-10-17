@@ -3,30 +3,17 @@
 // the way overlay-rects.test.js does.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageClock } from "./page-clock.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 const opening = {
   name: "Buddy Bot",
@@ -39,27 +26,9 @@ const opening = {
 function drive() {
   const stub = `
 <script type="module">
+  ${pageClock()}
+  ${pageWait()}
   const handlers = {};
-  // Virtual time runs the first animation frame and then leaves later ones
-  // queued, which sticks the overlay's single armed frame. Drain the queue
-  // after each wait so a placement still draws.
-  const queued = [];
-  const nativeFrame = window.requestAnimationFrame.bind(window);
-  window.requestAnimationFrame = (fn) => {
-    const task = (t) => {
-      if (task.ran) return;
-      task.ran = true;
-      const index = queued.indexOf(task);
-      if (index >= 0) queued.splice(index, 1);
-      fn(t);
-    };
-    queued.push(task);
-    return nativeFrame(task);
-  };
-  const drain = () => {
-    const batch = queued.splice(0, queued.length);
-    for (const task of batch) task(performance.now());
-  };
   window.__TAURI__ = {
     core: {
       invoke(name) {
@@ -72,12 +41,12 @@ function drive() {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "overlay-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 50)).then(drain);
   const spriteOf = (x, y, extra) => ({
     id: "bmo",
     character: "Buddy Bot",
@@ -109,43 +78,39 @@ function drive() {
     if (!a.visible || !b.visible || a.w <= 0 || b.w <= 0) return false;
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
-  async function until(pred, why) {
-    for (let i = 0; i < 80; i += 1) {
-      if (pred()) return;
-      await tick();
-    }
-    throw new Error(why + " bubble=" + (bubble()?.className || "none") + "/" + (bubble()?.dataset.mode || "-"));
-  }
   let stamp = 0;
   function emit(x, y, extra, shown = true) {
     handlers.frame({ payload: frame(x, y, { ...(extra || {}), stamp: ++stamp }, shown) });
   }
   async function blank() {
     emit(400, 300, null, false);
-    await until(() => bubble() && !bubble().classList.contains("visible"), "blank");
+    await until(() => bubble() && !bubble().classList.contains("visible"));
   }
   async function speech(x, y) {
     emit(x, y, { dialogue: "hello there" });
     await until(
       () => bubble().classList.contains("visible") && bubble().dataset.mode === "speech",
-      "speech",
     );
   }
   async function dots(x, y) {
     emit(x, y, { thinking: true });
     await until(
       () => bubble().classList.contains("visible") && bubble().dataset.mode === "thinking",
-      "dots",
     );
   }
   async function idle(x, y) {
     emit(x, y, null);
-    await until(() => sprite() && field() && !field().disabled, "idle");
+    await until(() => sprite() && field() && !field().disabled);
   }
-  async function openPill() {
+  // The gesture that opens the pill. The delay it waits out before showing is
+  // one of the page timers the poll below steps over.
+  function hover() {
     sprite().dispatchEvent(new PointerEvent("pointerleave"));
     sprite().dispatchEvent(new PointerEvent("pointerenter"));
-    await until(() => pill().classList.contains("visible"), "pill");
+  }
+  async function openPill() {
+    hover();
+    await until(() => pill().classList.contains("visible"));
   }
   function snap(name, expect) {
     const b = box(bubble());
@@ -184,71 +149,40 @@ function drive() {
     document.querySelector(".quick-message-send").click();
     await until(
       () => bubble().classList.contains("visible") && bubble().dataset.mode === "thinking" && !pill().classList.contains("visible"),
-      "send",
     );
-    sprite().dispatchEvent(new PointerEvent("pointerleave"));
-    sprite().dispatchEvent(new PointerEvent("pointerenter"));
+    hover();
     await until(
       () => pill().classList.contains("visible") && bubble().dataset.mode === "thinking",
-      "rehover",
     );
     rows.push(snap(seat + " send then rehover over dots", "thinking"));
     return rows;
   }
   async function run() {
-    while (!handlers.frame || window.innerWidth < 100) await tick();
+    console.log("__PROBE_READY__");
+    await ready("frame");
+    await until(() => window.innerWidth >= 100);
     const cases = [];
     for (const [seat, y] of [["mid", 300], ["top", 0]]) {
       cases.push(...await at(seat, 400, y));
     }
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({ cases });
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify({ cases }));
   }
   window.addEventListener("load", () => run().catch((why) => {
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({ error: String(why), cases: [] });
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify({ error: String(why), cases: [] }));
   }));
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "qm-bubble-clear-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--window-size=1000,700",
-      "--virtual-time-budget=30000",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 90000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the overlay did not report. ${run.stderr?.slice(-800) ?? ""} status=${run.status}`);
-  return JSON.parse(
-    match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"),
-  );
+  return probePage(html, { args: ["--window-size=1000,700"] });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";
 
-test("the pill steps clear of a speech bubble and of the thinking dots", { skip, timeout: 90000 }, () => {
-  const report = drive();
+test("the pill steps clear of a speech bubble and of the thinking dots", { skip, timeout: 90000 }, async () => {
+  const report = await drive();
   assert.equal(report.error, undefined, report.error);
   assert.equal(report.cases.length, 10);
   for (const row of report.cases) {

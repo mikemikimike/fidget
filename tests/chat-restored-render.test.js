@@ -4,30 +4,16 @@
 // window that opens as the load lands, which hears the history twice.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 // The renderer job in CI has Chromium, so a missing browser there is a broken
 // gate, not a reason to skip: the test runs, and fails on the missing binary.
@@ -53,6 +39,7 @@ const OPENING = {
 function drive(steps) {
   const stub = `
 <script>
+  ${pageWait()}
   const heard = {};
   window.__invoked = [];
   window.__TAURI__ = {
@@ -66,12 +53,12 @@ function drive(steps) {
     event: {
       listen(name, handler) {
         heard[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   const emit = (name, payload) => heard[name]({ payload });
   const KINDS = ["prompt", "thought", "tool", "plan-steps", "restored", "you", "them"];
   function rows() {
@@ -84,12 +71,12 @@ function drive(steps) {
     }));
   }
   async function run() {
-    while (!heard["chat-opening"] || !heard["chat-restored"]) await tick();
-    while (document.getElementById("line").disabled) await tick();
+    console.log("__PROBE_READY__");
+    await ready("chat-opening");
+    await ready("chat-restored");
+    await until(() => !document.getElementById("line").disabled);
 ${steps}
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({
+    console.log("__PROBE_RESULT__" + JSON.stringify({
       rows: rows(),
       livePlan: !document.getElementById("plan").hidden,
       links: [...document.querySelectorAll("#log .md-link")].map((link) => link.dataset.href),
@@ -100,44 +87,18 @@ ${steps}
       })),
       anchors: document.querySelectorAll("#log a").length,
       opened: window.__invoked.filter((call) => call.name === "open_link").map((call) => call.args.url),
-    });
-    document.body.append(out);
+    }));
   }
   window.addEventListener("load", () => run().catch((why) => {
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({ error: String(why) });
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify({ error: String(why) }));
   }));
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "chat-restored-render-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      "--window-size=420,560",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the Chat surface did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
+  return probePage(html, { args: ["--window-size=420,560"] });
 }
 
 const HISTORY = [
@@ -162,11 +123,11 @@ const DRAWN = [
 test(
   "a loaded session's whole replay sits above the waiting line, and the answer still lands on it",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
-  () => {
-    const report = drive(`
+  async () => {
+    const report = await drive(`
     document.getElementById("line").value = "are you back?";
     document.getElementById("composer").requestSubmit();
-    while (!document.querySelector("#log > .row.them")) await tick();
+    await until(() => document.querySelector("#log > .row.them"));
     emit("chat-restored", ${JSON.stringify(HISTORY)});
     emit("chat", { said: "Back now.", busy: false, reacting_to: null, you: false, at: null, error: null });`);
     assert.equal(report.error, undefined, report.error);
@@ -182,13 +143,13 @@ test(
 test(
   "a typed line in a replayed prompt is the user's row above the folded frame",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
+  async () => {
     const history = [
       { type: "typed", text: "are you <b>there</b>?" },
       { type: "prompt", text: "what just happened: spoken to\nthey said: are you <b>there</b>?" },
       { type: "reply", text: "Still here" },
     ];
-    const report = drive(`emit("chat-restored", ${JSON.stringify(history)});`);
+    const report = await drive(`emit("chat-restored", ${JSON.stringify(history)});`);
     assert.equal(report.error, undefined, report.error);
     assert.deepEqual(report.rows, [
       { kind: "note", label: null, open: null, stamped: false, text: "Earlier in this session." },
@@ -202,8 +163,8 @@ test(
 test(
   "a replayed thought opens on a click, like a landed live one",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
-  () => {
-    const report = drive(`
+  async () => {
+    const report = await drive(`
     emit("chat-restored", ${JSON.stringify(HISTORY)});
     document.querySelector("#log > .row.thought .thinking-toggle").click();`);
     assert.equal(report.error, undefined, report.error);
@@ -222,8 +183,8 @@ test(
 test(
   "a window that hears the history twice draws it once",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
-  () => {
-    const report = drive(`
+  async () => {
+    const report = await drive(`
     emit("chat-restored", ${JSON.stringify(HISTORY)});
     emit("chat-restored", ${JSON.stringify(HISTORY)});`);
     assert.equal(report.error, undefined, report.error);
@@ -237,15 +198,15 @@ test(
 test(
   "a resource link opens through open_link wherever it lands, and an unsafe one is text",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
+  async () => {
     const history = [
       { type: "thought", text: "Saw [spec](https://example.com/spec.md)\n[link passwd file:///etc/passwd]" },
       { type: "reply", text: "[brief](https://example.com/brief)" },
     ];
-    const report = drive(`
+    const report = await drive(`
     document.getElementById("line").value = "show me";
     document.getElementById("composer").requestSubmit();
-    while (!document.querySelector("#log > .row.them")) await tick();
+    await until(() => document.querySelector("#log > .row.them"));
     emit("chat-restored", ${JSON.stringify(history)});
     emit("chat-thought", "Live [live](https://example.com/live)\\n**kept as written**");
     for (const link of document.querySelectorAll("#log .md-link")) link.click();`);
@@ -269,9 +230,9 @@ test(
 test(
   "a link in a replayed prompt opens, and a file link in it does not",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
+  async () => {
     const history = [{ type: "prompt", text: "see [x](https://example.com) and [y](file:///a)\n**kept**" }];
-    const report = drive(`
+    const report = await drive(`
     emit("chat-restored", ${JSON.stringify(history)});
     for (const link of document.querySelectorAll("#log .md-link")) link.click();`);
     assert.equal(report.error, undefined, report.error);
@@ -311,8 +272,8 @@ const TOOL_HISTORY = [
 test(
   "a replayed tool call draws its locations, diff note and counts, terminal id, text and marks",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
-    const report = drive(`
+  async () => {
+    const report = await drive(`
     emit("chat-restored", ${JSON.stringify(TOOL_HISTORY)});
     for (const link of document.querySelectorAll("#log .md-link")) link.click();`);
     assert.equal(report.error, undefined, report.error);
@@ -343,7 +304,7 @@ test(
 test(
   "a replayed tool row keeps a hostile path or terminal id on one line, with no override",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
+  async () => {
     const history = [
       {
         type: "tool_call",
@@ -359,7 +320,7 @@ test(
         ],
       },
     ];
-    const report = drive(`emit("chat-restored", ${JSON.stringify(history)});`);
+    const report = await drive(`emit("chat-restored", ${JSON.stringify(history)});`);
     assert.equal(report.error, undefined, report.error);
     assert.deepEqual(report.tools[0].pieces, [
       "/tmp/a\nbc.rs:2",
@@ -374,7 +335,7 @@ test(
 test(
   "a diff too big to count exactly says its counts are approximate",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
+  async () => {
     const history = [
       {
         type: "tool_call",
@@ -386,7 +347,7 @@ test(
         content: [{ type: "diff", path: "/big.rs", added: 100000, removed: 90000, approximate: true }],
       },
     ];
-    const report = drive(`emit("chat-restored", ${JSON.stringify(history)});`);
+    const report = await drive(`emit("chat-restored", ${JSON.stringify(history)});`);
     assert.equal(report.error, undefined, report.error);
     assert.deepEqual(report.tools[0].pieces, ["/big.rs (+100000/-90000, approximate) · full diff not drawn"]);
   },
