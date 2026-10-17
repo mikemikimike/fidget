@@ -1,22 +1,18 @@
-# Shared wait helpers for Windows scenario leaves. Fidget runs through
-# Start-FidgetPiped, so each line it writes to stderr wakes every wait; file
-# waits also wake on FileSystemWatcher events, UI waits on UI Automation
-# events. Each re-checks on a wake and gives up after its seconds (2-3 s).
-# Nothing sleeps or polls.
+# Shared waits for Windows scenario leaves. Each re-checks on a wake (a line
+# on Fidget's piped stderr, a file change, a UI Automation event) and gives up
+# after its seconds. Nothing sleeps or polls.
 
 . (Join-Path $PSScriptRoot "..\uia-signal-win.ps1")
 
-# One wake for every wait: a count that each stderr line and each file change
-# bumps. A wait notes the count, checks, then blocks until the count moves.
-# A pipe because Fidget keeps process.log open, and Windows reports a size or
-# last-write change on an open file only once the cache flushes it
-# (ReadDirectoryChangesW, FILE_NOTIFY_CHANGE_SIZE and _LAST_WRITE).
-# C# 5, so Windows PowerShell 5.1 compiles it too.
+# One wake count, bumped by each piped line and each file change. A pipe since
+# Windows reports writes to a file held open (process.log) only once its cache
+# flushes (ReadDirectoryChangesW docs). C# 5, so PowerShell 5.1 compiles it.
 if (-not ("FidgetSignal" -as [type])) {
     Add-Type @"
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading;
 public static class FidgetSignal {
     static readonly object gate = new object();
@@ -44,14 +40,19 @@ public static class FidgetSignal {
         w.EnableRaisingEvents = true;
         return w;
     }
-    // Each line of a redirected stream, written to path as it came (what
-    // Start-Process -RedirectStandardError wrote), then a wake.
+    // Each line of a redirected stream into path as UTF-8 with LF, then a
+    // wake. At end of stream the log closes and the handler comes off.
     public static void Tee(Process p, bool stderr, string path) {
-        StreamWriter log = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete));
+        StreamWriter log = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete), new UTF8Encoding(false));
+        log.NewLine = "\n";
         log.AutoFlush = true;
-        DataReceivedEventHandler on = delegate(object sender, DataReceivedEventArgs e) {
+        DataReceivedEventHandler on = null;
+        on = delegate(object sender, DataReceivedEventArgs e) {
             if (e.Data != null) {
                 lock (log) { log.WriteLine(e.Data); }
+            } else {
+                lock (log) { log.Dispose(); }
+                if (stderr) { p.ErrorDataReceived -= on; } else { p.OutputDataReceived -= on; }
             }
             Pulse();
         };
@@ -62,10 +63,9 @@ public static class FidgetSignal {
 "@
 }
 
-# Launch Fidget (or any program) with stdout and stderr piped to these logs,
-# one line at a time. Debug builds of Fidget copy every process.log line to
-# stderr; release builds do not, so scenarios run debug builds. Stdin is a
-# pipe too, held open and unused by Fidget.
+# Launch Fidget with stdout and stderr piped, as UTF-8, to these logs. Only
+# debug builds copy Fidget's stderr lines back from process.log to stderr, so
+# scenarios run debug builds. Stdin is a pipe Fidget leaves unused.
 function Start-FidgetPiped([string]$Bin, [string[]]$Arguments, [string]$StdoutLog, [string]$StderrLog, [string]$WorkingDirectory = "") {
     $start = New-Object System.Diagnostics.ProcessStartInfo $Bin
     if ($WorkingDirectory) { $start.WorkingDirectory = $WorkingDirectory }
@@ -74,6 +74,8 @@ function Start-FidgetPiped([string]$Bin, [string[]]$Arguments, [string]$StdoutLo
     $start.RedirectStandardInput = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
+    $start.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+    $start.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
     $process = [System.Diagnostics.Process]::Start($start)
     [FidgetSignal]::Tee($process, $false, $StdoutLog)
     [FidgetSignal]::Tee($process, $true, $StderrLog)
@@ -114,8 +116,6 @@ function Initialize-ScenarioData([string]$Out, [hashtable]$Settings = @{}) {
 # stderr line from a piped Fidget, or a change under $Dir), or until $Seconds
 # run out. A dead Fidget fails at its next wake or at the deadline.
 function Wait-OnChanges([double]$Seconds, [string]$Dir, [scriptblock]$Test) {
-    if (& $Test) { return $true }
-    if ($script:proc -and $script:proc.HasExited) { return $false }
     if (-not $Dir) { $Dir = $script:WatchDir }
     if (-not $Dir -or -not (Test-Path -LiteralPath $Dir)) { $Dir = [System.IO.Path]::GetTempPath() }
     $watcher = [FidgetSignal]::Watch($Dir)

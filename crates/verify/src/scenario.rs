@@ -1082,8 +1082,8 @@ mod tests {
     }
 
     // Windows PowerShell 5.1 compiles the shared waits' C# and passes their
-    // self-check: piped lines land in the log, each wakes a wait at once, and
-    // a wait gives up at its cap.
+    // self-check: only a piped line wakes a wait on an empty folder, the log
+    // keeps the bytes (UTF-8, LF, non-ASCII), and a wait gives up at its cap.
     #[cfg(windows)]
     #[test]
     fn wait_helpers_win_wake_on_each_piped_line() {

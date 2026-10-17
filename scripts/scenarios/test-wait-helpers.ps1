@@ -1,9 +1,7 @@
 #!/usr/bin/env pwsh
-# Self-check for wait-helpers.win.ps1's piped launch: a child's stderr lines
-# land in the evidence log as written, each line wakes a waiting
-# check at once, a wait gives up at its cap, and a dead child ends a wait.
-# The child echoes each stdin line to stderr, so the test drives it without
-# timers. Runs under pwsh 7 (any OS) and Windows PowerShell 5.1.
+# Self-check for wait-helpers.win.ps1's piped launch, under pwsh 7 and Windows
+# PowerShell 5.1. The child echoes each stdin line to stderr; the wait watches
+# an empty folder, so only the pipe can wake it.
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 
@@ -12,37 +10,66 @@ function Check([bool]$Ok, [string]$What) {
     if ($Ok) { Write-Output "PASS: $What" } else { Write-Output "FAIL: $What"; $script:failed++ }
 }
 
+$utf8 = New-Object System.Text.UTF8Encoding $false
 $dir = Join-Path ([System.IO.Path]::GetTempPath()) "wait-helpers-$([guid]::NewGuid().ToString('n'))"
-New-Item -ItemType Directory -Path $dir | Out-Null
-$script:WatchDir = $dir
+$quiet = Join-Path $dir "quiet"
+New-Item -ItemType Directory -Path $quiet | Out-Null
 $out = Join-Path $dir "app.log"
 $err = Join-Path $dir "app.err"
 $shell = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
-$echo = 'while ($null -ne ($l = [Console]::In.ReadLine())) { [Console]::Error.WriteLine($l) }'
+# Raw UTF-8 both ways, so neither side's console code page touches the bytes.
+$echo = '$e = New-Object System.Text.UTF8Encoding $false; ' +
+    '$in = New-Object System.IO.StreamReader ([Console]::OpenStandardInput()), $e; ' +
+    '$o = New-Object System.IO.StreamWriter ([Console]::OpenStandardError()), $e; $o.NewLine = "`n"; $o.AutoFlush = $true; ' +
+    'while ($null -ne ($l = $in.ReadLine())) { $o.WriteLine($l) }'
 $script:proc = Start-FidgetPiped $shell @("-NoProfile", "-Command", $echo) $out $err
+function Send([string]$Line) {
+    $bytes = $utf8.GetBytes("$Line`n")
+    $script:proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+    $script:proc.StandardInput.BaseStream.Flush()
+}
+function Holds([string]$Line) {
+    (Test-Path -LiteralPath $err) -and @(Get-Content -LiteralPath $err -Encoding UTF8 | Where-Object { $_ -ceq $Line }).Count -gt 0
+}
+# Wait on $Line, sending it from inside the wait's first check: only a wake
+# brings the wait back before the cap. True when it saw the line in time.
+function Wake-On([string]$Line) {
+    $script:sent = $false
+    $start = Get-NowMs
+    $got = Wait-OnChanges 3 $quiet {
+        if (-not $script:sent) { $script:sent = $true; Send $Line; return $false }
+        Holds $Line
+    }
+    $script:took = (Get-NowMs) - $start
+    return ($got -and $script:took -lt 1000)
+}
+
 try {
-    $start = Get-NowMs
-    $script:proc.StandardInput.WriteLine("ready")
-    Check (Wait-ForTrace 3 $err '^ready$') "a line reaches the evidence log as written"
-    Check (((Get-NowMs) - $start) -lt 2500) "the first line arrives well inside the cap"
+    # Started first, so the child's start-up is not counted as a wake.
+    Send "ready"
+    Check (Wait-ForTrace 3 $err '^ready$') "the child is up and its first line reached the log"
+    Check (Wake-On "one") "the piped line wakes the wait, not the cap ($script:took ms)"
+    Check (Wake-On "two") "a second line wakes it again ($script:took ms)"
+    $word = "h$([char]0xE9)llo $([char]0x2713) $([char]0x65E5)$([char]0x672C)"
+    Check (Wake-On $word) "a non-ASCII line wakes it ($script:took ms)"
+    $bytes = [System.IO.File]::ReadAllBytes($err)
+    $want = $utf8.GetBytes("ready`none`ntwo`n$word`n")
+    Check ([Convert]::ToBase64String($bytes) -eq [Convert]::ToBase64String($want)) "the log holds the lines as UTF-8 with LF, no BOM or CR"
 
-    $before = @(Get-Content -LiteralPath $err | Where-Object { $_ -match '^two$' }).Count
     $start = Get-NowMs
-    $script:proc.StandardInput.WriteLine("two")
-    Check (Wait-ForCount 3 $err '^two$' $before) "a line written after the trigger wakes Wait-ForCount"
-    $took = (Get-NowMs) - $start
-    Check ($took -lt 1000) "the wake follows the line, not the cap ($took ms)"
-
-    $start = Get-NowMs
-    Check (-not (Wait-ForTrace 1 $err 'never')) "a line that never comes fails the wait"
+    Check (-not (Wait-OnChanges 1 $quiet { Holds "never" })) "a line that never comes fails the wait"
     $took = (Get-NowMs) - $start
     Check ($took -ge 900 -and $took -lt 2000) "the wait gives up at its 1 s cap ($took ms)"
 
     $script:proc.StandardInput.Close()
     Check ($script:proc.WaitForExit(3000)) "the child exits once its stdin closes"
     $start = Get-NowMs
-    Check (-not (Wait-ForTrace 3 $err 'never')) "a dead child fails the wait"
+    Check (-not (Wait-OnChanges 3 $quiet { Holds "never" })) "a dead child fails the wait"
     Check (((Get-NowMs) - $start) -lt 1000) "a dead child fails it at once"
+    $script:proc.WaitForExit()
+    $closed = $true
+    try { [System.IO.File]::Open($err, "Open", "ReadWrite", "None").Dispose() } catch { $closed = $false }
+    Check $closed "the log writer closed at end of stream"
 } finally {
     if (-not $script:proc.HasExited) { $script:proc.Kill() }
     Remove-Item -Recurse -Force -LiteralPath $dir
