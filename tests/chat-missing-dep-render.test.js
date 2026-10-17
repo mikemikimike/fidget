@@ -3,30 +3,15 @@
 // selectable, until an attach answers or the user picks another Harness.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 const opening = (name, harness) => ({
   name: "Buddy Bot",
@@ -91,6 +76,7 @@ function drive() {
     };
   }
   async function run() {
+    console.log("__PROBE_READY__");
     while (!heard["chat-opening"]) await tick();
     while (document.getElementById("landing").hidden) await tick();
     const report = { missing: seen() };
@@ -104,53 +90,26 @@ function drive() {
     open(${JSON.stringify(MISSING)});
     open(${JSON.stringify(SWITCHED)});
     report.switched = seen();
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify(report);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(report));
   }
   window.addEventListener("load", () => run().catch((why) => {
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({ error: String(why) });
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify({ error: String(why) }));
   }));
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "chat-missing-dep-render-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=30000",
-      "--window-size=420,560",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the Chat surface did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
+  // The probe waits 20 real seconds to prove no timer clears the error.
+  return probePage(html, { args: ["--window-size=420,560"], timeout: 30000 });
 }
 
 test(
   "a missing launcher stays on the landing until an attach answers or the Harness changes",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
-  () => {
-    const report = drive();
+  async () => {
+    const report = await drive();
     assert.equal(report.error, undefined, report.error);
 
     const missing = {
