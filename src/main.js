@@ -19,6 +19,7 @@ import {
   placeQuickMessage,
   quickMessageMirror,
   spriteHovered,
+  windowBlurred,
 } from "./quick-message.js";
 
 const stage = document.getElementById("stage");
@@ -862,11 +863,11 @@ async function start() {
   });
   petDrag = null;
   gestureActive = false;
-  // The overlay lost the keyboard to another window: a click away (#1565).
   window.addEventListener("blur", () => {
-    for (const view of views.values()) {
-      if (view.quickMachine.typing) view.quickMachine.away();
-    }
+    windowBlurred(
+      [...views.values()].map((view) => view.quickMachine),
+      gestureActive,
+    );
   });
   document.addEventListener("pointerdown", (event) => {
     const composer = event.target.closest?.(".quick-message");
@@ -915,11 +916,6 @@ async function start() {
     if (!event.target.closest?.(".sprite")) return;
     // Summon opens Chat. The composer yields so the two are not up together.
     for (const view of views.values()) view.quickMachine.summon();
-  });
-  window.addEventListener("blur", () => {
-    // A pet drag can take focus from the overlay. The drag decides the pill.
-    if (gestureActive) return;
-    for (const view of views.values()) view.quickMachine.outside();
   });
   document.addEventListener("pointerup", (event) => {
     if (event.button === 0) {

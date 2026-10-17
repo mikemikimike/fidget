@@ -73,6 +73,13 @@ export function spriteHovered({ owner, shell }) {
   return Boolean(owner && shell);
 }
 
+// The overlay lost the keyboard to another window (#1565): a pill with text
+// stays, an empty one goes. A pet drag can blur it too; the drag decides that.
+export function windowBlurred(machines, gestureActive) {
+  if (gestureActive) return;
+  for (const machine of machines) machine.away();
+}
+
 export function createQuickMessage({ schedule, clear, send, onChange, available = true, trace }) {
   let visible = false;
   let text = "";

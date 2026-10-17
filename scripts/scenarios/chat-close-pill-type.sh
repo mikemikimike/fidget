@@ -314,14 +314,16 @@ type_into_pill nine click-away
 bounds=$(capped 3 osascript -e 'tell application "System Events" to get position of front window of process "TextEdit"') ||
   fail "no TextEdit window position"
 IFS=', ' read -r left top <<< "$bounds"
-# The first line's start: past the title bar and the text inset.
-capped 3 "$tools/click-cursor" "$((left + 8))" "$((top + 40))" 1 > "$out/through-click.txt" 2>&1 ||
-  fail "click-away: could not click TextEdit"
+# Click the first line's start, past the title bar and the text inset. That
+# blurs the pill, which reports its draft again: still "nine", unfocused.
+mark=$(wc -l < "$log")
+wait_for_next 3 "$log" "${draft}\"nine\" focused=false" "$tools/click-cursor" "$((left + 8))" "$((top + 40))" 1 ||
+  fail "click-away: the pill did not keep \"nine\" after the click; see $log"
 capped 3 "$tools/ax" type "$pid" ten >> "$out/helpers.log" 2>&1 || fail "click-away: could not type"
 caret_moved() { [ "$(text_front)" = tenabc ]; }
 wait_text click-away caret_moved || fail "click-away: the click did not put TextEdit's caret at the click; see $log"
 ! grep -qE "${draft}\"[^\"]*ten\"" "$log" || fail "click-away: the pill took typing back; see $log"
-grep -qE "${draft}\"nine\"" "$log" || fail "click-away: the pill lost its text"
-echo "ok: click-away: the caret moved to the click and typing followed"
+! tail -n +"$((mark + 1))" "$log" | grep -qE "$closed" || fail "click-away: the pill closed after the click; see $log"
+echo "ok: click-away: the caret moved to the click, typing followed, and the pill kept \"nine\""
 
 echo "PASS: evidence in $out"

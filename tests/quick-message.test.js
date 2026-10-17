@@ -15,6 +15,7 @@ import {
   crossedDrag,
   keepOnDrag,
   spriteHovered,
+  windowBlurred,
   placeQuickMessage,
   quickMessageConnects,
   quickMessageMirror,
@@ -1014,4 +1015,21 @@ test("only the pill's overlay, by the Shell's hit test, counts the cursor on the
   assert.equal(spriteHovered({ owner: true, shell: true }), true);
   assert.equal(spriteHovered({ owner: true, shell: false }), false);
   assert.equal(spriteHovered({ owner: false, shell: true }), false);
+});
+
+test("a click away keeps a pill with text, and its text", () => {
+  const { qm } = shown();
+  qm.setText("nine");
+  windowBlurred([qm], false);
+  assert.equal(qm.visible, true);
+  assert.equal(qm.text, "nine");
+});
+
+test("a click away closes an empty pill; a pet drag's blur leaves it to the drag", () => {
+  const dragged = shown().qm;
+  windowBlurred([dragged], true);
+  assert.equal(dragged.visible, true);
+  const { qm } = shown();
+  windowBlurred([qm], false);
+  assert.equal(qm.visible, false);
 });
