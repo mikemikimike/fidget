@@ -1,5 +1,6 @@
 //! Turning a Tauri window into a non-activating overlay panel.
 
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::OnceLock;
 
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
@@ -9,9 +10,9 @@ use objc2_app_kit::{
     NSWindowStyleMask,
 };
 
-/// An `NSPanel` subclass that refuses to become the key or main window, so
-/// the sprite can be clicked while the user keeps typing into whatever was
-/// already frontmost.
+/// An `NSPanel` subclass that never becomes main and becomes key only while
+/// tao's `focusable` is set, so a sprite click leaves the keyboard where it was
+/// but the quick message pill can take it (#1565).
 fn overlay_panel_class() -> &'static AnyClass {
     static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
 
@@ -28,12 +29,18 @@ fn overlay_panel_class() -> &'static AnyClass {
             Bool::NO
         }
 
+        extern "C" fn focusable(this: &AnyObject, _sel: Sel) -> Bool {
+            let ivar = this.class().instance_variable(c"focusable").unwrap();
+            // SAFETY: the class declares `focusable` as a BOOL.
+            unsafe { *ivar.load::<Bool>(this) }
+        }
+
         // SAFETY: both selectors return BOOL and take no arguments, which is
         // what `refuse` is declared as.
         unsafe {
             builder.add_method(
                 sel!(canBecomeKeyWindow),
-                refuse as extern "C" fn(_, _) -> Bool,
+                focusable as extern "C" fn(_, _) -> Bool,
             );
             builder.add_method(
                 sel!(canBecomeMainWindow),
@@ -72,6 +79,13 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     // SAFETY: the new class is an NSPanel, hence an NSWindow, of the same size;
     // toolkit messages stay valid.
     unsafe { AnyObject::set_class(ns_window, to) };
+    // tao built it focusable; only the pill's focus request turns that on.
+    // SAFETY: the class declares `focusable` as a BOOL.
+    unsafe {
+        *to.instance_variable(c"focusable")
+            .unwrap()
+            .load_ptr::<Bool>(ns_window) = Bool::NO
+    };
 
     let behavior = NSWindowCollectionBehavior::CanJoinAllSpaces
         | NSWindowCollectionBehavior::Stationary
@@ -86,6 +100,14 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
             ns_window,
             setStyleMask: style | NSWindowStyleMask::NonactivatingPanel
         ];
+        // The style alone still lets a sprite click activate Fidget. The public
+        // way, configuring before the first show, failed live (run 022305 at
+        // 3171fa9b), so this private setter stays, guarded.
+        let prevents = sel!(_setPreventsActivation:);
+        let responds: bool = msg_send![ns_window, respondsToSelector: prevents];
+        if responds {
+            let _: () = msg_send![ns_window, _setPreventsActivation: Bool::YES];
+        }
         let _: () = msg_send![ns_window, setLevel: NSFloatingWindowLevel as NSWindowLevel];
         let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
         let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
@@ -104,6 +126,118 @@ fn sharing_type() -> NSWindowSharingType {
         NSWindowSharingType::ReadOnly
     } else {
         NSWindowSharingType::None
+    }
+}
+
+/// The app that was in front when a pill took the keyboard, by pid; 0 is none.
+static FRONT_BEFORE_PILL: AtomicI32 = AtomicI32::new(0);
+
+/// Remember the frontmost app before the pill activates Fidget. Main thread.
+pub fn remember_front_app() {
+    let workspace = AnyClass::get(c"NSWorkspace").expect("AppKit defines NSWorkspace");
+    // SAFETY: plain NSWorkspace / NSRunningApplication getters.
+    unsafe {
+        let shared: *mut AnyObject = msg_send![workspace, sharedWorkspace];
+        let front: *mut AnyObject = msg_send![shared, frontmostApplication];
+        if front.is_null() {
+            return;
+        }
+        let pid: i32 = msg_send![front, processIdentifier];
+        if pid != std::process::id() as i32 {
+            FRONT_BEFORE_PILL.store(pid, Ordering::Relaxed);
+        }
+    }
+}
+
+/// The last pill on `window` closed: give up key status and hand activation
+/// back to the remembered app, unless the user already moved to another
+/// window. Main thread.
+pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let pid = FRONT_BEFORE_PILL.swap(0, Ordering::Relaxed);
+    let ns_window = window
+        .ns_window()
+        .map_err(|e| format!("overlay has no native window handle: {e}"))?
+        as *mut AnyObject;
+    let application = AnyClass::get(c"NSApplication").expect("AppKit defines NSApplication");
+    let running = AnyClass::get(c"NSRunningApplication").expect("AppKit defines it");
+    // SAFETY: AppKit getters and one action on live objects, on the main thread.
+    unsafe {
+        let app: *mut AnyObject = msg_send![application, sharedApplication];
+        let active: bool = msg_send![app, isActive];
+        let key: *mut AnyObject = msg_send![app, keyWindow];
+        let holding = active && (key.is_null() || key == ns_window);
+        let previous: *mut AnyObject = if pid == 0 {
+            std::ptr::null_mut()
+        } else {
+            msg_send![running, runningApplicationWithProcessIdentifier: pid]
+        };
+        let alive = !previous.is_null() && {
+            let gone: bool = msg_send![previous, isTerminated];
+            !gone
+        };
+        let decision = crate::pill_focus::hand_back(holding, alive);
+        match decision {
+            crate::pill_focus::HandBack::Stay => {}
+            crate::pill_focus::HandBack::Restore => {
+                let _: bool = msg_send![previous, activateWithOptions: 0usize];
+            }
+            // Nothing to give it back to. macOS 14 can ignore `deactivate`, so
+            // activate the next app in front; deactivate only when there is
+            // none. Hiding would hide the sprite too.
+            crate::pill_focus::HandBack::StepAside => {
+                let next = crate::pill_focus::next_app_in_front(
+                    &app_windows(),
+                    std::process::id() as i32,
+                    regular_app,
+                );
+                let target: *mut AnyObject = match next {
+                    Some(next) => msg_send![running, runningApplicationWithProcessIdentifier: next],
+                    None => std::ptr::null_mut(),
+                };
+                if target.is_null() {
+                    let _: () = msg_send![app, deactivate];
+                } else {
+                    let _: bool = msg_send![target, activateWithOptions: 0usize];
+                }
+            }
+        }
+        if crate::dev_flags::TRACE_BUBBLE.is_on() {
+            eprintln!(
+                "app: hand back {decision:?} holding={holding} remembered={pid} alive={alive}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// On-screen windows front to back, each with its owner's pid and layer.
+/// No permission needed.
+fn app_windows() -> Vec<crate::pill_focus::AppWindow> {
+    use objc2_foundation::{ns_string, NSNumber};
+    super::window_source::walk_visible(|e| {
+        let number = |key| {
+            e.objectForKey(key)
+                .and_then(|o| o.downcast::<NSNumber>().ok())
+                .map(|n| n.as_i64())
+        };
+        Some(crate::pill_focus::AppWindow {
+            pid: number(ns_string!("kCGWindowOwnerPID"))? as i32,
+            layer: number(ns_string!("kCGWindowLayer"))?,
+        })
+    })
+}
+
+/// Whether `pid` is a regular app, one with a Dock icon.
+fn regular_app(pid: i32) -> bool {
+    let running = AnyClass::get(c"NSRunningApplication").expect("AppKit defines it");
+    // SAFETY: plain NSRunningApplication getters; 0 is Regular.
+    unsafe {
+        let owner: *mut AnyObject =
+            msg_send![running, runningApplicationWithProcessIdentifier: pid];
+        !owner.is_null() && {
+            let policy: isize = msg_send![owner, activationPolicy];
+            policy == 0
+        }
     }
 }
 
@@ -132,5 +266,32 @@ mod tests {
         assert_eq!(focusable.offset(), tao_focusable.offset());
         assert_eq!(focusable.type_encoding(), tao_focusable.type_encoding());
         assert_eq!(panel.instance_size(), tao.instance_size());
+    }
+
+    extern "C" {
+        fn class_createInstance(class: &AnyClass, extra: usize) -> *mut AnyObject;
+        fn object_dispose(object: *mut AnyObject) -> *mut AnyObject;
+    }
+
+    /// #1565: the pill takes the keyboard by making the overlay key, so
+    /// `canBecomeKeyWindow` must follow tao's ivar. Main stays refused.
+    #[test]
+    fn the_panel_becomes_key_only_while_focusable() {
+        let panel = overlay_panel_class();
+        let ivar = panel.instance_variable(c"focusable").unwrap();
+        // SAFETY: a bare instance, never initialised; only our two methods and
+        // the ivar are touched before it is disposed.
+        unsafe {
+            let raw = class_createInstance(panel, 0);
+            let object = &*raw;
+            for focusable in [false, true, false] {
+                *ivar.load_ptr::<Bool>(object) = Bool::new(focusable);
+                let key: Bool = msg_send![object, canBecomeKeyWindow];
+                let main: Bool = msg_send![object, canBecomeMainWindow];
+                assert_eq!(key.as_bool(), focusable);
+                assert!(!main.as_bool());
+            }
+            object_dispose(raw);
+        }
     }
 }

@@ -358,6 +358,55 @@ pub fn prefer_x11_backend() {
 #[cfg(any(target_os = "macos", not(unix)))]
 pub fn prefer_x11_backend() {}
 
+/// Remember the frontmost app before a pill takes the keyboard. Main thread.
+#[cfg(target_os = "macos")]
+pub fn remember_front_app() {
+    macos::remember_front_app();
+}
+
+/// The overlay's last pill closed: hand the keyboard back. Main thread.
+#[cfg(target_os = "macos")]
+pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    macos::hand_back_keyboard(window)
+}
+
+/// Windows keeps main's focus behavior: the hand-back moves to its own PR.
+#[cfg(target_os = "windows")]
+pub fn hand_back_keyboard(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
+/// The X11 window behind a webview, or None on Wayland.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn x11_window(window: &impl raw_window_handle::HasWindowHandle) -> Option<u32> {
+    use raw_window_handle::RawWindowHandle;
+    match window.window_handle().ok()?.as_raw() {
+        RawWindowHandle::Xlib(xlib) => Some(xlib.window as u32),
+        RawWindowHandle::Xcb(xcb) => Some(xcb.window.get()),
+        _ => None,
+    }
+}
+
+/// Remember the active window before a pill takes the keyboard.
+/// Wayland: nothing to remember, see `hand_back_keyboard`.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn remember_foreground(window: &tauri::Window) {
+    if let Some(overlay) = x11_window(window) {
+        x11::remember_active_window(overlay);
+    }
+}
+
+/// Last pill closed: on X11, if the overlay still has focus, activate the window
+/// that was active before, or else the topmost one that isn't Fidget's. Wayland
+/// lets no client activate another's surface, so the compositor decides there.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    match x11_window(window) {
+        Some(overlay) => x11::return_keyboard(overlay),
+        None => Ok(()),
+    }
+}
+
 /// Make the overlay a floating, non-activating panel.
 #[cfg(target_os = "macos")]
 pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {

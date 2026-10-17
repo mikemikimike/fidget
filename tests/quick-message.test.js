@@ -14,6 +14,7 @@ import {
   createDraftReporter,
   crossedDrag,
   keepOnDrag,
+  windowBlurred,
   placeQuickMessage,
   quickMessageConnects,
   quickMessageMirror,
@@ -382,9 +383,23 @@ test("dispose clears the composer so composing cannot stick", () => {
   assert.equal(qm.typing, false);
 });
 
-test("Escape does not dismiss", () => {
+test("Escape closes the pill and drops its text", () => {
   const { qm } = shown();
-  assert.equal(qm.keydown("Escape"), false);
+  qm.setText("half a thought");
+  assert.equal(qm.keydown("Escape"), true);
+  assert.equal(qm.visible, false);
+  assert.equal(qm.text, "");
+});
+
+test("Escape keeps the pill shut until the pointer leaves the Character", () => {
+  const { qm, advance } = shown();
+  qm.keydown("Escape");
+  qm.enterSprite();
+  advance(HOVER_DELAY_MS);
+  assert.equal(qm.visible, false, "a resting cursor must not reopen it");
+  qm.leaveSprite();
+  qm.enterSprite();
+  advance(HOVER_DELAY_MS);
   assert.equal(qm.visible, true);
 });
 
@@ -951,4 +966,21 @@ test("a carried draft is this overlay's to report once it is typed into", () => 
 
   right.qm.setOwner(true, slot.get("a"));
   assert.equal(right.qm.visible, true, "the line being typed stays");
+});
+
+test("a click away keeps a pill with text, and its text", () => {
+  const { qm } = shown();
+  qm.setText("nine");
+  windowBlurred([qm], false);
+  assert.equal(qm.visible, true);
+  assert.equal(qm.text, "nine");
+});
+
+test("a click away closes an empty pill; a pet drag's blur leaves it to the drag", () => {
+  const dragged = shown().qm;
+  windowBlurred([dragged], true);
+  assert.equal(dragged.visible, true);
+  const { qm } = shown();
+  windowBlurred([qm], false);
+  assert.equal(qm.visible, false);
 });

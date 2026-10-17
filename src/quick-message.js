@@ -67,6 +67,13 @@ export function keepOnDrag(text) {
   return text.trim().length > 0;
 }
 
+// The overlay lost the keyboard to another window (#1565): a pill with text
+// stays, an empty one goes. A pet drag can blur it too; the drag decides that.
+export function windowBlurred(machines, gestureActive) {
+  if (gestureActive) return;
+  for (const machine of machines) machine.away();
+}
+
 export function createQuickMessage({ schedule, clear, send, onChange, available = true }) {
   let visible = false;
   let text = "";
@@ -150,6 +157,11 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
     if (!visible) return;
     text = "";
     hide();
+  }
+
+  // Typed text keeps the pill through a drag or a click away; an empty one goes.
+  function keepTyped() {
+    if (!keepOnDrag(text)) dismissOpen();
   }
 
   function submit() {
@@ -270,6 +282,12 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
     keydown(key, mods = {}) {
       if (!visible || !ready) return false;
       if (key === "Enter" && !mods.shiftKey && !mods.composing) return submit();
+      if (key === "Escape" && !mods.composing) {
+        // Like Send: a cursor still resting on the Character must not reopen it.
+        yielded = true;
+        dismissOpen();
+        return true;
+      }
       return false;
     },
     // A press on the composer is text, not a Poke. The character still is.
@@ -278,9 +296,9 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
       report();
     },
     outside: dismissOpen,
-    drag() {
-      if (!keepOnDrag(text)) dismissOpen();
-    },
+    drag: keepTyped,
+    // The overlay lost the keyboard to another window: the same as a drag.
+    away: keepTyped,
     summon() {
       yielded = true;
       dismissOpen();

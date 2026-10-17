@@ -18,6 +18,7 @@ import {
   crossedDrag,
   placeQuickMessage,
   quickMessageMirror,
+  windowBlurred,
 } from "./quick-message.js";
 
 const stage = document.getElementById("stage");
@@ -382,7 +383,8 @@ function syncQuick(view) {
 // Runs before the pill is up too: a leave during the dwell cancels it.
 function notePointerLeft(view) {
   if (!gestureActive) {
-    if (view.sprite.matches(":hover")) view.quickMachine.enterSprite();
+    // The Shell's hit test, sent only to the pill's overlay: :hover sticks after Chat (#1565).
+    if (view.latest?.hovered) view.quickMachine.enterSprite();
     else view.quickMachine.leaveSprite();
     if (view.quick.matches(":hover")) view.quickMachine.enterPill();
     else view.quickMachine.leavePill();
@@ -866,6 +868,12 @@ async function start() {
   });
   petDrag = null;
   gestureActive = false;
+  window.addEventListener("blur", () => {
+    windowBlurred(
+      [...views.values()].map((view) => view.quickMachine),
+      gestureActive,
+    );
+  });
   document.addEventListener("pointerdown", (event) => {
     const composer = event.target.closest?.(".quick-message");
     const sprite = event.target.closest?.(".sprite");
@@ -913,11 +921,6 @@ async function start() {
     if (!event.target.closest?.(".sprite")) return;
     // Summon opens Chat. The composer yields so the two are not up together.
     for (const view of views.values()) view.quickMachine.summon();
-  });
-  window.addEventListener("blur", () => {
-    // A pet drag can take focus from the overlay. The drag decides the pill.
-    if (gestureActive) return;
-    for (const view of views.values()) view.quickMachine.outside();
   });
   document.addEventListener("pointerup", (event) => {
     if (event.button === 0) {

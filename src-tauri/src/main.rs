@@ -46,6 +46,7 @@ mod model;
 mod names_hint;
 mod package;
 mod pi_mcp;
+mod pill_focus;
 mod platform;
 #[cfg_attr(not(unix), allow(dead_code))] // see the note on `consent`
 mod secrets;
@@ -325,7 +326,12 @@ impl MinimizedChats {
         let (floats, minimized) = match event {
             tauri::WindowEvent::Focused(focused) => (Some(*focused), minimized()),
             tauri::WindowEvent::Resized(_) => (None, minimized()),
-            tauri::WindowEvent::Destroyed => (None, false),
+            tauri::WindowEvent::Destroyed => {
+                if dev_flags::TRACE_BUBBLE.is_on() {
+                    eprintln!("chat: {label} is closed");
+                }
+                (None, false)
+            }
             _ => return None,
         };
         self.set(label, minimized);
@@ -567,6 +573,9 @@ struct SpritePlacement<'a> {
     /// Whether this Instance has a Chat window that is not minimized. Sent to
     /// every overlay, because the pill that must stay down can open on any of them.
     chatting: bool,
+    /// The cursor is over this Instance's art, by the Shell's hit test: :hover
+    /// misses it once Chat has closed (#1565). Bubble owner only, like the pill.
+    hovered: bool,
     /// Whether this overlay draws this Instance's bubble (#178, `bubble_owner`).
     /// Still sent to the overlays that lost, which drop the bubble they were
     /// showing on the tick the answer changes.
@@ -612,6 +621,7 @@ impl<'a> SpritePlacement<'a> {
             thinking: bubble && instance.thinking,
             asking: bubble && instance.asking,
             chatting: instance.chatting,
+            hovered: bubble && instance.hovered,
             bubble,
             cue: instance.cue.filter(|_| bubble).map(Cue::name),
             ripple_x: contact.map(|c| c.point.x.round() as i32 - display.x.round() as i32),
@@ -691,6 +701,7 @@ struct Placed {
     thinking: bool,
     asking: bool,
     chatting: bool,
+    hovered: bool,
     cue: Option<Cue>,
     /// Where this tick's landing touched, in the space every display shares.
     contact: Option<fidget_core::engine::RippleContact>,
@@ -2019,7 +2030,44 @@ fn overlay_composing(instance: String) {
 /// The owning overlay's draft for one Instance, on every change. `None` is a
 /// closed pill: sent, dismissed, dragged away empty, or the Instance gone.
 #[tauri::command]
-fn overlay_report_qm_draft(instance: String, payload: Option<fidget_core::quick_message::QmDraft>) {
+fn overlay_report_qm_draft(
+    window: tauri::Window,
+    instance: String,
+    payload: Option<fidget_core::quick_message::QmDraft>,
+) {
+    // An overlay takes the keyboard while it has an open pill (#1565) and
+    // hands it back when its last one closes. Counted per window, since a
+    // pill can move; a removed Character sends a closed draft from each.
+    let flips = pill_focus::shared()
+        .lock()
+        .map(|mut pills| pills.note(window.label(), &instance, payload.is_some()))
+        .unwrap_or_default();
+    for (label, open) in flips {
+        let Some(overlay) = window.app_handle().get_webview_window(&label) else {
+            continue;
+        };
+        #[cfg(target_os = "macos")]
+        if let Err(why) = overlay.set_focusable(open) {
+            eprintln!("overlay: {label} could not set its key state: {why}");
+        }
+        if !open {
+            let handed = overlay.clone();
+            let _ = overlay.run_on_main_thread(move || {
+                if let Err(why) = platform::hand_back_keyboard(&handed) {
+                    eprintln!("overlay: {why}");
+                }
+            });
+        }
+    }
+    if dev_flags::TRACE_BUBBLE.is_on() {
+        match &payload {
+            Some(draft) => eprintln!(
+                "overlay: draft instance={instance} text={:?} focused={}",
+                draft.text, draft.focused
+            ),
+            None => eprintln!("overlay: draft instance={instance} closed"),
+        }
+    }
     platform::set_qm_draft(instance, payload);
 }
 
@@ -2166,6 +2214,17 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
+        // macOS: the overlay refuses key until now. Making it key is what
+        // routes keys to the pill once the app is already active (#1565).
+        #[cfg(target_os = "macos")]
+        {
+            window.set_focusable(true).map_err(|e| e.to_string())?;
+            window
+                .run_on_main_thread(platform::remember_front_app)
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        platform::remember_foreground(&window);
         window.set_focus().map_err(|e| e.to_string())
     }
 }
@@ -2404,6 +2463,9 @@ fn open_chat(app: &tauri::AppHandle, id: &InstanceId, title: String, feet: Optio
         // typing, but keep Chat under the overlay so it stays a Perch.
         if let Err(why) = platform::activate_for_typing(&window) {
             eprintln!("chat: {label} could not be raised: {why}");
+        }
+        if dev_flags::TRACE_BUBBLE.is_on() {
+            eprintln!("chat: {label} is open");
         }
     }) {
         eprintln!("chat: could not reach the main thread: {why}");
@@ -6593,6 +6655,7 @@ mod tests {
             thinking: true,
             asking: true,
             chatting: true,
+            hovered: true,
             cue: Some(Cue::Drop),
             contact: Some(fidget_core::engine::RippleContact {
                 point: fidget_core::engine::Point {
@@ -6645,6 +6708,14 @@ mod tests {
             owner.chatting && elsewhere.chatting,
             "the pill can open on any overlay, so each one hears that Chat is up"
         );
+        assert!(
+            owner.hovered,
+            "the overlay that draws the pill hears the cursor"
+        );
+        assert!(
+            !elsewhere.hovered,
+            "or a second display opens its own pill and takes the keyboard"
+        );
 
         assert_eq!(
             (elsewhere.animation, elsewhere.frame_index, elsewhere.mirror),
@@ -6690,6 +6761,7 @@ mod tests {
             thinking: false,
             asking: false,
             chatting: false,
+            hovered: false,
             cue: None,
             contact: None,
             owner: Some(1),
