@@ -113,6 +113,15 @@ unless Chat is open.
 `launcher-dies-at-startup`, `sign-in-button`, `question-bubble`,
 `control-click-menu` and `poke-mid-climb` each have `.x11.sh` and `.win.ps1`
 leaves.
+`chat-close-pill-type` has a `.win.ps1` leaf. It types into a uniquely named
+file in Notepad, leaves other Notepad tabs and windows alone, and on cleanup
+closes only its own tab, plus the window if it opened Notepad. It skips while
+Fidget is running. A fullscreen app keeps running: the leaf logs it to
+`focus.log` and never focuses or moves it. Each run writes a new
+`chat-close-pill-type-<time>-<hex>` folder under the evidence dir it is given,
+or under `$env:TEMP`. It prints Fidget's `overlay: pill open
+SetForegroundWindow(...)` line, which shows whether Windows let the pill take
+the foreground (#1577).
 `fidget-verify scenario <name>` prints the leaf for this host. With `--go` it
 runs that leaf, or skips when this host has none.
 
