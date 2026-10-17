@@ -1406,6 +1406,57 @@ mod tests {
         );
     }
 
+    // Notepad's file reads through a share that lets Notepad keep writing; a
+    // writer that shares nothing means not saved yet, never an error.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_reads_notepads_file_while_it_is_open() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        fs::write(&path, "oneabc").unwrap();
+        let read = || pill_self_check("FIDGET_SCENARIO_READ_DOC", path.as_os_str());
+        assert_eq!(read(), "doc: oneabc");
+        let sharing = std::fs::OpenOptions::new()
+            .write(true)
+            .share_mode(0x1 | 0x2)
+            .open(&path)
+            .unwrap();
+        assert_eq!(read(), "doc: oneabc", "a writer that shares reading");
+        drop(sharing);
+        let exclusive = std::fs::OpenOptions::new()
+            .write(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert_eq!(read(), "doc: busy", "a writer that shares nothing");
+        drop(exclusive);
+    }
+
+    // An error the leaf did not expect still ends the run with a FAIL line in
+    // results.txt, not only a PowerShell error on the console.
+    #[test]
+    fn chat_close_pill_type_win_writes_a_fail_line_for_an_unexpected_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let results = dir.path().join("results.txt");
+        let shell = if cfg!(windows) { "powershell" } else { "pwsh" };
+        let Ok(out) = Command::new(shell)
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(repo_scenarios().join("chat-close-pill-type.win.ps1"))
+            .args(["--go", "fidget.exe", "fidget-test.exe"])
+            .env("FIDGET_SCENARIO_UNEXPECTED", &results)
+            .output()
+        else {
+            return; // No PowerShell on this host.
+        };
+        assert_eq!(out.status.code(), Some(1), "{out:?}");
+        let text = fs::read_to_string(&results).unwrap_or_default();
+        assert!(
+            text.contains("FAIL: unexpected error: boom from the self-check"),
+            "{text}"
+        );
+    }
+
     // Notepad goes on a monitor no fullscreen app covers, primary first, sized
     // to its work area; with every monitor covered it stays on the primary.
     #[cfg(windows)]
