@@ -47,6 +47,7 @@ impl OpenPills {
 }
 
 /// What to do with the keyboard when an overlay's last pill closes.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 #[derive(Debug, PartialEq, Eq)]
 pub enum HandBack {
     /// The user already moved on: leave the keyboard where it is.
@@ -59,30 +60,13 @@ pub enum HandBack {
 
 /// `holding`: Fidget's overlay still has the keyboard. `previous_alive`: the
 /// app or window remembered at focus time still exists. Same on every OS.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
     match (holding, previous_alive) {
         (false, _) => HandBack::Stay,
         (true, true) => HandBack::Restore,
         (true, false) => HandBack::StepAside,
     }
-}
-
-/// One top-level window, as Windows lists them in z-order. `perch` is
-/// `windows_perch::perch_candidate`: visible and not a tool window.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-pub struct Candidate {
-    pub ours: bool,
-    pub perch: bool,
-    pub cloaked: bool,
-}
-
-/// Where a step aside hands the foreground: the first perch in z-order that
-/// is neither Fidget's nor cloaked.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-pub fn next_in_front(z_order: &[Candidate]) -> Option<usize> {
-    z_order
-        .iter()
-        .position(|w| !w.ours && w.perch && !w.cloaked)
 }
 
 /// One on-screen window, as macOS lists them front to back.
@@ -130,27 +114,6 @@ mod tests {
         assert_eq!(next_app_in_front(&windows, 7, regular), Some(3));
         assert_eq!(*asked.borrow(), [5, 3], "stops at the first match");
         assert_eq!(next_app_in_front(&windows[..3], 7, |pid| pid != 5), None);
-    }
-
-    fn window(ours: bool, perch: bool, cloaked: bool) -> Candidate {
-        Candidate {
-            ours,
-            perch,
-            cloaked,
-        }
-    }
-
-    #[test]
-    fn a_step_aside_skips_fidget_non_perch_and_cloaked_windows() {
-        let z_order = [
-            window(true, true, false),
-            window(false, false, false),
-            window(false, true, true),
-            window(false, true, false),
-            window(false, true, false),
-        ];
-        assert_eq!(next_in_front(&z_order), Some(3));
-        assert_eq!(next_in_front(&z_order[..3]), None);
     }
 
     #[test]

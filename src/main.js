@@ -28,21 +28,6 @@ const stage = document.getElementById("stage");
 // asks, which is the safe way to be wrong.
 let clickableOffArt = false;
 
-// Whether the Shell can say if this overlay still holds the keyboard (Windows).
-// Elsewhere a blur is taken at its word, as before.
-let keyboardChecked = false;
-
-async function stillHoldsKeyboard() {
-  try {
-    const held = Boolean(await window.__TAURI__.core.invoke("overlay_holds_keyboard"));
-    if (held) traceBubble("blur kept the pill: the overlay still holds the keyboard");
-    return held;
-  } catch (err) {
-    console.error("overlay_holds_keyboard", err);
-    return false;
-  }
-}
-
 // Every Character's art as data: URLs, keyed by Character name and fetched
 // once. Art, not state, and one entry however many Instances draw from it.
 let characters = {};
@@ -734,11 +719,6 @@ async function start() {
     console.error("overlay_hit_tests_hotspots", err);
   }
   try {
-    keyboardChecked = (await window.__TAURI__.core.invoke("overlay_holds_keyboard")) !== null;
-  } catch (err) {
-    console.error("overlay_holds_keyboard", err);
-  }
-  try {
     if (await window.__TAURI__.core.invoke("overlay_traces_cadence")) cadence = [];
   } catch (err) {
     console.error("overlay_traces_cadence", err);
@@ -882,8 +862,7 @@ async function start() {
     windowBlurred(
       [...views.values()].map((view) => view.quickMachine),
       gestureActive,
-      keyboardChecked ? stillHoldsKeyboard : undefined,
-    ).catch((err) => console.error("windowBlurred", err));
+    );
   });
   document.addEventListener("pointerdown", (event) => {
     const composer = event.target.closest?.(".quick-message");

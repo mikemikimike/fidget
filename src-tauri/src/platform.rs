@@ -370,98 +370,10 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
     macos::hand_back_keyboard(window)
 }
 
-/// The window in front when a pill took the keyboard; 0 is none.
+/// Windows keeps main's focus behavior: the hand-back moves to its own PR.
 #[cfg(target_os = "windows")]
-static FOREGROUND_BEFORE_PILL: std::sync::atomic::AtomicIsize =
-    std::sync::atomic::AtomicIsize::new(0);
-
-/// Remember the foreground window before a pill takes the keyboard.
-#[cfg(target_os = "windows")]
-pub fn remember_foreground(window: windows_sys::Win32::Foundation::HWND) {
-    FOREGROUND_BEFORE_PILL.store(window as isize, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// The overlay's last pill closed: give the foreground back to the window
-/// that had it, if the overlay still holds it and that window still exists.
-#[cfg(target_os = "windows")]
-pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
-    use crate::pill_focus::{hand_back, HandBack};
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, IsWindow, SetForegroundWindow,
-    };
-
-    let previous = FOREGROUND_BEFORE_PILL.swap(0, std::sync::atomic::Ordering::Relaxed) as HWND;
-    let handle = window
-        .window_handle()
-        .map_err(|e| format!("overlay has no window handle: {e}"))?;
-    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
-        return Ok(());
-    };
-    let overlay = win32.hwnd.get() as HWND;
-    // SAFETY: Win32 queries on window handles; IsWindow vets the remembered one.
-    unsafe {
-        let holding = GetForegroundWindow() == overlay;
-        let alive = !previous.is_null() && IsWindow(previous) != 0;
-        match hand_back(holding, alive) {
-            HandBack::Restore => {
-                SetForegroundWindow(previous);
-            }
-            HandBack::StepAside => {
-                if let Some(next) = next_window_in_front() {
-                    SetForegroundWindow(next);
-                }
-            }
-            HandBack::Stay => {}
-        }
-    }
+pub fn hand_back_keyboard(_window: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
-}
-
-/// The top-level window a step aside hands the foreground to: the first perch
-/// in z-order that is neither Fidget's nor cloaked (another virtual desktop,
-/// a suspended UWP app).
-#[cfg(target_os = "windows")]
-fn next_window_in_front() -> Option<windows_sys::Win32::Foundation::HWND> {
-    use crate::pill_focus::{next_in_front, Candidate};
-    use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetTopWindow, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible,
-        GWL_EXSTYLE, GWL_STYLE, GW_HWNDNEXT,
-    };
-
-    let ours = std::process::id();
-    let mut windows = Vec::new();
-    let mut z_order = Vec::new();
-    // SAFETY: read-only Win32 queries on handles Windows just listed; a window
-    // that closes mid-walk answers with zeros and is skipped.
-    unsafe {
-        let mut hwnd = GetTopWindow(std::ptr::null_mut());
-        while !hwnd.is_null() && windows.len() < 4096 {
-            let mut pid = 0u32;
-            GetWindowThreadProcessId(hwnd, &mut pid);
-            let mut cloaked = 0u32;
-            let cloak_read = DwmGetWindowAttribute(
-                hwnd,
-                DWMWA_CLOAKED as _,
-                (&mut cloaked as *mut u32).cast(),
-                std::mem::size_of::<u32>() as u32,
-            );
-            z_order.push(Candidate {
-                ours: pid == ours,
-                perch: windows_perch::perch_candidate(
-                    IsWindowVisible(hwnd) != 0,
-                    GetWindowLongW(hwnd, GWL_STYLE),
-                    GetWindowLongW(hwnd, GWL_EXSTYLE),
-                ),
-                cloaked: cloak_read >= 0 && cloaked != 0,
-            });
-            windows.push(hwnd);
-            hwnd = GetWindow(hwnd, GW_HWNDNEXT);
-        }
-    }
-    next_in_front(&z_order).map(|i| windows[i])
 }
 
 /// The X11 window behind a webview, or None on Wayland.

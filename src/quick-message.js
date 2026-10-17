@@ -69,11 +69,8 @@ export function keepOnDrag(text) {
 
 // The overlay lost the keyboard to another window (#1565): a pill with text
 // stays, an empty one goes. A pet drag can blur it too; the drag decides that.
-// `stillHeld`, where the Shell can tell, answers whether this overlay still
-// holds the keyboard: a Windows activation blurs the page before it focuses it.
-export async function windowBlurred(machines, gestureActive, stillHeld) {
+export function windowBlurred(machines, gestureActive) {
   if (gestureActive) return;
-  if (stillHeld && (await stillHeld())) return;
   for (const machine of machines) machine.away();
 }
 

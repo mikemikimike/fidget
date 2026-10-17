@@ -976,36 +976,6 @@ test("a click away keeps a pill with text, and its text", () => {
   assert.equal(qm.text, "nine");
 });
 
-// Windows: activating the overlay hands the caret to its host window before
-// WebView2's, so the page blurs while the overlay still holds the keyboard.
-test("a blur while the overlay still holds the keyboard keeps an empty pill", async () => {
-  const { qm } = shown();
-  await windowBlurred([qm], false, async () => true);
-  assert.equal(qm.visible, true);
-});
-
-test("a blur after the keyboard went to another window closes an empty pill", async () => {
-  const { qm } = shown();
-  await windowBlurred([qm], false, async () => false);
-  assert.equal(qm.visible, false);
-  const kept = shown().qm;
-  kept.setText("nine");
-  await windowBlurred([kept], false, async () => false);
-  assert.equal(kept.visible, true);
-  assert.equal(kept.text, "nine");
-});
-
-test("a pet drag's blur does not ask who holds the keyboard", async () => {
-  const { qm } = shown();
-  let asked = false;
-  await windowBlurred([qm], true, async () => {
-    asked = true;
-    return false;
-  });
-  assert.equal(asked, false);
-  assert.equal(qm.visible, true);
-});
-
 test("a click away closes an empty pill; a pet drag's blur leaves it to the drag", () => {
   const dragged = shown().qm;
   windowBlurred([dragged], true);
