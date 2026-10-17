@@ -74,11 +74,30 @@ function launch() {
   const stub = `
 <script type="module">
   const handlers = {};
+  // Event-driven: each wait resolves on the invoke or listen it is waiting
+  // for, never on a timer. The bubbles show over a few frames after the pill,
+  // so the probe waits for the report that holds every rect, not for the pill.
+  const waiters = [];
+  const until = (ready) =>
+    new Promise((resolve) => {
+      const check = () => (ready() ? (resolve(), true) : false);
+      if (!check()) waiters.push(check);
+    });
+  const wake = () => {
+    for (let i = waiters.length - 1; i >= 0; i -= 1) if (waiters[i]()) waiters.splice(i, 1);
+  };
+  // Headless Chrome under --virtual-time-budget does not always deliver a
+  // display frame: a requestAnimationFrame can stay pending until the budget
+  // runs out, so draw() never runs, no bubble shows, and only the pill (placed
+  // outside draw) is reported. Drive frames from a virtual 60 Hz clock, which
+  // virtual time always advances, so every arm() is drawn.
+  window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
   window.__invoked = [];
   window.__TAURI__ = {
     core: {
       invoke(name, args) {
         window.__invoked.push({ name, args: structuredClone(args) });
+        queueMicrotask(wake);
         if (name === "character") return Promise.resolve({ characters: {} });
         if (name === "overlay_hit_tests_hotspots") return Promise.resolve(true);
         return Promise.resolve();
@@ -87,26 +106,28 @@ function launch() {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        queueMicrotask(wake);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "overlay-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 50));
   const box = (el, tail = 0) => {
     const r = el.getBoundingClientRect();
     return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height) + tail];
   };
+  const rects = () => window.__invoked.filter((c) => c.name === "overlay_rects").map((c) => c.args.rects);
+  const last = () => rects().at(-1) ?? null;
+  const has = (instance, clickable) => (last() ?? []).some((r) => r.follows?.instance === instance && r.clickable === clickable);
   async function drive() {
-    while (!handlers.frame) await tick();
+    await until(() => handlers.frame);
     handlers.frame({ payload: ${JSON.stringify(frame)} });
     const quick = document.querySelector('.quick-message[data-instance="idler"]');
     document.querySelector('.sprite[data-instance="idler"]').dispatchEvent(new PointerEvent("pointerenter"));
-    while (!quick.classList.contains("visible")) await tick();
-    for (let i = 0; i < 10; i += 1) await tick();
+    // Open chat, the speech, the dots and the pill: four rects, all reported.
+    await until(() => has("talker", true) && has("talker", false) && has("thinker", false) && has("idler", true));
     const bubble = (id) => document.querySelector('.bubble:not(.quick-message)[data-instance="' + id + '"]');
-    const rects = () => window.__invoked.filter((c) => c.name === "overlay_rects").map((c) => c.args.rects);
-    const reported = rects().at(-1) ?? null;
+    const reported = last();
     const expected = {
       openChat: box(bubble("talker").querySelector(".bubble-more")),
       speech: box(bubble("talker"), 10),
@@ -114,13 +135,13 @@ function launch() {
       pill: box(quick),
     };
     handlers.frame({ payload: ${JSON.stringify(handedOff)} });
-    for (let i = 0; i < 10; i += 1) await tick();
+    await until(() => last()?.length === 0);
     const out = document.createElement("pre");
     out.id = "probe";
     out.textContent = JSON.stringify({
       reported,
       expected,
-      handedOff: rects().at(-1) ?? null,
+      handedOff: last(),
       sent: rects().map((r) => JSON.stringify(r)),
     });
     document.body.append(out);
