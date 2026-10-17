@@ -60,6 +60,7 @@ function drive() {
     visible: shown,
     fade_ms: 0,
     sound: false,
+    hover_delay_ms: 1500,
   });
   const sprite = () => document.querySelector(".sprite");
   const bubble = () => document.querySelector(".bubble:not(.quick-message)");

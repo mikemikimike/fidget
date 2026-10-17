@@ -35,6 +35,7 @@ const frame = {
   visible: true,
   fade_ms: 0,
   sound: false,
+  hover_delay_ms: 1500,
 };
 
 function press() {
