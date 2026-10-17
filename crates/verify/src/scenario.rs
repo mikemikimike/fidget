@@ -1303,6 +1303,14 @@ mod tests {
                 "pillGone",
             ),
             (
+                "1792238682 overlay overlay-0: window blur foreground=false dnd=off",
+                "blurAway",
+            ),
+            (
+                "1792238682 overlay overlay-0: window blur foreground=true dnd=off",
+                "",
+            ),
+            (
                 "1792238676 overlay: pill open SetForegroundWindow(0x1a2b) -> 1 GetForegroundWindow() -> 0x1a2b",
                 "pillOpen",
             ),
