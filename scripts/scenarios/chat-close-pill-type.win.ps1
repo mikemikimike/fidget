@@ -226,8 +226,33 @@ if ($env:FIDGET_SCENARIO_READY_LOG) {
     exit 0
 }
 
+# Where Notepad goes: a monitor no fullscreen window covers, the primary first,
+# sized to fit its work area. With every monitor covered it stays on the primary,
+# and coming to the front is what puts it over the fullscreen app.
+function Get-NotepadPlacement([object[]]$Monitors) {
+    $order = @($Monitors | Where-Object { $_.Primary }) + @($Monitors | Where-Object { -not $_.Primary })
+    $pick = $order | Where-Object { -not $_.Full } | Select-Object -First 1
+    $free = [bool]$pick
+    if (-not $pick) { $pick = $order[0] }
+    $ww = $pick.R - $pick.L
+    $wh = $pick.B - $pick.T
+    $w = [math]::Min(1400, $ww - 100)
+    $h = [math]::Min(900, $wh - 100)
+    @{ Name = $pick.Name; X = $pick.L + [math]::Max(0, [math]::Min(400, $ww - $w)); Y = $pick.T + [math]::Max(0, [math]::Min(250, $wh - $h)); W = $w; H = $h; Free = $free }
+}
+if ($env:FIDGET_SCENARIO_MONITORS) {
+    $mons = @($env:FIDGET_SCENARIO_MONITORS -split ';' | ForEach-Object {
+        $f = $_ -split ','
+        @{ Name = $f[0]; Primary = $f[1] -eq '1'; Full = $f[2] -eq '1'; L = [int]$f[3]; T = [int]$f[4]; R = [int]$f[5]; B = [int]$f[6] }
+    })
+    $p = Get-NotepadPlacement $mons
+    Write-Output "place: $($p.Name) ($($p.X),$($p.Y)) $($p.W)x$($p.H) $(if ($p.Free) { 'free' } else { 'covered' })"
+    exit 0
+}
+
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 . (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
+$script:t0 = Get-NowMs
 
 # The middle of the sprite at rest: its top-left from the frame line, its size
 # from the overlay's startup line. $null until both are there.
@@ -371,6 +396,36 @@ public static class PillWin {
     public static string Class(IntPtr h) { var s = new StringBuilder(256); GetClassName(h, s, 256); return s.ToString(); }
     public static IntPtr RootAt(int x, int y) { var p = new POINT(); p.X = x; p.Y = y; return GetAncestor(WindowFromPoint(p), 2); }
     public static MONITORINFOEX Monitor(IntPtr h) { var i = new MONITORINFOEX(); i.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX)); GetMonitorInfo(MonitorFromWindow(h, 2), ref i); return i; }
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(uint attach, uint to, bool on);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] static extern bool IsGUIThread(bool convert);
+    // Windows gives the foreground only to a process it allows, and a script
+    // started in the background is not one. For the call, this thread's input
+    // joins the foreground thread's, which lifts that; no key or click reaches
+    // the window in front, and nothing moves, minimizes or closes it.
+    public static bool Bring(IntPtr h) {
+        if (SetForegroundWindow(h) && GetForegroundWindow() == h) return true;
+        IsGUIThread(true);
+        uint unused;
+        uint front = GetWindowThreadProcessId(GetForegroundWindow(), out unused);
+        uint me = GetCurrentThreadId();
+        bool joined = front != 0 && front != me && AttachThreadInput(me, front, true);
+        try { BringWindowToTop(h); SetForegroundWindow(h); }
+        finally { if (joined) AttachThreadInput(me, front, false); }
+        return GetForegroundWindow() == h;
+    }
+    delegate bool MonitorProc(IntPtr m, IntPtr dc, ref RECT r, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumDisplayMonitors(IntPtr dc, IntPtr clip, MonitorProc p, IntPtr l);
+    public static List<MONITORINFOEX> Monitors() {
+        var all = new List<MONITORINFOEX>();
+        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr m, IntPtr dc, ref RECT r, IntPtr l) => {
+            var i = new MONITORINFOEX(); i.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+            if (GetMonitorInfo(m, ref i)) all.Add(i);
+            return true;
+        }, IntPtr.Zero);
+        return all;
+    }
     public static List<IntPtr> Tops() {
         var all = new List<IntPtr>();
         EnumWindows((h, l) => { int v; bool cloaked = DwmGetWindowAttribute(h, 14, out v, 4) == 0 && v != 0; if (IsWindowVisible(h) && !cloaked) all.Add(h); return true; }, IntPtr.Zero);
@@ -406,6 +461,15 @@ function Get-Fullscreen {
     }
 }
 function Note-Foreground([string]$When) { "foreground $When`: $(Describe-Window ([PillWin]::GetForegroundWindow()))" | Add-Content -LiteralPath $focusLog }
+# Milliseconds since the script started, per step, so a slow step shows in focus.log.
+function Note-Step([string]$What) { "step +$((Get-NowMs) - $script:t0) ms: $What" | Add-Content -LiteralPath $focusLog }
+# Each monitor, and whether a fullscreen window covers it; Notepad's place from that.
+function Get-MonitorMap {
+    $covered = @(Get-Fullscreen | ForEach-Object { [PillWin]::Monitor($_).szDevice })
+    foreach ($m in [PillWin]::Monitors()) {
+        @{ Name = $m.szDevice; Primary = ($m.dwFlags -band 1) -eq 1; Full = $covered -contains $m.szDevice; L = $m.rcWork.L; T = $m.rcWork.T; R = $m.rcWork.R; B = $m.rcWork.B }
+    }
+}
 
 # The shared WebView2 profile, under the real LOCALAPPDATA (read before the run
 # points it at its own folder). A startup step that misses on the run that
@@ -442,7 +506,7 @@ function Count([string]$Pattern) {
 }
 # Until $Test holds, re-checked on each UI Automation event (focus, windows,
 # structure, names), for desktop state with no line or file of its own.
-function Wait-Ui([double]$Seconds, [scriptblock]$Test) { [bool](Wait-UiaChange 0 $Seconds $Test) }
+function Wait-Ui([double]$Seconds, [scriptblock]$Test) { [bool](Wait-UiaChange 0 $Seconds $Test $script:uia) }
 # One more matching line in Fidget's log than $Before, within 3 s.
 function Wait-LogCount([string]$Pattern, [int]$Before) { Wait-ForCount 3 $log $Pattern $Before }
 # Counts first, then pulls the trigger, then waits 3 s for one more matching line.
@@ -505,6 +569,8 @@ function Click-Sprite([string]$Case) {
     Move-Away $Case
     if (-not (Wait-ForNext $T.hit { $null = [PillWin]::SetCursorPos($script:aim.X, $script:aim.Y) })) { Fail "${Case}: the sprite's click area did not follow the cursor; see $log" }
     if (Count $T.opened) { Fail "${Case}: the pill opened before the press; see $log" }
+    $under = [PillWin]::RootAt($script:aim.X, $script:aim.Y)
+    if ((Owner-Of $under) -ne $script:proc.Id) { Fail "${Case}: refusing to click the sprite at ($($script:aim.X),$($script:aim.Y)): it would land on $(Describe-Window $under)" }
     Press-Hold $script:aim.X $script:aim.Y $Case
     Move-Away $Case
 }
@@ -600,12 +666,17 @@ function Close-OurNotepad {
 
 $startMs = Get-NowMs
 $cleanupFailed = $false
+# One UI Automation subscription for the whole run: subscribing on the desktop
+# root costs time on each wait that would otherwise make its own.
+$script:uia = [FidgetUiaSignal]::new(0)
+Note-Step "setup done"
 try {
     # Our window is the one showing our file: Notepad titles a window by its open
     # tab, and a new tab opens in front. The window and its process come from there.
     $null = Start-Process -FilePath notepad.exe -ArgumentList "`"$doc`""
-    $found = Wait-UiaChange 0 3 { [PillWin]::Tops() | Where-Object { [PillWin]::Title($_).Contains($docName) } | Select-Object -First 1 }
+    $found = Wait-UiaChange 0 3 { [PillWin]::Tops() | Where-Object { [PillWin]::Title($_).Contains($docName) } | Select-Object -First 1 } $script:uia
     if (-not $found) { Fail "Notepad did not show $docName in 3 s" }
+    Note-Step "notepad window found"
     $script:hwnd = [IntPtr]$found
     $script:notepad = Get-Process -Id (Owner-Of $script:hwnd)
     if ($script:notepad.ProcessName -ne "Notepad") { Fail "the $docName window belongs to $($script:notepad.ProcessName), not Notepad" }
@@ -618,10 +689,19 @@ try {
     "notepad: launch tabs `"$($script:launchTabs -join '", "')`"" | Add-Content -LiteralPath $focusLog
     "notepad: process $($script:notepad.Id), tabs $($ourTab.Names.Count), was running $notepadWasRunning; cleanup will $plan" | Add-Content -LiteralPath $focusLog
     if ([PillWin]::IsIconic($script:hwnd)) { Fail "the Notepad window holding $docName is minimized; the run leaves it that way" }
-    # A window already open keeps its place; one this run opened goes clear of the sprite.
-    if (-not $notepadWasRunning) { $null = [PillWin]::MoveWindow($script:hwnd, 400, 250, 1400, 900, $true) }
-    # Windows can refuse a background process the foreground; a click on our own tab takes it.
-    $null = [PillWin]::SetForegroundWindow($script:hwnd)
+    Note-Step "notepad tabs read"
+    # A window already open keeps its place. One this run opened goes on a monitor
+    # no fullscreen app covers (the sprite starts on the primary), and the
+    # fullscreen app itself is never moved, minimized or closed.
+    if (-not $notepadWasRunning) {
+        $place = Get-NotepadPlacement @(Get-MonitorMap)
+        $null = [PillWin]::MoveWindow($script:hwnd, $place.X, $place.Y, $place.W, $place.H, $true)
+        "notepad: placed on $($place.Name) at ($($place.X),$($place.Y)) $($place.W)x$($place.H)$(if (-not $place.Free) { '; every monitor has a fullscreen window, so it comes to the front over one' })" | Add-Content -LiteralPath $focusLog
+    }
+    # Windows can refuse a background process the foreground; Bring joins the
+    # foreground thread's input for the call, and a click on our own tab is the last resort.
+    $brought = [PillWin]::Bring($script:hwnd)
+    "notepad: brought to the front: $brought" | Add-Content -LiteralPath $focusLog
     if (-not (Wait-Ui 3 { Foreground-Is })) {
         $b = $ourTab.Tab.Current.BoundingRectangle
         $tabX = [int]($b.X + $b.Width / 3)
@@ -639,6 +719,7 @@ try {
     $text.SetFocus()
     if (-not (Wait-Ui 3 { Keys-InNotepad })) { Note-Keys "focusing Notepad's text"; Fail "Notepad's text area did not take the keys; see $focusLog" }
     [PillWin]::Key(0x11, $false); Press 0x24; [PillWin]::Key(0x11, $true)
+    Note-Step "notepad in front with the keys"
 
     # Fidget's private folders, set after Notepad starts so Notepad keeps the real ones.
     $null = Initialize-ScenarioData $Out @{ hide_in_fullscreen = $false }
@@ -659,12 +740,14 @@ try {
     # Each startup step waits 3 s from the one before it, woken by each line of
     # Fidget's piped stderr.
     $script:proc = Start-FidgetPiped $Bin @() (Join-Path $Out "app.log") (Join-Path $Out "app.err")
+    Note-Step "fidget launched"
     if (-not (Wait-LogCount $T.frame 0)) { Fail-Startup "Fidget drew no frame in 3 s of its launch; see $log" }
     if (-not (Wait-LogCount $T.loaded 0)) { Fail-Startup "the overlay's page did not load in 3 s of the first frame; see $log" }
     # The pre-launch check reads this lockfile, so it must be there now.
     if (-not (Test-Path -LiteralPath $profileLock)) { Fail "WebView2 loaded the page but holds no $profileLock, so the pre-launch profile check can't see a running WebView2" }
     if (-not (Wait-Until 3 { Test-OverlayListening (Get-Content -LiteralPath $log) })) { Fail-Startup "the overlay did not report in 3 s of its page loading; see $log" }
     if (-not (Wait-Ui 3 { Foreground-Is })) { Note-Keys "as Fidget started"; Fail "Notepad lost focus as Fidget started; see $focusLog" }
+    Note-Step "fidget ready"
 
     # 1. No pill open: a sprite click leaves Notepad in front, and typing lands there.
     Click-Sprite sprite-click
@@ -705,7 +788,10 @@ try {
 } finally {
     Stop-FidgetTree $script:proc $harnessTag
     $script:proc = $null
+    Note-Step "cleanup: fidget stopped"
     $why = Close-OurNotepad
+    Note-Step "cleanup: notepad done"
+    if ($script:uia) { $script:uia.Dispose() }
     if ($why) {
         [Console]::Error.WriteLine("FAIL: cleanup: $why")
         "FAIL: cleanup: $why" | Add-Content -LiteralPath $results
