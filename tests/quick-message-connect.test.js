@@ -2,30 +2,15 @@
 // real src/index.html and main.js the way chat-elicit-link.test.js drives Chat.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 // Nothing configured, so nothing can answer and nothing is starting.
 const opening = { configured: false, enabled: true, harness: null, login: "" };
@@ -75,6 +60,7 @@ function press() {
   };
   const tick = () => new Promise((r) => setTimeout(r, 50));
   async function drive() {
+    console.log("__PROBE_READY__");
     while (!handlers.frame) await tick();
     handlers.frame({ payload: ${JSON.stringify(frame)} });
     await tick();
@@ -97,57 +83,28 @@ function press() {
     openChat.dispatchEvent(new PointerEvent("pointerup", at));
     openChat.click();
     for (let i = 0; i < 5; i += 1) await tick();
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({
+    console.log("__PROBE_RESULT__" + JSON.stringify({
       ...shown,
       clicks: window.__invoked
         .slice(before)
         .filter((c) => ["overlay_primary", "overlay_secondary", "overlay_open_chat"].includes(c.name)),
       open: quick.classList.contains("visible"),
-    });
-    document.body.append(out);
+    }));
   }
   window.addEventListener("load", drive);
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "quick-message-connect-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=8000",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the overlay did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  const json = match[1]
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-  return JSON.parse(json);
+  return probePage(html, { timeout: 10000 });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";
 
-test("a click on Open chat opens Chat, closes the pill, and is no Poke", { skip, timeout: 60000 }, () => {
-  const report = press();
+test("a click on Open chat opens Chat, closes the pill, and is no Poke", { skip, timeout: 60000 }, async () => {
+  const report = await press();
   assert.equal(report.hint, "No AI connected yet.");
   assert.equal(report.control, "Open chat");
   assert.equal(report.oneLine, true, "the hint and Open chat share one line");
