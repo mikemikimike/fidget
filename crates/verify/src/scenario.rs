@@ -1183,7 +1183,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_closes_only_its_own_notepad_tab() {
-        let closes_window = "plan: close our tab, then the Notepad window this run opened";
+        let closes_window =
+            "plan: close our tab, then the window this run opened if it holds only tabs seen at launch";
         let tab_only = "plan: close our tab only";
         for (tabs, before, want) in [
             ("ours.txt", false, closes_window),
@@ -1227,8 +1228,8 @@ mod tests {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
-    // WebView2 starts listening about 3 s after the Shell's first frame (run
-    // 20261017-150421-6f18), so the first case waits for the overlay's first report.
+    // WebView2 starts listening seconds after the Shell's first frame, so the
+    // first case waits for the overlay's first report.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_waits_for_the_overlay_not_the_first_frame() {
@@ -1271,6 +1272,7 @@ mod tests {
                 "1792238670 overlay: 1 display(s); sprite 126x128; BMO as bmo",
                 "size",
             ),
+            ("1792238675 overlay: overlay-0 page loaded", "loaded"),
             (
                 "1792238676 overlay: draft instance=d4 text=\"\" focused=true",
                 "listening opened",
@@ -1344,6 +1346,51 @@ mod tests {
         assert_eq!(
             pill_self_check("FIDGET_SCENARIO_AIM_LOG", path.as_os_str()),
             "aim: (1707,1304)"
+        );
+    }
+
+    /// Whether cleanup may close the window this run opened, from the tabs at
+    /// launch and the tabs left once `ours.txt` has closed.
+    #[cfg(windows)]
+    fn window_verdict(at_launch: &str, left: &str) -> String {
+        let out = Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(repo_scenarios().join("chat-close-pill-type.win.ps1"))
+            .args([
+                "--go",
+                "C:\\Windows\\System32\\cmd.exe",
+                "C:\\Windows\\System32\\cmd.exe",
+            ])
+            .env("FIDGET_SCENARIO_NOTEPAD_TABS", at_launch)
+            .env("FIDGET_SCENARIO_NOTEPAD_LEFT", left)
+            .env("FIDGET_SCENARIO_DOC", "ours.txt")
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    // Win11 Notepad is one process for every window, so a run that started it
+    // closes only its own window, and only while every tab left was there at
+    // launch: anything opened during the run keeps the window open.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_closes_its_window_only_with_launch_tabs_left() {
+        assert_eq!(window_verdict("ours.txt", "none"), "window: close");
+        assert_eq!(
+            window_verdict(
+                "notes.txt|ours.txt|Untitled|Untitled",
+                "notes.txt|Untitled|Untitled"
+            ),
+            "window: close"
+        );
+        assert_eq!(
+            window_verdict("ours.txt", "todo.txt"),
+            "window: leave: \"todo.txt\" was not open at launch"
+        );
+        assert_eq!(
+            window_verdict("notes.txt|ours.txt", "notes.txt|notes.txt"),
+            "window: leave: \"notes.txt\" was not open at launch"
         );
     }
 

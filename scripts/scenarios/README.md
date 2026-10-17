@@ -115,13 +115,16 @@ unless Chat is open.
 leaves.
 `chat-close-pill-type` has a `.win.ps1` leaf. It types into a uniquely named
 file in Notepad, leaves other Notepad tabs and windows alone, and on cleanup
-closes only its own tab, plus the window if it opened Notepad. It skips while
+closes only its own tab. If it started Notepad, it also closes that one window,
+and only when every tab left in it was there at launch. It skips while
 Fidget is running. A fullscreen app keeps running: the leaf logs it to
 `focus.log` and never focuses or moves it. Each run writes a new
 `chat-close-pill-type-<time>-<hex>` folder under the evidence dir it is given,
 or under `$env:TEMP`. It prints Fidget's `overlay: pill open
 SetForegroundWindow(...)` line, which shows whether Windows let the pill take
-the foreground (#1577).
+the foreground (#1577). A warm-up launch pays Fidget's cold start first; the
+timed launch then waits 3 s for each of the first frame, the overlay's
+`overlay: <label> page loaded` line and its first draft report.
 `fidget-verify scenario <name>` prints the leaf for this host. With `--go` it
 runs that leaf, or skips when this host has none.
 

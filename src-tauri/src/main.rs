@@ -861,6 +861,29 @@ struct PickFills {
 }
 
 #[cfg(test)]
+mod overlay_page_load_tests {
+    use super::overlay_page_loaded_line;
+
+    // A scenario chains its startup waits on this line: the overlay's own
+    // document has loaded, between the first frame and the first draft report.
+    #[test]
+    fn only_the_overlay_document_finishing_is_traced() {
+        assert_eq!(
+            overlay_page_loaded_line("overlay-0", true, "http://tauri.localhost/").as_deref(),
+            Some("overlay: overlay-0 page loaded")
+        );
+        assert_eq!(
+            overlay_page_loaded_line("overlay-0", false, "http://tauri.localhost/"),
+            None
+        );
+        assert_eq!(
+            overlay_page_loaded_line("overlay-0", true, "about:blank"),
+            None
+        );
+    }
+}
+
+#[cfg(test)]
 mod settings_event_tests {
     use super::*;
 
@@ -2260,6 +2283,13 @@ fn cover_display(window: &tauri::WebviewWindow, display: Rect) -> Result<(), tau
 /// Build one overlay, configure it, and put it over its display. The only
 /// place an overlay is made, so click-through, window level, Spaces and hide
 /// rules stay one set. Main thread only: it builds a window and calls AppKit.
+/// The overlay's trace once its own document has loaded: the step between
+/// the window being built and the page's first draft report. `about:blank`
+/// finishes first and is not that document.
+fn overlay_page_loaded_line(label: &str, finished: bool, url: &str) -> Option<String> {
+    (finished && !url.starts_with("about:")).then(|| format!("overlay: {label} page loaded"))
+}
+
 fn build_overlay(
     app: &tauri::AppHandle,
     label: &str,
@@ -2280,6 +2310,17 @@ fn build_overlay(
         .resizable(false)
         .skip_taskbar(true)
         .visible(false)
+        .on_page_load(|webview, payload| {
+            if !dev_flags::TRACE_BUBBLE.is_on() {
+                return;
+            }
+            let finished = payload.event() == tauri::webview::PageLoadEvent::Finished;
+            if let Some(line) =
+                overlay_page_loaded_line(webview.label(), finished, payload.url().as_str())
+            {
+                eprintln!("{line}");
+            }
+        })
         .build()?;
 
     // On Linux/GTK, the GdkWindow handle is unavailable until realize (at

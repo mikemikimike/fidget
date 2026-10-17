@@ -2,13 +2,16 @@
 # Scenario: chat-close-pill-type (Windows)
 # On screen: Notepad on a uniquely named scratch file, as a tab of a Notepad
 #   already open or a window of its own, and Fidget as a standing BMO with the
-#   fixture Harness. Cleanup closes only that tab (and the window if this run
-#   opened Notepad), so it never comes back in Notepad's restored session.
+#   fixture Harness. Cleanup closes only that tab, so it never comes back in
+#   Notepad's restored session. If this run started Notepad, it also closes
+#   that one window, and only when every tab left in it was there at launch.
 # Input: SendInput cursor moves, clicks, typed words, Escape, Ctrl+Home, Ctrl+S.
 #   Each press is held until Fidget traces it down; each word is one SendInput.
-# Duration: about 15 s (an estimate until the first Windows run). Every wait
-#   gives up 3 s after its trigger, except Fidget's first frame and the overlay's
-#   first report, which get 10 s each.
+# Duration: about 20 s (an estimate until the first Windows run). A warm-up
+#   launch runs first and stops once its overlay reports (20 s at most). In the
+#   timed launch every wait gives up 3 s after its trigger: the first frame
+#   after the launch, the overlay's page load after that frame, and its first
+#   report after the page load.
 # Grants: a desktop session with no Fidget running (it skips otherwise). Other
 #   Notepad tabs and windows, and any fullscreen app, stay as they are; a
 #   fullscreen window is only logged. bash for the fixture Harness wrapper.
@@ -20,11 +23,12 @@
 #   the foreground (#1577).
 # Self-checks that launch nothing: FIDGET_SCENARIO_NOTEPAD_TABS (names split by
 #   |), FIDGET_SCENARIO_DOC and FIDGET_SCENARIO_NOTEPAD_BEFORE=1|0 print the
-#   Notepad cleanup plan; FIDGET_SCENARIO_READY_LOG=<process.log> prints whether
-#   the overlay was listening; FIDGET_SCENARIO_AIM_LOG=<process.log> prints the
-#   sprite's middle; FIDGET_SCENARIO_TRACE_LINE=<line> prints which waited-on
-#   trace patterns it matches; FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run
-#   folder and stops.
+#   Notepad cleanup plan, and adding FIDGET_SCENARIO_NOTEPAD_LEFT (the tabs left
+#   once ours closes, or none) prints whether the window may close;
+#   FIDGET_SCENARIO_READY_LOG=<process.log> prints whether the overlay was
+#   listening; FIDGET_SCENARIO_AIM_LOG=<process.log> prints the sprite's middle;
+#   FIDGET_SCENARIO_TRACE_LINE=<line> prints which waited-on trace patterns it
+#   matches; FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
 #   [evidence dir], or in $env:TEMP without one.
 #
@@ -58,6 +62,7 @@ if (-not $Bin -or -not $TestBin) {
 # timestamp first.
 $T = [ordered]@{
     frame     = '(?:^|\s)frame: \d+ '
+    loaded    = '(?:^|\s)overlay: \S+ page loaded$'
     size      = '(?:^|\s)overlay: \d+ display\(s\); sprite (\d+)x(\d+);'
     listening = '(?:^|\s)overlay: draft instance=\S+ '
     opened    = '(?:^|\s)overlay: draft instance=\S+ text="" focused=true$'
@@ -85,7 +90,23 @@ function Get-NotepadPlan([string[]]$Tabs, [string]$Ours, [bool]$WasRunning) {
     if ($mine -eq 0) { return "fail: no Notepad tab shows $Ours" }
     if ($mine -gt 1) { return "fail: Notepad already shows $Ours in $mine tabs" }
     if ($WasRunning) { return "close our tab only" }
-    "close our tab, then the Notepad window this run opened"
+    "close our tab, then the window this run opened if it holds only tabs seen at launch"
+}
+# After our tab is closed, whether the window this run opened may close too:
+# only if each tab left in it was there at launch, ours aside. Names repeat
+# (two "Untitled"), so each launch name covers one tab.
+function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) {
+    $pool = New-Object System.Collections.Generic.List[string]
+    foreach ($name in $AtLaunch) { if (-not $name.Contains($Ours)) { $pool.Add($name) } }
+    foreach ($name in $Left) {
+        if (-not $pool.Remove($name)) { return "leave: `"$name`" was not open at launch" }
+    }
+    "close"
+}
+if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
+    $left = if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT -eq "none") { [string[]]@() } else { [string[]]($env:FIDGET_SCENARIO_NOTEPAD_LEFT -split '\|') }
+    Write-Output "window: $(Get-WindowVerdict ($env:FIDGET_SCENARIO_NOTEPAD_TABS -split '\|') $left $env:FIDGET_SCENARIO_DOC)"
+    exit 0
 }
 if ($env:FIDGET_SCENARIO_NOTEPAD_TABS) {
     $plan = Get-NotepadPlan ($env:FIDGET_SCENARIO_NOTEPAD_TABS -split '\|') $env:FIDGET_SCENARIO_DOC ($env:FIDGET_SCENARIO_NOTEPAD_BEFORE -eq "1")
@@ -136,12 +157,15 @@ $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 $base = if ($Out) { $Out } else { $env:TEMP }
 $Out = Join-Path $base "chat-close-pill-type-$(Get-Date -Format yyyyMMdd-HHmmss)-$((Get-Random -Maximum 65536).ToString('x4'))"
 New-Item -ItemType Directory -Path $Out | Out-Null
+# The shared waits watch this run's folder.
+$script:WatchDir = $Out
 $results = Join-Path $Out "results.txt"
 $focusLog = Join-Path $Out "focus.log"
 Set-Content -LiteralPath $results -Value $null
 $script:proc = $null
 $script:notepad = $null
 $script:hwnd = [IntPtr]::Zero
+$script:launchTabs = [string[]]@()
 $harnessTag = $null
 
 function Fail([string]$Message) {
@@ -284,30 +308,13 @@ function Count([string]$Pattern) {
     if (-not (Test-Path -LiteralPath $log)) { return 0 }
     @(Get-Content -LiteralPath $log | Where-Object { $_ -match $Pattern }).Count
 }
-# Until $Test holds. NTFS can sit on change notices for a file Fidget holds open
-# (3 s on run 20261017-141510), so besides each change it rechecks every 50 ms.
-function Wait-Check([double]$Seconds, [scriptblock]$Test) {
-    $deadline = (Get-Date).AddSeconds($Seconds)
-    $watcher = New-Object System.IO.FileSystemWatcher $Out
-    $watcher.IncludeSubdirectories = $true
-    try {
-        while ($true) {
-            if (& $Test) { return $true }
-            if ($script:proc -and $script:proc.HasExited) { return $false }
-            $left = [int]($deadline - (Get-Date)).TotalMilliseconds
-            if ($left -le 0) { return $false }
-            $null = $watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, [Math]::Min($left, 50))
-        }
-    } finally { $watcher.Dispose() }
-}
-function Wait-LogCount([double]$Seconds, [string]$Pattern, [int]$Before) {
-    Wait-Check $Seconds { (Count $Pattern) -gt $Before }
-}
+# One more matching line in Fidget's log than $Before, within 3 s.
+function Wait-LogCount([string]$Pattern, [int]$Before) { Wait-ForCount 3 $log $Pattern $Before }
 # Counts first, then pulls the trigger, then waits 3 s for one more matching line.
 function Wait-ForNext([string]$Pattern, [scriptblock]$Trigger) {
     $before = Count $Pattern
     & $Trigger
-    Wait-LogCount 3 $Pattern $before
+    Wait-LogCount $Pattern $before
 }
 # Notepad in front with our tab the open one, so keys and Ctrl+S reach only our file.
 function Foreground-Is { [PillWin]::GetForegroundWindow() -eq $script:hwnd -and [PillWin]::Title($script:hwnd).Contains($docName) }
@@ -332,11 +339,11 @@ function Press-Hold([int]$X, [int]$Y, [string]$Case) {
     $null = [PillWin]::SetCursorPos($X, $Y)
     $downs = Count $T.down
     [PillWin]::Button($false)
-    $seen = Wait-LogCount 3 $T.down $downs
+    $seen = Wait-LogCount $T.down $downs
     $ups = Count $T.up
     [PillWin]::Button($true)
     if (-not $seen) { Fail "${Case}: Fidget did not see the press at ($X,$Y) in 3 s; see $log" }
-    if (-not (Wait-LogCount 3 $T.up $ups)) { Fail "${Case}: Fidget did not see the release at ($X,$Y) in 3 s; see $log" }
+    if (-not (Wait-LogCount $T.up $ups)) { Fail "${Case}: Fidget did not see the release at ($X,$Y) in 3 s; see $log" }
 }
 # A click only on our Notepad window, checked by the window under the point.
 function Click-Notepad([int]$X, [int]$Y, [string]$Case) {
@@ -346,7 +353,7 @@ function Click-Notepad([int]$X, [int]$Y, [string]$Case) {
 }
 function Press([uint16]$Vk) { [PillWin]::Key($Vk, $false); [PillWin]::Key($Vk, $true) }
 function Aim([string]$Case) {
-    if (-not (Wait-Check 3 { ($script:aim = Get-SpriteAim $log) })) { Fail "${Case}: the sprite was not at rest with a known size in 3 s; see $log" }
+    if (-not (Wait-Until 3 { ($script:aim = Get-SpriteAim $log) })) { Fail "${Case}: the sprite was not at rest with a known size in 3 s; see $log" }
 }
 function Move-Away { $null = [PillWin]::SetCursorPos($script:aim.X + 400, $script:aim.Y) }
 # The overlay is click-through until its hit test sees the cursor, so the sprite is
@@ -368,11 +375,11 @@ function Read-Doc { [System.IO.File]::ReadAllText($doc).TrimStart([char]0xFEFF) 
 function Notepad-Holds([string]$Expected) {
     if (-not (Foreground-Is)) { return $false }
     [PillWin]::Key(0x11, $false); Press 0x53; [PillWin]::Key(0x11, $true)
-    Wait-Check 3 { (Read-Doc) -ceq $Expected }
+    Wait-Until 3 { (Read-Doc) -ceq $Expected }
 }
 # Types $Word with Notepad in front and checks it landed there, not in the pill.
 function Type-IntoNotepad([string]$Word, [string]$Case, [string]$Expected) {
-    if (-not (Wait-Check 3 { Foreground-Is })) { Note-Keys "at $Case"; Fail "${Case}: Notepad was not in front to type into; see $focusLog" }
+    if (-not (Wait-Until 3 { Foreground-Is })) { Note-Keys "at $Case"; Fail "${Case}: Notepad was not in front to type into; see $focusLog" }
     [PillWin]::Text($Word)
     if (-not (Notepad-Holds $Expected)) { Note-Keys "at $Case"; Fail "${Case}: Notepad holds `"$(Read-Doc)`", not `"$Expected`"; see $focusLog" }
     if (Count (Draft-Holds $Word)) { Fail "${Case}: the pill took `"$Word`"; see $log" }
@@ -394,6 +401,13 @@ function Find-OurTab {
     }
     $null
 }
+# The tab names in one Notepad window, read through UI Automation. A window
+# already gone has none.
+function Get-TabNames([IntPtr]$H) {
+    try {
+        [string[]]@($UiaEl::FromHandle($H).FindAll([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::TabItem))) | ForEach-Object { $_.Current.Name })
+    } catch [System.Windows.Automation.ElementNotAvailableException] { [string[]]@() }
+}
 # Closes our tab by its own close button, so Notepad's session forgets it; a
 # prompt about our unsaved scratch text gets Don't save. Returns "" or what failed.
 function Close-OurNotepad {
@@ -404,20 +418,25 @@ function Close-OurNotepad {
     $close = $found.Tab.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::Button)))
     if (-not $close) { return "our tab $docName shows no close button; close it by hand" }
     $close.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    if (-not (Wait-Check 3 { -not (Find-OurTab) })) {
+    if (-not (Wait-Until 3 { -not (Find-OurTab) })) {
         $nameIs = New-Object System.Windows.Automation.PropertyCondition ($UiaEl::NameProperty), "Don't save"
         $dont = if ([PillWin]::IsWindow($found.Hwnd)) { $found.Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $nameIs) } else { $null }
         if ($dont) { $dont.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-        if (-not (Wait-Check 3 { -not (Find-OurTab) })) { return "our tab $docName is still open; close it by hand" }
+        if (-not (Wait-Until 3 { -not (Find-OurTab) })) { return "our tab $docName is still open; close it by hand" }
     }
     if ($notepadWasRunning) { return "" }
-    # This run opened Notepad: its windows go too, closed, never killed.
-    $np = Get-Process -Id $found.ProcessId -ErrorAction SilentlyContinue
-    if (-not $np) { return "" }
-    foreach ($h in [PillWin]::Tops()) {
-        if ((Owner-Of $h) -eq $found.ProcessId) { $null = [PillWin]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
+    # This run opened Notepad. Win11 Notepad is one process for every window, so
+    # only our own window may go, and only while each tab left in it was there
+    # at launch (a restored session). Closed, never killed.
+    if (-not [PillWin]::IsWindow($script:hwnd)) { return "" }
+    $left = Get-TabNames $script:hwnd
+    $verdict = Get-WindowVerdict $script:launchTabs $left $docName
+    if ($verdict.StartsWith("leave")) {
+        "note: cleanup left the Notepad window open: $($verdict.Substring(7))" | Tee-Object -FilePath $results -Append | Write-Output
+        return ""
     }
-    if (-not $np.WaitForExit(3000)) { return "the Notepad this run opened (process $($found.ProcessId)) did not close in 3 s; it holds no tab of ours" }
+    $null = [PillWin]::PostMessage($script:hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+    if (-not (Wait-Until 3 { -not [PillWin]::IsWindow($script:hwnd) })) { return "the Notepad window this run opened did not close in 3 s; it may be asking about a tab restored at launch" }
     ""
 }
 
@@ -436,13 +455,16 @@ try {
     if (-not $ourTab) { Fail "Notepad shows no tab named $docName to UI Automation" }
     $plan = Get-NotepadPlan $ourTab.Names $docName $notepadWasRunning
     if ($plan.StartsWith("fail: ")) { Fail $plan.Substring(6) }
+    # The tabs at launch, read through UI Automation, decide whether cleanup may close the window.
+    $script:launchTabs = Get-TabNames $script:hwnd
+    "notepad: launch tabs `"$($script:launchTabs -join '", "')`"" | Add-Content -LiteralPath $focusLog
     "notepad: process $($script:notepad.Id), tabs $($ourTab.Names.Count), was running $notepadWasRunning; cleanup will $plan" | Add-Content -LiteralPath $focusLog
     if ([PillWin]::IsIconic($script:hwnd)) { Fail "the Notepad window holding $docName is minimized; the run leaves it that way" }
     # A window already open keeps its place; one this run opened goes clear of the sprite.
     if (-not $notepadWasRunning) { $null = [PillWin]::MoveWindow($script:hwnd, 400, 250, 1400, 900, $true) }
     # Windows can refuse a background process the foreground; a click on our own tab takes it.
     $null = [PillWin]::SetForegroundWindow($script:hwnd)
-    if (-not (Wait-Check 3 { Foreground-Is })) {
+    if (-not (Wait-Until 3 { Foreground-Is })) {
         $b = $ourTab.Tab.Current.BoundingRectangle
         $tabX = [int]($b.X + $b.Width / 3)
         $tabY = [int]($b.Y + $b.Height / 2)
@@ -451,17 +473,17 @@ try {
         # No Fidget yet to trace the press, so this click is down and up at once.
         $null = [PillWin]::SetCursorPos($tabX, $tabY)
         [PillWin]::Button($false); [PillWin]::Button($true)
-        if (-not (Wait-Check 3 { Foreground-Is })) { Note-Keys "focusing Notepad"; Fail "Notepad did not take focus; see $focusLog" }
+        if (-not (Wait-Until 3 { Foreground-Is })) { Note-Keys "focusing Notepad"; Fail "Notepad did not take focus; see $focusLog" }
     }
     # A tab click leaves the keys on the tab strip; UI Automation moves them to the text.
     $text = $UiaEl::FromHandle($script:hwnd).FindFirst([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::Document)))
     if (-not $text) { Fail "Notepad shows no text area to UI Automation" }
     $text.SetFocus()
-    if (-not (Wait-Check 3 { Keys-InNotepad })) { Note-Keys "focusing Notepad's text"; Fail "Notepad's text area did not take the keys; see $focusLog" }
+    if (-not (Wait-Until 3 { Keys-InNotepad })) { Note-Keys "focusing Notepad's text"; Fail "Notepad's text area did not take the keys; see $focusLog" }
     [PillWin]::Key(0x11, $false); Press 0x24; [PillWin]::Key(0x11, $true)
 
     # Fidget's private folders, set after Notepad starts so Notepad keeps the real ones.
-    $null = Initialize-ScenarioData $Out @{ hide_in_fullscreen = $false }
+    $data = Initialize-ScenarioData $Out @{ hide_in_fullscreen = $false }
     $q = { param($p) ($p -replace '\\', '/') }
     $harnessTag = "count=$(& $q $marks)"
     $env:FIDGET_HARNESS = "$bashPath $(& $q $root)/scripts/scenarios/fixture-harness.sh $(& $q $TestBin) script=slow $harnessTag"
@@ -472,10 +494,32 @@ try {
     $env:FIDGET_TRACE_HITTEST = "1"
     $env:FIDGET_CHARACTER = "bmo"
     $env:FIDGET_CHARACTERS = $chars
+    # Warm-up: one launch into a data folder of its own, stopped once its overlay
+    # reports, so the timed launch below finds the exe and this run's WebView2
+    # profile already warm. Like CI's Chrome warm-up (#1559), it pays the cold
+    # start once and is the only wait over 3 s.
+    $warmData = Join-Path $Out "warmup"
+    New-Item -ItemType Directory -Path $warmData | Out-Null
+    Copy-Item -LiteralPath (Join-Path $data "settings.json") -Destination $warmData
+    $warmLog = Join-Path $warmData "process.log"
+    $env:FIDGET_DATA_DIR = $warmData
+    $warmStart = Get-NowMs
+    $script:proc = Start-Process -FilePath $Bin -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $Out "warmup-app.log") -RedirectStandardError (Join-Path $Out "warmup-app.err")
+    $warmed = Wait-Until 20 { (Test-Path -LiteralPath $warmLog) -and (Test-OverlayListening (Get-Content -LiteralPath $warmLog)) }
+    "warm-up: overlay reported $warmed after $((Get-NowMs) - $warmStart) ms" | Tee-Object -FilePath $results -Append | Write-Output
+    $warmProc = $script:proc
+    Stop-FidgetTree $warmProc $harnessTag
+    $script:proc = $null
+    if (-not $warmProc.WaitForExit(3000)) { Fail "warm-up: Fidget (process $($warmProc.Id)) did not exit in 3 s" }
+    if (-not $warmed) { Fail "warm-up: Fidget's overlay did not report in 20 s; see $warmLog" }
+    $env:FIDGET_DATA_DIR = $data
+
+    # The timed launch: each step waits 3 s from the one before it.
     $script:proc = Start-Process -FilePath $Bin -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $Out "app.log") -RedirectStandardError (Join-Path $Out "app.err")
-    if (-not (Wait-LogCount 10 $T.frame 0)) { Fail "Fidget drew no frame in 10 s; see $log" }
-    if (-not (Wait-Check 10 { Test-OverlayListening (Get-Content -LiteralPath $log) })) { Fail "the overlay's webview did not report in 10 s; see $log" }
-    if (-not (Wait-Check 3 { Foreground-Is })) { Note-Keys "as Fidget started"; Fail "Notepad lost focus as Fidget started; see $focusLog" }
+    if (-not (Wait-LogCount $T.frame 0)) { Fail "Fidget drew no frame in 3 s of its launch; see $log" }
+    if (-not (Wait-LogCount $T.loaded 0)) { Fail "the overlay's page did not load in 3 s of the first frame; see $log" }
+    if (-not (Wait-Until 3 { Test-OverlayListening (Get-Content -LiteralPath $log) })) { Fail "the overlay did not report in 3 s of its page loading; see $log" }
+    if (-not (Wait-Until 3 { Foreground-Is })) { Note-Keys "as Fidget started"; Fail "Notepad lost focus as Fidget started; see $focusLog" }
 
     # 1. No pill open: a sprite click leaves Notepad in front, and typing lands there.
     Click-Sprite sprite-click
@@ -487,7 +531,7 @@ try {
     # 2. Hover opens the pill, Fidget traces its SetForegroundWindow, and "two" lands in the pill.
     $opens = Count $T.pillOpen
     Open-Pill hover-type
-    if (-not (Wait-LogCount 3 $T.pillOpen $opens)) { Fail "hover-type: the pill opened but Fidget printed no pill open line; see $log" }
+    if (-not (Wait-LogCount $T.pillOpen $opens)) { Fail "hover-type: the pill opened but Fidget printed no pill open line; see $log" }
     $line = Get-Content -LiteralPath $log | Where-Object { $_ -match $T.pillOpen } | Select-Object -Last 1
     $null = $line -match $T.pillOpen
     $setResult = $Matches[2]
