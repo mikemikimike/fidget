@@ -21,7 +21,7 @@ if [ "${1:-}" != --go ]; then
 fi
 bin=${2:?usage: chat-close-pill-type.x11.sh --go <fidget binary> <fidget test binary>}
 test_bin=${3:?usage: chat-close-pill-type.x11.sh --go <fidget binary> <fidget test binary>}
-for tool in Xvfb xfwm4 mousepad xdotool xprop inotifywait stdbuf; do
+for tool in Xvfb xfwm4 mousepad xdotool xprop inotifywait stdbuf flock; do
   command -v "$tool" > /dev/null 2>&1 || {
     echo "SKIP: $tool is not installed." >&2
     exit 2
@@ -56,13 +56,13 @@ flock -n 9 || fail "another run holds $lock"
 # TERM to the tree of each process this run started, up to 3 s for all of them
 # to exit, then kill -9 on what is left of those trees. Only by PID.
 cleanup() {
-  local tree=() p alive=""
+  local tree=() p
   exec 9>&-
   for p in "${started[@]}"; do mapfile -t -O "${#tree[@]}" tree < <(process_tree "$p"); done
   [ "${#tree[@]}" -gt 0 ] || return 0
   kill "${tree[@]}" 2> /dev/null || true
-  for p in "${tree[@]}"; do kill -0 "$p" 2> /dev/null && alive=$p && break; done
-  [ -z "$alive" ] || wait_for_exit 3 "$alive" "$lock" || kill -9 "${tree[@]}" 2> /dev/null || true
+  # The lock, not one PID, says when every process that inherited it is gone.
+  flock -w 3 "$lock" true || kill -9 "${tree[@]}" 2> /dev/null || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM

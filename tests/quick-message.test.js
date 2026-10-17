@@ -98,6 +98,16 @@ test("a hover delay from the Shell replaces the 1.5s dwell", () => {
   assert.equal(qm.visible, true, "FIDGET_HOVER_DELAY_MS shortens the dwell");
 });
 
+test("no hover delay from the Shell keeps the 1.5s dwell", () => {
+  const { qm, advance } = harness({ hoverDelayMs: undefined });
+
+  qm.enterSprite();
+  advance(HOVER_DELAY_MS - 1);
+  assert.equal(qm.visible, false);
+  advance(1);
+  assert.equal(qm.visible, true);
+});
+
 test("leaving before the hover completes does not show the composer", () => {
   const { qm, advance } = harness();
 

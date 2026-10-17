@@ -732,7 +732,8 @@ async function start() {
     console.error("overlay_hit_tests_hotspots", err);
   }
   try {
-    hoverDelayMs = await window.__TAURI__.core.invoke("overlay_hover_delay_ms");
+    // null when unset, so quick-message.js keeps its own default.
+    hoverDelayMs = (await window.__TAURI__.core.invoke("overlay_hover_delay_ms")) ?? undefined;
   } catch (err) {
     console.error("overlay_hover_delay_ms", err);
   }
