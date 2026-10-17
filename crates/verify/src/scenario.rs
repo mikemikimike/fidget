@@ -1080,4 +1080,60 @@ mod tests {
     fn poke_mid_climb_win_fails_on_each_broken_assertion() {
         fixture_cases("poke-mid-climb.win.ps1", CLIMB_GOOD, CLIMB_CASES);
     }
+
+    /// The Notepad cleanup plan for these tab names, with `ours.txt` as the
+    /// run's doc and `before` whether Notepad was open before the run.
+    #[cfg(windows)]
+    fn notepad_plan(tabs: &str, before: bool) -> (Option<i32>, String) {
+        let out = Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(repo_scenarios().join("chat-close-pill-type.win.ps1"))
+            .args([
+                "--go",
+                "C:\\Windows\\System32\\cmd.exe",
+                "C:\\Windows\\System32\\cmd.exe",
+            ])
+            .env("FIDGET_SCENARIO_NOTEPAD_TABS", tabs)
+            .env("FIDGET_SCENARIO_DOC", "ours.txt")
+            .env(
+                "FIDGET_SCENARIO_NOTEPAD_BEFORE",
+                if before { "1" } else { "0" },
+            )
+            .output()
+            .unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (out.status.code(), text)
+    }
+
+    // Windows 11 Notepad is one process for every tab and reopens tabs whose window
+    // closed, so a run closes its own tab, and the window only if it opened Notepad.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_closes_only_its_own_notepad_tab() {
+        let closes_window = "plan: close our tab, then the Notepad window this run opened";
+        let tab_only = "plan: close our tab only";
+        for (tabs, before, want) in [
+            ("ours.txt", false, closes_window),
+            ("ours.txt", true, tab_only),
+            // Other tabs open: the user's own, or restored into the Notepad this run opened.
+            ("notes.txt|ours.txt|todo.txt", true, tab_only),
+            ("notes.txt|ours.txt", false, closes_window),
+        ] {
+            let (code, text) = notepad_plan(tabs, before);
+            assert_eq!(code, Some(0), "{tabs} before={before}: {text}");
+            assert!(text.contains(want), "{tabs} before={before}: {text}");
+        }
+
+        let (code, text) = notepad_plan("ours.txt|ours.txt", true);
+        assert_eq!(code, Some(1), "{text}");
+        assert!(text.contains("already shows ours.txt in 2 tabs"), "{text}");
+
+        let (code, text) = notepad_plan("notes.txt", true);
+        assert_eq!(code, Some(1), "{text}");
+        assert!(text.contains("no Notepad tab shows ours.txt"), "{text}");
+    }
 }

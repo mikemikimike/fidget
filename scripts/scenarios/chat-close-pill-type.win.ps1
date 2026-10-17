@@ -1,15 +1,20 @@
 #!/usr/bin/env pwsh
 # Scenario: chat-close-pill-type (Windows)
-# On screen: Notepad on a scratch file, and Fidget as a standing BMO with the
-#   fixture Harness. Both start here and close here, by PID.
+# On screen: Notepad on a uniquely named scratch file, as a tab of a Notepad
+#   already open or a window of its own, and Fidget as a standing BMO with the
+#   fixture Harness. Cleanup closes only that tab (and the window if this run
+#   opened Notepad), so it never comes back in Notepad's restored session.
 # Input: SendInput cursor moves, held clicks, typed words, Enter, Escape, Ctrl+S.
 # Duration: about 15 s. Every wait gives up 3 s after its trigger; Fidget's
 #   cold start gets 10 s.
-# Grants: a desktop session with no fullscreen window, and no Notepad or Fidget
-#   already running (it skips otherwise). bash for the fixture Harness wrapper.
+# Grants: a desktop session with no fullscreen window and no Fidget running (it
+#   skips otherwise). Other Notepad tabs and windows stay as they are. bash for
+#   the fixture Harness wrapper.
 # Asserts: a sprite click leaves typing in Notepad; the pill opens on hover and
 #   takes typing; Enter and Escape hand typing back to Notepad; a click into
 #   Notepad keeps the pill's text while typing goes to the click.
+# Set FIDGET_SCENARIO_NOTEPAD_TABS (names split by |), FIDGET_SCENARIO_DOC and
+#   FIDGET_SCENARIO_NOTEPAD_BEFORE=1|0 to print the Notepad cleanup plan only.
 #
 # Usage: chat-close-pill-type.win.ps1 --go <fidget binary> <fidget test binary> [evidence dir]
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -36,6 +41,25 @@ if (-not $Bin -or -not $TestBin) {
     exit 1
 }
 
+# Cleanup's plan for Notepad, from its tab names: it closes only our tab, and the
+# window too only when this run opened Notepad. Anything else fails loudly.
+function Get-NotepadPlan([string[]]$Tabs, [string]$Ours, [bool]$WasRunning) {
+    $mine = @($Tabs | Where-Object { $_ -like "*$Ours*" }).Count
+    if ($mine -eq 0) { return "fail: no Notepad tab shows $Ours" }
+    if ($mine -gt 1) { return "fail: Notepad already shows $Ours in $mine tabs" }
+    if ($WasRunning) { return "close our tab only" }
+    "close our tab, then the Notepad window this run opened"
+}
+if ($env:FIDGET_SCENARIO_NOTEPAD_TABS) {
+    $plan = Get-NotepadPlan ($env:FIDGET_SCENARIO_NOTEPAD_TABS -split '\|') $env:FIDGET_SCENARIO_DOC ($env:FIDGET_SCENARIO_NOTEPAD_BEFORE -eq "1")
+    if ($plan.StartsWith("fail: ")) {
+        [Console]::Error.WriteLine("FAIL: $($plan.Substring(6))")
+        exit 1
+    }
+    Write-Output "plan: $plan"
+    exit 0
+}
+
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 . (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
 . (Join-Path $PSScriptRoot "bash-setup-win.ps1")
@@ -57,6 +81,8 @@ public static class PillWin {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hh, bool r);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
@@ -114,12 +140,15 @@ function Get-Fullscreen {
     }
 }
 
-# Never touch a Notepad or Fidget already here, or a fullscreen app, which may take focus.
-$already = @(Get-Process -Name Notepad, fidget -ErrorAction SilentlyContinue | ForEach-Object { "$($_.ProcessName) $($_.Id)" })
+# A Fidget already here would share the overlay, and a fullscreen app may take focus.
+$already = @(Get-Process -Name fidget -ErrorAction SilentlyContinue | ForEach-Object { "fidget $($_.Id)" })
 if ($already.Count) {
-    [Console]::Error.WriteLine("SKIP: already running: $($already -join ', ')")
+    [Console]::Error.WriteLine("SKIP: Fidget is already running: $($already -join ', ')")
     exit 2
 }
+# Windows 11 Notepad is one process for every tab, so an open Notepad may hold the
+# user's docs: the run adds a tab or window of its own and touches nothing else.
+$notepadWasRunning = [bool](Get-Process -Name Notepad -ErrorAction SilentlyContinue)
 $full = @(Get-Fullscreen)
 if ($full.Count) {
     [Console]::Error.WriteLine("SKIP: a fullscreen window is up: $(Describe-Window $full[0])")
@@ -150,7 +179,8 @@ Note-Foreground "before the run"
 $log = Join-Path $Out "data\process.log"
 $marks = Join-Path $Out "harness.log"
 Set-Content -LiteralPath $marks -Value "" -Encoding ascii
-$doc = Join-Path $Out "doc.txt"
+$docName = "fidget-pill-$(Get-Date -Format yyyyMMdd-HHmmss)-$((Get-Random -Maximum 65536).ToString('x4')).txt"
+$doc = Join-Path $Out $docName
 [System.IO.File]::WriteAllText($doc, "abc")
 $chars = Join-Path $Out "characters"
 New-Item -ItemType Directory -Force -Path $chars | Out-Null
@@ -193,7 +223,8 @@ function Wait-ForNext([string]$Pattern, [scriptblock]$Trigger) {
     & $Trigger
     Wait-LogCount 3 $Pattern $before
 }
-function Foreground-Is { [PillWin]::GetForegroundWindow() -eq $script:hwnd }
+# Notepad in front with our tab the open one, so keys and Ctrl+S reach only our file.
+function Foreground-Is { [PillWin]::GetForegroundWindow() -eq $script:hwnd -and [PillWin]::Title($script:hwnd) -like "*$docName*" }
 function Keys-InNotepad {
     try {
         $f = [System.Windows.Automation.AutomationElement]::FocusedElement
@@ -212,7 +243,7 @@ function Press-Hold([int]$X, [int]$Y) {
     # Fidget samples the buttons each frame, so the press is held past one.
     [PillWin]::Button($false); Start-Sleep -Milliseconds 120; [PillWin]::Button($true)
 }
-# A click only on a window this run started: Notepad, by the window under the point.
+# A click only on our Notepad window, checked by the window under the point.
 function Click-Notepad([int]$X, [int]$Y) {
     [uint32]$p = 0
     [PillWin]::GetWindowThreadProcessId([PillWin]::RootAt($X, $Y), [ref]$p) | Out-Null
@@ -259,29 +290,80 @@ function Typing-BackInNotepad([string]$Word, [string]$Case, [string]$Expected) {
     Ok "${Case}: typing went back to Notepad"
 }
 
+$UiaEl = [System.Windows.Automation.AutomationElement]
+function Of-Type($Type) { New-Object System.Windows.Automation.PropertyCondition ($UiaEl::ControlTypeProperty), $Type }
+# Read-only: every Notepad window's tab names, and our tab, wherever it is.
+function Find-OurTab {
+    foreach ($h in [PillWin]::Tops()) {
+        [uint32]$p = 0
+        [PillWin]::GetWindowThreadProcessId($h, [ref]$p) | Out-Null
+        if ((Proc-Name $p) -ne "Notepad") { continue }
+        try {
+            $win = $UiaEl::FromHandle($h)
+            $tabs = @($win.FindAll([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::TabItem))))
+            $ours = $tabs | Where-Object { $_.Current.Name -like "*$docName*" } | Select-Object -First 1
+            if ($ours) { return @{ Hwnd = $h; Pid = $p; Window = $win; Tab = $ours; Names = [string[]]@($tabs | ForEach-Object { $_.Current.Name }) } }
+        } catch { continue }
+    }
+    $null
+}
+# Closes our tab by its own close button, so Notepad's session forgets it; a
+# prompt about our unsaved scratch text gets Don't save. Returns "" or what failed.
+function Close-OurNotepad {
+    $found = Find-OurTab
+    if (-not $found) { return "" }
+    $plan = Get-NotepadPlan $found.Names $docName $notepadWasRunning
+    if ($plan.StartsWith("fail: ")) { return $plan.Substring(6) }
+    $close = $found.Tab.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::Button)))
+    if (-not $close) { return "our tab $docName shows no close button; close it by hand" }
+    $close.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (-not (Wait-Check 3 { -not (Find-OurTab) })) {
+        $nameIs = New-Object System.Windows.Automation.PropertyCondition ($UiaEl::NameProperty), "Don't save"
+        $dont = if ([PillWin]::IsWindow($found.Hwnd)) { $found.Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $nameIs) } else { $null }
+        if ($dont) { $dont.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+        if (-not (Wait-Check 3 { -not (Find-OurTab) })) { return "our tab $docName is still open; close it by hand" }
+    }
+    if ($notepadWasRunning) { return "" }
+    # This run opened Notepad: its windows go too, closed, never killed.
+    $np = Get-Process -Id $found.Pid -ErrorAction SilentlyContinue
+    if (-not $np) { return "" }
+    foreach ($h in [PillWin]::Tops()) {
+        [uint32]$p = 0
+        [PillWin]::GetWindowThreadProcessId($h, [ref]$p) | Out-Null
+        if ($p -eq $found.Pid) { $null = [PillWin]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
+    }
+    if (-not $np.WaitForExit(3000)) { return "the Notepad this run opened (pid $($found.Pid)) did not close in 3 s; it holds no tab of ours" }
+    ""
+}
+
 $startMs = Get-NowMs
+$cleanupFailed = $false
 try {
-    $script:notepad = Start-Process -FilePath notepad.exe -ArgumentList "`"$doc`"" -PassThru
-    $found = Wait-UiaChange 0 3 { $h = [PillWin]::Tops() | Where-Object { [PillWin]::Title($_) -like "*doc.txt*" } | Select-Object -First 1; $h }
-    if (-not $found) { Fail "Notepad did not show doc.txt in 3 s" }
+    # Our window is the one whose title names our file: Notepad shows the open tab's name.
+    $null = Start-Process -FilePath notepad.exe -ArgumentList "`"$doc`""
+    $found = Wait-UiaChange 0 3 { [PillWin]::Tops() | Where-Object { [PillWin]::Title($_) -like "*$docName*" } | Select-Object -First 1 }
+    if (-not $found) { Fail "Notepad did not show $docName in 3 s" }
     $script:hwnd = [IntPtr]$found
     [uint32]$npid = 0
     [PillWin]::GetWindowThreadProcessId($script:hwnd, [ref]$npid) | Out-Null
-    if ($npid -ne $script:notepad.Id) {
-        $script:hwnd = [IntPtr]::Zero
-        Fail "the doc.txt window is pid $npid ($(Proc-Name $npid)), not the Notepad started here ($($script:notepad.Id))"
-    }
-    [PillWin]::ShowWindow($script:hwnd, 9) | Out-Null
-    [PillWin]::MoveWindow($script:hwnd, 400, 250, 1400, 900, $true) | Out-Null
-    # Windows can refuse a background process the foreground; Notepad's own title bar takes it.
+    $script:notepad = Get-Process -Id $npid
+    if ($script:notepad.ProcessName -ne "Notepad") { Fail "the $docName window belongs to $($script:notepad.ProcessName), not Notepad" }
+    $ourTab = Find-OurTab
+    if (-not $ourTab) { Fail "Notepad shows no tab named $docName to UI Automation" }
+    $plan = Get-NotepadPlan $ourTab.Names $docName $notepadWasRunning
+    if ($plan.StartsWith("fail: ")) { Fail $plan.Substring(6) }
+    "notepad: pid $npid, tabs $($ourTab.Names.Count), was running $notepadWasRunning; cleanup will $plan" | Add-Content -LiteralPath $focusLog
+    # A window already open keeps its place; one this run opened goes clear of the sprite.
+    if ([PillWin]::IsIconic($script:hwnd)) { [PillWin]::ShowWindow($script:hwnd, 9) | Out-Null }
+    if (-not $notepadWasRunning) { [PillWin]::MoveWindow($script:hwnd, 400, 250, 1400, 900, $true) | Out-Null }
+    # Windows can refuse a background process the foreground; a click on our own tab takes it.
     [PillWin]::SetForegroundWindow($script:hwnd) | Out-Null
     if (-not (Wait-Check 3 { Foreground-Is })) {
-        $r = New-Object PillWin+RECT
-        [PillWin]::GetWindowRect($script:hwnd, [ref]$r) | Out-Null
-        Click-Notepad ($r.R - 300) ($r.T + 15)
+        $b = $ourTab.Tab.Current.BoundingRectangle
+        Click-Notepad ([int]($b.X + $b.Width / 3)) ([int]($b.Y + $b.Height / 2))
         if (-not (Wait-Check 3 { Foreground-Is })) { Note-Keys "focusing Notepad"; Fail "Notepad did not take focus; see $focusLog" }
     }
-    # A title-bar click leaves the keys on the tab strip; UI Automation moves them to the text.
+    # A tab click leaves the keys on the tab strip; UI Automation moves them to the text.
     $isDoc = New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::ControlTypeProperty), ([System.Windows.Automation.ControlType]::Document)
     $text = [System.Windows.Automation.AutomationElement]::FromHandle($script:hwnd).FindFirst([System.Windows.Automation.TreeScope]::Descendants, $isDoc)
     if (-not $text) { Fail "Notepad shows no text area to UI Automation" }
@@ -345,10 +427,13 @@ try {
     "PASS: evidence in $Out ($((Get-NowMs) - $startMs) ms)" | Tee-Object -FilePath $results -Append | Write-Output
 } finally {
     Stop-FidgetTree $script:proc $harnessTag
-    if ($script:notepad -and -not $script:notepad.HasExited) {
-        # The file is saved, so a close asks nothing; the PID goes if it lingers.
-        if ($script:hwnd -ne [IntPtr]::Zero) { $null = [PillWin]::PostMessage($script:hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
-        if (-not $script:notepad.WaitForExit(3000)) { Stop-Process -Id $script:notepad.Id -Force -ErrorAction SilentlyContinue }
+    $script:proc = $null
+    $why = Close-OurNotepad
+    if ($why) {
+        [Console]::Error.WriteLine("FAIL: cleanup: $why")
+        "FAIL: cleanup: $why" | Add-Content -LiteralPath $results
+        $cleanupFailed = $true
     }
     foreach ($d in @("webview2", "tmp", "home")) { Remove-Item -Recurse -Force -LiteralPath (Join-Path $Out $d) -ErrorAction SilentlyContinue }
 }
+if ($cleanupFailed) { exit 1 }
