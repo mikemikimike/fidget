@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -38,6 +39,7 @@ const OPENING = {
 function drive(steps) {
   const stub = `
 <script>
+  ${pageWait()}
   const heard = {};
   window.__invoked = [];
   window.__TAURI__ = {
@@ -51,12 +53,12 @@ function drive(steps) {
     event: {
       listen(name, handler) {
         heard[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   const emit = (name, payload) => heard[name]({ payload });
   const KINDS = ["prompt", "thought", "tool", "plan-steps", "restored", "you", "them"];
   function rows() {
@@ -70,8 +72,9 @@ function drive(steps) {
   }
   async function run() {
     console.log("__PROBE_READY__");
-    while (!heard["chat-opening"] || !heard["chat-restored"]) await tick();
-    while (document.getElementById("line").disabled) await tick();
+    await ready("chat-opening");
+    await ready("chat-restored");
+    await until(() => !document.getElementById("line").disabled);
 ${steps}
     console.log("__PROBE_RESULT__" + JSON.stringify({
       rows: rows(),
@@ -95,7 +98,7 @@ ${steps}
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=420,560"], timeout: 10000 });
+  return probePage(html, { args: ["--window-size=420,560"] });
 }
 
 const HISTORY = [
@@ -124,7 +127,7 @@ test(
     const report = await drive(`
     document.getElementById("line").value = "are you back?";
     document.getElementById("composer").requestSubmit();
-    while (!document.querySelector("#log > .row.them")) await tick();
+    await until(() => document.querySelector("#log > .row.them"));
     emit("chat-restored", ${JSON.stringify(HISTORY)});
     emit("chat", { said: "Back now.", busy: false, reacting_to: null, you: false, at: null, error: null });`);
     assert.equal(report.error, undefined, report.error);
@@ -203,7 +206,7 @@ test(
     const report = await drive(`
     document.getElementById("line").value = "show me";
     document.getElementById("composer").requestSubmit();
-    while (!document.querySelector("#log > .row.them")) await tick();
+    await until(() => document.querySelector("#log > .row.them"));
     emit("chat-restored", ${JSON.stringify(history)});
     emit("chat-thought", "Live [live](https://example.com/live)\\n**kept as written**");
     for (const link of document.querySelectorAll("#log .md-link")) link.click();`);

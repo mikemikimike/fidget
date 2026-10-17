@@ -77,7 +77,7 @@ function paint() {
     </script>
   </body>
 </html>`;
-  return probePage(html, { args: ["--window-size=420,640"], timeout: 10000 });
+  return probePage(html, { args: ["--window-size=420,640"] });
 }
 
 const browser = { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 };

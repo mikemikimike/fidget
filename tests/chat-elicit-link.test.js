@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const URL_ = "https://example.test/device?code=ABCD-1234";
@@ -46,6 +47,7 @@ const form = {
 function paint(settled = false) {
   const stub = `
 <script type="module">
+  ${pageWait()}
   const handlers = {};
   window.__invoked = [];
   window.__TAURI__ = {
@@ -59,17 +61,18 @@ function paint(settled = false) {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
     console.log("__PROBE_READY__");
-    while (!handlers["chat-elicitation"] || document.getElementById("landing").hidden) await tick();
+    await ready("chat-elicitation");
+    await until(() => !document.getElementById("landing").hidden);
     handlers["chat-elicitation"]({ payload: ${JSON.stringify(form)} });
-    await tick();
+    await until(() => document.querySelector(".row.ask"));
     const row = document.querySelector(".row.ask");
     const buttons = [...row.querySelectorAll("button")];
     const drawn = {
@@ -83,7 +86,7 @@ function paint(settled = false) {
     } else {
       buttons.find((b) => b.textContent === "Open").click();
     }
-    for (let i = 0; i < 10; i += 1) await tick();
+    await until(() => buttons.every((b) => b.disabled));
     const calls = window.__invoked.slice(before);
     console.log("__PROBE_RESULT__" + JSON.stringify({
       ...drawn,
@@ -99,7 +102,7 @@ function paint(settled = false) {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { timeout: 10000 });
+  return probePage(html);
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";

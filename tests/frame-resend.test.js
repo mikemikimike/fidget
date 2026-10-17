@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -44,6 +45,7 @@ const nextFrame = {
 function run() {
   const stub = `
 <script type="module">
+  ${pageWait()}
   const handlers = {};
   // A placement asks the page for one display frame. The test drives those
   // frames, so the count between two deliveries is the listener's own.
@@ -69,32 +71,32 @@ function run() {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "overlay-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 50));
   // Runs every frame asked for until none is pending, so the count that
   // follows is the listener's own and not a frame something else still holds.
-  const settle = async () => {
-    await tick();
+  const drain = async () => {
+    await Promise.resolve();
     while (queued.length) {
       paint();
-      await tick();
+      await Promise.resolve();
     }
   };
   const deliver = async (payload) => {
-    await settle();
+    await drain();
     const before = asks;
     handlers.frame({ payload });
     const asked = asks - before;
-    await settle();
+    await drain();
     return asked;
   };
   async function drive() {
     console.log("__PROBE_READY__");
-    while (!handlers.frame) await tick();
+    await ready("frame");
     const first = await deliver(${JSON.stringify(frame)});
     const sprite = document.querySelector('.sprite[data-instance="bmo"]');
     const drawn = {
@@ -118,7 +120,7 @@ function run() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { timeout: 15000 });
+  return probePage(html);
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";

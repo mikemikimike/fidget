@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -60,6 +61,7 @@ const MODEL_API_OFF = { ...MODEL_API, enabled: false };
 function drive() {
   const stub = `
 <script>
+  ${pageWait()}
   const heard = {};
   const calls = [];
   let releaseSignIn = () => {};
@@ -69,11 +71,9 @@ function drive() {
       if (name === "sign_in") return new Promise((r) => { releaseSignIn = r; });
       return name === "chat_opening" ? Promise.resolve(${JSON.stringify(opening(null))}) : Promise.resolve();
     } },
-    event: { listen(name, handler) { heard[name] = handler; return Promise.resolve(() => {}); } },
+    event: { listen(name, handler) { heard[name] = handler; listeningNow(name); return Promise.resolve(() => {}); } },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
-  const settle = async () => { for (let i = 0; i < 10; i++) await tick(); };
   const show = (payload) => heard["chat-opening"]({ payload });
   function seen() {
     const buttons = [...document.querySelectorAll(".connect-btn")].filter((b) => {
@@ -94,7 +94,7 @@ function drive() {
   }
   async function run() {
     console.log("__PROBE_READY__");
-    while (!heard["chat-opening"]) await tick();
+    await ready("chat-opening");
     const out = {};
     for (const [state, payload] of Object.entries(${JSON.stringify(FAILED_PICKS)})) {
       show(${JSON.stringify(opening(null))});
@@ -158,7 +158,7 @@ function drive() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=420,900"], timeout: 20000 });
+  return probePage(html, { args: ["--window-size=420,900"] });
 }
 
 test("every branded button stays after a failed first pick", { skip, timeout: 60000 }, async () => {

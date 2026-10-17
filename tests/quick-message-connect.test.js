@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageClock } from "./page-clock.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -38,6 +40,8 @@ const frame = {
 function press() {
   const stub = `
 <script type="module">
+  ${pageClock()}
+  ${pageWait()}
   const handlers = {};
   window.__invoked = [];
   window.__TAURI__ = {
@@ -53,20 +57,20 @@ function press() {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "overlay-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 50));
   async function drive() {
     console.log("__PROBE_READY__");
-    while (!handlers.frame) await tick();
+    await ready("frame");
     handlers.frame({ payload: ${JSON.stringify(frame)} });
-    await tick();
+    await settle();
     const quick = document.querySelector('.quick-message[data-instance="bmo"]');
     document.querySelector('.sprite[data-instance="bmo"]').dispatchEvent(new PointerEvent("pointerenter"));
-    while (!quick.classList.contains("visible")) await tick();
+    await until(() => quick.classList.contains("visible"));
     const link = quick.querySelector(".quick-message-connect");
     const openChat = link.querySelector(".quick-message-open");
     const send = quick.querySelector(".quick-message-send");
@@ -82,7 +86,7 @@ function press() {
     openChat.dispatchEvent(new PointerEvent("pointerdown", at));
     openChat.dispatchEvent(new PointerEvent("pointerup", at));
     openChat.click();
-    for (let i = 0; i < 5; i += 1) await tick();
+    await until(() => !quick.classList.contains("visible"));
     console.log("__PROBE_RESULT__" + JSON.stringify({
       ...shown,
       clicks: window.__invoked
@@ -98,7 +102,7 @@ function press() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { timeout: 10000 });
+  return probePage(html);
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";

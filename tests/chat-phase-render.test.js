@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
 import { pageClock } from "./page-clock.js";
+import { pageWait } from "./page-wait.js";
 
 import { STALL_MS } from "../src/turn-phase.js";
 
@@ -37,6 +38,7 @@ function drive() {
   const stub = `
 <script>
   ${pageClock()}
+  ${pageWait()}
   const heard = {};
   window.__TAURI__ = {
     core: {
@@ -48,12 +50,12 @@ function drive() {
     event: {
       listen(name, handler) {
         heard[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => realSetTimeout(r, 0));
   const emit = (name, payload) => heard[name]({ payload });
   function phase() {
     const node = document.querySelector(".row.them .phase");
@@ -64,8 +66,10 @@ function drive() {
   }
   async function run() {
     console.log("__PROBE_READY__");
-    while (!heard.chat || !heard["chat-tool"] || !heard["chat-heard"]) await tick();
-    while (document.getElementById("line").disabled) await tick();
+    await ready("chat");
+    await ready("chat-tool");
+    await ready("chat-heard");
+    await until(() => !document.getElementById("line").disabled);
     const report = {};
     emit("chat", { you: true, said: "read the roster", busy: false, reacting_to: null, thought: false, at: null, error: null });
     emit("chat-tool", { id: "t1", title: "Read file", status: "in_progress" });
@@ -87,7 +91,7 @@ function drive() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=420,560"], timeout: 10000 });
+  return probePage(html, { args: ["--window-size=420,560"] });
 }
 
 test(

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -35,6 +36,7 @@ function opening(harness) {
 function paint(open) {
   const stub = `
 <script type="module">
+  ${pageWait()}
   const handlers = {};
   window.__invoked = [];
   window.__TAURI__ = {
@@ -48,15 +50,16 @@ function paint(open) {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
     console.log("__PROBE_READY__");
-    while (!handlers.chat || document.getElementById("empty").hidden) await tick();
+    await ready("chat");
+    await until(() => !document.getElementById("empty").hidden);
     const landing = document.getElementById("landing");
     const title = document.getElementById("landing-title");
     const lede = document.getElementById("landing-lede");
@@ -78,7 +81,7 @@ function paint(open) {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { timeout: 10000 });
+  return probePage(html);
 }
 
 test("fixture Harness with slow initialize shows starting state", { skip: !chrome }, async () => {

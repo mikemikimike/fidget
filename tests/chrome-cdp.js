@@ -233,7 +233,7 @@ export async function cleanupChrome(cdp) {
 
 // Writes `html` to a temp page, opens it headless, and resolves with the JSON the
 // page logs as `__PROBE_RESULT__<json>`, after it logs `__PROBE_READY__`.
-export async function probePage(html, { args = [], timeout = 6000 } = {}) {
+export async function probePage(html, { args = [], timeout = 3000 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "probe-page-"));
   let cdp;
   try {

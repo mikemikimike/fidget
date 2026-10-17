@@ -130,7 +130,7 @@ async function launch() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=1400,900"], timeout: 15000 });
+  return probePage(html, { args: ["--window-size=1400,900"] });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";

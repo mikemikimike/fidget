@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const FIXTURES = new URL("./fixtures/", import.meta.url);
@@ -26,7 +27,7 @@ function render(pageName, stub, { size = "760,640" } = {}) {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: [`--window-size=${size}`], timeout: 10000 });
+  return probePage(html, { args: [`--window-size=${size}`] });
 }
 
 const REPORT = `
@@ -45,15 +46,14 @@ export function settingsWith({ first, later = null, size = "760,640", freeze = n
   const stub = `
 <script>
   ${REPORT}
+  ${pageWait()}
   const heard = {};
   let snapshot = ${JSON.stringify({ form, view: { ...values, ...over }, reveal: first })};
   window.__TAURI__ = {
     core: { invoke(name) { return name === "settings_snapshot" ? Promise.resolve(snapshot) : Promise.resolve(); } },
-    event: { listen(name, handler) { heard[name] = handler; return Promise.resolve(() => {}); } },
+    event: { listen(name, handler) { heard[name] = handler; listeningNow(name); return Promise.resolve(() => {}); } },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "settings-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
-  const settle = async () => { for (let i = 0; i < 20; i++) await tick(); };
   function seen() {
     const at = document.activeElement;
     const style = at ? getComputedStyle(at) : null;
@@ -70,7 +70,7 @@ export function settingsWith({ first, later = null, size = "760,640", freeze = n
   }
   async function run() {
     console.log("__PROBE_READY__");
-    while (!heard["settings-refresh"]) await tick();
+    await ready("settings-refresh");
     await settle();
     const out = { first: seen() };
     ${later ? `snapshot = { ...snapshot, reveal: ${JSON.stringify(later)} };
@@ -108,6 +108,7 @@ test("the Chat landing button opens Settings on the AI source, not plain Setting
   const stub = `
 <script>
   ${REPORT}
+  ${pageWait()}
   const heard = {};
   const calls = [];
   window.__TAURI__ = {
@@ -115,18 +116,17 @@ test("the Chat landing button opens Settings on the AI source, not plain Setting
       calls.push(name);
       return name === "chat_opening" ? Promise.resolve(${JSON.stringify(opening)}) : Promise.resolve();
     } },
-    event: { listen(name, handler) { heard[name] = handler; return Promise.resolve(() => {}); } },
+    event: { listen(name, handler) { heard[name] = handler; listeningNow(name); return Promise.resolve(() => {}); } },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   async function run() {
     console.log("__PROBE_READY__");
-    while (!heard["chat-opening"]) await tick();
+    await ready("chat-opening");
     heard["chat-opening"]({ payload: ${JSON.stringify(opening)} });
-    for (let i = 0; i < 10; i++) await tick();
+    await settle();
     calls.length = 0;
     document.getElementById("settings-btn").click();
-    for (let i = 0; i < 10; i++) await tick();
+    await until(() => calls.includes("show_ai_source"));
     report({ calls });
   }
   window.addEventListener("load", () => run().catch((why) => report({ error: String(why) })));

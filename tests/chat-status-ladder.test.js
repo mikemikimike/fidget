@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const THEMES = ["minimal", "terminal", "glass"];
@@ -67,6 +68,7 @@ function measure() {
   };
   const stub = `
 <script>
+  ${pageWait()}
   const handlers = {};
   window.__TAURI__ = {
     core: {
@@ -78,12 +80,12 @@ function measure() {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   const IDS = ${JSON.stringify(CELL_IDS)};
   const THEMES = ${JSON.stringify(THEMES)};
   const round = (n) => Math.round(n * 100) / 100;
@@ -199,7 +201,7 @@ function measure() {
   async function drive() {
     console.log("__PROBE_READY__");
     const { applyChatUiClass } = await import("./chat-ui-class.js");
-    while (!handlers["chat-status"]) await tick();
+    await ready("chat-status");
     const bar = document.querySelector("footer.bar");
     const details = document.querySelector("details.advanced");
     const ladder = document.querySelector(".ladder");
@@ -287,7 +289,7 @@ function measure() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=420,560"], timeout: 20000 });
+  return probePage(html, { args: ["--window-size=420,560"] });
 }
 
 function why(theme, name, scene) {

@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
 import { pageClock } from "./page-clock.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -40,6 +41,7 @@ function drive() {
   const stub = `
 <script>
   ${pageClock()}
+  ${pageWait()}
   const heard = {};
   window.__TAURI__ = {
     core: {
@@ -51,12 +53,12 @@ function drive() {
     event: {
       listen(name, handler) {
         heard[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => realSetTimeout(r, 0));
   const open = (payload) => heard["chat-opening"]({ payload });
   function selectable(node) {
     for (let at = node; at; at = at.parentElement) {
@@ -79,8 +81,8 @@ function drive() {
   }
   async function run() {
     console.log("__PROBE_READY__");
-    while (!heard["chat-opening"]) await tick();
-    while (document.getElementById("landing").hidden) await tick();
+    await ready("chat-opening");
+    await until(() => !document.getElementById("landing").hidden);
     const report = { missing: seen() };
     // Fire every timer the page has due in the next twenty seconds: the window
     // a launcher would have to answer in for the error to clear itself.
@@ -105,7 +107,7 @@ function drive() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=420,560"], timeout: 10000 });
+  return probePage(html, { args: ["--window-size=420,560"] });
 }
 
 test(

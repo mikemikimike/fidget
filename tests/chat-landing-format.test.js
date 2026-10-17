@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 // The fixture launcher of scripts/scenarios/launcher-dies-at-startup.sh: one
@@ -44,6 +45,7 @@ function opening(harness) {
 function paint(open, width = 420) {
   const stub = `
 <script type="module">
+  ${pageWait()}
   const handlers = {};
   window.__invoked = [];
   window.__TAURI__ = {
@@ -57,17 +59,18 @@ function paint(open, width = 420) {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
     console.log("__PROBE_READY__");
     const title = document.getElementById("landing-title");
     const lede = document.getElementById("landing-lede");
-    while (!handlers.chat || document.getElementById("empty").hidden) await tick();
+    await ready("chat");
+    await until(() => !document.getElementById("empty").hidden);
     const range = document.createRange();
     range.setStartBefore(title);
     range.setEndAfter(lede);
@@ -129,7 +132,7 @@ function paint(open, width = 420) {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: [`--window-size=${width},560`], timeout: 10000 });
+  return probePage(html, { args: [`--window-size=${width},560`] });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -48,6 +49,7 @@ const steps = [
 function paint() {
   const stub = `
 <script type="module">
+  ${pageWait()}
   const handlers = {};
   window.__TAURI__ = {
     core: {
@@ -59,20 +61,20 @@ function paint() {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
     console.log("__PROBE_READY__");
-    while (!handlers["chat-elicitation"] || !handlers["chat-plan"] || document.getElementById("landing").hidden) {
-      await tick();
-    }
+    await ready("chat-elicitation");
+    await ready("chat-plan");
+    await until(() => !document.getElementById("landing").hidden);
     handlers["chat-elicitation"]({ payload: ${JSON.stringify(form)} });
     handlers["chat-plan"]({ payload: ${JSON.stringify(steps)} });
-    await tick();
+    await until(() => document.querySelector(".row.ask .said") && document.querySelector("#plan .step"));
     console.log("__PROBE_RESULT__" + JSON.stringify({
       question: document.querySelector(".row.ask .said").innerText,
       step: document.querySelector("#plan .step").innerText,
@@ -85,7 +87,7 @@ function paint() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { timeout: 10000 });
+  return probePage(html);
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";

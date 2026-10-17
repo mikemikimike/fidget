@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 // What grok answered every `session/prompt` with once its balance ran out,
@@ -37,6 +38,7 @@ function turnFailurePage(payloads) {
   };
   const stub = `
 <script type="module">
+  ${pageWait()}
   const handlers = {};
   window.__TAURI__ = {
     core: {
@@ -48,24 +50,25 @@ function turnFailurePage(payloads) {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
     console.log("__PROBE_READY__");
     for (const payload of ${JSON.stringify(payloads)}) {
-      while (!handlers.chat || document.getElementById("line").disabled) await tick();
+      await ready("chat");
+      await until(() => !document.getElementById("line").disabled);
       const asked = document.querySelectorAll("#log .row.you").length;
       document.getElementById("line").value = "are you there?";
       document.getElementById("composer").requestSubmit();
-      while (document.querySelectorAll("#log .row.you").length === asked) await tick();
+      await until(() => document.querySelectorAll("#log .row.you").length !== asked);
       handlers.chat({
         payload: { said: null, busy: false, reacting_to: null, you: false, at: null, ...payload },
       });
-      await tick();
+      await settle();
     }
     const log = document.getElementById("log");
     const failed = log.querySelector(".harness-error");
@@ -93,7 +96,7 @@ function turnFailurePage(payloads) {
 }
 
 function paint(payloads, width) {
-  return probePage(turnFailurePage(payloads), { args: [`--window-size=${width},560`], timeout: 10000 });
+  return probePage(turnFailurePage(payloads), { args: [`--window-size=${width},560`] });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";

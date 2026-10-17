@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 // From wider than build_chat's inner_size, past its 320 minimum.
@@ -47,6 +48,7 @@ function measure(name, harness = { name: "cursor-agent", session: "fd4be1a2-497f
   };
   const stub = `
 <script>
+  ${pageWait()}
   window.__TAURI__ = {
     core: {
       invoke(name) {
@@ -57,7 +59,6 @@ function measure(name, harness = { name: "cursor-agent", session: "fd4be1a2-497f
     event: { listen: () => Promise.resolve(() => {}) },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   function lines(node) {
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -72,7 +73,7 @@ function measure(name, harness = { name: "cursor-agent", session: "fd4be1a2-497f
   const side = (a, b) => a.right <= b.left + 0.5 && a.top < b.bottom && b.top < a.bottom;
   async function drive() {
     console.log("__PROBE_READY__");
-    while (!document.getElementById("mind-text").textContent) await tick();
+    await until(() => document.getElementById("mind-text").textContent);
     const header = document.querySelector(".tb");
     const name = document.getElementById("name");
     const chip = document.getElementById("character");
@@ -114,7 +115,7 @@ function measure(name, harness = { name: "cursor-agent", session: "fd4be1a2-497f
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=420,560"], timeout: 30000 });
+  return probePage(html, { args: ["--window-size=420,560"] });
 }
 
 function check(theme, report) {

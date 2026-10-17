@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -33,6 +34,7 @@ const OPENING = {
 function drive(steps) {
   const stub = `
 <script>
+  ${pageWait()}
   const heard = {};
   window.__TAURI__ = {
     core: {
@@ -44,12 +46,12 @@ function drive(steps) {
     event: {
       listen(name, handler) {
         heard[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   const emit = (name, payload) => heard[name]({ payload });
   function snap(row) {
     return {
@@ -65,8 +67,11 @@ function drive(steps) {
   }
   async function run() {
     console.log("__PROBE_READY__");
-    while (!heard.chat || !heard["chat-tool"] || !heard["chat-restored"] || !heard["chat-session"]) await tick();
-    while (document.getElementById("line").disabled) await tick();
+    await ready("chat");
+    await ready("chat-tool");
+    await ready("chat-restored");
+    await ready("chat-session");
+    await until(() => !document.getElementById("line").disabled);
 ${steps}
     console.log("__PROBE_RESULT__" + JSON.stringify(report));
   }
@@ -79,7 +84,7 @@ ${steps}
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=420,560"], timeout: 10000 });
+  return probePage(html, { args: ["--window-size=420,560"] });
 }
 
 const CALL = {

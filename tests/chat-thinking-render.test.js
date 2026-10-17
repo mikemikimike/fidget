@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -33,6 +34,7 @@ const OPENING = {
 function drive() {
   const stub = `
 <script>
+  ${pageWait()}
   const heard = {};
   window.__TAURI__ = {
     core: {
@@ -44,12 +46,12 @@ function drive() {
     event: {
       listen(name, handler) {
         heard[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   const emit = (name, payload) => heard[name]({ payload });
   function rows() {
     return [...document.querySelectorAll("#log > .row, #log > .note")].map((row) => {
@@ -67,12 +69,13 @@ function drive() {
   }
   async function run() {
     console.log("__PROBE_READY__");
-    while (!heard["chat-opening"] || !heard["chat-thought"]) await tick();
-    while (document.getElementById("line").disabled) await tick();
+    await ready("chat-opening");
+    await ready("chat-thought");
+    await until(() => !document.getElementById("line").disabled);
     const report = {};
     document.getElementById("line").value = "what are you standing on?";
     document.getElementById("composer").requestSubmit();
-    while (!document.querySelector("#log > .row.them")) await tick();
+    await until(() => document.querySelector("#log > .row.them"));
     emit("chat-thought", "Reading the roster");
     emit("chat-thought", "Reading the roster\\nChecking the desk");
     report.streaming = rows();
@@ -94,7 +97,7 @@ function drive() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=420,560"], timeout: 30000 });
+  return probePage(html, { args: ["--window-size=420,560"] });
 }
 
 test(

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const REPLY =
@@ -75,6 +76,7 @@ function paint(theme) {
   const markdown = pathToFileURL(join(SRC, "markdown.js")).href;
   const stub = `
 <script type="module">
+  ${pageWait()}
   import { appendReply, drawReply } from ${JSON.stringify(markdown)};
   const handlers = {};
   window.__TAURI__ = {
@@ -87,12 +89,12 @@ function paint(theme) {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   const full = ${JSON.stringify(REPLY)};
   const chunks = [
     "Run \`cargo",
@@ -109,10 +111,11 @@ function paint(theme) {
   }
   async function drive() {
     console.log("__PROBE_READY__");
-    while (!handlers.chat || document.getElementById("line").disabled) await tick();
+    await ready("chat");
+    await until(() => !document.getElementById("line").disabled);
     document.getElementById("line").value = "how do I run the tests?";
     document.getElementById("composer").requestSubmit();
-    while (!document.querySelector("#log .row.you")) await tick();
+    await until(() => document.querySelector("#log .row.you"));
     handlers.chat({
       payload: {
         said: full,
@@ -124,7 +127,7 @@ function paint(theme) {
         superseded_by: null,
       },
     });
-    await tick();
+    await until(() => document.querySelector("#log .row.them .said"));
     const said = document.querySelector("#log .row.them .said");
     const one = document.createElement("div");
     drawReply(one, full);
@@ -156,7 +159,7 @@ function paint(theme) {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--force-dark-mode"], timeout: 30000 });
+  return probePage(html, { args: ["--force-dark-mode"] });
 }
 
 test(

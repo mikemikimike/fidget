@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { findChrome, probePage } from "./chrome-cdp.js";
 import { pageClock } from "./page-clock.js";
+import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -26,6 +27,7 @@ function drive() {
   const stub = `
 <script type="module">
   ${pageClock()}
+  ${pageWait()}
   const handlers = {};
   window.__TAURI__ = {
     core: {
@@ -39,12 +41,12 @@ function drive() {
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "overlay-test" }) },
   };
-  const tick = () => new Promise((r) => realSetTimeout(r, 0));
   const spriteOf = (x, y, extra) => ({
     id: "bmo",
     character: "Buddy Bot",
@@ -76,43 +78,29 @@ function drive() {
     if (!a.visible || !b.visible || a.w <= 0 || b.w <= 0) return false;
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
-  // Each poll waits a real frame before it reads: a state that flips inside a
-  // task reaches the DOM on the next drawn one, and a seat read before it is
-  // the stale one. The clock then steps over whatever timer the page waits on.
-  async function until(pred, why) {
-    for (let i = 0; i < 80; i += 1) {
-      await new Promise((r) => requestAnimationFrame(r));
-      if (pred()) return;
-      const next = window.__nextDue();
-      if (next !== null) window.__advance(next);
-    }
-    throw new Error(why + " bubble=" + (bubble()?.className || "none") + "/" + (bubble()?.dataset.mode || "-"));
-  }
   let stamp = 0;
   function emit(x, y, extra, shown = true) {
     handlers.frame({ payload: frame(x, y, { ...(extra || {}), stamp: ++stamp }, shown) });
   }
   async function blank() {
     emit(400, 300, null, false);
-    await until(() => bubble() && !bubble().classList.contains("visible"), "blank");
+    await until(() => bubble() && !bubble().classList.contains("visible"));
   }
   async function speech(x, y) {
     emit(x, y, { dialogue: "hello there" });
     await until(
       () => bubble().classList.contains("visible") && bubble().dataset.mode === "speech",
-      "speech",
     );
   }
   async function dots(x, y) {
     emit(x, y, { thinking: true });
     await until(
       () => bubble().classList.contains("visible") && bubble().dataset.mode === "thinking",
-      "dots",
     );
   }
   async function idle(x, y) {
     emit(x, y, null);
-    await until(() => sprite() && field() && !field().disabled, "idle");
+    await until(() => sprite() && field() && !field().disabled);
   }
   // The gesture that opens the pill. The delay it waits out before showing is
   // one of the page timers the poll below steps over.
@@ -122,7 +110,7 @@ function drive() {
   }
   async function openPill() {
     hover();
-    await until(() => pill().classList.contains("visible"), "pill");
+    await until(() => pill().classList.contains("visible"));
   }
   function snap(name, expect) {
     const b = box(bubble());
@@ -161,19 +149,18 @@ function drive() {
     document.querySelector(".quick-message-send").click();
     await until(
       () => bubble().classList.contains("visible") && bubble().dataset.mode === "thinking" && !pill().classList.contains("visible"),
-      "send",
     );
     hover();
     await until(
       () => pill().classList.contains("visible") && bubble().dataset.mode === "thinking",
-      "rehover",
     );
     rows.push(snap(seat + " send then rehover over dots", "thinking"));
     return rows;
   }
   async function run() {
     console.log("__PROBE_READY__");
-    while (!handlers.frame || window.innerWidth < 100) await tick();
+    await ready("frame");
+    await until(() => window.innerWidth >= 100);
     const cases = [];
     for (const [seat, y] of [["mid", 300], ["top", 0]]) {
       cases.push(...await at(seat, 400, y));
@@ -189,7 +176,7 @@ function drive() {
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  return probePage(html, { args: ["--window-size=1000,700"], timeout: 60000 });
+  return probePage(html, { args: ["--window-size=1000,700"] });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";
