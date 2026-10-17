@@ -77,6 +77,7 @@ $T = [ordered]@{
     unfocused = '(?:^|\s)overlay: draft instance=\S+ (?:text="[^"]*" focused=false|closed)$'
     closed    = '(?:^|\s)overlay: draft instance=\S+ closed$'
     pillOpen  = '(?:^|\s)overlay: pill open SetForegroundWindow\((0x[0-9a-f]+)\) -> (-?\d+) GetForegroundWindow\(\) -> (0x[0-9a-f]+)$'
+    hitTest   = '(?:^|\s)hit-test: '
     hit       = '(?:^|\s)hit-test: cursor\(.*\bHIT\s+click-through OFF'
     miss      = '(?:^|\s)hit-test: cursor\(.*\bmiss click-through '
     down      = '(?:^|\s)click: down '
@@ -217,7 +218,7 @@ function Get-SpriteAim([string]$LogFile) {
 # Whether Fidget last saw the cursor on the sprite. Only then does moving off it
 # print a miss line at once (the flip); otherwise none comes until the periodic trace.
 function Test-LastHit([string[]]$Lines) {
-    $last = @($Lines | Where-Object { $_ -match '(?:^|\s)hit-test: ' }) | Select-Object -Last 1
+    $last = @($Lines | Where-Object { $_ -match $T.hitTest }) | Select-Object -Last 1
     [bool]($last -and $last -notmatch $T.miss)
 }
 if ($env:FIDGET_SCENARIO_AWAY_LOG) {
