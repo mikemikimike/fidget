@@ -7,9 +7,9 @@
 # Input: SendInput cursor moves, held clicks, typed words, Enter, Escape, Ctrl+S.
 # Duration: about 15 s. Every wait gives up 3 s after its trigger; Fidget's
 #   cold start gets 10 s.
-# Grants: a desktop session with no fullscreen window and no Fidget running (it
-#   skips otherwise). Other Notepad tabs and windows stay as they are. bash for
-#   the fixture Harness wrapper.
+# Grants: a desktop session with no Fidget running (it skips otherwise). Other
+#   Notepad tabs and windows, and any fullscreen app, stay as they are; a
+#   fullscreen window is only logged. bash for the fixture Harness wrapper.
 # Asserts: a sprite click leaves typing in Notepad; the pill opens on hover and
 #   takes typing; Enter and Escape hand typing back to Notepad; a click into
 #   Notepad keeps the pill's text while typing goes to the click.
@@ -140,7 +140,7 @@ function Get-Fullscreen {
     }
 }
 
-# A Fidget already here would share the overlay, and a fullscreen app may take focus.
+# A Fidget already here would share the overlay.
 $already = @(Get-Process -Name fidget -ErrorAction SilentlyContinue | ForEach-Object { "fidget $($_.Id)" })
 if ($already.Count) {
     [Console]::Error.WriteLine("SKIP: Fidget is already running: $($already -join ', ')")
@@ -149,11 +149,6 @@ if ($already.Count) {
 # Windows 11 Notepad is one process for every tab, so an open Notepad may hold the
 # user's docs: the run adds a tab or window of its own and touches nothing else.
 $notepadWasRunning = [bool](Get-Process -Name Notepad -ErrorAction SilentlyContinue)
-$full = @(Get-Fullscreen)
-if ($full.Count) {
-    [Console]::Error.WriteLine("SKIP: a fullscreen window is up: $(Describe-Window $full[0])")
-    exit 2
-}
 
 $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
 if (-not $Out) { $Out = Join-Path $env:TEMP "fidget-scenario-chat-close-pill-type-$(Get-Date -Format yyyyMMdd-HHmmss)" }
@@ -175,6 +170,10 @@ function Fail([string]$Message) {
 function Ok([string]$Message) { "ok: $Message" | Tee-Object -FilePath $results -Append | Write-Output }
 function Note-Foreground([string]$When) { "foreground $When`: $(Describe-Window ([PillWin]::GetForegroundWindow()))" | Add-Content -LiteralPath $focusLog }
 Note-Foreground "before the run"
+# Evidence only: a fullscreen app keeps running, and nothing here focuses or moves it.
+$full = @(Get-Fullscreen)
+foreach ($h in $full) { "fullscreen: $(Describe-Window $h)" | Add-Content -LiteralPath $focusLog }
+if (-not $full.Count) { "fullscreen: none" | Add-Content -LiteralPath $focusLog }
 
 $log = Join-Path $Out "data\process.log"
 $marks = Join-Path $Out "harness.log"
