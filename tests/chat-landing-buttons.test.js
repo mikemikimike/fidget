@@ -4,26 +4,15 @@
 // pushes after each kind of failed pick, and reads what the page draws.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) return process.env.FIDGET_CHROME;
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) return path;
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 const skip = chrome ? false : "headless Chromium is not installed";
 
 const BRANDED = ["claude", "codex", "copilot", "cursor-agent", "goose", "grok", "hermes", "opencode", "pi", "antigravity"];
@@ -104,6 +93,7 @@ function drive() {
     };
   }
   async function run() {
+    console.log("__PROBE_READY__");
     while (!heard["chat-opening"]) await tick();
     const out = {};
     for (const [state, payload] of Object.entries(${JSON.stringify(FAILED_PICKS)})) {
@@ -158,44 +148,21 @@ function drive() {
     show(${JSON.stringify(ANSWERING)});
     await settle();
     out.answering = seen();
-    const pre = document.createElement("pre");
-    pre.id = "probe";
-    pre.textContent = JSON.stringify(out);
-    document.body.append(pre);
+    console.log("__PROBE_RESULT__" + JSON.stringify(out));
   }
   window.addEventListener("load", () => run().catch((why) => {
-    const pre = document.createElement("pre");
-    pre.id = "probe";
-    pre.textContent = JSON.stringify({ error: String(why) });
-    document.body.append(pre);
+    console.log("__PROBE_RESULT__" + JSON.stringify({ error: String(why) }));
   }));
 </script>`;
-  const dir = mkdtempSync(join(tmpdir(), "chat-landing-buttons-"));
-  const page = join(dir, "chat.html");
-  writeFileSync(
-    page,
-    readFileSync(join(SRC, "chat.html"), "utf8").replace("<head>", `<head><base href="${pathToFileURL(SRC).href}">${stub}`),
+  const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
+    "<head>",
+    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=10000",
-      "--window-size=420,900",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the Chat surface did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"));
+  return probePage(html, { args: ["--window-size=420,900"], timeout: 20000 });
 }
 
-test("every branded button stays after a failed first pick", { skip, timeout: 60000 }, () => {
-  const seen = drive();
+test("every branded button stays after a failed first pick", { skip, timeout: 60000 }, async () => {
+  const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
 
   const titles = {
@@ -218,15 +185,15 @@ test("every branded button stays after a failed first pick", { skip, timeout: 60
   }
 });
 
-test("a failed pick followed by another failed pick keeps all the buttons", { skip, timeout: 60000 }, () => {
-  const seen = drive();
+test("a failed pick followed by another failed pick keeps all the buttons", { skip, timeout: 60000 }, async () => {
+  const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual([seen.firstOfTwo.title, seen.firstOfTwo.buttons], ["Claude Code couldn't start", BRANDED]);
   assert.deepEqual([seen.secondOfTwo.title, seen.secondOfTwo.buttons], ["Claude Code needs npx", BRANDED]);
 });
 
-test("the sign-in landing draws its sign-in buttons beside all the branded buttons", { skip, timeout: 60000 }, () => {
-  const seen = drive();
+test("the sign-in landing draws its sign-in buttons beside all the branded buttons", { skip, timeout: 60000 }, async () => {
+  const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(
     { title: seen.signIn.title, buttons: seen.signIn.buttons, signIn: seen.signIn.signIn, retry: seen.signIn.retry },
@@ -234,16 +201,16 @@ test("the sign-in landing draws its sign-in buttons beside all the branded butto
   );
 });
 
-test("a sign-in in flight disables the branded buttons and Retry, and a press does nothing", { skip, timeout: 60000 }, () => {
-  const seen = drive();
+test("a sign-in in flight disables the branded buttons and Retry, and a press does nothing", { skip, timeout: 60000 }, async () => {
+  const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.equal(seen.signingIn.disabled, 11, "ten branded buttons and Retry");
   assert.deepEqual(seen.signingInCalls, [["sign_in", null]], "no pick or retry reached the Shell");
   assert.equal(seen.signedIn.disabled, 0, "they come back when the sign-in ends");
 });
 
-test("a model API that connects clears the buttons, and a switched-off one does too", { skip, timeout: 60000 }, () => {
-  const seen = drive();
+test("a model API that connects clears the buttons, and a switched-off one does too", { skip, timeout: 60000 }, async () => {
+  const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(
     { landing: seen.modelApi.landing, buttons: seen.modelApi.buttons, composer: seen.modelApi.composer },
@@ -255,8 +222,8 @@ test("a model API that connects clears the buttons, and a switched-off one does 
   );
 });
 
-test("a button on the failed landing picks that Harness, and the buttons go once one answers", { skip, timeout: 60000 }, () => {
-  const seen = drive();
+test("a button on the failed landing picks that Harness, and the buttons go once one answers", { skip, timeout: 60000 }, async () => {
+  const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(seen.pickedAgain, [["select_harness", "codex"]]);
   assert.equal(seen.answering.landing, false);
