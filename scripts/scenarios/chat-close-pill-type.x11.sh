@@ -52,6 +52,7 @@ ok() { echo "ok: $*" | tee -a "$results"; }
 # children exit; this shell lets go once Fidget is up.
 lock="$out/run.lock"
 exec 9> "$lock"
+flock -n 9 || fail "another run holds $lock"
 # TERM to the tree of each process this run started, up to 3 s for all of them
 # to exit, then kill -9 on what is left of those trees. Only by PID.
 cleanup() {
@@ -104,7 +105,7 @@ sed -E '/^play = /s/"walk"/"idle"/g' "$root/characters/bmo/character.manifest" >
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=slow count=$marks"
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 env HOME="$out/home" FIDGET_HARNESS="$harness" FIDGET_DIRECTOR_WAKE_SECS=600 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_BUBBLE=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_BUBBLE=1 FIDGET_HOVER_DELAY_MS=100 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$out/characters" \
   "$bin" > "$out/app.log" 2>&1 &
 pid=$!

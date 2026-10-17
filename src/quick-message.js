@@ -74,7 +74,8 @@ export function windowBlurred(machines, gestureActive) {
   for (const machine of machines) machine.away();
 }
 
-export function createQuickMessage({ schedule, clear, send, onChange, available = true }) {
+// hoverDelayMs: the Shell's FIDGET_HOVER_DELAY_MS, for test scripts.
+export function createQuickMessage({ schedule, clear, send, onChange, available = true, hoverDelayMs = HOVER_DELAY_MS }) {
   let visible = false;
   let text = "";
   let focused = false;
@@ -205,7 +206,7 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
         hoverTimer = null;
         if (disposed || !overSprite || chatOpen) return;
         show();
-      }, HOVER_DELAY_MS);
+      }, hoverDelayMs);
     },
     leaveSprite() {
       overSprite = false;

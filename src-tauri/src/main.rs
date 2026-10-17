@@ -2098,6 +2098,23 @@ fn overlay_traces_cadence() -> bool {
     tracing_cadence()
 }
 
+/// The pill's hover delay, as `HOVER_DELAY_MS` in quick-message.js has it.
+const HOVER_DELAY_MS: u64 = 1500;
+
+/// `FIDGET_HOVER_DELAY_MS` when it holds a number, for test scripts; else 1500.
+fn hover_delay_ms_from(value: Option<String>) -> u64 {
+    value
+        .and_then(|ms| ms.parse().ok())
+        .unwrap_or(HOVER_DELAY_MS)
+}
+
+/// The pill's hover delay in ms. The variable is read once.
+#[tauri::command]
+fn overlay_hover_delay_ms() -> u64 {
+    static DELAY: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *DELAY.get_or_init(|| hover_delay_ms_from(std::env::var("FIDGET_HOVER_DELAY_MS").ok()))
+}
+
 /// Display frames an overlay drew, in Unix ms: when it ran, whether it asked
 /// for another, and the two arrivals it drew between. For scripts/frame-cadence.mjs.
 #[tauri::command]
@@ -4775,6 +4792,7 @@ fn main() {
             overlay_trace_bubble,
             overlay_hit_tests_hotspots,
             overlay_traces_cadence,
+            overlay_hover_delay_ms,
             overlay_cadence,
             overlay_open_chat,
             overlay_request_focus,
@@ -5380,6 +5398,12 @@ mod tests {
 
     /// Chat floats over the bubble while it has focus and drops to a normal
     /// level when it loses it. Minimizing also takes focus, so it drops too.
+    #[test]
+    fn the_hover_delay_is_quick_messages_1500_ms_unless_the_variable_names_one() {
+        assert_eq!(hover_delay_ms_from(None), 1500);
+        assert_eq!(hover_delay_ms_from(Some("100".into())), 100);
+    }
+
     #[test]
     fn chat_floats_only_while_focused() {
         let chats = MinimizedChats::default();

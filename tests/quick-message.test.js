@@ -46,6 +46,7 @@ function harness(options = {}) {
       changes.push(qm.typing);
     },
     available: options.available,
+    hoverDelayMs: options.hoverDelayMs,
   });
 
   function advance(ms) {
@@ -85,6 +86,16 @@ test("the composer appears after a 1.5s hover, focused, and not before", () => {
   assert.equal(qm.typing, true, "the caret is claimed as the pill appears");
   assert.equal(qm.takeFocus(), true);
   assert.equal(qm.takeFocus(), false, "the overlay focuses the field once");
+});
+
+test("a hover delay from the Shell replaces the 1.5s dwell", () => {
+  const { qm, advance } = harness({ hoverDelayMs: 100 });
+
+  qm.enterSprite();
+  advance(99);
+  assert.equal(qm.visible, false);
+  advance(1);
+  assert.equal(qm.visible, true, "FIDGET_HOVER_DELAY_MS shortens the dwell");
 });
 
 test("leaving before the hover completes does not show the composer", () => {
