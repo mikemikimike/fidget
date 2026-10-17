@@ -839,15 +839,15 @@ try {
     Open-Pill click-away
     $r = New-Object PillWin+RECT
     $null = [PillWin]::GetWindowRect($script:hwnd, [ref]$r)
-    # Both lines within 3 s of the click: the field's own blur timer closes the
-    # pill 3000 ms later too, so the closed line alone proves nothing.
+    # Both lines within 3 s of the release Fidget logged: the field's own blur
+    # timer closes the pill 3000 ms later too, so the closed line alone proves nothing.
     $blurs = Count $T.blurAway
     $closes = Count $T.closed
     Click-Notepad ([int](($r.L + $r.R) / 2)) ([int]($r.T + ($r.B - $r.T) * 7 / 10)) click-away
     $both = Wait-OnChanges 3 (Split-Path -Parent $log) { (Count $T.blurAway) -gt $blurs -and (Count $T.closed) -gt $closes }
     if (-not $both) {
-        if ((Count $T.blurAway) -le $blurs) { Fail "click-away: no 'window blur foreground=false' line within 3 s of the click into Notepad; see $log" }
-        Fail "click-away: the pill did not close within 3 s of the click into Notepad; see $log"
+        if ((Count $T.blurAway) -le $blurs) { Fail "click-away: no 'window blur foreground=false' line within 3 s of Fidget logging the release in Notepad; see $log" }
+        Fail "click-away: the pill did not close within 3 s of Fidget logging the release in Notepad; see $log"
     }
     Type-IntoNotepad four click-away oneabcfour
     Ok "click-away: the click moved typing to Notepad"
