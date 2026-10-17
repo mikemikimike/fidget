@@ -73,8 +73,7 @@ pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
 /// (Win32 handles as integers; 0 is none).
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub fn holds_foreground(foreground: isize, overlay: isize) -> bool {
-    let _ = (foreground, overlay);
-    false
+    foreground != 0 && foreground == overlay
 }
 
 /// One on-screen window, as macOS lists them front to back.

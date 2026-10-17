@@ -279,6 +279,12 @@ function positionQuick(view, spriteRect) {
       : null;
 }
 
+// Whether this overlay is the foreground window, from the Shell. False when
+// it cannot say, so a blur then closes an empty pill as before.
+function overlayHasForeground() {
+  return window.__TAURI__.core.invoke("overlay_has_foreground").catch(() => false);
+}
+
 // FIDGET_TRACE_BUBBLE: the Shell prints it to stderr only when the flag is on.
 function traceBubble(message) {
   const label = window.__TAURI__.webviewWindow.getCurrentWebviewWindow().label;
@@ -360,7 +366,10 @@ function syncQuick(view) {
   if (view.quickMachine.takeFocus()) {
     focusAfterForeground(
       () => window.__TAURI__.core.invoke("overlay_request_focus"),
-      () => view.quickField.focus(),
+      () => {
+        // The pill may have closed while the request was out.
+        if (view.quickMachine.typing) view.quickField.focus();
+      },
     );
   }
   reportComposing();
@@ -873,11 +882,17 @@ async function start() {
   });
   petDrag = null;
   gestureActive = false;
-  window.addEventListener("blur", () => {
-    windowBlurred(
-      [...views.values()].map((view) => view.quickMachine),
-      gestureActive,
-    );
+  // A window blur is only a cue to ask the Shell once whether the overlay is
+  // still in front; WebView2 fires one as the overlay itself activates.
+  window.addEventListener("blur", async () => {
+    const machines = [...views.values()].map((view) => view.quickMachine);
+    const gesture = gestureActive;
+    const front = await overlayHasForeground();
+    traceBubble(`window blur foreground=${front}`);
+    windowBlurred(machines, gesture, front);
+  });
+  window.addEventListener("focus", async () => {
+    traceBubble(`window focus foreground=${await overlayHasForeground()}`);
   });
   document.addEventListener("pointerdown", (event) => {
     const composer = event.target.closest?.(".quick-message");

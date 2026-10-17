@@ -22,7 +22,8 @@
 #   fullscreen window is only logged. bash for the fixture Harness wrapper.
 # Asserts: (1) a sprite click leaves typing in Notepad; (2) hover opens the
 #   pill, Fidget prints the pill-open SetForegroundWindow line, and "two" lands
-#   in the pill (text="two" focused=true); (3) Escape closes the pill; (4) a
+#   in the pill (text="two" focused=true), with no close or hand-back line
+#   since the pill opened; (3) Escape closes the pill; (4) a
 #   click into Notepad takes focus off the pill and typing lands in Notepad.
 #   It prints the pill-open line, which says whether Windows refused the pill
 #   the foreground (#1577).
@@ -35,6 +36,10 @@
 #   FIDGET_SCENARIO_TRACE_LINE=<line> prints which waited-on trace patterns it
 #   matches; FIDGET_SCENARIO_PROFILE_LOCK=<folder> prints whether
 #   its EBWebView\lockfile is missing, free or in use;
+#   FIDGET_SCENARIO_PILL_LOG=<process.log> prints whether "two" typed into the
+#   pill landed or the pill went first, judged from FIDGET_SCENARIO_PILL_OPENED_AT
+#   (the pill's first line, 0-based; FIDGET_SCENARIO_PILL_TYPED_AT is the
+#   typing's);
 #   FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
 #   [evidence dir], or in $env:TEMP without one.
@@ -86,12 +91,16 @@ $T = [ordered]@{
 # The pill's text, whatever its focus, holding $Word.
 function Draft-Holds([string]$Word) { "(?:^|\s)overlay: draft instance=\S+ text=`"[^`"]*$Word[^`"]*`" " }
 
+# A line saying the pill went away: it closed, or Fidget handed the keyboard back.
+$PillGone = '(?:^|\s)overlay: (?:draft instance=\S+ closed|hand back )'
 # The verdict on typing into the pill, from Fidget's log lines: the pill opened
-# at line $OpenedAt (0-based) and the typing went in at line $TypedAt. "typed"
-# once a line has $Typed; $null until then.
+# at line $OpenedAt (0-based) and the typing went in at line $TypedAt. The first
+# line with $Typed is "typed"; a $PillGone line before it, even before the
+# typing, is "lost <that line>". Neither yet is $null.
 function Get-TypingVerdict([string[]]$Lines, [int]$OpenedAt, [int]$TypedAt, [string]$Typed) {
-    foreach ($l in @($Lines | Select-Object -Skip $TypedAt)) {
+    foreach ($l in @($Lines | Select-Object -Skip $OpenedAt)) {
         if ($l -match $Typed) { return "typed" }
+        if ($l -match $PillGone) { return "lost $($l.Trim())" }
     }
     $null
 }
@@ -424,6 +433,9 @@ $full = @(Get-Fullscreen)
 foreach ($h in $full) { "fullscreen: $(Describe-Window $h)" | Add-Content -LiteralPath $focusLog }
 if (-not $full.Count) { "fullscreen: none" | Add-Content -LiteralPath $focusLog }
 
+# Lines in Fidget's log so far; the next pill's lines start here.
+function Line-Count { if (Test-Path -LiteralPath $log) { @(Get-Content -LiteralPath $log).Count } else { 0 } }
+$script:pillFrom = 0
 function Count([string]$Pattern) {
     if (-not (Test-Path -LiteralPath $log)) { return 0 }
     @(Get-Content -LiteralPath $log | Where-Object { $_ -match $Pattern }).Count
@@ -499,6 +511,7 @@ function Click-Sprite([string]$Case) {
 function Open-Pill([string]$Case) {
     Aim $Case
     Move-Away $Case
+    $script:pillFrom = Line-Count
     if (-not (Wait-ForNext $T.opened { $null = [PillWin]::SetCursorPos($script:aim.X, $script:aim.Y) })) { Fail "${Case}: hovering the sprite did not open a focused pill in 3 s; see $log" }
 }
 function Read-Doc { [System.IO.File]::ReadAllText($doc).TrimStart([char]0xFEFF) }
@@ -507,6 +520,20 @@ function Notepad-Holds([string]$Expected) {
     if (-not (Foreground-Is)) { return $false }
     [PillWin]::Key(0x11, $false); Press 0x53; [PillWin]::Key(0x11, $true)
     Wait-Until 3 { (Read-Doc) -ceq $Expected }
+}
+# Types $Word into the open pill and judges it from the pill's opening: $Typed
+# passes; the pill closing or handing the keyboard back first fails at once,
+# naming the window in front then.
+function Type-IntoPill([string]$Word, [string]$Typed, [string]$Case, [string]$Detail = "") {
+    $from = Line-Count
+    [PillWin]::Text($Word)
+    $script:verdict = $null
+    $null = Wait-Until 3 { ($script:verdict = Get-TypingVerdict @(Get-Content -LiteralPath $log) $script:pillFrom $from $Typed) }
+    if ($script:verdict -eq "typed") { return }
+    $front = Describe-Window ([PillWin]::GetForegroundWindow())
+    Note-Keys "at $Case"
+    if ($script:verdict) { Fail "${Case}: the pill went away before `"$Word`" reached it: $($script:verdict.Substring(5)); in front then: $front$Detail; see $log" }
+    Fail "${Case}: the pill never showed text=`"$Word`" focused=true in 3 s; in front: $front$Detail; see $log"
 }
 # Types $Word with Notepad in front and checks it landed there, not in the pill.
 function Type-IntoNotepad([string]$Word, [string]$Case, [string]$Expected) {
@@ -656,7 +683,7 @@ try {
     $overlayAhead = if ($Matches[1] -eq $Matches[3]) { "yes" } else { "no" }
     "pill-open: SetForegroundWindow returned $setResult; the overlay is in front: $overlayAhead; line: $($line.Trim())" | Tee-Object -FilePath $results -Append | Write-Output
     Note-Keys "with the pill open"
-    if (-not (Wait-ForNext $T.two { [PillWin]::Text("two") })) { Fail "hover-type: the pill never showed text=`"two`" focused=true (SetForegroundWindow returned $setResult, overlay in front: $overlayAhead); see $log" }
+    Type-IntoPill two $T.two hover-type " (SetForegroundWindow returned $setResult, overlay in front: $overlayAhead)"
     Ok "hover-type: the pill took `"two`" with no click"
 
     # 3. Escape closes the pill.

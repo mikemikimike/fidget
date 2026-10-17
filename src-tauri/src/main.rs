@@ -2209,6 +2209,37 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
     open_chat(&app, &id, title, None);
 }
 
+/// Whether this overlay is the foreground window, asked once per window blur
+/// in its page. On Windows, SetForegroundWindow on the overlay sends it
+/// WM_SETFOCUS, wry answers with MoveFocus, and WebView2 then fires a blur
+/// while the overlay stays in front (#1577), so a blur alone is no sign the
+/// user moved on. Elsewhere it says false, and a blur closes as before.
+#[tauri::command]
+fn overlay_has_foreground(window: tauri::Window) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+        let Ok(handle) = window.window_handle() else {
+            return false;
+        };
+        let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+            return false;
+        };
+        // SAFETY: GetForegroundWindow takes no arguments and only reads
+        // which window is in front.
+        let foreground = unsafe { GetForegroundWindow() } as isize;
+        pill_focus::holds_foreground(foreground, win32.hwnd.get())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        false
+    }
+}
+
 /// The pill reopening on a new owner takes the caret. Windows refuses
 /// SetForegroundWindow to a background thread, so the overlay borrows the
 /// foreground thread's input for the call.
@@ -4847,6 +4878,7 @@ fn main() {
             overlay_cadence,
             overlay_open_chat,
             overlay_request_focus,
+            overlay_has_foreground,
             chat_opening,
             chat_send,
             chat_prompt,

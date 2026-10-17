@@ -65,16 +65,26 @@ export function keepOnDrag(text) {
   return text.trim().length > 0;
 }
 
-// The overlay lost the keyboard to another window (#1565): a pill with text
-// stays, an empty one goes. A pet drag can blur it too; the drag decides that.
-export function windowBlurred(machines, gestureActive) {
-  if (gestureActive) return;
+// The overlay's page lost focus. With the overlay still the foreground window
+// (hasForeground) nothing left: WebView2 blurs the page while
+// SetForegroundWindow activates the overlay (#1577), and the pill stays.
+// Otherwise the overlay lost the keyboard to another window (#1565): a pill
+// with text stays, an empty one goes. A pet drag can blur it too; the drag
+// decides that.
+export function windowBlurred(machines, gestureActive, hasForeground = false) {
+  if (gestureActive || hasForeground) return;
   for (const machine of machines) machine.away();
 }
 
-// The pill takes the caret.
-export function focusAfterForeground(requestForeground, focusField) {
-  requestForeground().catch((err) => console.error("overlay_request_focus", err));
+// The pill takes the caret once the overlay is the foreground window. A field
+// focused first is blurred by that activation (#1577). A refused request
+// still focuses it, for whatever keys the overlay does get.
+export async function focusAfterForeground(requestForeground, focusField) {
+  try {
+    await requestForeground();
+  } catch (err) {
+    console.error("overlay_request_focus", err);
+  }
   focusField();
 }
 
