@@ -1067,3 +1067,15 @@ test("a failed foreground request still gives the field the caret", async () => 
     console.error = error;
   }
 });
+
+test("the field skips the caret when the pill closed while the request was out", async () => {
+  let focused = false;
+  await focusAfterForeground(
+    () => Promise.resolve(),
+    () => {
+      focused = true;
+    },
+    () => false,
+  );
+  assert.equal(focused, false);
+});

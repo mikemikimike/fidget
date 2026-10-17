@@ -1296,7 +1296,11 @@ mod tests {
             ),
             (
                 "1792238680 overlay: draft instance=d4 closed",
-                "listening unfocused closed",
+                "listening unfocused closed pillGone",
+            ),
+            (
+                "1792238681 overlay: hand back Restore to 0x150e64 -> 0",
+                "pillGone",
             ),
             (
                 "1792238676 overlay: pill open SetForegroundWindow(0x1a2b) -> 1 GetForegroundWindow() -> 0x1a2b",
@@ -1328,12 +1332,9 @@ mod tests {
         }
     }
 
-    // The leaf aims at the sprite's middle: its top-left from the frame line and
-    // its size from the overlay's startup line, not a fixed offset.
-    // Typing into the pill is judged from the pill opening: the pill closing
-    // or a hand-back line before the typed text fails at once, even when it
-    // came before the typing (live run 4, #1577). An unfocused report alone
-    // decides nothing; the typed text after it still passes.
+    // From the pill opening, a close or hand-back line before the typed text
+    // fails, even one before the typing (live run 4, #1577). An unfocused line
+    // alone decides nothing.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_judges_pill_typing_from_the_pill_opening() {
@@ -1346,26 +1347,22 @@ mod tests {
             "{open}\n{d} text=\"\" focused=true\n{d} text=\"\" focused=false\n{back}\n{d} closed\n\
              {open}\n{d} text=\"\" focused=true\n"
         );
-        for (log, typed_at, want) in [
-            (run4.clone(), "7", format!("pill: lost {back}")),
+        for (log, want) in [
+            (run4.clone(), format!("pill: lost {back}")),
             (
                 format!("{open}\n{d} text=\"\" focused=true\n{d} closed\n"),
-                "3",
                 format!("pill: lost {d} closed"),
             ),
             (
                 format!("{open}\n{d} text=\"\" focused=false\n{d} text=\"two\" focused=true\n"),
-                "2",
                 "pill: typed".to_string(),
             ),
             (
                 format!("{open}\n{d} text=\"two\" focused=true\n{d} closed\n"),
-                "1",
                 "pill: typed".to_string(),
             ),
             (
                 format!("{open}\n{d} text=\"tw\" focused=true\n"),
-                "1",
                 "pill: none".to_string(),
             ),
         ] {
@@ -1374,7 +1371,6 @@ mod tests {
                 pill_self_check_with(&[
                     ("FIDGET_SCENARIO_PILL_LOG", path.as_os_str()),
                     ("FIDGET_SCENARIO_PILL_OPENED_AT", "0".as_ref()),
-                    ("FIDGET_SCENARIO_PILL_TYPED_AT", typed_at.as_ref()),
                 ]),
                 want,
                 "{log}"
@@ -1382,6 +1378,8 @@ mod tests {
         }
     }
 
+    // The leaf aims at the sprite's middle: its top-left from the frame line and
+    // its size from the overlay's startup line, not a fixed offset.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_aims_at_the_sprite_middle() {
