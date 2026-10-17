@@ -185,7 +185,7 @@ $ax = Join-Path $root "scripts\ax-window-win.ps1"
     ), $utf8)
 
 $startMs = Get-NowMs
-$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $errLog -PassThru -WindowStyle Normal
+$proc = Start-FidgetPiped $Bin @() $log $errLog
 try {
     function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
         return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)

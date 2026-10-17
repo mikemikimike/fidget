@@ -105,7 +105,7 @@ $env:FIDGET_CHARACTER = "bmo"
 $env:FIDGET_CHARACTERS = Join-Path $root "characters"
 
 $startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$script:proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
+$script:proc = Start-FidgetPiped $Bin @() $log (Join-Path $out "app.err")
 try {
     if (-not (Wait-ForMarks 3 $marks '^asked$')) {
         Fail "no wake reached the Harness; see $log"

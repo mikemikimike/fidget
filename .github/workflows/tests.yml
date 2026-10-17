@@ -316,6 +316,8 @@ jobs:
             src-tauri/src/consent.rs
             src-tauri/src/login_item.rs
             crates/core/src/sensing.rs
+            crates/verify/src/scenario.rs
+            scripts/scenarios/*.ps1
             src-tauri/Cargo.toml
             crates/core/Cargo.toml
             Cargo.toml

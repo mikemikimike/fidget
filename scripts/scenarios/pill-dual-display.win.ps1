@@ -131,7 +131,7 @@ $env:FIDGET_TRACE_BUBBLE = "1"
 $env:FIDGET_DIRECTOR = "static"
 $env:FIDGET_DIRECTOR_WAKE_SECS = "1"
 $startMs = Get-NowMs
-$script:proc = Start-Process -FilePath $Bin -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $out "app.log") -RedirectStandardError $traceFile
+$script:proc = Start-FidgetPiped $Bin @() (Join-Path $out "app.log") $traceFile
 try {
     # The static director's wake brings up a speech bubble on its own.
     if (-not (Wait-ForTrace 3 $traceFile $bubbleShowPattern)) { Fail "the static wake showed no speech bubble; see $traceFile" }

@@ -1,8 +1,84 @@
-# Shared wait helpers for Windows scenario leaves. File waits block on
-# FileSystemWatcher events, UI waits on UI Automation events; each re-checks
-# on a change and gives up after its seconds (2-3 s). Nothing sleeps.
+# Shared wait helpers for Windows scenario leaves. Fidget runs through
+# Start-FidgetPiped, so each line it writes to stderr wakes every wait; file
+# waits also wake on FileSystemWatcher events, UI waits on UI Automation
+# events. Each re-checks on a wake and gives up after its seconds (2-3 s).
+# Nothing sleeps or polls.
 
 . (Join-Path $PSScriptRoot "..\uia-signal-win.ps1")
+
+# One wake for every wait: a count that each stderr line and each file change
+# bumps. A wait notes the count, checks, then blocks until the count moves.
+# A pipe because Fidget keeps process.log open, and Windows reports a size or
+# last-write change on an open file only once the cache flushes it
+# (ReadDirectoryChangesW, FILE_NOTIFY_CHANGE_SIZE and _LAST_WRITE).
+# C# 5, so Windows PowerShell 5.1 compiles it too.
+if (-not ("FidgetSignal" -as [type])) {
+    Add-Type @"
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
+public static class FidgetSignal {
+    static readonly object gate = new object();
+    static long ticks;
+    public static long Seen { get { lock (gate) { return ticks; } } }
+    public static void Pulse() { lock (gate) { ticks++; Monitor.PulseAll(gate); } }
+    // True once the count moves past seen; false when ms run out first.
+    public static bool WaitPast(long seen, int ms) {
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(ms);
+        lock (gate) {
+            while (ticks == seen) {
+                int left = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+                if (left <= 0 || !Monitor.Wait(gate, left)) { return ticks != seen; }
+            }
+            return true;
+        }
+    }
+    public static FileSystemWatcher Watch(string dir) {
+        FileSystemWatcher w = new FileSystemWatcher(dir);
+        w.IncludeSubdirectories = true;
+        w.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size | NotifyFilters.LastWrite;
+        FileSystemEventHandler on = delegate { Pulse(); };
+        w.Created += on; w.Changed += on; w.Deleted += on;
+        w.Renamed += delegate { Pulse(); };
+        w.EnableRaisingEvents = true;
+        return w;
+    }
+    // Each line of a redirected stream, written to path as it came (what
+    // Start-Process -RedirectStandardError wrote), then a wake.
+    public static void Tee(Process p, bool stderr, string path) {
+        StreamWriter log = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete));
+        log.AutoFlush = true;
+        DataReceivedEventHandler on = delegate(object sender, DataReceivedEventArgs e) {
+            if (e.Data != null) {
+                lock (log) { log.WriteLine(e.Data); }
+            }
+            Pulse();
+        };
+        if (stderr) { p.ErrorDataReceived += on; p.BeginErrorReadLine(); }
+        else { p.OutputDataReceived += on; p.BeginOutputReadLine(); }
+    }
+}
+"@
+}
+
+# Launch Fidget (or any program) with stdout and stderr piped to these logs,
+# one line at a time. Debug builds of Fidget copy every process.log line to
+# stderr; release builds do not, so scenarios run debug builds. Stdin is a
+# pipe too, held open and unused by Fidget.
+function Start-FidgetPiped([string]$Bin, [string[]]$Arguments, [string]$StdoutLog, [string]$StderrLog, [string]$WorkingDirectory = "") {
+    $start = New-Object System.Diagnostics.ProcessStartInfo $Bin
+    if ($WorkingDirectory) { $start.WorkingDirectory = $WorkingDirectory }
+    $start.Arguments = (@($Arguments | Where-Object { $null -ne $_ } | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join ' ')
+    $start.UseShellExecute = $false
+    $start.RedirectStandardInput = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $process = [System.Diagnostics.Process]::Start($start)
+    [FidgetSignal]::Tee($process, $false, $StdoutLog)
+    [FidgetSignal]::Tee($process, $true, $StderrLog)
+    return $process
+}
 
 # Milliseconds since the epoch, for the printed duration.
 function Get-NowMs {
@@ -34,26 +110,24 @@ function Initialize-ScenarioData([string]$Out, [hashtable]$Settings = @{}) {
     return $data
 }
 
-# Block until $Test returns true, running it now and again after each change
-# the OS reports under $Dir, or until $Seconds run out. A dead Fidget fails
-# at its next change or at the deadline.
+# Block until $Test returns true, running it now and again on each wake (a
+# stderr line from a piped Fidget, or a change under $Dir), or until $Seconds
+# run out. A dead Fidget fails at its next wake or at the deadline.
 function Wait-OnChanges([double]$Seconds, [string]$Dir, [scriptblock]$Test) {
     if (& $Test) { return $true }
     if ($script:proc -and $script:proc.HasExited) { return $false }
     if (-not $Dir) { $Dir = $script:WatchDir }
     if (-not $Dir -or -not (Test-Path -LiteralPath $Dir)) { $Dir = [System.IO.Path]::GetTempPath() }
-    $watcher = New-Object System.IO.FileSystemWatcher $Dir
-    $watcher.IncludeSubdirectories = $true
-    $watcher.NotifyFilter = [System.IO.NotifyFilters]'FileName, DirectoryName, Size, LastWrite'
+    $watcher = [FidgetSignal]::Watch($Dir)
     $deadline = (Get-Date).AddSeconds($Seconds)
     try {
         while ($true) {
-            $left = [int]($deadline - (Get-Date)).TotalMilliseconds
-            if ($left -le 0) { return [bool](& $Test) }
-            $change = $watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, $left)
+            # Noted before the check, so a wake during it is not lost.
+            $seen = [FidgetSignal]::Seen
             if (& $Test) { return $true }
             if ($script:proc -and $script:proc.HasExited) { return $false }
-            if ($change.TimedOut) { return $false }
+            $left = [int]($deadline - (Get-Date)).TotalMilliseconds
+            if ($left -le 0 -or -not [FidgetSignal]::WaitPast($seen, $left)) { return [bool](& $Test) }
         }
     } finally {
         $watcher.Dispose()

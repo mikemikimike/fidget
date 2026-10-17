@@ -62,12 +62,12 @@ public class AnchorVerify {
 }
 "@
 
-$env:FIDGET_TRACE_FRAMES = "1"
-$script:AppProc = Start-Process -FilePath $Bin -RedirectStandardError $Log -PassThru -WindowStyle Hidden
-Info "pid $($script:AppProc.Id) log $Log"
-
-# The shared waits block on file changes; a dead app fails them ($script:proc).
+# The shared waits wake on each line of the app's piped stderr; a dead app
+# fails them ($script:proc).
 . (Join-Path $Root "scripts\scenarios\wait-helpers.win.ps1")
+$env:FIDGET_TRACE_FRAMES = "1"
+$script:AppProc = Start-FidgetPiped $Bin @() (Join-Path $Out "app.out") $Log
+Info "pid $($script:AppProc.Id) log $Log"
 $script:proc = $script:AppProc
 $script:WatchDir = $Out
 if (-not (Wait-ForLine 3 $Log '^overlay:')) {

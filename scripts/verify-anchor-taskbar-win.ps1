@@ -78,7 +78,7 @@ Remove-Item Env:FIDGET_OPEN_SETTINGS -ErrorAction SilentlyContinue
 
 # Frame traces keep the log growing, so Wait-Until re-checks the windows.
 $env:FIDGET_TRACE_FRAMES = "1"
-$script:AppProc = Start-Process -FilePath $Bin -WorkingDirectory $Root -RedirectStandardError $Log -PassThru -WindowStyle Hidden
+$script:AppProc = Start-FidgetPiped $Bin @() (Join-Path $Out "app.out") $Log $Root
 $script:proc = $script:AppProc
 $appPid = [uint32]$script:AppProc.Id
 Info "Launched fidget (PID=$appPid, log $Log)"
