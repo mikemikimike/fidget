@@ -1395,8 +1395,8 @@ mod tests {
     }
 
     // Before launch the leaf reads WebView2's EBWebView\lockfile: missing and
-    // free let the run go on; held the way Chromium holds it (write access,
-    // sharing only reads) is "in use", named by the holder's pid.
+    // free let the run go on, and so does a reader; held the way Chromium
+    // holds it (write access, sharing only reads) is in use, with its pid.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_reads_the_webview2_profile_lock() {
@@ -1434,11 +1434,20 @@ mod tests {
             .unwrap();
         assert_eq!(
             lock(&profile),
-            format!("lock: in use by pid {}", std::process::id())
+            format!("lock: in-use pid {}", std::process::id())
         );
 
         drop(held);
         assert_eq!(lock(&profile), "lock: free");
+
+        // An indexer or antivirus reading the file does not hold the profile.
+        let reader = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2)
+            .open(&file)
+            .unwrap();
+        assert_eq!(lock(&profile), "lock: free", "a reader holds the lockfile");
+        drop(reader);
         std::fs::remove_dir_all(&profile).unwrap();
     }
 

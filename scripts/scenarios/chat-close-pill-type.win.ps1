@@ -116,22 +116,22 @@ function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) 
 # or "in use" plus the holders' pids from the Restart Manager when it has them.
 function Get-ProfileLock([string]$Folder) {
     $lock = Join-Path (Join-Path $Folder "EBWebView") "lockfile"
-    if (-not (Test-Path -LiteralPath $lock)) { return "missing" }
+    $missing = [pscustomobject]@{ State = "missing"; Pids = @() }
+    if (-not (Test-Path -LiteralPath $lock)) { return $missing }
     try {
         [System.IO.File]::Open($lock, "Open", "Read", "None").Dispose()
-        return "free"
+        return [pscustomobject]@{ State = "free"; Pids = @() }
     } catch {
         # PowerShell wraps a .NET method's exception; look at the cause.
         $e = $_.Exception
         while ($e.InnerException -and $e -isnot [System.IO.IOException]) { $e = $e.InnerException }
-        if ($e -is [System.IO.FileNotFoundException] -or $e -is [System.IO.DirectoryNotFoundException]) { return "missing" }
+        if ($e -is [System.IO.FileNotFoundException] -or $e -is [System.IO.DirectoryNotFoundException]) { return $missing }
         # ERROR_SHARING_VIOLATION (32) or ERROR_LOCK_VIOLATION (33).
         if ($e -isnot [System.IO.IOException] -or @(32, 33) -notcontains ($e.HResult -band 0xFFFF)) { throw }
     }
     $pids = @()
     try { $pids = @(Get-LockHolders $lock) } catch { }
-    if ($pids.Count) { return "in use by pid $($pids -join ', ')" }
-    return "in use"
+    return [pscustomobject]@{ State = "in-use"; Pids = $pids }
 }
 # The pids holding a file, from the Restart Manager. Never used to stop them.
 function Get-LockHolders([string]$Path) {
@@ -170,7 +170,8 @@ public static class PillRm {
     return [PillRm]::Holders($Path)
 }
 if ($env:FIDGET_SCENARIO_PROFILE_LOCK) {
-    Write-Output "lock: $(Get-ProfileLock $env:FIDGET_SCENARIO_PROFILE_LOCK)"
+    $verdict = Get-ProfileLock $env:FIDGET_SCENARIO_PROFILE_LOCK
+    Write-Output "lock: $($verdict.State)$(if ($verdict.Pids.Count) { " pid $($verdict.Pids -join ',')" })"
     exit 0
 }
 if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
@@ -377,8 +378,9 @@ $profileLock = Join-Path (Join-Path $webviewProfile "EBWebView") "lockfile"
 # A WebView2 left by a run that died can still hold the profile, and a launch
 # against it would look like a page that never loads. Named, never killed.
 $lockState = Get-ProfileLock $webviewProfile
-if ($lockState -like "in use*") {
-    [Console]::Error.WriteLine("FAIL: the shared WebView2 profile is $lockState`: $profileLock is held open; close that WebView2 (or let it exit), then rerun")
+if ($lockState.State -eq "in-use") {
+    $holder = if ($lockState.Pids.Count) { " by pid $($lockState.Pids -join ', ')" } else { "" }
+    [Console]::Error.WriteLine("FAIL: the shared WebView2 profile is in use$holder`: $profileLock is held open; close that WebView2 (or let it exit), then rerun")
     exit 1
 }
 function Fail-Startup([string]$Message) {
