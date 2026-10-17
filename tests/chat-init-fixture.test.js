@@ -3,30 +3,15 @@
 // and landing copy during the initializing phase.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 function opening(harness) {
   return {
@@ -70,6 +55,7 @@ function paint(open) {
   };
   const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
+    console.log("__PROBE_READY__");
     while (!handlers.chat || document.getElementById("empty").hidden) await tick();
     const landing = document.getElementById("landing");
     const title = document.getElementById("landing-title");
@@ -83,49 +69,20 @@ function paint(open) {
       composerPlaceholder: composer.placeholder,
       composerDisabled: composer.disabled,
     };
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify(report);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(report));
   }
   window.addEventListener("load", drive);
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "chat-init-fixture-"));
-  const page = join(dir, "init.html");
-  const html = spawnSync("cat", [join(SRC, "chat.html")], { encoding: "utf8" }).stdout.replace(
+  const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the landing did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  const json = match[1]
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-  return JSON.parse(json);
+  return probePage(html, { timeout: 10000 });
 }
 
-test("fixture Harness with slow initialize shows starting state", { skip: !chrome }, () => {
-  const result = paint(opening({ initializing: true }));
+test("fixture Harness with slow initialize shows starting state", { skip: !chrome }, async () => {
+  const result = await paint(opening({ initializing: true }));
 
   assert.equal(result.landingHidden, false, "landing is visible");
   assert.equal(result.dataInitializing, "true", "data-initializing attribute set to true");
@@ -139,22 +96,22 @@ test("fixture Harness with slow initialize shows starting state", { skip: !chrom
   assert.equal(result.composerDisabled, true, "composer is disabled during init");
 });
 
-test("fixture Harness transitions from initializing to ready", { skip: true }, () => {
-  const initializing = paint(opening({ initializing: true }));
+test("fixture Harness transitions from initializing to ready", { skip: true }, async () => {
+  const initializing = await paint(opening({ initializing: true }));
   assert.equal(initializing.dataInitializing, "true", "starts with data-initializing true");
   assert.match(initializing.title, /Initializing/, "shows initializing title");
 
-  const ready = paint(opening({ alive: true, initializing: false }));
+  const ready = await paint(opening({ alive: true, initializing: false }));
   assert.equal(ready.landingHidden, true, "landing hidden when ready");
   assert.equal(ready.composerDisabled, false, "composer enabled when ready");
 });
 
-test("fixture Harness transitions from initializing to failed", { skip: true }, () => {
-  const initializing = paint(opening({ initializing: true }));
+test("fixture Harness transitions from initializing to failed", { skip: true }, async () => {
+  const initializing = await paint(opening({ initializing: true }));
   assert.equal(initializing.dataInitializing, "true", "starts with data-initializing true");
   assert.match(initializing.title, /Initializing/, "shows initializing title");
 
-  const failed = paint(opening({
+  const failed = await paint(opening({
     initializing: false,
     failed: "hermes exited before initialize, exit status: 1"
   }));
