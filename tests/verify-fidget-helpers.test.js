@@ -130,24 +130,37 @@ test("cleanup force-kills at once when it has no way to watch the exit", () => {
 });
 
 // Fidget exits on TERM, but its child ignores TERM and keeps the inherited
-// lock (#1585). The wait must not return just because Fidget's pid is gone.
+// lock (#1585). stop_pid runs in-process with the stand-in Fidget as a direct
+// child: the child reports over a fifo once TERM is ignored, and Fidget is
+// reaped right after the TERM, so its pid is gone before the wait starts.
 test(
   "cleanup waits on the lock and force-kills a child that outlives Fidget",
   { skip: process.platform !== "linux" && "the lock wait needs flock" },
   () => {
-    const { root, env } = scratch(
-      '(trap "" TERM; exec sleep 30) & echo $! > "$(dirname "$0")/child.pid"; echo "overlay: up" >&2; sleep 30 & wait $!',
-    );
-    helper("launch.sh", env);
-    const pid = pidOf(root);
-    const child = Number(fs.readFileSync(path.join(root, "child.pid"), "utf8"));
-    const r = helper("cleanup.sh", env);
-    const left = alive(child);
-    if (left) process.kill(child, "SIGKILL");
-    assert.equal(r.code, 0, r.out);
-    assert.equal(alive(pid), false, "Fidget still running");
-    assert.equal(left, false, "the child that ignores TERM was left running");
-    assert.match(r.out, new RegExp(`kill -9 ${pid}`));
-    assert.ok(r.ms >= 2800 && r.ms < 4500, `took ${r.ms} ms`);
+    const { root, env } = scratch("");
+    const script = `
+      . "${path.join(helpers, "cleanup.sh")}" > /dev/null # no pids yet: defines stop_pid
+      set +e
+      mkdir -p "$(dirname "$FIDGET_VERIFY_LOCK")" && mkfifo "${root}/ready"
+      exec 9> "$FIDGET_VERIFY_LOCK"; flock -n 9 || exit 90
+      bash -c '(trap "" TERM; echo "$BASHPID" > "$0"; exec sleep 30) & exec sleep 30' "${root}/ready" &
+      fidget=$!
+      exec 9>&-
+      read -r child < "${root}/ready"
+      eval "real_$(declare -f wait_for_exit)"
+      wait_for_exit() { wait "$fidget"; real_wait_for_exit "$@"; }
+      start=$EPOCHREALTIME
+      stop_pid "$fidget"
+      echo "stop_pid took $(( (\${EPOCHREALTIME/./} - \${start/./}) / 1000 )) ms"
+      if flock -n "$FIDGET_VERIFY_LOCK" true; then echo "lock free"; else echo "lock held"; kill -9 "$child"; fi
+    `;
+    const started = Date.now();
+    const r = spawnSync("bash", ["-c", script], { encoding: "utf8", env });
+    const out = r.stdout + r.stderr;
+    const ms = Date.now() - started;
+    assert.equal(r.status, 0, out);
+    assert.match(out, /lock free/, `the child that ignores TERM was left running\n${out}`);
+    assert.match(out, /cleanup: kill -9 \d+/);
+    assert.ok(ms >= 2800 && ms < 4500, `took ${ms} ms\n${out}`);
   },
 );

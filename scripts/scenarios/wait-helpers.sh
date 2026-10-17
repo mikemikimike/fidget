@@ -126,10 +126,9 @@ line_count() { # <file> <pattern>
   grep -cE "$2" "$1" 2> /dev/null || true
 }
 
-# Wait for a process to exit. With flock, the process holds <lock> through an
-# inherited fd until it and its children are gone, so the lock is waited on
-# first: a child can outlive the pid (#1585). macOS has no flock, so
-# caffeinate -w watches the pid through kqueue. True once it is gone.
+# Wait for a process and its children to exit. With flock, wait on <lock>,
+# which they hold through an inherited fd even after the pid is gone; without
+# it (macOS), caffeinate -w watches the pid through kqueue. True once gone.
 wait_for_exit() { # <seconds> <pid> <lock>
   if command -v flock > /dev/null && [ -e "${3:-}" ]; then
     flock -w "$1" "$3" true
