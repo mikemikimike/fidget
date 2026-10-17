@@ -2,30 +2,15 @@
 // of one id redraw that row. Opening it shows the same pieces a replay draws.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 const CHROME_OR_CI = chrome || process.env.CI ? false : "headless Chromium is not installed";
 
 const OPENING = {
@@ -79,51 +64,22 @@ function drive(steps) {
     };
   }
   async function run() {
+    console.log("__PROBE_READY__");
     while (!heard.chat || !heard["chat-tool"] || !heard["chat-restored"] || !heard["chat-session"]) await tick();
     while (document.getElementById("line").disabled) await tick();
 ${steps}
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify(report);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(report));
   }
   window.addEventListener("load", () => run().catch((why) => {
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({ error: String(why) });
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify({ error: String(why) }));
   }));
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "chat-tool-render-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      "--window-size=420,560",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the Chat surface did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(
-    match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"),
-  );
+  return probePage(html, { args: ["--window-size=420,560"], timeout: 10000 });
 }
 
 const CALL = {
@@ -161,8 +117,8 @@ const DRAWN = {
 test(
   "two updates of one tool call redraw one folded row, and opening it shows what the call touched",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
-    const report = drive(`
+  async () => {
+    const report = await drive(`
     const report = {};
     emit("chat", { you: true, said: "read the roster", busy: false, reacting_to: null, thought: false, at: null, error: null, streaming: false });
     emit("chat-tool", {
@@ -209,7 +165,7 @@ test(
 test(
   "a live tool call draws the same row as its replay",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
+  async () => {
     const bare = {
       id: "t-bare",
       title: "",
@@ -218,7 +174,7 @@ test(
       locations: [],
       content: [{ type: "text", text: "nope" }],
     };
-    const report = drive(`
+    const report = await drive(`
     const report = {};
     emit("chat-restored", [${JSON.stringify({ ...CALL, type: "tool_call" })}, ${JSON.stringify({ ...bare, type: "tool_call" })}]);
     emit("chat-tool", ${JSON.stringify(CALL)});
@@ -242,10 +198,10 @@ test(
 test(
   "a cut-off title stays on one line and opens whole from a focusable disclosure",
   { skip: CHROME_OR_CI, timeout: 60000 },
-  () => {
+  async () => {
     const title = "Web search: Trump Clarksville Tennessee rally October 10 2026 speech remarks";
     const call = { id: "t-search", title, kind: "search", status: "completed", locations: [], content: [] };
-    const report = drive(`
+    const report = await drive(`
     const report = {};
     emit("chat-restored", [${JSON.stringify({ ...call, type: "tool_call" })}]);
     emit("chat-tool", ${JSON.stringify(call)});
@@ -270,9 +226,9 @@ test(
   },
 );
 
-test("an empty call is a plain label in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+test("an empty call is a plain label in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, async () => {
   const call = { id: "t-plain", title: "", name: "web_search", kind: "search", status: "completed", locations: [], content: [] };
-  const report = drive(`
+  const report = await drive(`
     const report = {};
     emit("chat-restored", [${JSON.stringify({ ...call, type: "tool_call" })}]);
     emit("chat-tool", ${JSON.stringify(call)});
@@ -284,13 +240,13 @@ test("an empty call is a plain label in live and replay", { skip: CHROME_OR_CI, 
   assert.deepEqual(report.rows[0].pieces, []);
 });
 
-test("raw fields render as json fences beside content in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+test("raw fields render as json fences beside content in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, async () => {
   const call = {
     id: "raw", title: "Read file", name: "read_file", kind: "read", status: "completed",
     rawInput: { path: "/tmp/a" }, rawOutput: { text: "done\u202e" },
     locations: [{ path: "/tmp/a", line: 3 }], content: [{ type: "text", text: "Visible result" }],
   };
-  const report = drive(`
+  const report = await drive(`
     const report = {};
     emit("chat-restored", [${JSON.stringify({ ...call, type: "tool_call" })}]);
     emit("chat-tool", ${JSON.stringify(call)});
@@ -306,8 +262,8 @@ test("raw fields render as json fences beside content in live and replay", { ski
   assert.deepEqual(report.fences.map((f) => f.trimEnd()), [input, output, input, output]);
 });
 
-test("a live call gains and loses a disclosure as details change", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
-  const report = drive(`
+test("a live call gains and loses a disclosure as details change", { skip: CHROME_OR_CI, timeout: 60000 }, async () => {
+  const report = await drive(`
     const report = {};
     emit("chat-tool", { id: "t", title: "Read file", kind: "read", status: "pending", locations: [], content: [] });
     const row = document.querySelector("#log .row.tool");
@@ -325,8 +281,8 @@ test("a live call gains and loses a disclosure as details change", { skip: CHROM
   assert.deepEqual(report.cleared.pieces, []);
 });
 
-test("raw updates retain earlier values when omitted or null", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
-  const report = drive(`
+test("raw updates retain earlier values when omitted or null", { skip: CHROME_OR_CI, timeout: 60000 }, async () => {
+  const report = await drive(`
     const report = {};
     emit("chat-tool", { id: "t", title: "Fetch", kind: "fetch", rawInput: { url: "https://example.com" }, rawOutput: { ok: true } });
     const row = document.querySelector("#log .row.tool");
@@ -338,8 +294,8 @@ test("raw updates retain earlier values when omitted or null", { skip: CHROME_OR
   ]);
 });
 
-test("a call with blank display pieces stays a plain label", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
-  const report = drive(`
+test("a call with blank display pieces stays a plain label", { skip: CHROME_OR_CI, timeout: 60000 }, async () => {
+  const report = await drive(`
     const report = {};
     emit("chat-tool", { id: "blank", title: "Read file", kind: "read", content: [{ type: "text", text: "" }], locations: [{ path: "" }] });
     report.row = snap(document.querySelector("#log .row.tool"));`);
@@ -349,12 +305,12 @@ test("a call with blank display pieces stays a plain label", { skip: CHROME_OR_C
   assert.deepEqual(report.row.pieces, []);
 });
 
-test("multi-line and tabbed titles keep their text as sent in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, () => {
+test("multi-line and tabbed titles keep their text as sent in live and replay", { skip: CHROME_OR_CI, timeout: 60000 }, async () => {
   const calls = [
     { id: "multiline", title: "Read\nroster file", kind: "read", status: "completed", content: [], locations: [] },
     { id: "tabbed", title: "Read\troster file", kind: "read", status: "completed", content: [], locations: [] },
   ];
-  const report = drive(`
+  const report = await drive(`
     const report = {};
     emit("chat-restored", ${JSON.stringify(calls.map((call) => ({ ...call, type: "tool_call" })))});
     for (const call of ${JSON.stringify(calls)}) emit("chat-tool", call);
