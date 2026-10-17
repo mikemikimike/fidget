@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { probePage } from "../tests/chrome-cdp.js";
+import { pageWait } from "../tests/page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 // findChrome() only looks on PATH, so keep the Playwright shell as this
@@ -52,6 +53,7 @@ const ANSWER = "Hmm. BMO still sees only shapes, no names. Try `open -a Calculat
 
 const stub = `
 <script>
+  ${pageWait()}
   const handlers = {};
   const calls = [];
   window.__TAURI__ = {
@@ -65,27 +67,27 @@ const stub = `
     event: {
       listen(name, handler) {
         handlers[name] = handler;
+        listeningNow(name);
         return Promise.resolve(() => {});
       },
     },
     webviewWindow: { getCurrentWebviewWindow: () => ({ label: "chat-test" }) },
   };
-  const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
     console.log("__PROBE_READY__");
-    while (!handlers["chat-permission-settled"] || document.getElementById("line").disabled) {
-      await tick();
-    }
+    await ready("chat-permission-settled");
+    await until(() => !document.getElementById("line").disabled);
     document.getElementById("line").value = "ok, tell me what you see now";
     document.getElementById("composer").requestSubmit();
-    while (!calls.includes("chat_send")) await tick();
+    await until(() => calls.includes("chat_send"));
     handlers["chat-permission"]({ payload: ${JSON.stringify(ASK)} });
-    await tick();
+    await until(() => document.querySelector('[data-option="allow-with-updates"]'));
     document.querySelector('[data-option="allow-with-updates"]').click();
-    while (!calls.includes("permission_answer")) await tick();
+    await until(() => calls.includes("permission_answer"));
     handlers["chat-permission-settled"]({ payload: { request: "5", option: "allow-with-updates" } });
     handlers["chat"]({ payload: { said: ${JSON.stringify(ANSWER)}, busy: false, reacting_to: null, you: false, at: null, error: null, superseded_by: null } });
-    await tick();
+    await until(() => [...document.querySelectorAll("#log .row")].some((row) =>
+      row.querySelector(".said")?.textContent.trim().startsWith(${JSON.stringify(ANSWER.slice(0, 20))})));
     const rows = [...document.querySelectorAll("#log .row")].map((row) => ({
       who: row.querySelector(".who-label")?.textContent ?? "",
       said: row.querySelector(".said")?.textContent.trim().slice(0, 60) ?? "",
@@ -109,7 +111,7 @@ const html = readFileSync(join(SRC, "chat.html"), "utf8")
 
 let rows;
 try {
-  rows = await probePage(html, { timeout: 30000 });
+  rows = await probePage(html);
 } catch (why) {
   console.error("the harness never reported:", why.message);
   process.exit(2);
