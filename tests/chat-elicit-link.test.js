@@ -4,31 +4,16 @@
 // the way chat-landing-format.test.js does.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const URL_ = "https://example.test/device?code=ABCD-1234";
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 const opening = {
   name: "BMO",
@@ -81,6 +66,7 @@ function paint(settled = false) {
   };
   const tick = () => new Promise((r) => setTimeout(r, 0));
   async function drive() {
+    console.log("__PROBE_READY__");
     while (!handlers["chat-elicitation"] || document.getElementById("landing").hidden) await tick();
     handlers["chat-elicitation"]({ payload: ${JSON.stringify(form)} });
     await tick();
@@ -99,56 +85,27 @@ function paint(settled = false) {
     }
     for (let i = 0; i < 10; i += 1) await tick();
     const calls = window.__invoked.slice(before);
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify({
+    console.log("__PROBE_RESULT__" + JSON.stringify({
       ...drawn,
       calls,
       disabled: buttons.every((b) => b.disabled),
       chosen: row.querySelectorAll(".chosen").length,
-    });
-    document.body.append(out);
+    }));
   }
   window.addEventListener("load", drive);
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "chat-elicit-link-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the form did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  const json = match[1]
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-  return JSON.parse(json);
+  return probePage(html, { timeout: 10000 });
 }
 
 const skip = chrome ? false : "headless Chromium is not installed";
 
-test("a sign-in link is drawn whole and Open opens it before answering yes", { skip, timeout: 60000 }, () => {
-  const report = paint();
+test("a sign-in link is drawn whole and Open opens it before answering yes", { skip, timeout: 60000 }, async () => {
+  const report = await paint();
   assert.deepEqual(report.code, [URL_]);
   assert.deepEqual(report.buttons, [
     ["Open", "open"],
@@ -162,8 +119,8 @@ test("a sign-in link is drawn whole and Open opens it before answering yes", { s
   assert.equal(report.disabled, true);
 });
 
-test("a completed link goes dead with nothing chosen and nothing sent", { skip, timeout: 60000 }, () => {
-  const report = paint(true);
+test("a completed link goes dead with nothing chosen and nothing sent", { skip, timeout: 60000 }, async () => {
+  const report = await paint(true);
   assert.deepEqual(report.code, [URL_], "the row stays, so the log says what was asked");
   assert.equal(report.disabled, true);
   assert.equal(report.chosen, 0);
