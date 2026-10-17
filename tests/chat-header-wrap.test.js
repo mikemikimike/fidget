@@ -4,32 +4,17 @@
 // src/chat.html the way chat-reply-code.test.js does and measures line boxes.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 // From wider than build_chat's inner_size, past its 320 minimum.
 const WIDTHS = Array.from({ length: 29 }, (_, i) => 480 - i * 10);
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 const THEMES = ["minimal", "terminal", "glass"];
 
 // A custom Harness command's argv[0]. No hyphen: a hyphen is a break opportunity.
@@ -86,6 +71,7 @@ function measure(name, harness = { name: "cursor-agent", session: "fd4be1a2-497f
   }
   const side = (a, b) => a.right <= b.left + 0.5 && a.top < b.bottom && b.top < a.bottom;
   async function drive() {
+    console.log("__PROBE_READY__");
     while (!document.getElementById("mind-text").textContent) await tick();
     const header = document.querySelector(".tb");
     const name = document.getElementById("name");
@@ -119,41 +105,16 @@ function measure(name, harness = { name: "cursor-agent", session: "fd4be1a2-497f
         });
       }
     }
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify(reports);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(reports));
   }
   window.addEventListener("load", drive);
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "chat-header-wrap-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      "--window-size=420,560",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the Chat surface did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&"));
+  return probePage(html, { args: ["--window-size=420,560"], timeout: 30000 });
 }
 
 function check(theme, report) {
@@ -178,8 +139,8 @@ function check(theme, report) {
 test(
   "the Chat header stays one row and wraps the mind line, then the name, then the chip",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
-  () => {
-    const reports = measure("Buddy Bot");
+  async () => {
+    const reports = await measure("Buddy Bot");
     for (const theme of THEMES) {
       const report = reports[theme];
       assert.equal(report.mind, "cursor-agent · session fd4be1a2", theme);
@@ -195,8 +156,8 @@ test(
 test(
   "a name too long for the row wraps beside the chip and the mind line",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
-  () => {
-    const reports = measure("Sir Reginald Buddington the Third of Cupertino");
+  async () => {
+    const reports = await measure("Sir Reginald Buddington the Third of Cupertino");
     for (const theme of THEMES) {
       const report = reports[theme];
       const at = report.widths.find((w) => w.width === 320);
@@ -212,8 +173,8 @@ test(
 test(
   "a custom Harness path with no break opportunity wraps inside the path instead of widening the header",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
-  () => {
-    const reports = measure("Buddy Bot", {
+  async () => {
+    const reports = await measure("Buddy Bot", {
       name: LONG_HARNESS_PATH,
       session: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
     });
