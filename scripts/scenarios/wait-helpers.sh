@@ -125,6 +125,24 @@ line_count() { # <file> <pattern>
   grep -cE "$2" "$1" 2> /dev/null || true
 }
 
+# Wait for a process to exit. With flock, the process holds <lock> through an
+# inherited fd until it and its children are gone; macOS has no flock, so
+# caffeinate -w watches the pid through kqueue. True once it is gone.
+wait_for_exit() { # <seconds> <pid> <lock>
+  kill -0 "$2" 2> /dev/null || return 0
+  if command -v flock > /dev/null && [ -e "${3:-}" ]; then
+    flock -w "$1" "$3" true
+    return
+  fi
+  local pid=$2 # wait_on_source fails at once if this pid is already gone
+  exit_watched=$2
+  wait_on_source "$1" watch_exit read -r
+}
+# No caffeinate (Linux without the lock) prints nothing, so the wait fails.
+watch_exit() {
+  caffeinate -w "$exit_watched" 2> /dev/null && echo gone
+}
+
 # Fidget and every process under it, deepest first. The Harness runs in its
 # own process group, so killing Fidget alone leaves it (and npx, codex-acp or
 # the fixture) behind.

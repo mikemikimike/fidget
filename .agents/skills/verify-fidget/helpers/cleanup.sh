@@ -5,6 +5,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/common.sh"
+# shellcheck source=../../../../scripts/scenarios/wait-helpers.sh
+# shellcheck disable=SC1091
+. "$REPO_ROOT/scripts/scenarios/wait-helpers.sh"
+
+# TERM to Fidget's whole tree (its children hold the lock too), up to 3 s for
+# all of them to exit, then kill -9 on what is left of that tree.
+stop_pid() { # <pid>
+  local tree
+  tree=$(process_tree "$1")
+  # shellcheck disable=SC2086
+  kill $tree 2> /dev/null || true
+  wait_for_exit 3 "$1" "$FIDGET_VERIFY_LOCK" && return 0
+  echo "cleanup: kill -9 $1"
+  # shellcheck disable=SC2086
+  kill -9 $tree 2> /dev/null || true
+}
 
 PIDLIST="$FIDGET_VERIFY_SCRATCH/pids/owned.pids"
 if [ -f "$PIDLIST" ]; then
@@ -12,9 +28,7 @@ if [ -f "$PIDLIST" ]; then
     [ -n "$pid" ] || continue
     if kill -0 "$pid" 2> /dev/null; then
       echo "cleanup: kill $pid"
-      kill "$pid" 2> /dev/null || true
-      sleep 0.5
-      kill -9 "$pid" 2> /dev/null || true
+      stop_pid "$pid"
     fi
   done < "$PIDLIST"
 fi
@@ -24,9 +38,7 @@ if [ -f "$FIDGET_VERIFY_SCRATCH/pids/app.pid" ]; then
   pid="$(cat "$FIDGET_VERIFY_SCRATCH/pids/app.pid")"
   if kill -0 "$pid" 2> /dev/null; then
     echo "cleanup: kill app.pid $pid"
-    kill "$pid" 2> /dev/null || true
-    sleep 0.5
-    kill -9 "$pid" 2> /dev/null || true
+    stop_pid "$pid"
   fi
 fi
 

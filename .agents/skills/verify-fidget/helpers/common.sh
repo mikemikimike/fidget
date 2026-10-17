@@ -27,13 +27,19 @@ mkdir -p "$FIDGET_VERIFY_EVIDENCE" "$FIDGET_VERIFY_SCRATCH/pids"
 
 # Debug only: a release build sends stderr only to <data dir>/fidget/process.log
 # (#1325), so its terminal log never shows the `overlay:` or `frame:` lines.
+# FIDGET_VERIFY_BIN overrides it, as in the Windows verify scripts.
 fidget_bin() {
-  if [ -x "$REPO_ROOT/target/debug/fidget" ]; then
+  if [ -n "${FIDGET_VERIFY_BIN:-}" ]; then
+    echo "$FIDGET_VERIFY_BIN"
+  elif [ -x "$REPO_ROOT/target/debug/fidget" ]; then
     echo "$REPO_ROOT/target/debug/fidget"
   else
     return 1
   fi
 }
+
+# Fidget holds this lock while it runs (see launch.sh); cleanup waits on it.
+export FIDGET_VERIFY_LOCK="$FIDGET_VERIFY_SCRATCH/pids/fidget.lock"
 
 record_pid() {
   local pid="$1"

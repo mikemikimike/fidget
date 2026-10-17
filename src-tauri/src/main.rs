@@ -4617,6 +4617,10 @@ unsafe extern "system" fn anchor_wndproc(
             }
         }
     }
+    if msg == WM_ACTIVATE && dev_flags::TRACE_FRAMES.is_on() {
+        // Verify scripts time their startup checks from this line.
+        eprintln!("anchor: activated wa={}", wparam & 0xFFFF);
+    }
     if msg == WM_ACTIVATE && anchor_click_opens_settings((wparam & 0xFFFF) as u16) {
         if let Some(app) = ANCHOR_APP.get() {
             present_settings(app.clone());
