@@ -1,10 +1,10 @@
 #!/usr/bin/env pwsh
 # Scenario: chat-close-pill-type (Windows)
 # On screen: Notepad on a uniquely named scratch file, and Fidget as BMO with
-#   the fixture Harness. Cleanup closes only that document (and the window if
-#   this run opened Notepad), so it never comes back in Notepad's session.
+#   the fixture Harness. Cleanup closes only that document (and the Notepad
+#   window if this run opened it), so it never comes back in Notepad's session.
 # Input: SendInput cursor moves, clicks, typed words, and Escape.
-# Duration: about 15 s. Every wait gives up after 3 s from its trigger.
+# Duration: about 15 s. Every wait gives up 3 s after its trigger.
 # Grants: a desktop session with no Fidget running. Other Notepad tabs stay as
 #   they are. bash for the fixture Harness wrapper.
 # Asserts: a sprite click leaves typing in Notepad; the pill opens on hover and
@@ -36,8 +36,15 @@ if (-not $Bin -or -not $TestBin) {
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 . (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
+. (Join-Path $PSScriptRoot "bash-setup-win.ps1")
+if (-not $bashPath) {
+    [Console]::Error.WriteLine("SKIP: bash not found (tried Git Bash, then PATH)")
+    exit 2
+}
+
 $script:Evidence = $null
-$script:notepadHwnd = 0
+$script:notepadHwnd = [IntPtr]::Zero
+$script:notepadPid = 0
 
 function Fail([string]$Message) {
     [Console]::Error.WriteLine("FAIL: $Message")
@@ -74,6 +81,7 @@ public class PillInput {
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT pt);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern IntPtr SetProcessDpiAwarenessContext(IntPtr v);
     public static void Click(int x, int y) {
         INPUT[] inp = new INPUT[3];
         inp[0].type = 0;
@@ -93,17 +101,46 @@ public class PillInput {
 }
 '@ -ReferencedAssemblies System.Windows.Forms
 
-$run = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$out = Join-Path $root "data/scenario-runs/chat-close-pill-type-$run"
+[PillInput]::SetProcessDpiAwarenessContext([IntPtr]-4) | Out-Null
+
+$TestBin = (Resolve-Path -LiteralPath $TestBin).Path
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$out = Join-Path $env:TEMP "fidget-scenario-chat-close-pill-type-$stamp"
 $script:Evidence = $out
-New-Item -ItemType Directory -Force -Path $out | Out-Null
 $data = Initialize-ScenarioData $out @{ hide_in_fullscreen = $false }
+
+$marks = Join-Path $out "harness.log"
 $log = Join-Path $data "process.log"
 $err = Join-Path $out "app.err"
-$chars = "BMO"
-$doc = Join-Path $out "note-$run.txt"
+Set-Content -LiteralPath $marks -Value "" -Encoding ascii
 
-Write-Host "scenario: opening Notepad on $doc"
+$rootBash = $root -replace '\\', '/'
+$testBinBash = $TestBin -replace '\\', '/'
+$marksBash = $marks -replace '\\', '/'
+$harness = "$bashPath $rootBash/scripts/scenarios/fixture-harness.sh $testBinBash script=scenario count=$marksBash"
+$paths = @($harness -split '\s+' | Select-Object -Skip 1)
+if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
+
+$env:FIDGET_HARNESS = $harness
+$env:FIDGET_DIRECTOR_WAKE_SECS = "1"
+$env:FIDGET_DIRECTOR_API_KEY = "x"
+$env:FIDGET_CAPTURABLE = "1"
+$env:FIDGET_TRACE_FRAMES = "1"
+$env:FIDGET_TRACE_BUBBLE = "1"
+$env:FIDGET_CHARACTER = "bmo"
+$env:FIDGET_CHARACTERS = Join-Path $root "characters"
+
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+
+$docName = "fidget-pill-$(Get-Date -Format yyyyMMdd-HHmmss)-$((Get-Random -Maximum 65536).ToString('x4')).txt"
+$doc = Join-Path $env:TEMP $docName
+[System.IO.File]::WriteAllText($doc, "")
+
+$notepadWasRunning = [bool](Get-Process -Name Notepad -ErrorAction SilentlyContinue)
+
+Write-Host "scenario: opening Notepad on $docName"
 $script:notepadProc = Start-Process -FilePath "notepad.exe" -ArgumentList $doc -PassThru
 if (-not (Wait-Until 3 {
     $tops = @([System.Diagnostics.Process]::GetProcesses() | Where-Object { $_.ProcessName -eq "Notepad" })
@@ -112,22 +149,21 @@ if (-not (Wait-Until 3 {
             $h = $p.MainWindowHandle
             if ($h -eq 0) { continue }
             $title = $p.MainWindowTitle
-            if ($title -and $title.Contains([System.IO.Path]::GetFileName($doc))) {
+            if ($title -and $title.Contains($docName)) {
                 $script:notepadHwnd = $h
+                $script:notepadPid = $p.Id
                 return $true
             }
         } catch { }
     }
     return $false
 })) {
-    Fail "Notepad with $([System.IO.Path]::GetFileName($doc)) did not open in 3 s"
+    Fail "Notepad with $docName did not open in 3 s"
 }
 
-$env:FIDGET_CHARACTERS = $chars
 Write-Host "scenario: launching Fidget"
 $script:proc = Start-Process -FilePath $Bin -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $out "app.log") -RedirectStandardError $err
 
-$frame = '^(?:\d+ )?frame: \d+ (\w+) pos\(\S+ sprite\((-?\d+),(-?\d+)\)'
 $pillOpen = 'overlay: pill open SetForegroundWindow'
 $draft = '(?:^|\d+ )overlay: draft instance=\S+ text="([^"]*)" focused=(true|false)'
 $draftClosed = '(?:^|\d+ )overlay: draft instance=\S+ closed'
@@ -145,23 +181,28 @@ try {
         }
     }
 
+    $spriteX = $script:rest.X + 63
+    $spriteY = $script:rest.Y + 64
+
     Write-Host "test 1: sprite click leaves typing in Notepad"
-    [PillInput]::Click($script:rest.X, $script:rest.Y)
-    Start-Sleep -Milliseconds 100
-    Type-Word "one"
-    if (-not (Wait-ForUia 3 $script:notepadProc.Id {
+    [PillInput]::Click($spriteX, $spriteY)
+    if (-not (Wait-ForUia 3 $script:notepadPid {
         $fg = [PillInput]::GetForegroundWindow()
         $fg -eq $script:notepadHwnd
     })) {
         Fail "test 1: Notepad did not have foreground after sprite click"
     }
-    $noteText = Get-Content -LiteralPath $doc -Raw -ErrorAction SilentlyContinue
-    if (-not $noteText -or -not $noteText.Contains("one")) {
+    [System.IO.File]::WriteAllText($doc, "")
+    Type-Word "one"
+    if (-not (Wait-Until 3 {
+        $noteText = [System.IO.File]::ReadAllText($doc)
+        $noteText.Contains("one")
+    })) {
         Fail "test 1: 'one' never reached Notepad"
     }
 
     Write-Host "test 2: hover opens pill and takes typing"
-    $hoverX = $script:rest.X
+    $hoverX = $script:rest.X + 63
     $hoverY = $script:rest.Y - 30
     $inMove = New-Object PillInput+INPUT
     $inMove.type = 0
@@ -172,15 +213,22 @@ try {
     if (-not (Wait-ForTrace 3 $log $pillOpen)) {
         Fail "test 2: pill-open trace never appeared in 3 s; see $log"
     }
+    $pillOpenLine = Get-Content -LiteralPath $log | Where-Object { $_ -match $pillOpen } | Select-Object -Last 1
+    Write-Host "pill-open trace: $pillOpenLine"
     $before = @(Get-Content -LiteralPath $log | Where-Object { $_ -match $draft }).Count
     Type-Word "two"
-    if (-not (Wait-ForCount 3 $log $draft $before)) {
+    if (-not (Wait-ForCount 3 $log "$draft" $before)) {
         Fail "test 2: 'two' never reached pill"
+    }
+    $draftLine = Get-Content -LiteralPath $log | Where-Object { $_ -match $draft } | Select-Object -Last 1
+    if ($draftLine -notmatch 'text="two"') {
+        Fail "test 2: pill text is not 'two': $draftLine"
     }
 
     Write-Host "test 3: Escape closes pill"
+    $beforeEscape = @(Get-Content -LiteralPath $log | Where-Object { $_ -match $draftClosed }).Count
     [PillInput]::Key("{ESC}")
-    if (-not (Wait-ForTrace 3 $log $draftClosed)) {
+    if (-not (Wait-ForCount 3 $log $draftClosed $beforeEscape)) {
         Fail "test 3: draft closed trace never appeared; see $log"
     }
 
@@ -189,24 +237,24 @@ try {
     [PillInput]::GetWindowRect($script:notepadHwnd, [ref]$r) | Out-Null
     $clickX = [int](($r.L + $r.R) / 2)
     $clickY = [int](($r.T + $r.B) / 2)
-    [uint32]$notepadPid = 0
+    [uint32]$notepadClickPid = 0
     $rootAtClick = [PillInput]::WindowFromPoint([PillInput+POINT]@{ X = $clickX; Y = $clickY })
-    [PillInput]::GetWindowThreadProcessId($rootAtClick, [ref]$notepadPid) | Out-Null
-    if ($notepadPid -ne $script:notepadProc.Id) {
+    [PillInput]::GetWindowThreadProcessId($rootAtClick, [ref]$notepadClickPid) | Out-Null
+    if ($notepadClickPid -ne $script:notepadPid) {
         Fail "test 4: click would not land on Notepad"
     }
     [PillInput]::Click($clickX, $clickY)
-    if (-not (Wait-ForUia 3 $script:notepadProc.Id {
+    if (-not (Wait-ForUia 3 $script:notepadPid {
         $fg = [PillInput]::GetForegroundWindow()
         $fg -eq $script:notepadHwnd
     })) {
         Fail "test 4: Notepad did not have foreground after click"
     }
-    $beforeFour = Get-Content -LiteralPath $doc -Raw -ErrorAction SilentlyContinue
+    $beforeFour = [System.IO.File]::ReadAllText($doc)
     Type-Word "four"
     if (-not (Wait-Until 3 {
-        $now = Get-Content -LiteralPath $doc -Raw -ErrorAction SilentlyContinue
-        $now -and $now.Length -gt $beforeFour.Length -and $now.Contains("four")
+        $now = [System.IO.File]::ReadAllText($doc)
+        $now.Length -gt $beforeFour.Length -and $now.Contains("four")
     })) {
         Fail "test 4: 'four' never reached Notepad"
     }
@@ -214,15 +262,16 @@ try {
     Write-Host "PASS"
     exit 0
 } finally {
-    if ($script:notepadHwnd -and $script:notepadHwnd -ne 0) {
+    Stop-FidgetTree $script:proc ""
+    if ($script:notepadHwnd -ne [IntPtr]::Zero) {
         try {
-            $h = [IntPtr]$script:notepadHwnd
-            $WM_CLOSE = 0x0010
-            Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class W { [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam); }'
-            [W]::SendMessage($h, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            if (-not $notepadWasRunning) {
+                $WM_CLOSE = 0x0010
+                Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class W { [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam); }'
+                [W]::SendMessage($script:notepadHwnd, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            }
         } catch { }
     }
-    Stop-FidgetTree $script:proc "Harness.*$chars"
     if (Test-Path -LiteralPath $doc -ErrorAction SilentlyContinue) {
         Remove-Item -LiteralPath $doc -Force -ErrorAction SilentlyContinue
     }
