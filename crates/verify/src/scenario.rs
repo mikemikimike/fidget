@@ -1182,4 +1182,37 @@ mod tests {
         assert_eq!(code, Some(1), "{text}");
         assert!(text.contains("no Notepad tab shows ours.txt"), "{text}");
     }
+
+    /// The startup gate's answer for this process.log text.
+    #[cfg(windows)]
+    fn overlay_ready(log: &str) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("process.log");
+        fs::write(&path, log).unwrap();
+        let out = Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(repo_scenarios().join("chat-close-pill-type.win.ps1"))
+            .args([
+                "--go",
+                "C:\\Windows\\System32\\cmd.exe",
+                "C:\\Windows\\System32\\cmd.exe",
+            ])
+            .env("FIDGET_SCENARIO_READY_LOG", &path)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    // WebView2 starts listening about 3 s after the Shell's first frame (run
+    // 20261017-150421-6f18), so the first case waits for the overlay's first report.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_waits_for_the_overlay_not_the_first_frame() {
+        let shell_only = "1792238673 frame: 1792238673942 Grounded pos(1720,1392) sprite(1657,1264) react#0 d4\n\
+            1792238673 hit-test: cursor(1720,1328) scale 1.0 -> point(1720,1328) on overlay 0 HIT  click-through OFF  <- flipped\n";
+        assert_eq!(overlay_ready(shell_only), "ready: no");
+        let listening = format!("{shell_only}1792238676 overlay: draft instance=d4 closed\n");
+        assert_eq!(overlay_ready(&listening), "ready: yes");
+    }
 }

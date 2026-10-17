@@ -5,8 +5,8 @@
 #   fixture Harness. Cleanup closes only that tab (and the window if this run
 #   opened Notepad), so it never comes back in Notepad's restored session.
 # Input: SendInput cursor moves, held clicks, typed words, Enter, Escape, Ctrl+S.
-# Duration: about 15 s. Every wait gives up 3 s after its trigger; Fidget's
-#   cold start gets 10 s.
+# Duration: about 20 s. Every wait gives up 3 s after its trigger; Fidget's
+#   cold start and its overlay's first report get 10 s each.
 # Grants: a desktop session with no Fidget running (it skips otherwise). Other
 #   Notepad tabs and windows, and any fullscreen app, stay as they are; a
 #   fullscreen window is only logged. bash for the fixture Harness wrapper.
@@ -15,7 +15,8 @@
 #   Notepad keeps the pill's text while typing goes to the click.
 # Set FIDGET_SCENARIO_NOTEPAD_TABS (names split by |), FIDGET_SCENARIO_DOC and
 #   FIDGET_SCENARIO_NOTEPAD_BEFORE=1|0 to print the Notepad cleanup plan only, or
-#   FIDGET_SCENARIO_PREPARE_ONLY=1 to make the run folder and launch nothing.
+#   FIDGET_SCENARIO_PREPARE_ONLY=1 to make the run folder and launch nothing, or
+#   FIDGET_SCENARIO_READY_LOG=<process.log> to print whether the overlay was listening.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in [evidence dir].
 #
 # Usage: chat-close-pill-type.win.ps1 --go <fidget binary> <fidget test binary> [evidence dir]
@@ -59,6 +60,16 @@ if ($env:FIDGET_SCENARIO_NOTEPAD_TABS) {
         exit 1
     }
     Write-Output "plan: $plan"
+    exit 0
+}
+# The overlay's first draft report: its webview is listening, about 3 s after the
+# Shell's first frame on Windows. Input before that reaches no pill.
+function Test-OverlayListening([string[]]$Lines) {
+    @($Lines | Where-Object { $_ -match '(?:^|\s)overlay: draft instance=\S+ ' }).Count -gt 0
+}
+if ($env:FIDGET_SCENARIO_READY_LOG) {
+    $ready = Test-OverlayListening (Get-Content -LiteralPath $env:FIDGET_SCENARIO_READY_LOG)
+    Write-Output "ready: $(if ($ready) { 'yes' } else { 'no' })"
     exit 0
 }
 
@@ -395,6 +406,7 @@ try {
     $script:proc = Start-Process -FilePath $Bin -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $Out "app.log") -RedirectStandardError (Join-Path $Out "app.err")
     if (-not (Wait-LogCount 10 '(?:^|\s)frame: ' 0)) { Fail "Fidget drew no frame in 10 s; see $log" }
     if (-not (Wait-LogCount 3 $frame 0)) { Fail "the Character did not land in 3 s; see $log" }
+    if (-not (Wait-Check 10 { Test-OverlayListening (Get-Content -LiteralPath $log) })) { Fail "the overlay's webview did not report in 10 s; see $log" }
     if (-not (Wait-Check 3 { Foreground-Is })) { Note-Keys "as Fidget started"; Fail "Notepad lost focus as Fidget started; see $focusLog" }
 
     # 1. No pill open: a sprite click leaves typing in Notepad.

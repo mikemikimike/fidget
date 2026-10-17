@@ -120,6 +120,8 @@ running. A fullscreen app keeps running: the leaf logs it and its monitor to
 `focus.log` and never focuses or moves it. Each run writes a new
 `chat-close-pill-type-<time>-<hex>` folder under the evidence dir it is given,
 so a rerun into the same dir keeps the earlier one.
+It starts once the overlay's webview first reports, not at the Shell's first
+frame: WebView2 listens about 3 s later, and input before that reaches no pill.
 `fidget-verify scenario <name>` prints the leaf for this host. With `--go` it
 runs that leaf, or skips when this host has none.
 
