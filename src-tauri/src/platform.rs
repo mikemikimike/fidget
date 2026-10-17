@@ -370,10 +370,28 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
     macos::hand_back_keyboard(window)
 }
 
-/// Windows keeps main's focus behavior: the hand-back moves to its own PR.
+/// Remember the foreground window before a pill takes the keyboard.
 #[cfg(target_os = "windows")]
-pub fn hand_back_keyboard(_window: &tauri::WebviewWindow) -> Result<(), String> {
-    Ok(())
+pub fn remember_foreground(hwnd: windows_sys::Win32::Foundation::HWND) {
+    windows::remember_foreground(hwnd);
+}
+
+/// The overlay's last pill closed: give the foreground back to the window
+/// that had it, if the overlay still holds it and that window still exists.
+#[cfg(target_os = "windows")]
+pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::HWND;
+
+    let handle = window
+        .window_handle()
+        .map_err(|e| format!("overlay has no window handle: {e}"))?;
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return Ok(());
+    };
+    let overlay = win32.hwnd.get() as HWND;
+    
+    windows::hand_back_keyboard(overlay)
 }
 
 /// The X11 window behind a webview, or None on Wayland.

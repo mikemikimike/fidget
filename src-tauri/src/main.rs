@@ -2191,6 +2191,12 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
             // Win32 for live windows, and any attach is undone before returning.
             unsafe {
                 let foreground = GetForegroundWindow();
+                
+                // Remember the foreground window before taking it, unless it's the overlay itself.
+                if !foreground.is_null() && foreground != hwnd {
+                    platform::remember_foreground(foreground);
+                }
+                
                 let mut attached = None;
                 if !foreground.is_null() {
                     let foreground_thread =
@@ -2203,7 +2209,17 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
                         attached = Some((overlay_thread, foreground_thread));
                     }
                 }
-                SetForegroundWindow(hwnd);
+                
+                let result = SetForegroundWindow(hwnd);
+                let foreground_after = GetForegroundWindow();
+                
+                if dev_flags::TRACE_FRAMES.is_on() {
+                    eprintln!(
+                        "pill open: SetForegroundWindow({:#x}) returned {} (zero=fail), GetForegroundWindow()={:#x}",
+                        hwnd as usize, result, foreground_after as usize
+                    );
+                }
+                
                 if let Some((overlay_thread, foreground_thread)) = attached {
                     AttachThreadInput(overlay_thread, foreground_thread, 0);
                 }

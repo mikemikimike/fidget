@@ -7,6 +7,7 @@
 #![cfg(not(unix))]
 
 mod console;
+mod focus_return;
 mod overlay;
 mod pointer;
 mod process;
@@ -15,6 +16,7 @@ mod settings_raise;
 mod window_source;
 
 pub(super) use console::{restore_ctrl_c, suppress_ctrl_c_for_children};
+pub(super) use focus_return::{hand_back_keyboard, remember_foreground};
 pub use overlay::{
     configure_overlay, set_click_through, toggle_click_through_only, update_input_region,
 };
