@@ -62,7 +62,7 @@ cleanup() {
   [ "${#tree[@]}" -gt 0 ] || return 0
   kill "${tree[@]}" 2> /dev/null || true
   # The lock, not one PID, says when every process that inherited it is gone.
-  flock -w 3 "$lock" true || kill -9 "${tree[@]}" 2> /dev/null || true
+  wait_for_exit 3 "${tree[0]}" "$lock" || kill -9 "${tree[@]}" 2> /dev/null || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
