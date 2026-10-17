@@ -1,4 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // Every CDP call, the first included, gets 3s. CI warms Chrome up once before the
 // tests, so a slow first start fails loudly instead of hiding behind a longer wait.
@@ -225,4 +229,35 @@ export async function cleanupChrome(cdp) {
   let timer;
   const capped = new Promise((resolve) => { timer = setTimeout(resolve, 3000); });
   try { await Promise.race([cdp.closePromise, capped]); } finally { clearTimeout(timer); }
+}
+
+// Writes `html` to a temp page, opens it headless, and resolves with the JSON the
+// page logs as `__PROBE_RESULT__<json>`, after it logs `__PROBE_READY__`.
+export async function probePage(html, { args = [], timeout = 6000 } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "probe-page-"));
+  let cdp;
+  try {
+    const page = join(dir, "harness.html");
+    writeFileSync(page, html);
+    cdp = launchWithPipe(findChrome(), [
+      "--headless=new",
+      "--disable-gpu",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--allow-file-access-from-files",
+      `--user-data-dir=${join(dir, "profile")}`,
+      ...args,
+    ]);
+    const { sessionId, navigate } = await createPageTarget(cdp);
+    return await captureConsoleLog(
+      cdp,
+      sessionId,
+      "__PROBE_RESULT__",
+      timeout,
+      () => navigate(pathToFileURL(page).href),
+    );
+  } finally {
+    if (cdp) await cleanupChrome(cdp);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  }
 }
