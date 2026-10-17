@@ -113,6 +113,8 @@ unless Chat is open.
 `launcher-dies-at-startup`, `sign-in-button`, `question-bubble`,
 `control-click-menu` and `poke-mid-climb` each have `.x11.sh` and `.win.ps1`
 leaves.
+`chat-close-pill-type` has a `.win.ps1` leaf, which types into Notepad and
+skips while Notepad, Fidget or a fullscreen window is already up.
 `fidget-verify scenario <name>` prints the leaf for this host. With `--go` it
 runs that leaf, or skips when this host has none.
 
