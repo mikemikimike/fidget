@@ -1292,11 +1292,11 @@ mod tests {
             ),
             (
                 "1792238679 overlay: draft instance=d4 text=\"\" focused=false",
-                "listening unfocused",
+                "listening",
             ),
             (
                 "1792238680 overlay: draft instance=d4 closed",
-                "listening unfocused closed pillGone",
+                "listening closed pillGone",
             ),
             (
                 "1792238681 overlay: hand back Restore to 0x150e64 -> 0",
