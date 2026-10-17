@@ -1,6 +1,6 @@
-// The page's own timers and clock readings, on a clock the test steps: probePage
-// runs the page for real, so a delay the page schedules costs wall time. Only
-// what the page schedules is queued; requestAnimationFrame stays real.
+// The page's own timers, on a clock the test steps, so a delay the page schedules
+// costs no wall time. Only what the page schedules is queued; performance.now and
+// the frame timestamp stay real, since main.js draws one against the other.
 export function pageClock() {
   return `
   const timers = new Map();
@@ -8,7 +8,6 @@ export function pageClock() {
   let nextId = 1;
   const read = () => now;
   Date.now = read;
-  performance.now = read;
   window.setTimeout = (fn, ms) => {
     const id = nextId++;
     timers.set(id, { at: now + (ms || 0), fn, every: null });
