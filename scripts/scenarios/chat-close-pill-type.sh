@@ -323,8 +323,9 @@ bounds=$(capped 3 osascript -e 'tell application "System Events" to get position
 IFS=', ' read -r left top <<< "$bounds"
 # Click the first line's start, past the title bar and the text inset. That
 # blurs the pill, which reports its draft again: still "nine", unfocused.
+# macOS capitalizes the word as the field loses focus (run 115837: "Nine").
 mark=$(wc -l < "$log")
-wait_for_next 3 "$log" "${draft}\"nine\" focused=false" "$tools/click-cursor" "$((left + 8))" "$((top + 40))" 1 ||
+wait_for_next 3 "$log" "${draft}\"[Nn]ine\" focused=false" "$tools/click-cursor" "$((left + 8))" "$((top + 40))" 1 ||
   fail "click-away: the pill did not keep \"nine\" after the click; see $log"
 capped 3 "$tools/ax" type "$pid" ten >> "$out/helpers.log" 2>&1 || fail "click-away: could not type"
 caret_moved() { [ "$(text_front)" = tenabc ]; }
