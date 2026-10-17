@@ -38,6 +38,9 @@ fidget_bin() {
   fi
 }
 
+# Fidget holds this lock while it runs (see launch.sh); cleanup waits on it.
+export FIDGET_VERIFY_LOCK="$FIDGET_VERIFY_SCRATCH/pids/fidget.lock"
+
 record_pid() {
   local pid="$1"
   echo "$pid" >> "$FIDGET_VERIFY_SCRATCH/pids/owned.pids"

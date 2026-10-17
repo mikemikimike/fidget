@@ -35,8 +35,14 @@ export FIDGET_TRACE_HITTEST="${FIDGET_TRACE_HITTEST:-1}"
 export FIDGET_CAPTURABLE="${FIDGET_CAPTURABLE:-1}"
 
 echo "launch: $BIN → $LOG"
+# Fidget inherits fd 9 and so holds the lock until it exits; this shell lets go.
+if command -v flock > /dev/null; then
+  exec 9> "$FIDGET_VERIFY_LOCK"
+  flock -n 9 || { echo "launch: another Fidget holds $FIDGET_VERIFY_LOCK" && exit 1; }
+fi
 "$BIN" > "$LOG" 2>&1 &
 APP_PID=$!
+exec 9>&-
 echo "$APP_PID" > "$PIDFILE"
 record_pid "$APP_PID"
 export APP_PID

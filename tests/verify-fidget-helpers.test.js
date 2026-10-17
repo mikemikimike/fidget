@@ -79,6 +79,17 @@ test("cleanup stops a Fidget that honours TERM without a force kill", () => {
   assert.ok(r.ms < 1500, `took ${r.ms} ms`);
 });
 
+test("cleanup returns as soon as a Fidget that takes 0.5 s to stop has exited", () => {
+  const { root, env } = scratch('trap \'sleep 0.5; kill "$s"; exit 0\' TERM; echo "overlay: up" >&2; sleep 30 & s=$!; wait "$s"');
+  helper("launch.sh", env);
+  const pid = pidOf(root);
+  const r = helper("cleanup.sh", env);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(alive(pid), false, "still running");
+  assert.doesNotMatch(r.out, /kill -9/);
+  assert.ok(r.ms >= 450 && r.ms < 1500, `took ${r.ms} ms`);
+});
+
 test("cleanup force-kills a Fidget that ignores TERM, after 3 s", () => {
   const { root, env } = scratch('trap "" TERM; echo "overlay: up" >&2; exec sleep 30');
   helper("launch.sh", env);

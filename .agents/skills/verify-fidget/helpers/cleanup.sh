@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # TERM, then up to 3 s for the exit; kill -9 only if it is still running.
 stop_pid() { # <pid>
   kill "$1" 2> /dev/null || true
-  wait_for_exit 3 "$1" && return 0
+  wait_for_exit 3 "$1" "$FIDGET_VERIFY_LOCK" && return 0
   echo "cleanup: kill -9 $1"
   kill -9 "$1" 2> /dev/null || true
 }
