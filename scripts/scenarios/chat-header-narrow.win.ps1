@@ -152,7 +152,7 @@ $env:FIDGET_CHARACTERS = Join-Path $root "characters"
 
 $ax = Join-Path $root "scripts/ax-window-win.ps1"
 $startMs = Get-NowMs
-$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError (Join-Path $out "app.err") -PassThru -WindowStyle Normal
+$proc = Start-FidgetPiped $Bin @() $log (Join-Path $out "app.err")
 try {
     function Invoke-Dump([string]$Name) {
         $dump = Join-Path $out "$Name.ax.txt"

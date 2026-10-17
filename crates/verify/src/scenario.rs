@@ -1103,4 +1103,24 @@ mod tests {
     fn poke_mid_climb_win_fails_on_each_broken_assertion() {
         fixture_cases("poke-mid-climb.win.ps1", CLIMB_GOOD, CLIMB_CASES);
     }
+
+    // Windows PowerShell 5.1 compiles the shared waits' C# and passes their
+    // self-check: only a piped line wakes a wait on an empty folder, the log
+    // keeps the bytes (UTF-8, LF, non-ASCII), and a wait gives up at its cap.
+    #[cfg(windows)]
+    #[test]
+    fn wait_helpers_win_wake_on_each_piped_line() {
+        let out = Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(repo_scenarios().join("test-wait-helpers.ps1"))
+            .output()
+            .unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.status.code(), Some(0), "{text}");
+        assert!(text.contains("all checks passed"), "{text}");
+    }
 }

@@ -306,7 +306,7 @@ function Get-ClimbEdges([string[]]$Lines) {
     }
 }
 
-$script:proc = Start-Process -FilePath $Bin -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -WindowStyle Normal
+$script:proc = Start-FidgetPiped $Bin @() $log $err
 $startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
     if (-not (Wait-ForFile 3 $trace)) { Fail "process.log never appeared; see $err" }
