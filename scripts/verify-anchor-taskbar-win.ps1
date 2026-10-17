@@ -62,26 +62,30 @@ $Bin = if ($env:FIDGET_VERIFY_BIN) { $env:FIDGET_VERIFY_BIN } else { Join-Path $
 if (-not (Test-Path $Bin)) { Fail "missing $Bin - build with cargo first, or set FIDGET_VERIFY_BIN" }
 Pass "Binary ready: $Bin"
 
-Get-Process -Name "fidget" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 500
+# The shared waits block on file changes under $Out; a dead app fails them.
+. (Join-Path $Root "scripts\scenarios\wait-helpers.win.ps1")
+$script:WatchDir = $Out
+$Log = Join-Path $Out "app.log"
+
+$old = @(Get-Process -Name "fidget" -ErrorAction SilentlyContinue)
+$old | Stop-Process -Force -ErrorAction SilentlyContinue
+$old | Wait-Process -Timeout 3 -ErrorAction SilentlyContinue
+if (@($old | Where-Object { -not $_.HasExited }).Count -gt 0) { Fail "an earlier fidget did not exit within 3 s" }
 
 # FIDGET_OPEN_SETTINGS would open Settings on startup and void Q1.
 $env:FIDGET_CHARACTER = "buddy-bot"
 Remove-Item Env:FIDGET_OPEN_SETTINGS -ErrorAction SilentlyContinue
 
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = $Bin
-$psi.WorkingDirectory = $Root
-$psi.UseShellExecute = $false
-$psi.CreateNoWindow = $true
-$script:AppProc = New-Object System.Diagnostics.Process
-$script:AppProc.StartInfo = $psi
-$null = $script:AppProc.Start()
+# Frame traces keep the log growing, so Wait-Until re-checks the windows.
+$env:FIDGET_TRACE_FRAMES = "1"
+$script:AppProc = Start-Process -FilePath $Bin -WorkingDirectory $Root -RedirectStandardError $Log -PassThru -WindowStyle Hidden
+$script:proc = $script:AppProc
 $appPid = [uint32]$script:AppProc.Id
-Info "Launched fidget (PID=$appPid)"
+Info "Launched fidget (PID=$appPid, log $Log)"
 
-Start-Sleep -Milliseconds 8000
-Info "Startup settled"
+if (-not (Wait-ForLine 3 $Log '^overlay:')) { Fail "no overlay line within 3 s; see $Log" }
+if (-not (Wait-ForLine 3 $Log '^anchor:')) { Fail "no anchor line within 3 s; see $Log" }
+Info "Startup done: overlay and anchor are up"
 
 function Find-SettingsHwnd($windows) {
   foreach ($hwnd in $windows) {
@@ -143,12 +147,9 @@ if (-not $result) {
 }
 Pass "PostMessage succeeded"
 
-Start-Sleep -Milliseconds 1000
+$opened = Wait-Until 3 { (Find-SettingsHwnd ([AnchorVerify]::FindWindowsByPid($appPid))) -ne [IntPtr]::Zero }
 
-$windows = [AnchorVerify]::FindWindowsByPid($appPid)
-$settingsHwnd = Find-SettingsHwnd $windows
-
-if ($settingsHwnd -eq [IntPtr]::Zero) {
+if (-not $opened) {
   Fail "Q2 FAIL: Settings window did not open after PostMessage WM_ACTIVATE with WA_CLICKACTIVE"
 }
 Pass "Q2 PASS: Settings window opened after WM_ACTIVATE with WA_CLICKACTIVE"

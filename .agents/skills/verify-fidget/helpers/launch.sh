@@ -6,6 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/common.sh"
+# shellcheck source=../../../../scripts/scenarios/wait-helpers.sh
+# shellcheck disable=SC1091
+. "$REPO_ROOT/scripts/scenarios/wait-helpers.sh"
 
 cd "$REPO_ROOT"
 
@@ -38,21 +41,20 @@ echo "$APP_PID" > "$PIDFILE"
 record_pid "$APP_PID"
 export APP_PID
 
-for _ in $(seq 1 80); do
-  if grep -qE '^overlay:' "$LOG" 2> /dev/null; then
-    echo "launch: ready (overlay line) pid=$APP_PID"
-    append_proof "launch ready pid=$APP_PID log=$LOG"
-    exit 0
-  fi
-  if ! kill -0 "$APP_PID" 2> /dev/null; then
-    echo "launch: process exited"
-    tail -40 "$LOG" || true
-    append_proof "launch FAILED — process exited; see $LOG"
-    exit 1
-  fi
-  sleep 0.25
-done
-
-echo "launch: timed out waiting for overlay: (process still up)"
-append_proof "launch WARN — no overlay: yet; pid=$APP_PID log=$LOG"
-exit 0
+# The wait fails at once if Fidget ($pid) dies.
+# shellcheck disable=SC2034
+pid=$APP_PID
+if wait_for_line 3 "$LOG" '^overlay:'; then
+  echo "launch: ready (overlay line) pid=$APP_PID"
+  append_proof "launch ready pid=$APP_PID log=$LOG"
+  exit 0
+fi
+if ! kill -0 "$APP_PID" 2> /dev/null; then
+  echo "launch: process exited"
+  tail -40 "$LOG" || true
+  append_proof "launch FAILED — process exited; see $LOG"
+  exit 1
+fi
+echo "launch: no overlay: line within 3 s (process still up)"
+append_proof "launch FAILED — no overlay: line within 3 s; pid=$APP_PID log=$LOG"
+exit 1

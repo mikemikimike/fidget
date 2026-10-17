@@ -5,6 +5,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/common.sh"
+# shellcheck source=../../../../scripts/scenarios/wait-helpers.sh
+# shellcheck disable=SC1091
+. "$REPO_ROOT/scripts/scenarios/wait-helpers.sh"
+
+# TERM, then up to 3 s for the exit; kill -9 only if it is still running.
+stop_pid() { # <pid>
+  kill "$1" 2> /dev/null || true
+  wait_for_exit 3 "$1" && return 0
+  echo "cleanup: kill -9 $1"
+  kill -9 "$1" 2> /dev/null || true
+}
 
 PIDLIST="$FIDGET_VERIFY_SCRATCH/pids/owned.pids"
 if [ -f "$PIDLIST" ]; then
@@ -12,9 +23,7 @@ if [ -f "$PIDLIST" ]; then
     [ -n "$pid" ] || continue
     if kill -0 "$pid" 2> /dev/null; then
       echo "cleanup: kill $pid"
-      kill "$pid" 2> /dev/null || true
-      sleep 0.5
-      kill -9 "$pid" 2> /dev/null || true
+      stop_pid "$pid"
     fi
   done < "$PIDLIST"
 fi
@@ -24,9 +33,7 @@ if [ -f "$FIDGET_VERIFY_SCRATCH/pids/app.pid" ]; then
   pid="$(cat "$FIDGET_VERIFY_SCRATCH/pids/app.pid")"
   if kill -0 "$pid" 2> /dev/null; then
     echo "cleanup: kill app.pid $pid"
-    kill "$pid" 2> /dev/null || true
-    sleep 0.5
-    kill -9 "$pid" 2> /dev/null || true
+    stop_pid "$pid"
   fi
 fi
 

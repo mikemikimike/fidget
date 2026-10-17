@@ -66,17 +66,16 @@ $env:FIDGET_TRACE_FRAMES = "1"
 $script:AppProc = Start-Process -FilePath $Bin -RedirectStandardError $Log -PassThru -WindowStyle Hidden
 Info "pid $($script:AppProc.Id) log $Log"
 
-$ready = $false
-foreach ($i in 1..80) {
+# The shared waits block on file changes; a dead app fails them ($script:proc).
+. (Join-Path $Root "scripts\scenarios\wait-helpers.win.ps1")
+$script:proc = $script:AppProc
+$script:WatchDir = $Out
+if (-not (Wait-ForLine 3 $Log '^overlay:')) {
   if ($script:AppProc.HasExited) { Fail "app exited during startup" }
-  if ((Test-Path $Log) -and (Select-String -Path $Log -Pattern '^overlay:' -Quiet)) {
-    $ready = $true
-    break
-  }
-  Start-Sleep -Milliseconds 250
+  Fail "app published no overlay line within 3 s"
 }
-if (-not $ready) { Fail "app never published an overlay line" }
-Start-Sleep -Seconds 1
+# The anchor logs where it landed once it is built and moved.
+if (-not (Wait-ForLine 3 $Log '^anchor:')) { Fail "app logged no anchor line within 3 s" }
 
 function Intersects($a, $b) {
   return ($a.Left -lt $b.Right) -and ($a.Right -gt $b.Left) -and ($a.Top -lt $b.Bottom) -and ($a.Bottom -gt $b.Top)

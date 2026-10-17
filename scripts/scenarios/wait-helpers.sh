@@ -125,6 +125,23 @@ line_count() { # <file> <pattern>
   grep -cE "$2" "$1" 2> /dev/null || true
 }
 
+# Wait for a process to exit, through kqueue (caffeinate -w, macOS) or GNU
+# tail --pid at 50 ms where caffeinate is missing. True once it is gone.
+wait_for_exit() { # <seconds> <pid>
+  kill -0 "$2" 2> /dev/null || return 0
+  local pid=$2 # wait_on_source fails at once if this pid is already gone
+  exit_watched=$2
+  wait_on_source "$1" watch_exit read -r
+}
+watch_exit() {
+  if command -v caffeinate > /dev/null; then
+    caffeinate -w "$exit_watched"
+  else
+    tail -s 0.05 --pid="$exit_watched" -f /dev/null
+  fi
+  echo gone
+}
+
 # Fidget and every process under it, deepest first. The Harness runs in its
 # own process group, so killing Fidget alone leaves it (and npx, codex-acp or
 # the fixture) behind.
