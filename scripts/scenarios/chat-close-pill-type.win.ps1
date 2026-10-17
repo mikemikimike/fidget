@@ -95,7 +95,6 @@ $T = [ordered]@{
     listening = '(?:^|\s)overlay: draft instance=\S+ '
     opened    = '(?:^|\s)overlay: draft instance=\S+ text="" focused=true$'
     two       = '(?:^|\s)overlay: draft instance=\S+ text="two" focused=true$'
-    unfocused = '(?:^|\s)overlay: draft instance=\S+ (?:text="[^"]*" focused=false|closed)$'
     closed    = '(?:^|\s)overlay: draft instance=\S+ closed$'
     pillGone  = '(?:^|\s)overlay: (?:draft instance=\S+ closed|hand back )'
     pillOpen  = '(?:^|\s)overlay: pill open SetForegroundWindow\((0x[0-9a-f]+)\) -> (-?\d+) GetForegroundWindow\(\) -> (0x[0-9a-f]+)$'
@@ -808,13 +807,13 @@ try {
     if (-not (Wait-ForNext $T.closed { Press 0x1B })) { Fail "escape: the pill did not close; see $log" }
     Ok "escape: the pill closed"
 
-    # 4. A click into Notepad below its last line takes focus off the pill, and
+    # 4. A click into Notepad below its last line closes the empty pill, and
     # typing lands at the end of Notepad's text.
     Open-Pill click-away
     $r = New-Object PillWin+RECT
     $null = [PillWin]::GetWindowRect($script:hwnd, [ref]$r)
-    if (-not (Wait-ForNext $T.unfocused { Click-Notepad ([int](($r.L + $r.R) / 2)) ([int]($r.T + ($r.B - $r.T) * 7 / 10)) click-away })) {
-        Fail "click-away: the pill stayed focused after the click into Notepad; see $log"
+    if (-not (Wait-ForNext $T.closed { Click-Notepad ([int](($r.L + $r.R) / 2)) ([int]($r.T + ($r.B - $r.T) * 7 / 10)) click-away })) {
+        Fail "click-away: the pill did not close after the click into Notepad; see $log"
     }
     Type-IntoNotepad four click-away oneabcfour
     Ok "click-away: the click moved typing to Notepad"
