@@ -27,7 +27,7 @@ test_bin=${3:?usage: chat-close-pill-type.sh --go <fidget binary> <fidget test b
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 root=$(cd "$(dirname "$0")/../.." && pwd)
 . "$root/scripts/scenarios/wait-helpers.mac.sh"
-out="${TMPDIR:-/tmp}/fidget-scenario-chat-close-pill-type-$(date +%Y%m%d-%H%M%S)"
+out=$(mktemp -d "${TMPDIR:-/tmp}/fidget-scenario-chat-close-pill-type-$(date +%Y%m%d-%H%M%S)-XXXX")
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 data="$out/home/Library/Application Support/fidget"
 mkdir -p "$data" "$tools"

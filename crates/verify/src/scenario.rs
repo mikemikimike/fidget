@@ -1081,6 +1081,52 @@ mod tests {
         fixture_cases("poke-mid-climb.win.ps1", CLIMB_GOOD, CLIMB_CASES);
     }
 
+    // Two runs into one evidence dir each get a new folder there, and the dir's
+    // earlier contents stay (a second run once died copying BMO over the first).
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_reruns_into_the_same_evidence_dir() {
+        let base = tempfile::tempdir().unwrap();
+        fs::write(base.path().join("earlier.txt"), "keep").unwrap();
+        let mut runs = Vec::new();
+        for _ in 0..2 {
+            let out = Command::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(repo_scenarios().join("chat-close-pill-type.win.ps1"))
+                .args([
+                    "--go",
+                    "C:\\Windows\\System32\\cmd.exe",
+                    "C:\\Windows\\System32\\cmd.exe",
+                ])
+                .arg(base.path())
+                .env("FIDGET_SCENARIO_PREPARE_ONLY", "1")
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "stdout:\n{stdout}\nstderr:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let dir = stdout
+                .lines()
+                .find_map(|line| line.strip_prefix("prepared: "))
+                .unwrap_or_else(|| panic!("no prepared line in:\n{stdout}"))
+                .trim()
+                .to_string();
+            assert!(PathBuf::from(&dir)
+                .join("characters/bmo/character.manifest")
+                .is_file());
+            runs.push(dir);
+        }
+        assert_ne!(runs[0], runs[1]);
+        assert_eq!(
+            fs::read_to_string(base.path().join("earlier.txt")).unwrap(),
+            "keep"
+        );
+    }
+
     /// The Notepad cleanup plan for these tab names, with `ours.txt` as the
     /// run's doc and `before` whether Notepad was open before the run.
     #[cfg(windows)]

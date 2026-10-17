@@ -117,7 +117,9 @@ leaves.
 file in Notepad, leaves other Notepad tabs alone, and on cleanup closes only
 its own tab, plus the window if it opened Notepad. It skips while Fidget is
 running. A fullscreen app keeps running: the leaf logs it and its monitor to
-`focus.log` and never focuses or moves it.
+`focus.log` and never focuses or moves it. Each run writes a new
+`chat-close-pill-type-<time>-<hex>` folder under the evidence dir it is given,
+so a rerun into the same dir keeps the earlier one.
 `fidget-verify scenario <name>` prints the leaf for this host. With `--go` it
 runs that leaf, or skips when this host has none.
 

@@ -14,7 +14,9 @@
 #   takes typing; Enter and Escape hand typing back to Notepad; a click into
 #   Notepad keeps the pill's text while typing goes to the click.
 # Set FIDGET_SCENARIO_NOTEPAD_TABS (names split by |), FIDGET_SCENARIO_DOC and
-#   FIDGET_SCENARIO_NOTEPAD_BEFORE=1|0 to print the Notepad cleanup plan only.
+#   FIDGET_SCENARIO_NOTEPAD_BEFORE=1|0 to print the Notepad cleanup plan only, or
+#   FIDGET_SCENARIO_PREPARE_ONLY=1 to make the run folder and launch nothing.
+# Each run writes to a new chat-close-pill-type-<time>-<hex> folder in [evidence dir].
 #
 # Usage: chat-close-pill-type.win.ps1 --go <fidget binary> <fidget test binary> [evidence dir]
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -62,11 +64,6 @@ if ($env:FIDGET_SCENARIO_NOTEPAD_TABS) {
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 . (Join-Path $PSScriptRoot "wait-helpers.win.ps1")
-. (Join-Path $PSScriptRoot "bash-setup-win.ps1")
-if (-not $bashPath) {
-    [Console]::Error.WriteLine("SKIP: bash not found (tried Git Bash, then PATH)")
-    exit 2
-}
 
 Add-Type @"
 using System;
@@ -151,8 +148,11 @@ if ($already.Count) {
 $notepadWasRunning = [bool](Get-Process -Name Notepad -ErrorAction SilentlyContinue)
 
 $TestBin = (Resolve-Path -LiteralPath $TestBin).Path
-if (-not $Out) { $Out = Join-Path $env:TEMP "fidget-scenario-chat-close-pill-type-$(Get-Date -Format yyyyMMdd-HHmmss)" }
-New-Item -ItemType Directory -Force -Path $Out | Out-Null
+# A fresh folder per run, under the given one if any, so a rerun keeps earlier
+# evidence and nothing is ever cleared. New-Item stops if the name is taken.
+$base = if ($Out) { $Out } else { $env:TEMP }
+$Out = Join-Path $base "chat-close-pill-type-$(Get-Date -Format yyyyMMdd-HHmmss)-$((Get-Random -Maximum 65536).ToString('x4'))"
+New-Item -ItemType Directory -Path $Out | Out-Null
 $results = Join-Path $Out "results.txt"
 $focusLog = Join-Path $Out "focus.log"
 Set-Content -LiteralPath $results -Value $null
@@ -169,11 +169,6 @@ function Fail([string]$Message) {
 }
 function Ok([string]$Message) { "ok: $Message" | Tee-Object -FilePath $results -Append | Write-Output }
 function Note-Foreground([string]$When) { "foreground $When`: $(Describe-Window ([PillWin]::GetForegroundWindow()))" | Add-Content -LiteralPath $focusLog }
-Note-Foreground "before the run"
-# Evidence only: a fullscreen app keeps running, and nothing here focuses or moves it.
-$full = @(Get-Fullscreen)
-foreach ($h in $full) { "fullscreen: $(Describe-Window $h)" | Add-Content -LiteralPath $focusLog }
-if (-not $full.Count) { "fullscreen: none" | Add-Content -LiteralPath $focusLog }
 
 $log = Join-Path $Out "data\process.log"
 $marks = Join-Path $Out "harness.log"
@@ -188,6 +183,21 @@ $manifest = Join-Path $chars "bmo\character.manifest"
 $standing = Get-Content -LiteralPath $manifest | ForEach-Object { if ($_ -match '^play = ') { $_ -replace '"walk"', '"idle"' } else { $_ } }
 [System.IO.File]::WriteAllLines($manifest, [string[]]$standing)
 if (Select-String -LiteralPath $manifest -Pattern '^play = .*"walk"' -Quiet) { Fail "BMO still walks in $manifest" }
+# FIDGET_SCENARIO_PREPARE_ONLY stops here, with the run folder made and nothing launched.
+if ($env:FIDGET_SCENARIO_PREPARE_ONLY) {
+    Write-Output "prepared: $Out"
+    exit 0
+}
+. (Join-Path $PSScriptRoot "bash-setup-win.ps1")
+if (-not $bashPath) {
+    [Console]::Error.WriteLine("SKIP: bash not found (tried Git Bash, then PATH)")
+    exit 2
+}
+Note-Foreground "before the run"
+# Evidence only: a fullscreen app keeps running, and nothing here focuses or moves it.
+$full = @(Get-Fullscreen)
+foreach ($h in $full) { "fullscreen: $(Describe-Window $h)" | Add-Content -LiteralPath $focusLog }
+if (-not $full.Count) { "fullscreen: none" | Add-Content -LiteralPath $focusLog }
 
 $frame = '(?:^|\s)frame: \d+ (?:Grounded|Perched) pos\((-?\d+),(-?\d+)\) sprite\((-?\d+),(-?\d+)\)'
 $draft = '(?:^|\s)overlay: draft .*text='
