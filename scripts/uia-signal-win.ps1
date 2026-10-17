@@ -1,6 +1,6 @@
 # UI Automation change events as one waitable signal: [FidgetUiaSignal]::new($pid)
-# (0 = any process), .Wait($ms) is true on a window, menu, structure, name or
-# bounds change. Wait-UiaChange re-runs a check on each one.
+# (0 = any process), .Wait($ms) is true on a window, menu, structure, name,
+# bounds or focus change. Wait-UiaChange re-runs a check on each one.
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return }
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -14,6 +14,7 @@ public class FidgetUiaSignal : IDisposable {
     readonly AutomationEventHandler onEvent;
     readonly StructureChangedEventHandler onStructure;
     readonly AutomationPropertyChangedEventHandler onProperty;
+    readonly AutomationFocusChangedEventHandler onFocus;
     static readonly AutomationEvent[] Events = {
         WindowPattern.WindowOpenedEvent, WindowPattern.WindowClosedEvent,
         AutomationElement.MenuOpenedEvent, AutomationElement.MenuClosedEvent,
@@ -23,6 +24,7 @@ public class FidgetUiaSignal : IDisposable {
         onEvent = (s, e) => Fire(s);
         onStructure = (s, e) => Fire(s);
         onProperty = (s, e) => Fire(s);
+        onFocus = (s, e) => Fire(s);
         var root = AutomationElement.RootElement;
         foreach (var ev in Events) {
             Automation.AddAutomationEventHandler(ev, root, TreeScope.Subtree, onEvent);
@@ -30,6 +32,8 @@ public class FidgetUiaSignal : IDisposable {
         Automation.AddStructureChangedEventHandler(root, TreeScope.Subtree, onStructure);
         Automation.AddAutomationPropertyChangedEventHandler(root, TreeScope.Subtree, onProperty,
             AutomationElement.NameProperty, AutomationElement.BoundingRectangleProperty);
+        // Focus moves with the foreground window, which fires nothing above.
+        Automation.AddAutomationFocusChangedEventHandler(onFocus);
     }
     void Fire(object sender) {
         if (pid != 0) {
@@ -49,6 +53,7 @@ public class FidgetUiaSignal : IDisposable {
         }
         Automation.RemoveStructureChangedEventHandler(AutomationElement.RootElement, onStructure);
         Automation.RemoveAutomationPropertyChangedEventHandler(AutomationElement.RootElement, onProperty);
+        Automation.RemoveAutomationFocusChangedEventHandler(onFocus);
         changed.Dispose();
     }
 }
