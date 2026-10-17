@@ -70,10 +70,15 @@ try {
     $start = Get-NowMs
     Check (-not (Wait-OnChanges 3 $quiet { Holds "never" })) "a dead child fails the wait"
     Check (((Get-NowMs) - $start) -lt 1000) "a dead child fails it at once"
-    $script:proc.WaitForExit()
-    $closed = $true
-    try { [System.IO.File]::Open($err, "Open", "ReadWrite", "None").Dispose() } catch { $closed = $false }
-    Check $closed "the log writer closed at end of stream"
+    # The end-of-stream wake brings this back; the dead child must not end it.
+    $child = $script:proc
+    $script:proc = $null
+    $start = Get-NowMs
+    $closed = Wait-OnChanges 3 $quiet {
+        try { [System.IO.File]::Open($err, "Open", "ReadWrite", "None").Dispose(); $true } catch { $false }
+    }
+    $script:proc = $child
+    Check ($closed -and ((Get-NowMs) - $start) -lt 1000) "the log writer closed at end of stream ($((Get-NowMs) - $start) ms)"
 } finally {
     if (-not $script:proc.HasExited) { $script:proc.Kill() }
     Remove-Item -Recurse -Force -LiteralPath $dir
