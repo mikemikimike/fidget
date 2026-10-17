@@ -16,8 +16,8 @@ import {
   createDraftReporter,
   createQuickMessage,
   crossedDrag,
-  placeQuickMessage,
   focusAfterForeground,
+  placeQuickMessage,
   quickMessageMirror,
   windowBlurred,
 } from "./quick-message.js";
