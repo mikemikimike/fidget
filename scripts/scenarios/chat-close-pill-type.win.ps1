@@ -39,7 +39,9 @@
 #   FIDGET_SCENARIO_PILL_LOG=<process.log> prints whether "two" typed into the
 #   pill landed or the pill went first, judged from FIDGET_SCENARIO_PILL_OPENED_AT
 #   (the pill's first line, 0-based; FIDGET_SCENARIO_PILL_TYPED_AT is the
-#   typing's);
+#   typing's); FIDGET_SCENARIO_READ_DOC=<file> prints
+#   the file as Notepad's is read, or busy;
+#   FIDGET_SCENARIO_UNEXPECTED=<results.txt> throws, to check the FAIL line;
 #   FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
 #   [evidence dir], or in $env:TEMP without one.
@@ -52,6 +54,21 @@ $Bin = if ($args.Count -gt 1) { $args[1] } else { "" }
 $TestBin = if ($args.Count -gt 2) { $args[2] } else { "" }
 $Out = if ($args.Count -gt 3) { $args[3] } else { "" }
 $ErrorActionPreference = "Stop"
+# An error nothing here expected still ends the run with a FAIL line in
+# results.txt once that exists (Fail writes its own, then throws "scenario failed").
+$results = $null
+trap {
+    if ("$_" -ne "scenario failed") {
+        $line = "FAIL: unexpected error: $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))"
+        [Console]::Error.WriteLine($line)
+        if ($results) { $line | Add-Content -LiteralPath $results }
+    }
+    break
+}
+if ($env:FIDGET_SCENARIO_UNEXPECTED) {
+    $results = $env:FIDGET_SCENARIO_UNEXPECTED
+    throw "boom from the self-check"
+}
 
 function Show-Header {
     $header = @()
@@ -107,6 +124,26 @@ function Get-TypingVerdict([string[]]$Lines, [int]$OpenedAt, [int]$TypedAt, [str
 if ($env:FIDGET_SCENARIO_PILL_LOG) {
     $verdict = Get-TypingVerdict @(Get-Content -LiteralPath $env:FIDGET_SCENARIO_PILL_LOG) ([int]$env:FIDGET_SCENARIO_PILL_OPENED_AT) ([int]$env:FIDGET_SCENARIO_PILL_TYPED_AT) $T.two
     Write-Output "pill: $(if ($verdict) { $verdict } else { 'none' })"
+    exit 0
+}
+
+# Notepad's file as it is now, opened with a share that lets Notepad keep it open
+# for writing. $null while Notepad holds it unshared mid-save: not saved yet.
+function Read-Doc([string]$Path = $doc) {
+    try {
+        $stream = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]"ReadWrite, Delete")
+    } catch [System.IO.IOException] {
+        $e = $_.Exception
+        while ($e -and $e -isnot [System.IO.IOException]) { $e = $e.InnerException }
+        # 32 is a sharing violation, 33 a lock violation.
+        if ($e -and ($e.HResult -band 0xFFFF) -in 32, 33) { return $null }
+        throw
+    }
+    try { [System.IO.StreamReader]::new($stream, $true).ReadToEnd().TrimStart([char]0xFEFF) } finally { $stream.Dispose() }
+}
+if ($env:FIDGET_SCENARIO_READ_DOC) {
+    $text = Read-Doc $env:FIDGET_SCENARIO_READ_DOC
+    Write-Output "doc: $(if ($null -eq $text) { 'busy' } else { $text })"
     exit 0
 }
 
@@ -296,6 +333,9 @@ $script:WatchDir = $Out
 $results = Join-Path $Out "results.txt"
 $focusLog = Join-Path $Out "focus.log"
 Set-Content -LiteralPath $results -Value $null
+# Milliseconds since the script started, per step, so a slow step shows in focus.log.
+function Note-Step([string]$What) { "step +$((Get-NowMs) - $script:t0) ms: $What" | Add-Content -LiteralPath $focusLog }
+Note-Step "run folder made"
 $script:proc = $null
 $script:notepad = $null
 $script:hwnd = [IntPtr]::Zero
@@ -440,6 +480,7 @@ $null = [PillWin]::SetProcessDpiAwarenessContext([IntPtr]-4)
 $null = [PillWin]::SetThreadDpiAwarenessContext([IntPtr]-4)
 $awareness = [PillWin]::GetAwarenessFromDpiAwarenessContext([PillWin]::GetThreadDpiAwarenessContext())
 if ($awareness -ne 2) { Fail "this thread is not per-monitor DPI aware (awareness $awareness), so its pixels would not match Fidget's" }
+Note-Step "Win32 helper compiled"
 
 function Proc-Name([uint32]$ProcessId) { $g = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue; if ($g) { $g.ProcessName } else { "?" } }
 function Owner-Of([IntPtr]$H) { [uint32]$owner = 0; $null = [PillWin]::GetWindowThreadProcessId($H, [ref]$owner); $owner }
@@ -461,13 +502,10 @@ function Get-Fullscreen {
     }
 }
 function Note-Foreground([string]$When) { "foreground $When`: $(Describe-Window ([PillWin]::GetForegroundWindow()))" | Add-Content -LiteralPath $focusLog }
-# Milliseconds since the script started, per step, so a slow step shows in focus.log.
-function Note-Step([string]$What) { "step +$((Get-NowMs) - $script:t0) ms: $What" | Add-Content -LiteralPath $focusLog }
 # Each monitor, and whether a fullscreen window covers it; Notepad's place from that.
-function Get-MonitorMap {
-    $covered = @(Get-Fullscreen | ForEach-Object { [PillWin]::Monitor($_).szDevice })
+function Get-MonitorMap([string[]]$Covered) {
     foreach ($m in [PillWin]::Monitors()) {
-        @{ Name = $m.szDevice; Primary = ($m.dwFlags -band 1) -eq 1; Full = $covered -contains $m.szDevice; L = $m.rcWork.L; T = $m.rcWork.T; R = $m.rcWork.R; B = $m.rcWork.B }
+        @{ Name = $m.szDevice; Primary = ($m.dwFlags -band 1) -eq 1; Full = $Covered -contains $m.szDevice; L = $m.rcWork.L; T = $m.rcWork.T; R = $m.rcWork.R; B = $m.rcWork.B }
     }
 }
 
@@ -491,11 +529,14 @@ function Fail-Startup([string]$Message) {
     if ($coldProfile) { $Message += ". This run made the shared WebView2 profile in $webviewProfile, so it started cold: rerun once" }
     Fail $Message
 }
+Note-Step "profile checked"
 Note-Foreground "before the run"
 # Evidence only: a fullscreen app keeps running, and nothing here focuses or moves it.
 $full = @(Get-Fullscreen)
 foreach ($h in $full) { "fullscreen: $(Describe-Window $h)" | Add-Content -LiteralPath $focusLog }
 if (-not $full.Count) { "fullscreen: none" | Add-Content -LiteralPath $focusLog }
+# Their monitors, kept for placing Notepad later rather than scanning again.
+$fullMonitors = @($full | ForEach-Object { [PillWin]::Monitor($_).szDevice })
 
 # Lines in Fidget's log so far; the next pill's lines start here.
 function Line-Count { if (Test-Path -LiteralPath $log) { @(Get-Content -LiteralPath $log).Count } else { 0 } }
@@ -580,7 +621,6 @@ function Open-Pill([string]$Case) {
     $script:pillFrom = Line-Count
     if (-not (Wait-ForNext $T.opened { $null = [PillWin]::SetCursorPos($script:aim.X, $script:aim.Y) })) { Fail "${Case}: hovering the sprite did not open a focused pill in 3 s; see $log" }
 }
-function Read-Doc { [System.IO.File]::ReadAllText($doc).TrimStart([char]0xFEFF) }
 # Notepad's text: Ctrl+S with our tab in front, then the file holds what is expected (or 3 s pass).
 function Notepad-Holds([string]$Expected) {
     if (-not (Foreground-Is)) { return $false }
@@ -669,7 +709,7 @@ $cleanupFailed = $false
 # One UI Automation subscription for the whole run: subscribing on the desktop
 # root costs time on each wait that would otherwise make its own.
 $script:uia = [FidgetUiaSignal]::new(0)
-Note-Step "setup done"
+Note-Step "setup done (UI Automation subscribed)"
 try {
     # Our window is the one showing our file: Notepad titles a window by its open
     # tab, and a new tab opens in front. The window and its process come from there.
@@ -694,7 +734,7 @@ try {
     # no fullscreen app covers (the sprite starts on the primary), and the
     # fullscreen app itself is never moved, minimized or closed.
     if (-not $notepadWasRunning) {
-        $place = Get-NotepadPlacement @(Get-MonitorMap)
+        $place = Get-NotepadPlacement @(Get-MonitorMap $fullMonitors)
         $null = [PillWin]::MoveWindow($script:hwnd, $place.X, $place.Y, $place.W, $place.H, $true)
         "notepad: placed on $($place.Name) at ($($place.X),$($place.Y)) $($place.W)x$($place.H)$(if (-not $place.Free) { '; every monitor has a fullscreen window, so it comes to the front over one' })" | Add-Content -LiteralPath $focusLog
     }
