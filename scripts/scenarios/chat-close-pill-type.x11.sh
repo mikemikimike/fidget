@@ -4,7 +4,7 @@
 #   mousepad on a scratch file, and Fidget as a standing BMO with the fixture
 #   Harness.
 # Input: xdotool cursor moves, clicks, typed words, Enter, Escape, Ctrl+S.
-# Duration: about 10 s; every wait gives up 3 s after its trigger.
+# Duration: about 8 s; every wait gives up 3 s after its trigger.
 # Grants: Xvfb, xfwm4, mousepad, xdotool, xprop and inotifywait (inotify-tools).
 # Asserts: a sprite click leaves typing in the editor; the pill opens on hover
 #   and takes typing with no click (#1565); Enter and Escape hand typing back
@@ -48,13 +48,20 @@ fail() {
   exit 1
 }
 ok() { echo "ok: $*" | tee -a "$results"; }
-# Stops only what this run started, each with every process under it (the
-# Harness Fidget spawned among them), by PID.
+# What this run starts inherits fd 9 and holds the lock until it and its
+# children exit; this shell lets go once Fidget is up.
+lock="$out/run.lock"
+exec 9> "$lock"
+# TERM to the tree of each process this run started, up to 3 s for all of them
+# to exit, then kill -9 on what is left of those trees. Only by PID.
 cleanup() {
-  local tree=() p
+  local tree=() p alive=""
+  exec 9>&-
   for p in "${started[@]}"; do mapfile -t -O "${#tree[@]}" tree < <(process_tree "$p"); done
-  for ((i = ${#tree[@]} - 1; i >= 0; i--)); do kill "${tree[i]}" 2> /dev/null || true; done
-  for p in "${started[@]}"; do wait "$p" 2> /dev/null || true; done
+  [ "${#tree[@]}" -gt 0 ] || return 0
+  kill "${tree[@]}" 2> /dev/null || true
+  for p in "${tree[@]}"; do kill -0 "$p" 2> /dev/null && alive=$p && break; done
+  [ -z "$alive" ] || wait_for_exit 3 "$alive" "$lock" || kill -9 "${tree[@]}" 2> /dev/null || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -72,8 +79,9 @@ export DISPLAY=":$n"
 
 # xprop -spy prints the root's properties now and on each change: an event
 # stream. Unfiltered, since a property named before its atom exists never matches.
+root_events() { stdbuf -oL xprop -root -spy; }
 root_prop_matches() { # <property> <ERE>
-  grep -qEm1 "^$1\\(.*$2" < <(timeout 3 stdbuf -oL xprop -root -spy 2> /dev/null)
+  wait_on_source 3 root_events grep -qEm1 "^$1\\(.*$2"
 }
 xfwm4 --compositor=off > "$out/xfwm4.log" 2>&1 &
 started+=($!)
@@ -81,7 +89,10 @@ root_prop_matches _NET_SUPPORTING_WM_CHECK 'window id' || fail "xfwm4 did not st
 
 HOME="$out/editor-home" mousepad --disable-server "$doc" > "$out/mousepad.log" 2>&1 &
 started+=($!)
-editor=$(timeout 3 xdotool search --sync --name "doc.txt - Mousepad" | head -1) || fail "mousepad did not map in 3 s"
+# Searched again on each root change, _NET_CLIENT_LIST among them.
+editor_window() { xdotool search --name "doc\.txt - Mousepad" 2> /dev/null | head -1 | grep .; }
+wait_on_source 3 root_events probe_each_line editor_window || fail "mousepad did not map in 3 s"
+editor=$(editor_window)
 active_is() { root_prop_matches _NET_ACTIVE_WINDOW "window id # $(printf '0x%x' "$1")(,|\$)"; }
 xdotool windowactivate "$editor"
 active_is "$editor" || fail "mousepad did not take focus"
@@ -98,6 +109,7 @@ env HOME="$out/home" FIDGET_HARNESS="$harness" FIDGET_DIRECTOR_WAKE_SECS=600 \
   "$bin" > "$out/app.log" 2>&1 &
 pid=$!
 started+=("$pid")
+exec 9>&-
 
 frame='^[0-9]+ frame: '
 draft='^[0-9]+ overlay: draft .*text='
@@ -111,16 +123,14 @@ wait_for_next() { # <ERE> <command...>
   wait_for_count 3 "$log" "$pattern" "$before"
 }
 wait_for_trace 3 "$log" "$frame.* (Grounded|Perched) " || fail "the Character did not land in 3 s; see $log"
+read -r sw sh < <(sed -nE 's/.* overlay: .*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
 sprite_center() {
   local at
   at=$(grep -E "$frame" "$log" | tail -1 | sed -E 's/.* sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1 \2/')
   read -r sx sy <<< "$at"
-  cx=$((sx + 63)) cy=$((sy + 64))
+  cx=$((sx + sw / 2)) cy=$((sy + sh / 2))
 }
-# The editor's text: Ctrl+S, then its close_write. GTK drops synthetic
-# events sent to a window, so the key goes to the focused one: the editor.
-# GIO saves to a temp file and renames it over the doc, after a close_write
-# on the old file, so only the rename means the new text is there.
+# The editor's text: Ctrl+S to the focused editor, then the save's rename over the doc.
 editor_text() {
   active_is "$editor" || return 1
   local w line
@@ -137,6 +147,14 @@ editor_text() {
   }
   exec {w}<&-
   cat "$doc"
+}
+# Fidget samples the buttons each frame: the release waits for its press trace.
+click_at() { # <x> <y>
+  local before
+  before=$(line_count "$log" '^[0-9]+ click: down ')
+  xdotool mousemove "$1" "$2" mousedown 1
+  wait_for_count 3 "$log" '^[0-9]+ click: down ' "$before" || return 1
+  xdotool mouseup 1
 }
 open_pill() { # <case>
   sprite_center
@@ -156,12 +174,11 @@ typing_back_in_editor() { # <word> <case> <expected text>
 }
 
 # 1. No pill open: a sprite click leaves typing in the editor.
-# A click before the overlay's first draft report once left the keyboard on
-# Fidget (https://github.com/omesser/fidget/issues/1578), so the click waits for that report.
+# Readiness: the click waits for the overlay's first draft report. Related,
+# unconfirmed: https://github.com/omesser/fidget/issues/1578
 wait_for_trace 3 "$log" "$closed" || fail "sprite-click: the overlay never reported its pill in 3 s; see $log"
 sprite_center
-# Fidget samples the buttons each frame, so the press is held past one.
-xdotool mousemove "$cx" "$cy" mousedown 1 sleep 0.12 mouseup 1
+click_at "$cx" "$cy" || fail "sprite-click: Fidget saw no press; see $log"
 wait_for_trace 3 "$log" '^[0-9]+ click: up ' || fail "sprite-click: Fidget saw no click; see $log"
 xdotool type --delay 15 four
 xdotool mousemove "$((cx + 400))" "$cy"
@@ -185,10 +202,13 @@ typing_back_in_editor eight escape foursixeightabc
 # the caret moves to the end: "ten" lands there, not where the caret was.
 open_pill click-away
 type_into_pill nine click-away
-read -r ex ey ew eh < <(xdotool getwindowgeometry --shell "$editor" | sed -nE 's/^(X|Y|WIDTH|HEIGHT)=//p' | paste -sd' ')
+eval "$(xdotool getwindowgeometry --shell "$editor")"
 mark=$(wc -l < "$log")
-wait_for_next "$draft\"[Nn]ine\" focused=false" xdotool mousemove "$((ex + ew / 2))" "$((ey + eh * 7 / 10))" mousedown 1 sleep 0.12 mouseup 1 ||
-  fail "click-away: the pill did not keep \"nine\" after the click; see $log"
+kept="$draft\"[Nn]ine\" focused=false"
+before=$(line_count "$log" "$kept")
+# shellcheck disable=SC2153 # X, Y, WIDTH and HEIGHT come from the eval above
+click_at "$((X + WIDTH / 2))" "$((Y + HEIGHT * 7 / 10))" || fail "click-away: Fidget saw no press; see $log"
+wait_for_count 3 "$log" "$kept" "$before" || fail "click-away: the pill did not keep \"nine\" after the click; see $log"
 typing_back_in_editor ten click-away foursixeightabcten
 ! tail -n +"$((mark + 1))" "$log" | grep -qE "$closed" || fail "click-away: the pill closed after the click; see $log"
 ok "click-away: the pill kept \"nine\" and typing went to the click"

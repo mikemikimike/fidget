@@ -171,9 +171,9 @@ comes with the Windows hand-back of the pill's keyboard. The X11 leaf starts
 its own Xvfb display with xfwm4 and mousepad, so it leaves your display alone,
 and skips when one of those, `xdotool`, `xprop` or `inotifywait` is missing.
 It reads the editor's text by saving with Ctrl+S and waiting for the rename
-that lands the file. Its first sprite click waits for the overlay's first
-draft report; #1578 tracks why a click before that once left the keyboard
-with Fidget.
+that lands the file. Its first sprite click waits until the overlay is ready,
+which is when its first draft report lands. #1578 is a related,
+unconfirmed issue.
 
 To check an assertion without a desktop, point the leaf at fixture dumps and
 skip the launch:
