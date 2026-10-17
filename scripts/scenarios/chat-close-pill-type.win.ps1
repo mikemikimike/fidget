@@ -297,6 +297,14 @@ function Open-Pill([string]$Case) {
     Sprite-Center
     [PillWin]::SetCursorPos($script:cx + 400, $script:cy) | Out-Null
     if (-not (Wait-ForNext "$draft`"`" focused=true" { [PillWin]::SetCursorPos($script:cx, $script:cy) | Out-Null })) { Fail "${Case}: the pill did not open; see $log" }
+    # Activation blurs the page before WebView2 takes the caret; type once it has.
+    if (-not (Wait-Check 3 { Pill-HasKeys })) { Note-Keys "at $Case"; Fail "${Case}: the open pill did not keep the keyboard; see $focusLog and $log" }
+}
+function Pill-HasKeys {
+    [uint32]$p = 0
+    [PillWin]::GetWindowThreadProcessId([PillWin]::GetForegroundWindow(), [ref]$p) | Out-Null
+    $last = Get-Content -LiteralPath $log | Where-Object { $_ -match '(?:^|\s)overlay: draft ' } | Select-Object -Last 1
+    $p -eq $script:proc.Id -and $last -match 'focused=true$'
 }
 function Type-IntoPill([string]$Word, [string]$Case) {
     if (-not (Wait-ForNext "$draft`"[^`"]*$Word`"" { Type-Word $Word })) { Fail "${Case}: `"$Word`" never reached the pill; see $log" }

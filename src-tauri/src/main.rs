@@ -2232,6 +2232,32 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
     }
 }
 
+/// Whether this overlay is still the foreground window. Windows only: activating
+/// it blurs the page before WebView2 takes the caret, and that blur is not a
+/// click away. `None` elsewhere, where the webview's blur is taken at its word.
+#[tauri::command]
+fn overlay_holds_keyboard(window: tauri::Window) -> Option<bool> {
+    #[cfg(target_os = "windows")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+        let held = match window.window_handle().map(|handle| handle.as_raw()) {
+            // SAFETY: a read of the foreground window's handle.
+            Ok(RawWindowHandle::Win32(win32)) => unsafe {
+                GetForegroundWindow() == win32.hwnd.get() as windows_sys::Win32::Foundation::HWND
+            },
+            _ => false,
+        };
+        Some(held)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        None
+    }
+}
+
 /// Put the overlay over one display. Size before move: growing a window
 /// anchors bottom-left, so resize-after-place pushes the top edge off the
 /// display it was just put on.
@@ -4777,6 +4803,7 @@ fn main() {
             overlay_cadence,
             overlay_open_chat,
             overlay_request_focus,
+            overlay_holds_keyboard,
             chat_opening,
             chat_send,
             chat_prompt,
