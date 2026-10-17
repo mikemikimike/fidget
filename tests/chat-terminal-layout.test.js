@@ -1,28 +1,14 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) return process.env.FIDGET_CHROME;
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) return path;
-  }
-  return null;
-}
+const chrome = findChrome();
 
 function paint() {
-  const chrome = chromeBin();
-  assert.ok(chrome, "headless Chromium is not installed");
-  const dir = mkdtempSync(join(tmpdir(), "chat-terminal-layout-"));
-  const page = join(dir, "harness.html");
   const html = `<!doctype html>
 <html class="chat-ui-terminal">
   <head>
@@ -69,9 +55,8 @@ function paint() {
       const ask = document.getElementById("ask");
       const offset = parseFloat(field.outlineOffset) || 0;
       const width = parseFloat(field.outlineWidth) || 0;
-      const pre = document.createElement("pre");
-      pre.id = "probe";
-      pre.textContent = JSON.stringify({
+      console.log("__PROBE_READY__");
+      console.log("__PROBE_RESULT__" + JSON.stringify({
         focused: document.activeElement === line,
         outlineOuterBottom: ta.bottom + offset + width,
         barTop: bar.top,
@@ -88,43 +73,17 @@ function paint() {
         foldSaidDisplay: getComputedStyle(fold.querySelector(".said")).display,
         askGutter: getComputedStyle(ask, "::before").content,
         askPadLeft: parseFloat(getComputedStyle(ask).paddingLeft) || 0,
-      });
-      document.body.append(pre);
+      }));
     </script>
   </body>
 </html>`;
-  writeFileSync(page, html);
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      "--window-size=420,640",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the page did not report. ${run.stderr?.slice(-400) ?? ""}`);
-  return JSON.parse(
-    match[1]
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">"),
-  );
+  return probePage(html, { args: ["--window-size=420,640"], timeout: 10000 });
 }
 
-const browser = { skip: chromeBin() ? false : "headless Chromium is not installed", timeout: 60000 };
+const browser = { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 };
 
-test("the terminal log gives the words the width, and the focus ring stays clear of the status bar", browser, () => {
-  const painted = paint();
+test("the terminal log gives the words the width, and the focus ring stays clear of the status bar", browser, async () => {
+  const painted = await paint();
 
   assert.equal(painted.focused, true);
   assert.ok(
