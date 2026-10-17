@@ -2216,9 +2216,16 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
                         attached = Some((overlay_thread, foreground_thread));
                     }
                 }
-                SetForegroundWindow(hwnd);
+                let set_result = SetForegroundWindow(hwnd);
                 if let Some((overlay_thread, foreground_thread)) = attached {
                     AttachThreadInput(overlay_thread, foreground_thread, 0);
+                }
+                if dev_flags::TRACE_BUBBLE.is_on() {
+                    let foreground_after = GetForegroundWindow();
+                    eprintln!(
+                        "overlay: pill open SetForegroundWindow({:#x}) -> {} GetForegroundWindow() -> {:#x}",
+                        hwnd as usize, set_result, foreground_after as usize
+                    );
                 }
             }
         }
