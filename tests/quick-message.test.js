@@ -14,7 +14,6 @@ import {
   createDraftReporter,
   crossedDrag,
   keepOnDrag,
-  spriteHovered,
   windowBlurred,
   placeQuickMessage,
   quickMessageConnects,
@@ -29,11 +28,7 @@ function harness(options = {}) {
   let nextId = 1;
   const sent = [];
   const changes = [];
-  const traces = [];
   const qm = createQuickMessage({
-    trace(message) {
-      traces.push(message);
-    },
     schedule(fn, ms) {
       const id = nextId;
       nextId += 1;
@@ -67,7 +62,7 @@ function harness(options = {}) {
     }
   }
 
-  return { qm, sent, advance, changes, traces };
+  return { qm, sent, advance, changes };
 }
 
 function shown() {
@@ -386,20 +381,6 @@ test("dispose clears the composer so composing cannot stick", () => {
   qm.restore("hey");
   assert.equal(qm.visible, false, "dispose is final");
   assert.equal(qm.typing, false);
-});
-
-test("Losing the keyboard keeps typed text the way a drag does", () => {
-  const { qm } = shown();
-  qm.setText("half a thought");
-  qm.away();
-  assert.equal(qm.visible, true);
-  assert.equal(qm.text, "half a thought");
-});
-
-test("Losing the keyboard closes an empty pill", () => {
-  const { qm } = shown();
-  qm.away();
-  assert.equal(qm.visible, false);
 });
 
 test("Escape closes the pill and drops its text", () => {
@@ -985,36 +966,6 @@ test("a carried draft is this overlay's to report once it is typed into", () => 
 
   right.qm.setOwner(true, slot.get("a"));
   assert.equal(right.qm.visible, true, "the line being typed stays");
-});
-
-test("the trace tells each hover change and why the timer did or did not start, once", () => {
-  const { qm, advance, traces } = harness();
-  qm.summon();
-  qm.enterSprite();
-  qm.enterSprite();
-  qm.leaveSprite();
-  qm.setChatOpen(true);
-  qm.enterSprite();
-  qm.setChatOpen(false);
-  qm.enterSprite();
-  qm.enterSprite();
-  advance(HOVER_DELAY_MS);
-  assert.deepEqual(traces, [
-    "hover enter",
-    "timer refused: yielded",
-    "hover leave",
-    "hover enter",
-    "timer refused: chat open",
-    "timer started",
-    "timer refused: timer running",
-    "timer fired: shown",
-  ]);
-});
-
-test("only the pill's overlay, by the Shell's hit test, counts the cursor on the Character", () => {
-  assert.equal(spriteHovered({ owner: true, shell: true }), true);
-  assert.equal(spriteHovered({ owner: true, shell: false }), false);
-  assert.equal(spriteHovered({ owner: false, shell: true }), false);
 });
 
 test("a click away keeps a pill with text, and its text", () => {

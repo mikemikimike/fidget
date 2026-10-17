@@ -18,7 +18,6 @@ import {
   crossedDrag,
   placeQuickMessage,
   quickMessageMirror,
-  spriteHovered,
   windowBlurred,
 } from "./quick-message.js";
 
@@ -379,11 +378,8 @@ function syncQuick(view) {
 // Runs before the pill is up too: a leave during the dwell cancels it.
 function notePointerLeft(view) {
   if (!gestureActive) {
-    const over = spriteHovered({
-      owner: Boolean(view.latest?.bubble),
-      shell: view.latest?.hovered,
-    });
-    if (over) view.quickMachine.enterSprite();
+    // The Shell's hit test, sent only to the pill's overlay: :hover sticks after Chat (#1565).
+    if (view.latest?.hovered) view.quickMachine.enterSprite();
     else view.quickMachine.leaveSprite();
     if (view.quick.matches(":hover")) view.quickMachine.enterPill();
     else view.quickMachine.leavePill();
@@ -460,7 +456,6 @@ function attachQuickMessage(view, id) {
     clear: (timer) => window.clearTimeout(timer),
     // Frozen until the first opening. The fetch below is what thaws it.
     available: false,
-    trace: (message) => traceBubble(`pill ${message} instance=${id}`),
     onChange() {
       syncQuick(view);
     },

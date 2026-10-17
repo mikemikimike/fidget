@@ -35,7 +35,7 @@ mkdir -p "$data" "$tools"
 log="$data/process.log" marks="$out/harness.log"
 : > "$marks"
 : > "$log"
-echo '{"first_run_tour_shown": true}' > "$data/settings.json"
+seed_tour_shown "$out/home"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -160,20 +160,11 @@ sprite_center() {
 
 # Leave the sprite and come back; the pill opens after HOVER_DELAY_MS (1.5 s)
 # and takes the caret by itself.
-# The Character can shift after Chat minimizes, off a cursor aimed at its old
-# spot; then this aims once more at where it went.
 open_pill() { # <case>
-  local was
   sprite_center
-  capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "$1: could not move the cursor away"
-  wait_for_next 3 "$log" "$draft" "$tools/warp-cursor" "$cx" "$cy" --event && return
-  was="$cx $cy"
-  sprite_center
-  [ "$cx $cy" != "$was" ] || fail "$1: the pill did not open; see $log"
-  echo "note: $1: the Character moved from ($was) to ($cx $cy); aiming again" >> "$out/helpers.log"
   capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "$1: could not move the cursor away"
   wait_for_next 3 "$log" "$draft" "$tools/warp-cursor" "$cx" "$cy" --event ||
-    fail "$1: the pill did not open, even aimed at where the Character moved; see $log"
+    fail "$1: the pill did not open; see $log"
 }
 
 # Type <word> with no click; the open pill's draft must end with it.
@@ -197,22 +188,14 @@ wait_textedit_front() { # <case> <document name>
     fail "$1: TextEdit with $2 did not come to the front (front: $(front_name), window: $(textedit_window))"
 }
 # The text of TextEdit's focused document, read through Accessibility (Apple
-# events timed out after typing). Each read and its exit status go to
-# textedit-reads.log, so a failed read is never taken for text.
-text_front() {
-  local text status=0
-  text=$(capped 2 "$tools/ax" value "$(pgrep -x TextEdit | head -1)" 2>> "$out/textedit-reads.log") || status=$?
-  echo "$(date +%T) status=$status text=$text" >> "$out/textedit-reads.log"
-  printf '%s' "$text"
-  return "$status"
-}
+# events timed out after typing).
+text_front() { capped 2 "$tools/ax" value "$(pgrep -x TextEdit | head -1)" 2> /dev/null; }
 # Re-read on each new log line, up to 3 s; fail loudly if no read succeeded.
 wait_text() { # <case> <check command...>
   local case=$1
   shift
   wait_until 3 "$@" && return 0
-  text_front > /dev/null ||
-    fail "$case: could not read TextEdit's front document; see $out/textedit-reads.log"
+  text_front > /dev/null || fail "$case: could not read TextEdit's front document"
   return 1
 }
 
@@ -226,14 +209,8 @@ capped 3 "$tools/click-cursor" "$cx" "$cy" 1 > "$out/sprite-click.txt" 2>&1 || f
 capped 3 "$tools/ax" type "$pid" four >> "$out/helpers.log" 2>&1 || fail "could not type"
 capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "could not move the cursor away"
 typed() { [ "$(text_front)" = four ]; }
-if ! wait_text sprite-click typed; then
-  {
-    text_front
-    echo
-    capped 3 osascript -e 'tell application "System Events" to get name of every window of process "TextEdit"'
-  } > "$out/textedit-docs.txt" 2>&1 || true
-  fail "a sprite click took the keyboard from TextEdit (front: $(front_name), window: $(textedit_window); text and windows in $out/textedit-docs.txt); see $log"
-fi
+wait_text sprite-click typed ||
+  fail "a sprite click took the keyboard from TextEdit (front: $(front_name), window: $(textedit_window)); see $log"
 ! grep -qE "${draft}\"[^\"]*four\"" "$log" || fail "a sprite click sent typing to Fidget; see $log"
 echo "ok: a sprite click left typing in TextEdit"
 
@@ -249,22 +226,9 @@ wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is closed$' osascript \
   -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true" \
   -e 'tell application "System Events" to keystroke "w" using command down' ||
   fail "Chat did not close; see $log"
-# Four cursor moves onto the sprite, the way a hand arrives. Run by wait_for_next.
-# shellcheck disable=SC2329
-stepped() { for step in 3 2 1 0; do "$tools/warp-cursor" "$((cx + step * sw))" "$cy" --event || return 1; done; }
-# A single cursor move first. If that opens nothing in 3 s, a stepped move
-# onto the sprite tells a missed synthetic move apart from a pill that won't open.
-sprite_center
-capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "after-chat: could not move the cursor away"
-if wait_for_next 3 "$log" "$draft" "$tools/warp-cursor" "$cx" "$cy" --event; then
-  echo "ok: after-chat: a single cursor move opened the pill"
-else
-  capped 3 "$tools/warp-cursor" "$((cx + 4 * sw))" "$cy" --event >> "$out/helpers.log" 2>&1 || fail "after-chat: could not move the cursor away"
-  if wait_for_next 3 "$log" "$draft" stepped; then
-    fail "after-chat: only a stepped cursor move opened the pill, not a single move; see $log"
-  fi
-  fail "after-chat: the pill did not open after a single or a stepped cursor move; see $log"
-fi
+# A single cursor move onto the sprite opens the pill.
+open_pill after-chat
+echo "ok: after-chat: a single cursor move opened the pill"
 type_into_pill two after-chat
 
 # 4. TextEdit in front when the pill opens. A minimized Chat lets the pill back.

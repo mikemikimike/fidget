@@ -2037,28 +2037,10 @@ fn overlay_report_qm_draft(
 ) {
     // An overlay takes the keyboard while it has an open pill (#1565) and
     // hands it back when its last one closes. Counted per window, since a
-    // pill can move; a removed Character closes its pill everywhere.
-    let gone = payload.is_none()
-        && window
-            .app_handle()
-            .try_state::<SettingsState>()
-            .and_then(|state| {
-                state
-                    .instances
-                    .lock()
-                    .ok()
-                    .map(|rows| !rows.iter().any(|row| row.id == instance))
-            })
-            .unwrap_or(false);
+    // pill can move; a removed Character sends a closed draft from each.
     let flips = pill_focus::shared()
         .lock()
-        .map(|mut pills| {
-            let mut flips = pills.note(window.label(), &instance, payload.is_some());
-            if gone {
-                flips.extend(pills.forget(&instance));
-            }
-            flips
-        })
+        .map(|mut pills| pills.note(window.label(), &instance, payload.is_some()))
         .unwrap_or_default();
     for (label, open) in flips {
         let Some(overlay) = window.app_handle().get_webview_window(&label) else {

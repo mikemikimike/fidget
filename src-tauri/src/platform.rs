@@ -419,16 +419,16 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-/// The top-level window a step aside hands the foreground to: the first in
-/// z-order that is not Fidget's, is visible, and is neither a tool window nor
-/// cloaked (another virtual desktop, a suspended UWP app).
+/// The top-level window a step aside hands the foreground to: the first perch
+/// in z-order that is neither Fidget's nor cloaked (another virtual desktop,
+/// a suspended UWP app).
 #[cfg(target_os = "windows")]
 fn next_window_in_front() -> Option<windows_sys::Win32::Foundation::HWND> {
     use crate::pill_focus::{next_in_front, Candidate};
     use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetTopWindow, GetWindow, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindowVisible,
-        GWL_EXSTYLE, GW_HWNDNEXT, WS_EX_TOOLWINDOW,
+        GetTopWindow, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible,
+        GWL_EXSTYLE, GWL_STYLE, GW_HWNDNEXT,
     };
 
     let ours = std::process::id();
@@ -450,8 +450,11 @@ fn next_window_in_front() -> Option<windows_sys::Win32::Foundation::HWND> {
             );
             z_order.push(Candidate {
                 ours: pid == ours,
-                visible: IsWindowVisible(hwnd) != 0,
-                tool: GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW != 0,
+                perch: windows_perch::perch_candidate(
+                    IsWindowVisible(hwnd) != 0,
+                    GetWindowLongW(hwnd, GWL_STYLE),
+                    GetWindowLongW(hwnd, GWL_EXSTYLE),
+                ),
                 cloaked: cloak_read >= 0 && cloaked != 0,
             });
             windows.push(hwnd);

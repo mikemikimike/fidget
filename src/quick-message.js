@@ -67,12 +67,6 @@ export function keepOnDrag(text) {
   return text.trim().length > 0;
 }
 
-// Whether the cursor is on the Character, for the pill. Only its overlay opens
-// one, and it trusts the Shell's hit test: :hover sticks after Chat (#1565).
-export function spriteHovered({ owner, shell }) {
-  return Boolean(owner && shell);
-}
-
 // The overlay lost the keyboard to another window (#1565): a pill with text
 // stays, an empty one goes. A pet drag can blur it too; the drag decides that.
 export function windowBlurred(machines, gestureActive) {
@@ -80,7 +74,7 @@ export function windowBlurred(machines, gestureActive) {
   for (const machine of machines) machine.away();
 }
 
-export function createQuickMessage({ schedule, clear, send, onChange, available = true, trace }) {
+export function createQuickMessage({ schedule, clear, send, onChange, available = true }) {
   let visible = false;
   let text = "";
   let focused = false;
@@ -102,13 +96,6 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
   // The open draft came from the Shell and is untouched here, so it stays only
   // while the Shell still carries it.
   let carried = false;
-
-  // Hover is re-reported every frame, so each refusal is traced once per reason.
-  let refused = null;
-  function refuse(reason) {
-    if (reason !== refused) trace?.(`timer refused: ${reason}`);
-    refused = reason;
-  }
 
   function changed() {
     if (!disposed) onChange?.();
@@ -172,6 +159,11 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
     hide();
   }
 
+  // Typed text keeps the pill through a drag or a click away; an empty one goes.
+  function keepTyped() {
+    if (!keepOnDrag(text)) dismissOpen();
+  }
+
   function submit() {
     const line = text.trim();
     if (!ready || !visible || !line) return false;
@@ -206,34 +198,16 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
     },
     enterSprite() {
       if (disposed) return;
-      if (!overSprite) trace?.("hover enter");
       overSprite = true;
       cancelAutoHide();
-      const reason = yielded
-        ? "yielded"
-        : chatOpen
-          ? "chat open"
-          : visible
-            ? "pill open"
-            : hoverTimer !== null
-              ? "timer running"
-              : null;
-      if (reason) return refuse(reason);
-      refused = null;
-      trace?.("timer started");
+      if (yielded || chatOpen || visible || hoverTimer !== null) return;
       hoverTimer = schedule(() => {
         hoverTimer = null;
-        if (disposed || !overSprite || chatOpen) {
-          trace?.(`timer fired: not shown (${chatOpen ? "chat open" : "left"})`);
-          return;
-        }
-        trace?.("timer fired: shown");
+        if (disposed || !overSprite || chatOpen) return;
         show();
       }, HOVER_DELAY_MS);
     },
     leaveSprite() {
-      if (overSprite) trace?.("hover leave");
-      refused = null;
       overSprite = false;
       yielded = false;
       cancelHover();
@@ -322,14 +296,9 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
       report();
     },
     outside: dismissOpen,
-    drag() {
-      if (!keepOnDrag(text)) dismissOpen();
-    },
-    // The overlay lost the keyboard to another window. Like a drag, typed
-    // text keeps the pill; an empty one goes.
-    away() {
-      if (!keepOnDrag(text)) dismissOpen();
-    },
+    drag: keepTyped,
+    // The overlay lost the keyboard to another window: the same as a drag.
+    away: keepTyped,
     summon() {
       yielded = true;
       dismissOpen();

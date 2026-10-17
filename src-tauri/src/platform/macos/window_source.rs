@@ -74,7 +74,9 @@ pub fn visible_window_titles() -> Vec<WindowTitle> {
     walk_visible(window_title)
 }
 
-fn walk_visible<T>(map: impl Fn(&NSDictionary<NSString, AnyObject>) -> Option<T>) -> Vec<T> {
+pub(super) fn walk_visible<T>(
+    map: impl Fn(&NSDictionary<NSString, AnyObject>) -> Option<T>,
+) -> Vec<T> {
     let options =
         CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements;
     let Some(list) = CGWindowListCopyWindowInfo(options, 0) else {

@@ -9,6 +9,7 @@ use x11rb::protocol::xproto::{
     Atom, AtomEnum, ClientMessageEvent, ConnectionExt, EventMask, Window,
 };
 
+use super::atoms::Atoms;
 use crate::pill_focus::{hand_back, HandBack};
 
 /// Source indication 2: a pager or the user asked, not an application.
@@ -18,24 +19,6 @@ const CURRENT_TIME: u32 = 0;
 
 /// The active window when a pill took the keyboard; 0 is none.
 static ACTIVE_BEFORE_PILL: AtomicU32 = AtomicU32::new(0);
-
-/// The EWMH atoms the hand-back reads and sends.
-pub(crate) struct FocusAtoms {
-    pub active: Atom,
-    pub stacking: Atom,
-    pub pid: Atom,
-}
-
-impl FocusAtoms {
-    pub(crate) fn intern<C: Connection>(conn: &C) -> Option<Self> {
-        let intern = |name: &[u8]| Some(conn.intern_atom(false, name).ok()?.reply().ok()?.atom);
-        Some(Self {
-            active: intern(b"_NET_ACTIVE_WINDOW")?,
-            stacking: intern(b"_NET_CLIENT_LIST_STACKING")?,
-            pid: intern(b"_NET_WM_PID")?,
-        })
-    }
-}
 
 /// Payload for a `_NET_ACTIVE_WINDOW` client message from a pager.
 pub(crate) fn net_active_window_payload() -> [u32; 5] {
@@ -105,27 +88,34 @@ fn exists<C: Connection>(conn: &C, window: Window) -> bool {
 pub(crate) fn hand_back_to<C: Connection>(
     conn: &C,
     root: Window,
-    atoms: &FocusAtoms,
+    atoms: &Atoms,
     overlay: Window,
     previous: Window,
 ) -> Result<HandBack, String> {
-    let holding = active_window(conn, root, atoms.active) == Some(overlay);
+    let active = atoms.net_active_window;
+    let holding = active_window(conn, root, active) == Some(overlay);
     let alive = previous != 0 && previous != overlay && exists(conn, previous);
     let decision = hand_back(holding, alive);
     match decision {
-        HandBack::Restore => activate(conn, root, atoms.active, previous)?,
+        HandBack::Restore => activate(conn, root, active, previous)?,
         HandBack::StepAside => {
-            let stacking = window_property(conn, root, atoms.stacking, AtomEnum::WINDOW, 4096);
+            let stacking = window_property(
+                conn,
+                root,
+                atoms.net_client_list_stacking,
+                AtomEnum::WINDOW,
+                4096,
+            );
             let me = std::process::id();
             // The stacking list can still name a window that was just destroyed.
             let ours = |w: Window| {
                 w == overlay
                     || !exists(conn, w)
-                    || window_property(conn, w, atoms.pid, AtomEnum::CARDINAL, 1).first()
+                    || window_property(conn, w, atoms.net_wm_pid, AtomEnum::CARDINAL, 1).first()
                         == Some(&me)
             };
             if let Some(next) = step_aside_target(&stacking, ours) {
-                activate(conn, root, atoms.active, next)?;
+                activate(conn, root, active, next)?;
             }
         }
         HandBack::Stay => {}
@@ -153,9 +143,9 @@ pub fn remember_active_window(overlay: Window) {
 pub fn return_keyboard(overlay: Window) -> Result<(), String> {
     let previous = ACTIVE_BEFORE_PILL.swap(0, Ordering::Relaxed);
     let conn = super::connection::connection().ok_or("no X11 connection")?;
-    let atoms = FocusAtoms::intern(conn).ok_or("could not intern EWMH atoms")?;
+    let atoms = super::atoms::atoms().ok_or("could not intern EWMH atoms")?;
     let root = conn.setup().roots[0].root;
-    hand_back_to(conn, root, &atoms, overlay, previous).map(|_| ())
+    hand_back_to(conn, root, atoms, overlay, previous).map(|_| ())
 }
 
 #[cfg(test)]
@@ -185,7 +175,7 @@ mod tests {
     struct Display {
         conn: RustConnection,
         root: Window,
-        atoms: FocusAtoms,
+        atoms: &'static Atoms,
     }
 
     impl Display {
@@ -198,7 +188,8 @@ mod tests {
                 &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
             )
             .unwrap();
-            let atoms = FocusAtoms::intern(&conn).unwrap();
+            // Atoms belong to the server, so the shared connection's serve this one.
+            let atoms = super::super::atoms::atoms().unwrap();
             Self { conn, root, atoms }
         }
 
@@ -224,7 +215,7 @@ mod tests {
                     .change_property32(
                         PropMode::REPLACE,
                         w,
-                        self.atoms.pid,
+                        self.atoms.net_wm_pid,
                         AtomEnum::CARDINAL,
                         &[std::process::id()],
                     )
@@ -236,11 +227,11 @@ mod tests {
         }
 
         fn activate(&self, w: Window) {
-            activate(&self.conn, self.root, self.atoms.active, w).unwrap();
+            activate(&self.conn, self.root, self.atoms.net_active_window, w).unwrap();
         }
 
         fn active(&self) -> Option<Window> {
-            active_window(&self.conn, self.root, self.atoms.active)
+            active_window(&self.conn, self.root, self.atoms.net_active_window)
         }
 
         /// Block until `w` is the active window, at most 3 s: wait on the
@@ -255,7 +246,11 @@ mod tests {
                 }
                 loop {
                     match self.conn.poll_for_event().unwrap() {
-                        Some(Event::PropertyNotify(e)) if e.atom == self.atoms.active => break,
+                        Some(Event::PropertyNotify(e))
+                            if e.atom == self.atoms.net_active_window =>
+                        {
+                            break
+                        }
                         Some(_) => continue,
                         None => {}
                     }
@@ -289,7 +284,7 @@ mod tests {
         x.activate(overlay);
         assert!(x.active_within_3s(overlay), "the pill never took focus");
         assert_eq!(
-            hand_back_to(&x.conn, x.root, &x.atoms, overlay, previous).unwrap(),
+            hand_back_to(&x.conn, x.root, x.atoms, overlay, previous).unwrap(),
             HandBack::Restore
         );
         assert!(
@@ -318,7 +313,7 @@ mod tests {
         x.conn.destroy_window(editor).unwrap();
         x.conn.flush().unwrap();
         assert_eq!(
-            hand_back_to(&x.conn, x.root, &x.atoms, overlay, previous).unwrap(),
+            hand_back_to(&x.conn, x.root, x.atoms, overlay, previous).unwrap(),
             HandBack::StepAside
         );
         assert!(
