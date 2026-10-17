@@ -491,10 +491,10 @@ try {
     $line = Get-Content -LiteralPath $log | Where-Object { $_ -match $T.pillOpen } | Select-Object -Last 1
     $null = $line -match $T.pillOpen
     $setResult = $Matches[2]
-    $inFront = if ($Matches[1] -eq $Matches[3]) { "yes" } else { "no" }
-    "pill-open: SetForegroundWindow returned $setResult; the overlay is in front: $inFront; line: $($line.Trim())" | Tee-Object -FilePath $results -Append | Write-Output
+    $overlayAhead = if ($Matches[1] -eq $Matches[3]) { "yes" } else { "no" }
+    "pill-open: SetForegroundWindow returned $setResult; the overlay is in front: $overlayAhead; line: $($line.Trim())" | Tee-Object -FilePath $results -Append | Write-Output
     Note-Keys "with the pill open"
-    if (-not (Wait-ForNext $T.two { [PillWin]::Text("two") })) { Fail "hover-type: the pill never showed text=`"two`" focused=true (SetForegroundWindow returned $setResult, overlay in front: $inFront); see $log" }
+    if (-not (Wait-ForNext $T.two { [PillWin]::Text("two") })) { Fail "hover-type: the pill never showed text=`"two`" focused=true (SetForegroundWindow returned $setResult, overlay in front: $overlayAhead); see $log" }
     Ok "hover-type: the pill took `"two`" with no click"
 
     # 3. Escape closes the pill.
