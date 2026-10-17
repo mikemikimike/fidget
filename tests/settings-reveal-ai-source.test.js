@@ -4,70 +4,37 @@
 // reads which command its button invokes.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const FIXTURES = new URL("./fixtures/", import.meta.url);
 const read = (name) => JSON.parse(readFileSync(new URL(name, FIXTURES), "utf8"));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) return process.env.FIDGET_CHROME;
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) return path;
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 const skip = chrome ? false : "headless Chromium is not installed";
 
 // What `Reveal::AiSource.target()` serializes to. form.rs pins the same pair.
 const AI_SOURCE = { tab: "AI", row: "harness", focus: "control" };
 const PRIVACY_ROW = { tab: "Privacy", row: "consent_accessibility", focus: "row" };
 
-function render(pageName, stub, { shot = null, size = "760,640" } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "settings-reveal-"));
-  const page = join(dir, "page.html");
+function render(pageName, stub, { size = "760,640" } = {}) {
   const html = readFileSync(join(SRC, pageName), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-  const args = [
-    "--headless",
-    "--disable-gpu",
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    `--user-data-dir=${join(dir, "profile")}`,
-    "--allow-file-access-from-files",
-    "--virtual-time-budget=4000",
-    `--window-size=${size}`,
-  ];
-  args.push(shot ? `--screenshot=${shot}` : "--dump-dom");
-  args.push(pathToFileURL(page).href);
-  const run = spawnSync(chrome, args, { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" });
-  if (shot) return null;
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(match, `the page did not report. ${run.stderr?.slice(-500) ?? ""}`);
-  return JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'"));
+  return probePage(html, { args: [`--window-size=${size}`], timeout: 10000 });
 }
 
 const REPORT = `
   const report = (value) => {
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify(value);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(value));
   };`;
 
-export function settingsWith({ first, later = null, shot = null, size = "760,640", freeze = null, values: over = {} }) {
+export function settingsWith({ first, later = null, size = "760,640", freeze = null, values: over = {} }) {
   const form = read("settings-snapshot-harnessDriving.json");
   if (freeze) {
     for (const tab of form.tabs) for (const section of tab.sections) for (const row of section.rows) {
@@ -102,6 +69,7 @@ export function settingsWith({ first, later = null, shot = null, size = "760,640
     };
   }
   async function run() {
+    console.log("__PROBE_READY__");
     while (!heard["settings-refresh"]) await tick();
     await settle();
     const out = { first: seen() };
@@ -113,25 +81,25 @@ export function settingsWith({ first, later = null, shot = null, size = "760,640
   }
   window.addEventListener("load", () => run().catch((why) => report({ error: String(why) })));
 </script>`;
-  return render("settings.html", stub, { shot, size });
+  return render("settings.html", stub, { size });
 }
 
 const without = ({ inView, checked, ...rest }) => rest;
 
-test("Settings opened on the AI source aim shows the AI tab with the picker focused", { skip, timeout: 60000 }, () => {
-  const seen = settingsWith({ first: AI_SOURCE });
+test("Settings opened on the AI source aim shows the AI tab with the picker focused", { skip, timeout: 60000 }, async () => {
+  const seen = await settingsWith({ first: AI_SOURCE });
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(without(seen.first), { tab: "AI", focus: "harness", tag: "SELECT", ring: true });
 });
 
-test("an open Settings page on another tab moves to the AI source picker", { skip, timeout: 60000 }, () => {
-  const seen = settingsWith({ first: null, later: AI_SOURCE });
+test("an open Settings page on another tab moves to the AI source picker", { skip, timeout: 60000 }, async () => {
+  const seen = await settingsWith({ first: null, later: AI_SOURCE });
   assert.equal(seen.error, undefined, seen.error);
   assert.equal(seen.first.tab, "Presence");
   assert.deepEqual(without(seen.later), { tab: "AI", focus: "harness", tag: "SELECT", ring: true });
 });
 
-test("the Chat landing button opens Settings on the AI source, not plain Settings", { skip, timeout: 60000 }, () => {
+test("the Chat landing button opens Settings on the AI source, not plain Settings", { skip, timeout: 60000 }, async () => {
   const opening = {
     name: "Buddy Bot", character: "Buddy Bot", configured: false, enabled: true, harness: null,
     model: "", host: "", chat_ui: "minimal", login: null, harness_name: null,
@@ -152,6 +120,7 @@ test("the Chat landing button opens Settings on the AI source, not plain Setting
   };
   const tick = () => new Promise((r) => setTimeout(r, 0));
   async function run() {
+    console.log("__PROBE_READY__");
     while (!heard["chat-opening"]) await tick();
     heard["chat-opening"]({ payload: ${JSON.stringify(opening)} });
     for (let i = 0; i < 10; i++) await tick();
@@ -162,27 +131,27 @@ test("the Chat landing button opens Settings on the AI source, not plain Setting
   }
   window.addEventListener("load", () => run().catch((why) => report({ error: String(why) })));
 </script>`;
-  const seen = render("chat.html", stub, { size: "420,560" });
+  const seen = await render("chat.html", stub, { size: "420,560" });
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(seen.calls, ["show_ai_source"]);
 });
 
-test("the Privacy row keeps the row focused and its consent box unchecked", { skip, timeout: 60000 }, () => {
-  const seen = settingsWith({ first: PRIVACY_ROW, values: { consent_accessibility: false } });
+test("the Privacy row keeps the row focused and its consent box unchecked", { skip, timeout: 60000 }, async () => {
+  const seen = await settingsWith({ first: PRIVACY_ROW, values: { consent_accessibility: false } });
   assert.equal(seen.error, undefined, seen.error);
   assert.equal(seen.first.tab, "Privacy");
   assert.deepEqual([seen.first.tag, seen.first.focus], ["DIV", "consent_accessibility"]);
   assert.deepEqual(seen.first.checked, [false], "the aim grants nothing");
 });
 
-test("a frozen picker leaves the focus on its row", { skip, timeout: 60000 }, () => {
-  const seen = settingsWith({ first: AI_SOURCE, freeze: "harness" });
+test("a frozen picker leaves the focus on its row", { skip, timeout: 60000 }, async () => {
+  const seen = await settingsWith({ first: AI_SOURCE, freeze: "harness" });
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual([seen.first.tab, seen.first.tag, seen.first.focus], ["AI", "DIV", "harness"]);
 });
 
-test("the focused picker is inside a short window", { skip, timeout: 60000 }, () => {
-  const seen = settingsWith({ first: AI_SOURCE, size: "760,360" });
+test("the focused picker is inside a short window", { skip, timeout: 60000 }, async () => {
+  const seen = await settingsWith({ first: AI_SOURCE, size: "760,360" });
   assert.equal(seen.error, undefined, seen.error);
   assert.equal(seen.first.tag, "SELECT");
   assert.equal(seen.first.inView, true);
