@@ -86,6 +86,21 @@ $T = [ordered]@{
 # The pill's text, whatever its focus, holding $Word.
 function Draft-Holds([string]$Word) { "(?:^|\s)overlay: draft instance=\S+ text=`"[^`"]*$Word[^`"]*`" " }
 
+# The verdict on typing into the pill, from Fidget's log lines: the pill opened
+# at line $OpenedAt (0-based) and the typing went in at line $TypedAt. "typed"
+# once a line has $Typed; $null until then.
+function Get-TypingVerdict([string[]]$Lines, [int]$OpenedAt, [int]$TypedAt, [string]$Typed) {
+    foreach ($l in @($Lines | Select-Object -Skip $TypedAt)) {
+        if ($l -match $Typed) { return "typed" }
+    }
+    $null
+}
+if ($env:FIDGET_SCENARIO_PILL_LOG) {
+    $verdict = Get-TypingVerdict @(Get-Content -LiteralPath $env:FIDGET_SCENARIO_PILL_LOG) ([int]$env:FIDGET_SCENARIO_PILL_OPENED_AT) ([int]$env:FIDGET_SCENARIO_PILL_TYPED_AT) $T.two
+    Write-Output "pill: $(if ($verdict) { $verdict } else { 'none' })"
+    exit 0
+}
+
 if ($null -ne $env:FIDGET_SCENARIO_TRACE_LINE) {
     $names = @($T.Keys | Where-Object { $env:FIDGET_SCENARIO_TRACE_LINE -match $T[$_] })
     Write-Output "matches: $($names -join ' ')"

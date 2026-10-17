@@ -17,6 +17,7 @@ import {
   createQuickMessage,
   crossedDrag,
   placeQuickMessage,
+  focusAfterForeground,
   quickMessageMirror,
   windowBlurred,
 } from "./quick-message.js";
@@ -357,10 +358,10 @@ function syncQuick(view) {
     view.quickMachine.available,
   );
   if (view.quickMachine.takeFocus()) {
-    window.__TAURI__.core.invoke("overlay_request_focus").catch((err) => {
-      console.error("overlay_request_focus", err);
-    });
-    view.quickField.focus();
+    focusAfterForeground(
+      () => window.__TAURI__.core.invoke("overlay_request_focus"),
+      () => view.quickField.focus(),
+    );
   }
   reportComposing();
   reportDraft(view);

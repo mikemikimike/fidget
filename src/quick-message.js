@@ -72,6 +72,12 @@ export function windowBlurred(machines, gestureActive) {
   for (const machine of machines) machine.away();
 }
 
+// The pill takes the caret.
+export function focusAfterForeground(requestForeground, focusField) {
+  requestForeground().catch((err) => console.error("overlay_request_focus", err));
+  focusField();
+}
+
 // hoverDelay: the Shell's delay in force, in ms, read as each hover starts.
 export function createQuickMessage({ schedule, clear, send, onChange, available = true, hoverDelay }) {
   let visible = false;

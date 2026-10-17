@@ -1243,6 +1243,11 @@ mod tests {
     /// The leaf's stdout for one self-check: `env` set, nothing launched.
     #[cfg(windows)]
     fn pill_self_check(key: &str, value: &std::ffi::OsStr) -> String {
+        pill_self_check_with(&[(key, value)])
+    }
+
+    #[cfg(windows)]
+    fn pill_self_check_with(envs: &[(&str, &std::ffi::OsStr)]) -> String {
         let out = Command::new("powershell")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(repo_scenarios().join("chat-close-pill-type.win.ps1"))
@@ -1251,7 +1256,7 @@ mod tests {
                 "C:\\Windows\\System32\\cmd.exe",
                 "C:\\Windows\\System32\\cmd.exe",
             ])
-            .env(key, value)
+            .envs(envs.iter().copied())
             .output()
             .unwrap();
         assert_eq!(out.status.code(), Some(0), "{out:?}");
@@ -1325,6 +1330,58 @@ mod tests {
 
     // The leaf aims at the sprite's middle: its top-left from the frame line and
     // its size from the overlay's startup line, not a fixed offset.
+    // Typing into the pill is judged from the pill opening: the pill closing
+    // or a hand-back line before the typed text fails at once, even when it
+    // came before the typing (live run 4, #1577). An unfocused report alone
+    // decides nothing; the typed text after it still passes.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_judges_pill_typing_from_the_pill_opening() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("process.log");
+        let d = "1792261251 overlay: draft instance=e7";
+        let open = "1792261251 overlay: pill open SetForegroundWindow(0x40ec4) -> 1 GetForegroundWindow() -> 0x40ec4";
+        let back = "1792261251 overlay: hand back Restore to 0x150e64 -> 0";
+        let run4 = format!(
+            "{open}\n{d} text=\"\" focused=true\n{d} text=\"\" focused=false\n{back}\n{d} closed\n\
+             {open}\n{d} text=\"\" focused=true\n"
+        );
+        for (log, typed_at, want) in [
+            (run4.clone(), "7", format!("pill: lost {back}")),
+            (
+                format!("{open}\n{d} text=\"\" focused=true\n{d} closed\n"),
+                "3",
+                format!("pill: lost {d} closed"),
+            ),
+            (
+                format!("{open}\n{d} text=\"\" focused=false\n{d} text=\"two\" focused=true\n"),
+                "2",
+                "pill: typed".to_string(),
+            ),
+            (
+                format!("{open}\n{d} text=\"two\" focused=true\n{d} closed\n"),
+                "1",
+                "pill: typed".to_string(),
+            ),
+            (
+                format!("{open}\n{d} text=\"tw\" focused=true\n"),
+                "1",
+                "pill: none".to_string(),
+            ),
+        ] {
+            fs::write(&path, &log).unwrap();
+            assert_eq!(
+                pill_self_check_with(&[
+                    ("FIDGET_SCENARIO_PILL_LOG", path.as_os_str()),
+                    ("FIDGET_SCENARIO_PILL_OPENED_AT", "0".as_ref()),
+                    ("FIDGET_SCENARIO_PILL_TYPED_AT", typed_at.as_ref()),
+                ]),
+                want,
+                "{log}"
+            );
+        }
+    }
+
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_aims_at_the_sprite_middle() {
