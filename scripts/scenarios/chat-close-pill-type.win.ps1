@@ -7,11 +7,14 @@
 #   that one window, and only when every tab left in it was there at launch.
 # Input: SendInput cursor moves, clicks, typed words, Escape, Ctrl+Home, Ctrl+S.
 #   Each press is held until Fidget traces it down; each word is one SendInput.
-# Duration: about 20 s (an estimate until the first Windows run). A warm-up
-#   launch runs first and stops once its overlay reports (20 s at most). In the
-#   timed launch every wait gives up 3 s after its trigger: the first frame
-#   after the launch, the overlay's page load after that frame, and its first
-#   report after the page load.
+# Duration: about 15 s (an estimate until the first Windows run). Every wait
+#   gives up 3 s after its trigger; at startup that is the first frame after
+#   the launch, the overlay's page load after that frame, and its first report
+#   after the page load. Waits wake on each line of Fidget's piped stderr, on
+#   file changes, or on UI Automation events; nothing polls.
+# WebView2's profile is one folder every run reuses,
+#   %LOCALAPPDATA%\fidget-scenarios\webview2. The first run on a PC makes it
+#   cold; if that run misses a startup step it says to rerun.
 # Grants: a desktop session with no Fidget running (it skips otherwise). Other
 #   Notepad tabs and windows, and any fullscreen app, stay as they are; a
 #   fullscreen window is only logged. bash for the fixture Harness wrapper.
@@ -298,6 +301,15 @@ function Get-Fullscreen {
 }
 function Note-Foreground([string]$When) { "foreground $When`: $(Describe-Window ([PillWin]::GetForegroundWindow()))" | Add-Content -LiteralPath $focusLog }
 
+# The shared WebView2 profile, under the real LOCALAPPDATA (read before the run
+# points it at its own folder). A startup step that misses on the run that
+# made it says so.
+$webviewProfile = Join-Path (Join-Path $env:LOCALAPPDATA "fidget-scenarios") "webview2"
+$coldProfile = -not (Test-Path -LiteralPath $webviewProfile)
+function Fail-Startup([string]$Message) {
+    if ($coldProfile) { $Message += ". This run made the shared WebView2 profile in $webviewProfile, so it started cold: rerun once" }
+    Fail $Message
+}
 Note-Foreground "before the run"
 # Evidence only: a fullscreen app keeps running, and nothing here focuses or moves it.
 $full = @(Get-Fullscreen)
@@ -308,6 +320,9 @@ function Count([string]$Pattern) {
     if (-not (Test-Path -LiteralPath $log)) { return 0 }
     @(Get-Content -LiteralPath $log | Where-Object { $_ -match $Pattern }).Count
 }
+# Until $Test holds, re-checked on each UI Automation event (focus, windows,
+# structure, names), for desktop state with no line or file of its own.
+function Wait-Ui([double]$Seconds, [scriptblock]$Test) { [bool](Wait-UiaChange 0 $Seconds $Test) }
 # One more matching line in Fidget's log than $Before, within 3 s.
 function Wait-LogCount([string]$Pattern, [int]$Before) { Wait-ForCount 3 $log $Pattern $Before }
 # Counts first, then pulls the trigger, then waits 3 s for one more matching line.
@@ -379,7 +394,7 @@ function Notepad-Holds([string]$Expected) {
 }
 # Types $Word with Notepad in front and checks it landed there, not in the pill.
 function Type-IntoNotepad([string]$Word, [string]$Case, [string]$Expected) {
-    if (-not (Wait-Until 3 { Foreground-Is })) { Note-Keys "at $Case"; Fail "${Case}: Notepad was not in front to type into; see $focusLog" }
+    if (-not (Wait-Ui 3 { Foreground-Is })) { Note-Keys "at $Case"; Fail "${Case}: Notepad was not in front to type into; see $focusLog" }
     [PillWin]::Text($Word)
     if (-not (Notepad-Holds $Expected)) { Note-Keys "at $Case"; Fail "${Case}: Notepad holds `"$(Read-Doc)`", not `"$Expected`"; see $focusLog" }
     if (Count (Draft-Holds $Word)) { Fail "${Case}: the pill took `"$Word`"; see $log" }
@@ -418,11 +433,11 @@ function Close-OurNotepad {
     $close = $found.Tab.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::Button)))
     if (-not $close) { return "our tab $docName shows no close button; close it by hand" }
     $close.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    if (-not (Wait-Until 3 { -not (Find-OurTab) })) {
+    if (-not (Wait-Ui 3 { -not (Find-OurTab) })) {
         $nameIs = New-Object System.Windows.Automation.PropertyCondition ($UiaEl::NameProperty), "Don't save"
         $dont = if ([PillWin]::IsWindow($found.Hwnd)) { $found.Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $nameIs) } else { $null }
         if ($dont) { $dont.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-        if (-not (Wait-Until 3 { -not (Find-OurTab) })) { return "our tab $docName is still open; close it by hand" }
+        if (-not (Wait-Ui 3 { -not (Find-OurTab) })) { return "our tab $docName is still open; close it by hand" }
     }
     if ($notepadWasRunning) { return "" }
     # This run opened Notepad. Win11 Notepad is one process for every window, so
@@ -436,7 +451,7 @@ function Close-OurNotepad {
         return ""
     }
     $null = [PillWin]::PostMessage($script:hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
-    if (-not (Wait-Until 3 { -not [PillWin]::IsWindow($script:hwnd) })) { return "the Notepad window this run opened did not close in 3 s; it may be asking about a tab restored at launch" }
+    if (-not (Wait-Ui 3 { -not [PillWin]::IsWindow($script:hwnd) })) { return "the Notepad window this run opened did not close in 3 s; it may be asking about a tab restored at launch" }
     ""
 }
 
@@ -464,7 +479,7 @@ try {
     if (-not $notepadWasRunning) { $null = [PillWin]::MoveWindow($script:hwnd, 400, 250, 1400, 900, $true) }
     # Windows can refuse a background process the foreground; a click on our own tab takes it.
     $null = [PillWin]::SetForegroundWindow($script:hwnd)
-    if (-not (Wait-Until 3 { Foreground-Is })) {
+    if (-not (Wait-Ui 3 { Foreground-Is })) {
         $b = $ourTab.Tab.Current.BoundingRectangle
         $tabX = [int]($b.X + $b.Width / 3)
         $tabY = [int]($b.Y + $b.Height / 2)
@@ -473,17 +488,17 @@ try {
         # No Fidget yet to trace the press, so this click is down and up at once.
         $null = [PillWin]::SetCursorPos($tabX, $tabY)
         [PillWin]::Button($false); [PillWin]::Button($true)
-        if (-not (Wait-Until 3 { Foreground-Is })) { Note-Keys "focusing Notepad"; Fail "Notepad did not take focus; see $focusLog" }
+        if (-not (Wait-Ui 3 { Foreground-Is })) { Note-Keys "focusing Notepad"; Fail "Notepad did not take focus; see $focusLog" }
     }
     # A tab click leaves the keys on the tab strip; UI Automation moves them to the text.
     $text = $UiaEl::FromHandle($script:hwnd).FindFirst([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::Document)))
     if (-not $text) { Fail "Notepad shows no text area to UI Automation" }
     $text.SetFocus()
-    if (-not (Wait-Until 3 { Keys-InNotepad })) { Note-Keys "focusing Notepad's text"; Fail "Notepad's text area did not take the keys; see $focusLog" }
+    if (-not (Wait-Ui 3 { Keys-InNotepad })) { Note-Keys "focusing Notepad's text"; Fail "Notepad's text area did not take the keys; see $focusLog" }
     [PillWin]::Key(0x11, $false); Press 0x24; [PillWin]::Key(0x11, $true)
 
     # Fidget's private folders, set after Notepad starts so Notepad keeps the real ones.
-    $data = Initialize-ScenarioData $Out @{ hide_in_fullscreen = $false }
+    $null = Initialize-ScenarioData $Out @{ hide_in_fullscreen = $false }
     $q = { param($p) ($p -replace '\\', '/') }
     $harnessTag = "count=$(& $q $marks)"
     $env:FIDGET_HARNESS = "$bashPath $(& $q $root)/scripts/scenarios/fixture-harness.sh $(& $q $TestBin) script=slow $harnessTag"
@@ -494,32 +509,17 @@ try {
     $env:FIDGET_TRACE_HITTEST = "1"
     $env:FIDGET_CHARACTER = "bmo"
     $env:FIDGET_CHARACTERS = $chars
-    # Warm-up: one launch into a data folder of its own, stopped once its overlay
-    # reports, so the timed launch below finds the exe and this run's WebView2
-    # profile already warm. Like CI's Chrome warm-up (#1559), it pays the cold
-    # start once and is the only wait over 3 s.
-    $warmData = Join-Path $Out "warmup"
-    New-Item -ItemType Directory -Path $warmData | Out-Null
-    Copy-Item -LiteralPath (Join-Path $data "settings.json") -Destination $warmData
-    $warmLog = Join-Path $warmData "process.log"
-    $env:FIDGET_DATA_DIR = $warmData
-    $warmStart = Get-NowMs
-    $script:proc = Start-Process -FilePath $Bin -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $Out "warmup-app.log") -RedirectStandardError (Join-Path $Out "warmup-app.err")
-    $warmed = Wait-Until 20 { (Test-Path -LiteralPath $warmLog) -and (Test-OverlayListening (Get-Content -LiteralPath $warmLog)) }
-    "warm-up: overlay reported $warmed after $((Get-NowMs) - $warmStart) ms" | Tee-Object -FilePath $results -Append | Write-Output
-    $warmProc = $script:proc
-    Stop-FidgetTree $warmProc $harnessTag
-    $script:proc = $null
-    if (-not $warmProc.WaitForExit(3000)) { Fail "warm-up: Fidget (process $($warmProc.Id)) did not exit in 3 s" }
-    if (-not $warmed) { Fail "warm-up: Fidget's overlay did not report in 20 s; see $warmLog" }
-    $env:FIDGET_DATA_DIR = $data
-
-    # The timed launch: each step waits 3 s from the one before it.
-    $script:proc = Start-Process -FilePath $Bin -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $Out "app.log") -RedirectStandardError (Join-Path $Out "app.err")
-    if (-not (Wait-LogCount $T.frame 0)) { Fail "Fidget drew no frame in 3 s of its launch; see $log" }
-    if (-not (Wait-LogCount $T.loaded 0)) { Fail "the overlay's page did not load in 3 s of the first frame; see $log" }
-    if (-not (Wait-Until 3 { Test-OverlayListening (Get-Content -LiteralPath $log) })) { Fail "the overlay did not report in 3 s of its page loading; see $log" }
-    if (-not (Wait-Until 3 { Foreground-Is })) { Note-Keys "as Fidget started"; Fail "Notepad lost focus as Fidget started; see $focusLog" }
+    # WebView2's profile lives in one folder every run reuses (WebView2 reads
+    # WEBVIEW2_USER_DATA_FOLDER over the app's own choice), so only the first
+    # run on a PC makes it cold. Fidget's data folder stays fresh per run.
+    $env:WEBVIEW2_USER_DATA_FOLDER = $webviewProfile
+    # Each startup step waits 3 s from the one before it, woken by each line of
+    # Fidget's piped stderr.
+    $script:proc = Start-FidgetPiped $Bin @() (Join-Path $Out "app.log") (Join-Path $Out "app.err")
+    if (-not (Wait-LogCount $T.frame 0)) { Fail-Startup "Fidget drew no frame in 3 s of its launch; see $log" }
+    if (-not (Wait-LogCount $T.loaded 0)) { Fail-Startup "the overlay's page did not load in 3 s of the first frame; see $log" }
+    if (-not (Wait-Until 3 { Test-OverlayListening (Get-Content -LiteralPath $log) })) { Fail-Startup "the overlay did not report in 3 s of its page loading; see $log" }
+    if (-not (Wait-Ui 3 { Foreground-Is })) { Note-Keys "as Fidget started"; Fail "Notepad lost focus as Fidget started; see $focusLog" }
 
     # 1. No pill open: a sprite click leaves Notepad in front, and typing lands there.
     Click-Sprite sprite-click

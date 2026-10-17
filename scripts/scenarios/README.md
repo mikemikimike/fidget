@@ -122,9 +122,11 @@ Fidget is running. A fullscreen app keeps running: the leaf logs it to
 `chat-close-pill-type-<time>-<hex>` folder under the evidence dir it is given,
 or under `$env:TEMP`. It prints Fidget's `overlay: pill open
 SetForegroundWindow(...)` line, which shows whether Windows let the pill take
-the foreground (#1577). A warm-up launch pays Fidget's cold start first; the
-timed launch then waits 3 s for each of the first frame, the overlay's
-`overlay: <label> page loaded` line and its first draft report.
+the foreground (#1577). At startup it waits 3 s for each of the first frame,
+the overlay's `overlay: <label> page loaded` line and its first draft report.
+WebView2's profile is one folder every run reuses,
+`%LOCALAPPDATA%\fidget-scenarios\webview2`, so only the first run on a PC
+starts it cold, and that run says to rerun if it misses a step.
 `fidget-verify scenario <name>` prints the leaf for this host. With `--go` it
 runs that leaf, or skips when this host has none.
 
