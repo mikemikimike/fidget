@@ -14,9 +14,9 @@
 #   file changes, or on UI Automation events; nothing polls.
 # WebView2's profile is one folder every run reuses,
 #   %LOCALAPPDATA%\fidget-scenarios\webview2. The first run on a PC makes it
-#   cold; if that run misses a startup step it says to rerun. A msedgewebview2.exe
-#   still holding that folder (a run that died) fails the run before launch,
-#   with its process id; it is never killed.
+#   cold; if that run misses a startup step it says to rerun. A WebView2 still
+#   holding its EBWebView\lockfile (a run that died) fails the run before
+#   launch, named by pid when the Restart Manager knows it; it is never killed.
 # Grants: a desktop session with no Fidget running (it skips otherwise). Other
 #   Notepad tabs and windows, and any fullscreen app, stay as they are; a
 #   fullscreen window is only logged. bash for the fixture Harness wrapper.
@@ -33,9 +33,9 @@
 #   FIDGET_SCENARIO_READY_LOG=<process.log> prints whether the overlay was
 #   listening; FIDGET_SCENARIO_AIM_LOG=<process.log> prints the sprite's middle;
 #   FIDGET_SCENARIO_TRACE_LINE=<line> prints which waited-on trace patterns it
-#   matches; FIDGET_SCENARIO_PROFILE_CMDLINE=<command line> with
-#   FIDGET_SCENARIO_PROFILE_DIR=<folder> prints whether that WebView2 holds the
-#   folder; FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
+#   matches; FIDGET_SCENARIO_PROFILE_LOCK=<folder> prints whether
+#   its EBWebView\lockfile is missing, free or in use;
+#   FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
 #   [evidence dir], or in $env:TEMP without one.
 #
@@ -110,18 +110,68 @@ function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) 
     }
     "close"
 }
-# Whether a WebView2 command line has its --user-data-dir at $Folder or under
-# it (WebView2 adds EBWebView inside the folder it is given). Case-insensitive,
-# as Windows paths are; a sibling such as webview2-old does not count.
-function Test-HoldsProfile([string]$CommandLine, [string]$Folder) {
-    if ($CommandLine -notmatch '--user-data-dir=(?:"([^"]*)"|(\S+))') { return $false }
-    $dir = if ($Matches[1]) { $Matches[1] } else { $Matches[2] }
-    $dir = $dir.TrimEnd('\')
-    $root = $Folder.TrimEnd('\')
-    $dir.Equals($root, [StringComparison]::OrdinalIgnoreCase) -or $dir.StartsWith("$root\", [StringComparison]::OrdinalIgnoreCase)
+# WebView2's lock on a profile: the browser holds <profile>\EBWebView\lockfile
+# open for writing, sharing only reads, and the file goes when it closes
+# (Chromium process_singleton_win.cc L244 at bef1ce99). Returns missing, free,
+# or "in use" plus the holders' pids from the Restart Manager when it has them.
+function Get-ProfileLock([string]$Folder) {
+    $lock = Join-Path (Join-Path $Folder "EBWebView") "lockfile"
+    if (-not (Test-Path -LiteralPath $lock)) { return "missing" }
+    return "free"  # STUB for the red run: the next commit removes this line.
+    try {
+        [System.IO.File]::Open($lock, "Open", "Read", "None").Dispose()
+        return "free"
+    } catch {
+        # PowerShell wraps a .NET method's exception; look at the cause.
+        $e = $_.Exception
+        while ($e.InnerException -and $e -isnot [System.IO.IOException]) { $e = $e.InnerException }
+        if ($e -is [System.IO.FileNotFoundException] -or $e -is [System.IO.DirectoryNotFoundException]) { return "missing" }
+        # ERROR_SHARING_VIOLATION (32) or ERROR_LOCK_VIOLATION (33).
+        if ($e -isnot [System.IO.IOException] -or @(32, 33) -notcontains ($e.HResult -band 0xFFFF)) { throw }
+    }
+    $pids = @()
+    try { $pids = @(Get-LockHolders $lock) } catch { }
+    if ($pids.Count) { return "in use by pid $($pids -join ', ')" }
+    return "in use"
 }
-if ($env:FIDGET_SCENARIO_PROFILE_CMDLINE) {
-    Write-Output "holds: $(if (Test-HoldsProfile $env:FIDGET_SCENARIO_PROFILE_CMDLINE $env:FIDGET_SCENARIO_PROFILE_DIR) { 'yes' } else { 'no' })"
+# The pids holding a file, from the Restart Manager. Never used to stop them.
+function Get-LockHolders([string]$Path) {
+    if (-not ("PillRm" -as [type])) {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class PillRm {
+    [StructLayout(LayoutKind.Sequential)] struct UniqueProcess { public int Pid; public System.Runtime.InteropServices.ComTypes.FILETIME Start; }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct ProcessInfo {
+        public UniqueProcess Process;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string App;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string Service;
+        public int Type; public int Status; public int Session; [MarshalAs(UnmanagedType.Bool)] public bool Restartable;
+    }
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)] static extern int RmStartSession(out uint session, int flags, System.Text.StringBuilder key);
+    [DllImport("rstrtmgr.dll")] static extern int RmEndSession(uint session);
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)] static extern int RmRegisterResources(uint session, uint files, string[] names, uint apps, IntPtr unique, uint services, string[] serviceNames);
+    [DllImport("rstrtmgr.dll")] static extern int RmGetList(uint session, out uint needed, ref uint count, [In, Out] ProcessInfo[] info, out uint reasons);
+    public static int[] Holders(string path) {
+        uint session;
+        if (RmStartSession(out session, 0, new System.Text.StringBuilder(64)) != 0) { return new int[0]; }
+        try {
+            if (RmRegisterResources(session, 1, new string[] { path }, 0, IntPtr.Zero, 0, null) != 0) { return new int[0]; }
+            uint needed, reasons, count = 8;
+            ProcessInfo[] info = new ProcessInfo[count];
+            if (RmGetList(session, out needed, ref count, info, out reasons) != 0) { return new int[0]; }
+            int[] pids = new int[count];
+            for (int i = 0; i < count; i++) { pids[i] = info[i].Process.Pid; }
+            return pids;
+        } finally { RmEndSession(session); }
+    }
+}
+"@
+    }
+    return [PillRm]::Holders($Path)
+}
+if ($env:FIDGET_SCENARIO_PROFILE_LOCK) {
+    Write-Output "lock: $(Get-ProfileLock $env:FIDGET_SCENARIO_PROFILE_LOCK)"
     exit 0
 }
 if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
@@ -324,12 +374,12 @@ function Note-Foreground([string]$When) { "foreground $When`: $(Describe-Window 
 # made it says so.
 $webviewProfile = Join-Path (Join-Path $env:LOCALAPPDATA "fidget-scenarios") "webview2"
 $coldProfile = -not (Test-Path -LiteralPath $webviewProfile)
+$profileLock = Join-Path (Join-Path $webviewProfile "EBWebView") "lockfile"
 # A WebView2 left by a run that died can still hold the profile, and a launch
-# against it would look like a page that never loads. Named, never killed: it
-# may not be ours.
-$holders = @(Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" | Where-Object { $_.CommandLine -and (Test-HoldsProfile $_.CommandLine $webviewProfile) })
-if ($holders.Count) {
-    [Console]::Error.WriteLine("FAIL: msedgewebview2.exe process $(@($holders | ForEach-Object { $_.ProcessId }) -join ', ') still holds the shared WebView2 profile $webviewProfile; close it (or let it exit), then rerun")
+# against it would look like a page that never loads. Named, never killed.
+$lockState = Get-ProfileLock $webviewProfile
+if ($lockState -like "in use*") {
+    [Console]::Error.WriteLine("FAIL: the shared WebView2 profile is $lockState`: $profileLock is held open; close that WebView2 (or let it exit), then rerun")
     exit 1
 }
 function Fail-Startup([string]$Message) {
@@ -544,6 +594,8 @@ try {
     $script:proc = Start-FidgetPiped $Bin @() (Join-Path $Out "app.log") (Join-Path $Out "app.err")
     if (-not (Wait-LogCount $T.frame 0)) { Fail-Startup "Fidget drew no frame in 3 s of its launch; see $log" }
     if (-not (Wait-LogCount $T.loaded 0)) { Fail-Startup "the overlay's page did not load in 3 s of the first frame; see $log" }
+    # The pre-launch check reads this lockfile, so it must be there now.
+    if (-not (Test-Path -LiteralPath $profileLock)) { Fail "WebView2 loaded the page but holds no $profileLock, so the pre-launch profile check can't see a running WebView2" }
     if (-not (Wait-Until 3 { Test-OverlayListening (Get-Content -LiteralPath $log) })) { Fail-Startup "the overlay did not report in 3 s of its page loading; see $log" }
     if (-not (Wait-Ui 3 { Foreground-Is })) { Note-Keys "as Fidget started"; Fail "Notepad lost focus as Fidget started; see $focusLog" }
 
