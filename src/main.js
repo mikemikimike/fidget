@@ -366,10 +366,8 @@ function syncQuick(view) {
   if (view.quickMachine.takeFocus()) {
     focusAfterForeground(
       () => window.__TAURI__.core.invoke("overlay_request_focus"),
-      () => {
-        // The pill may have closed while the request was out.
-        if (view.quickMachine.typing) view.quickField.focus();
-      },
+      () => view.quickField.focus(),
+      () => view.quickMachine.typing,
     );
   }
   reportComposing();
@@ -891,9 +889,7 @@ async function start() {
     traceBubble(`window blur foreground=${front}`);
     windowBlurred(machines, gesture, front);
   });
-  window.addEventListener("focus", async () => {
-    traceBubble(`window focus foreground=${await overlayHasForeground()}`);
-  });
+  window.addEventListener("focus", () => traceBubble("window focus"));
   document.addEventListener("pointerdown", (event) => {
     const composer = event.target.closest?.(".quick-message");
     const sprite = event.target.closest?.(".sprite");

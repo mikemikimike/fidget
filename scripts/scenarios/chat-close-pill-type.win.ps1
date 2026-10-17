@@ -38,8 +38,7 @@
 #   its EBWebView\lockfile is missing, free or in use;
 #   FIDGET_SCENARIO_PILL_LOG=<process.log> prints whether "two" typed into the
 #   pill landed or the pill went first, judged from FIDGET_SCENARIO_PILL_OPENED_AT
-#   (the pill's first line, 0-based; FIDGET_SCENARIO_PILL_TYPED_AT is the
-#   typing's); FIDGET_SCENARIO_READ_DOC=<file> prints
+#   (the pill's first line, 0-based); FIDGET_SCENARIO_READ_DOC=<file> prints
 #   the file as Notepad's is read, or busy;
 #   FIDGET_SCENARIO_UNEXPECTED=<results.txt> throws, to check the FAIL line;
 #   FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
@@ -98,6 +97,7 @@ $T = [ordered]@{
     two       = '(?:^|\s)overlay: draft instance=\S+ text="two" focused=true$'
     unfocused = '(?:^|\s)overlay: draft instance=\S+ (?:text="[^"]*" focused=false|closed)$'
     closed    = '(?:^|\s)overlay: draft instance=\S+ closed$'
+    pillGone  = '(?:^|\s)overlay: (?:draft instance=\S+ closed|hand back )'
     pillOpen  = '(?:^|\s)overlay: pill open SetForegroundWindow\((0x[0-9a-f]+)\) -> (-?\d+) GetForegroundWindow\(\) -> (0x[0-9a-f]+)$'
     hitTest   = '(?:^|\s)hit-test: '
     hit       = '(?:^|\s)hit-test: cursor\(.*\bHIT\s+click-through OFF'
@@ -108,21 +108,18 @@ $T = [ordered]@{
 # The pill's text, whatever its focus, holding $Word.
 function Draft-Holds([string]$Word) { "(?:^|\s)overlay: draft instance=\S+ text=`"[^`"]*$Word[^`"]*`" " }
 
-# A line saying the pill went away: it closed, or Fidget handed the keyboard back.
-$PillGone = '(?:^|\s)overlay: (?:draft instance=\S+ closed|hand back )'
-# The verdict on typing into the pill, from Fidget's log lines: the pill opened
-# at line $OpenedAt (0-based) and the typing went in at line $TypedAt. The first
-# line with $Typed is "typed"; a $PillGone line before it, even before the
-# typing, is "lost <that line>". Neither yet is $null.
-function Get-TypingVerdict([string[]]$Lines, [int]$OpenedAt, [int]$TypedAt, [string]$Typed) {
+# The verdict on typing into the pill that opened at line $OpenedAt (0-based):
+# "typed" at the first $Typed line, "lost <line>" at a pillGone line before it
+# (even before the typing), else $null.
+function Get-TypingVerdict([string[]]$Lines, [int]$OpenedAt, [string]$Typed) {
     foreach ($l in @($Lines | Select-Object -Skip $OpenedAt)) {
         if ($l -match $Typed) { return "typed" }
-        if ($l -match $PillGone) { return "lost $($l.Trim())" }
+        if ($l -match $T.pillGone) { return "lost $($l.Trim())" }
     }
     $null
 }
 if ($env:FIDGET_SCENARIO_PILL_LOG) {
-    $verdict = Get-TypingVerdict @(Get-Content -LiteralPath $env:FIDGET_SCENARIO_PILL_LOG) ([int]$env:FIDGET_SCENARIO_PILL_OPENED_AT) ([int]$env:FIDGET_SCENARIO_PILL_TYPED_AT) $T.two
+    $verdict = Get-TypingVerdict @(Get-Content -LiteralPath $env:FIDGET_SCENARIO_PILL_LOG) ([int]$env:FIDGET_SCENARIO_PILL_OPENED_AT) $T.two
     Write-Output "pill: $(if ($verdict) { $verdict } else { 'none' })"
     exit 0
 }
@@ -440,10 +437,9 @@ public static class PillWin {
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
     [DllImport("user32.dll")] static extern bool IsGUIThread(bool convert);
-    // Windows gives the foreground only to a process it allows, and a script
-    // started in the background is not one. For the call, this thread's input
-    // joins the foreground thread's, which lifts that; no key or click reaches
-    // the window in front, and nothing moves, minimizes or closes it.
+    // Windows refuses the foreground to a background script, so for the call
+    // this thread's input joins the foreground thread's. The window in front
+    // gets no key or click and is never moved, minimized or closed.
     public static bool Bring(IntPtr h) {
         if (SetForegroundWindow(h) && GetForegroundWindow() == h) return true;
         IsGUIThread(true);
@@ -631,10 +627,9 @@ function Notepad-Holds([string]$Expected) {
 # passes; the pill closing or handing the keyboard back first fails at once,
 # naming the window in front then.
 function Type-IntoPill([string]$Word, [string]$Typed, [string]$Case, [string]$Detail = "") {
-    $from = Line-Count
     [PillWin]::Text($Word)
     $script:verdict = $null
-    $null = Wait-Until 3 { ($script:verdict = Get-TypingVerdict @(Get-Content -LiteralPath $log) $script:pillFrom $from $Typed) }
+    $null = Wait-Until 3 { ($script:verdict = Get-TypingVerdict @(Get-Content -LiteralPath $log) $script:pillFrom $Typed) }
     if ($script:verdict -eq "typed") { return }
     $front = Describe-Window ([PillWin]::GetForegroundWindow())
     Note-Keys "at $Case"

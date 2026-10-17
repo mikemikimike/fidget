@@ -2209,11 +2209,9 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
     open_chat(&app, &id, title, None);
 }
 
-/// Whether this overlay is the foreground window, asked once per window blur
-/// in its page. On Windows, SetForegroundWindow on the overlay sends it
-/// WM_SETFOCUS, wry answers with MoveFocus, and WebView2 then fires a blur
-/// while the overlay stays in front (#1577), so a blur alone is no sign the
-/// user moved on. Elsewhere it says false, and a blur closes as before.
+/// Whether this overlay is the foreground window, asked once per page blur:
+/// WebView2 fires one while SetForegroundWindow activates the overlay (#1577).
+/// False off Windows, so a blur closes the pill there as before.
 #[tauri::command]
 fn overlay_has_foreground(window: tauri::Window) -> bool {
     #[cfg(target_os = "windows")]
