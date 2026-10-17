@@ -8,12 +8,11 @@
 // baseline alignment of <span> vs <details><summary> elements.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { findChrome, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const THEMES = ["minimal", "terminal", "glass"];
@@ -40,21 +39,7 @@ const OVER_CELLS = ["x".repeat(80), "—", "—", "—", "→", "wake 12s", "—
 const CAP_CELLS = ["m".repeat(24), "m".repeat(24), "m".repeat(24), "m".repeat(24), "→", "wake 2h", "m".repeat(24)];
 const PLAIN_LINE = "Wander toward cursor for a very long time · next thought in 12s";
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) {
-    return process.env.FIDGET_CHROME;
-  }
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) {
-      return path;
-    }
-  }
-  return null;
-}
-
-const chrome = chromeBin();
+const chrome = findChrome();
 
 function measure() {
   const opening = {
@@ -212,6 +197,7 @@ function measure() {
   const cap = { behavior: "m".repeat(24), primitive: "m".repeat(24), animation: "m".repeat(24), state: "m".repeat(24), facing: 1, asking: false, happened: "m".repeat(24), wake_ms: 7200000 };
   const wandering = { behavior: "wander_toward_cursor_for_a_very_long_time", primitive: null, animation: "idle", state: null, facing: 1, asking: false, happened: null, wake_ms: 12000 };
   async function drive() {
+    console.log("__PROBE_READY__");
     const { applyChatUiClass } = await import("./chat-ui-class.js");
     while (!handlers["chat-status"]) await tick();
     const bar = document.querySelector("footer.bar");
@@ -292,51 +278,16 @@ function measure() {
         },
       };
     }
-    const out = document.createElement("pre");
-    out.id = "probe";
-    out.textContent = JSON.stringify(reports);
-    document.body.append(out);
+    console.log("__PROBE_RESULT__" + JSON.stringify(reports));
   }
   window.addEventListener("load", drive);
 </script>`;
 
-  const dir = mkdtempSync(join(tmpdir(), "chat-status-ladder-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
     `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
   );
-  writeFileSync(page, html);
-
-  const run = spawnSync(
-    chrome,
-    [
-      "--headless",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--virtual-time-budget=3000",
-      "--window-size=420,560",
-      "--dump-dom",
-      pathToFileURL(page).href,
-    ],
-    { encoding: "utf8", maxBuffer: 1 << 24, timeout: 40000, killSignal: "SIGKILL" },
-  );
-  const match = run.stdout.match(/<pre id="probe"[^>]*>(.*?)<\/pre>/s);
-  assert.ok(
-    match,
-    `the Chat surface did not report. status ${run.status} ${run.stderr?.slice(-500) ?? ""} ${run.stdout?.slice(-500) ?? ""}`,
-  );
-  const json = match[1]
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
-  return JSON.parse(json);
+  return probePage(html, { args: ["--window-size=420,560"], timeout: 20000 });
 }
 
 function why(theme, name, scene) {
@@ -346,8 +297,8 @@ function why(theme, name, scene) {
 test(
   "the open ladder is its own full-width wrapping row",
   { skip: chrome ? false : "headless Chromium is not installed", timeout: 90000 },
-  () => {
-    const reports = measure();
+  async () => {
+    const reports = await measure();
     assert.deepEqual(reports.childIds, CELL_IDS);
     for (const theme of THEMES) {
       const scene = reports[theme];
