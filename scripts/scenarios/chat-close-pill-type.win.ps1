@@ -23,8 +23,9 @@
 # Asserts: (1) a sprite click leaves typing in Notepad; (2) hover opens the
 #   pill, Fidget prints the pill-open SetForegroundWindow line, and "two" lands
 #   in the pill (text="two" focused=true), with no close or hand-back line
-#   since the pill opened; (3) Escape closes the pill; (4) a
-#   click into Notepad takes focus off the pill and typing lands in Notepad.
+#   since the pill opened; (3) Escape closes the pill; (4) a click into
+#   Notepad closes the empty pill (the page blur finds another window in front)
+#   and typing lands in Notepad.
 #   It prints the pill-open line, which says whether Windows refused the pill
 #   the foreground (#1577).
 # Self-checks that launch nothing: FIDGET_SCENARIO_NOTEPAD_TABS (names split by
@@ -97,6 +98,7 @@ $T = [ordered]@{
     two       = '(?:^|\s)overlay: draft instance=\S+ text="two" focused=true$'
     closed    = '(?:^|\s)overlay: draft instance=\S+ closed$'
     pillGone  = '(?:^|\s)overlay: (?:draft instance=\S+ closed|hand back )'
+    blurAway  = '(?:^|\s)overlay \S+: window blur foreground=false dnd='
     pillOpen  = '(?:^|\s)overlay: pill open SetForegroundWindow\((0x[0-9a-f]+)\) -> (-?\d+) GetForegroundWindow\(\) -> (0x[0-9a-f]+)$'
     hitTest   = '(?:^|\s)hit-test: '
     hit       = '(?:^|\s)hit-test: cursor\(.*\bHIT\s+click-through OFF'
@@ -812,8 +814,15 @@ try {
     Open-Pill click-away
     $r = New-Object PillWin+RECT
     $null = [PillWin]::GetWindowRect($script:hwnd, [ref]$r)
-    if (-not (Wait-ForNext $T.closed { Click-Notepad ([int](($r.L + $r.R) / 2)) ([int]($r.T + ($r.B - $r.T) * 7 / 10)) click-away })) {
-        Fail "click-away: the pill did not close after the click into Notepad; see $log"
+    # Both lines within 3 s of the click: the field's own blur timer closes the
+    # pill 3000 ms later too, so the closed line alone proves nothing.
+    $blurs = Count $T.blurAway
+    $closes = Count $T.closed
+    Click-Notepad ([int](($r.L + $r.R) / 2)) ([int]($r.T + ($r.B - $r.T) * 7 / 10)) click-away
+    $both = Wait-OnChanges 3 (Split-Path -Parent $log) { (Count $T.blurAway) -gt $blurs -and (Count $T.closed) -gt $closes }
+    if (-not $both) {
+        if ((Count $T.blurAway) -le $blurs) { Fail "click-away: no 'window blur foreground=false' line within 3 s of the click into Notepad; see $log" }
+        Fail "click-away: the pill did not close within 3 s of the click into Notepad; see $log"
     }
     Type-IntoNotepad four click-away oneabcfour
     Ok "click-away: the click moved typing to Notepad"
