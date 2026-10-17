@@ -120,6 +120,13 @@ for probe in "TextEdit:count documents" "System Events:count processes"; do
   fi
 done
 
+# BMO whose Behaviors stand rather than walk. An app switch wakes the Director,
+# and greet's patrol walked the Character out from under a hover (run 114714).
+still="$out/characters/bmo/character.manifest"
+mkdir -p "$out/characters" && cp -R "$root/characters/bmo" "$out/characters/"
+sed -E '/^play = /s/"walk"/"idle"/g' "$root/characters/bmo/character.manifest" > "$still"
+! grep -qE '^play = .*"walk"' "$still" || fail "BMO still walks in $still"
+
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
 # `slow` holds the first turn, so a startup wake neither speaks nor opens Chat.
 harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=slow count=$marks"
@@ -129,7 +136,7 @@ env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_BUBBLE=1 \
-  FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
+  FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$out/characters" \
   "$bin" > "$out/app.log" 2>&1 &
 pid=$!
 trap 'stop_fidget; pkill -f "count=$marks" || true; close_textedit' EXIT
