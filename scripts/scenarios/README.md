@@ -166,6 +166,17 @@ macOS and X11 leaves share `poke-mid-climb-check.py`. Windows has the same
 check in PowerShell, with the same messages, so the one broken-fixture table
 in `crates/verify` covers all three.
 
+`chat-close-pill-type` has an `.x11.sh` leaf and no Windows leaf yet; that
+comes with the Windows hand-back of the pill's keyboard. The X11 leaf starts
+its own Xvfb display with xfwm4 and mousepad, so it leaves your display alone,
+and skips when one of those, `xdotool`, `xprop` or `inotifywait` is missing.
+It reads the editor's text by saving with Ctrl+S and waiting for the rename
+that lands the file. Its first sprite click waits until the overlay is ready,
+which is when its first draft report lands. #1578 is a related,
+unconfirmed issue.
+It sets `FIDGET_HOVER_DELAY_MS=300`, so each hover opens the pill in 0.3 s
+instead of 1.5 s, still longer than a press on the sprite takes.
+
 To check an assertion without a desktop, point the leaf at fixture dumps and
 skip the launch:
 

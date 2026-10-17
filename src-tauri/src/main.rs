@@ -2098,6 +2098,19 @@ fn overlay_traces_cadence() -> bool {
     tracing_cadence()
 }
 
+/// `FIDGET_HOVER_DELAY_MS` when it holds a number, for test scripts. None
+/// leaves `HOVER_DELAY_MS` in quick-message.js, the only default.
+fn hover_delay_ms_from(value: Option<String>) -> Option<u64> {
+    value.and_then(|ms| ms.parse().ok())
+}
+
+/// The pill's hover delay in ms, if a test script set one. Read once.
+#[tauri::command]
+fn overlay_hover_delay_ms() -> Option<u64> {
+    static DELAY: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *DELAY.get_or_init(|| hover_delay_ms_from(std::env::var("FIDGET_HOVER_DELAY_MS").ok()))
+}
+
 /// Display frames an overlay drew, in Unix ms: when it ran, whether it asked
 /// for another, and the two arrivals it drew between. For scripts/frame-cadence.mjs.
 #[tauri::command]
@@ -4775,6 +4788,7 @@ fn main() {
             overlay_trace_bubble,
             overlay_hit_tests_hotspots,
             overlay_traces_cadence,
+            overlay_hover_delay_ms,
             overlay_cadence,
             overlay_open_chat,
             overlay_request_focus,
@@ -5376,6 +5390,14 @@ mod tests {
             url: Some("https://example.test/oauth".to_string()),
             waits,
         }
+    }
+
+    /// quick-message.js holds the default, so only a number is passed on.
+    #[test]
+    fn the_hover_delay_is_passed_on_only_when_the_variable_holds_a_number() {
+        assert_eq!(hover_delay_ms_from(None), None);
+        assert_eq!(hover_delay_ms_from(Some("100".into())), Some(100));
+        assert_eq!(hover_delay_ms_from(Some("abc".into())), None);
     }
 
     /// Chat floats over the bubble while it has focus and drops to a normal
