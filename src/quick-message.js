@@ -45,8 +45,6 @@ export function quickMessageMirror(text, prompt, available) {
   return "\u200b";
 }
 
-export const HOVER_DELAY_MS = 1500;
-
 // Auto-hide: 3s continuous away from both sprite and pill. Re-entering resets.
 export const AUTO_HIDE_DELAY_MS = 3000;
 
@@ -74,8 +72,8 @@ export function windowBlurred(machines, gestureActive) {
   for (const machine of machines) machine.away();
 }
 
-// hoverDelayMs: the Shell's FIDGET_HOVER_DELAY_MS, for test scripts.
-export function createQuickMessage({ schedule, clear, send, onChange, available = true, hoverDelayMs = HOVER_DELAY_MS }) {
+// hoverDelay: the Shell's delay in force, in ms, read as each hover starts.
+export function createQuickMessage({ schedule, clear, send, onChange, available = true, hoverDelay }) {
   let visible = false;
   let text = "";
   let focused = false;
@@ -206,7 +204,7 @@ export function createQuickMessage({ schedule, clear, send, onChange, available 
         hoverTimer = null;
         if (disposed || !overSprite || chatOpen) return;
         show();
-      }, hoverDelayMs);
+      }, hoverDelay());
     },
     leaveSprite() {
       overSprite = false;

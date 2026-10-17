@@ -39,7 +39,7 @@ let petDrag = null;
 // Latch for the entire gesture: true from pointerdown on sprite through
 // pointerup/cancel. Stays true even after petDrag clears on threshold cross.
 let gestureActive = false;
-// The pill's dwell, from the Shell once at start (FIDGET_HOVER_DELAY_MS).
+// The pill's dwell in ms, from the latest frame, so a Settings change lands on the next hover.
 let hoverDelayMs;
 
 const views = new Map();
@@ -461,7 +461,7 @@ function attachQuickMessage(view, id) {
   machine = createQuickMessage({
     schedule: (fn, ms) => window.setTimeout(fn, ms),
     clear: (timer) => window.clearTimeout(timer),
-    hoverDelayMs,
+    hoverDelay: () => hoverDelayMs,
     // Frozen until the first opening. The fetch below is what thaws it.
     available: false,
     onChange() {
@@ -732,12 +732,6 @@ async function start() {
     console.error("overlay_hit_tests_hotspots", err);
   }
   try {
-    // null when unset, so quick-message.js keeps its own default.
-    hoverDelayMs = (await window.__TAURI__.core.invoke("overlay_hover_delay_ms")) ?? undefined;
-  } catch (err) {
-    console.error("overlay_hover_delay_ms", err);
-  }
-  try {
     if (await window.__TAURI__.core.invoke("overlay_traces_cadence")) cadence = [];
   } catch (err) {
     console.error("overlay_traces_cadence", err);
@@ -762,6 +756,7 @@ async function start() {
   await window.__TAURI__.event.listen(
     "frame",
     ({ payload }) => {
+      hoverDelayMs = payload.hover_delay_ms;
       const seen = new Set();
 
       payload.sprites.forEach((sprite, index) => {

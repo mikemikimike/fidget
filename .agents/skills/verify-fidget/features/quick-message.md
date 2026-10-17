@@ -34,7 +34,7 @@ Preconditions:
 
 ## Gotchas
 
-- A glance shorter than `HOVER_DELAY_MS` (1500) must not open the pill; do not click (that is Poke) or double-click (Summon).
+- A glance shorter than the hover delay (Settings → Development, default 1500 ms) must not open the pill; do not click (that is Poke) or double-click (Summon).
 - After a Summon (or any path that calls the pill's `summon` dismiss), the pill stays down while the pointer remains on the sprite; `leaveSprite` clears that latch so a fresh hover can open it again (#1237). Closing Chat also clears it (`setChatOpen(false)`), because macOS can keep `:hover` after Chat steals focus with no `pointerleave` (#1489).
 - After Send, that same latch stays set until the pointer leaves the sprite (or Chat closes, as above).
 - While Chat is open for that Instance (`sprite.chatting` / `setChatOpen(true)`), hover does not open the pill; after Chat closes, the next enterSprite dwell can open it (#1243, #1489).

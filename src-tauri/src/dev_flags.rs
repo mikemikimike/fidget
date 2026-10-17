@@ -80,6 +80,7 @@ static MAX_TOKENS: AtomicU32 = AtomicU32::new(0);
 static WAKE_SECS: AtomicU64 = AtomicU64::new(0);
 static AUTH_RETRY_SECS: AtomicU64 = AtomicU64::new(0);
 static HARNESS_TURN_TIMEOUT_SECS: AtomicU64 = AtomicU64::new(0);
+static HOVER_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 
 /// How hard the Completer is asked to think. A `Mutex<String>` because the
 /// value is any string a host takes, not a number. Blank is unset, and
@@ -122,6 +123,13 @@ pub fn harness_auth_retry_secs() -> Option<u64> {
 pub fn harness_turn_timeout_secs() -> Option<u64> {
     let secs = HARNESS_TURN_TIMEOUT_SECS.load(Ordering::Relaxed);
     (secs > 0).then_some(secs)
+}
+
+/// The quick message hover delay in force, in ms. Zero is unset: a pill that
+/// opens the instant the pointer crosses the Character is not a hover.
+pub fn hover_delay_ms() -> Option<u64> {
+    let ms = HOVER_DELAY_MS.load(Ordering::Relaxed);
+    (ms > 0).then_some(ms)
 }
 
 /// The reasoning effort in force, if one is set.
@@ -177,6 +185,7 @@ pub(crate) fn test_vars() -> Vec<&'static str> {
             harness::TURN_TIMEOUT_SECS,
             harness::MCP_BIN,
             harness::CWD,
+            crate::HOVER_DELAY_MS_VAR,
         ])
         .collect()
 }
@@ -231,6 +240,13 @@ pub fn seed(settings: &Settings) {
         .trim()
         .parse()
         .unwrap_or(0),
+        Ordering::Relaxed,
+    );
+    HOVER_DELAY_MS.store(
+        model::env_or_file(crate::HOVER_DELAY_MS_VAR, &settings.hover_delay_ms)
+            .trim()
+            .parse()
+            .unwrap_or(0),
         Ordering::Relaxed,
     );
     *REASONING_EFFORT
@@ -447,6 +463,16 @@ mod tests {
             read: || mcp_bin().map(|path| path.display().to_string()),
             file_value: "/tmp/from-the-file",
             env_value: "/tmp/from-the-env",
+        },
+        Precedence {
+            var: crate::HOVER_DELAY_MS_VAR,
+            set_file: |v| Settings {
+                hover_delay_ms: v.to_string(),
+                ..Settings::default()
+            },
+            read: || hover_delay_ms().map(|ms| ms.to_string()),
+            file_value: "800",
+            env_value: "300",
         },
         Precedence {
             var: model::REASONING_EFFORT,

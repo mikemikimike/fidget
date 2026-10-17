@@ -39,6 +39,8 @@ const frame = {
   visible: true,
   fade_ms: 0,
   sound: false,
+  // This page has no fake clock, so a 1 ms dwell keeps the hover from costing wall time.
+  hover_delay_ms: 1,
 };
 
 // Every bubble moved to another display's overlay.

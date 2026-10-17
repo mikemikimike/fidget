@@ -78,7 +78,7 @@ All off by default. Switches take `1`/`on`/`true`/`yes` or `0`/`off`/`false`/`no
 | `FIDGET_DEBUG_REINFORCE` | Windows only, with no Settings row: debug logging for overlay `reinforce_overlay` calls (DWM frame extension and style restoration) |
 | `FIDGET_DEBUG_IPC` | Enable file-based debug commands (`~/.fidget-debug-cmd` / `~/.fidget-debug-result`) for `fidget-verify place` and `snapshot`. Off by default, with no Settings row. While on, any same-user process can move the sprite via the command file. |
 | `FIDGET_CAPTURABLE` | `1` forces the overlay into screen captures, `0` excludes it. Overrides Settings → Presence → "Appear in screenshots and screen shares". For verify scripts and CI. |
-| `FIDGET_HOVER_DELAY_MS` | Test scripts only, with no Settings row: how long the cursor rests on the Character before the quick message pill opens, in ms. A number; anything else leaves the default 1500. Read at launch only |
+| `FIDGET_HOVER_DELAY_MS` | How long the cursor rests on the Character before the quick message pill opens, in ms. Overrides Settings → Development → "Hover delay, in milliseconds". A positive number; anything else leaves the default 1500. |
 
 ## Verifying the Overlay
 
