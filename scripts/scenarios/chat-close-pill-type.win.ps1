@@ -14,7 +14,9 @@
 #   file changes, or on UI Automation events; nothing polls.
 # WebView2's profile is one folder every run reuses,
 #   %LOCALAPPDATA%\fidget-scenarios\webview2. The first run on a PC makes it
-#   cold; if that run misses a startup step it says to rerun.
+#   cold; if that run misses a startup step it says to rerun. A msedgewebview2.exe
+#   still holding that folder (a run that died) fails the run before launch,
+#   with its process id; it is never killed.
 # Grants: a desktop session with no Fidget running (it skips otherwise). Other
 #   Notepad tabs and windows, and any fullscreen app, stay as they are; a
 #   fullscreen window is only logged. bash for the fixture Harness wrapper.
@@ -31,7 +33,9 @@
 #   FIDGET_SCENARIO_READY_LOG=<process.log> prints whether the overlay was
 #   listening; FIDGET_SCENARIO_AIM_LOG=<process.log> prints the sprite's middle;
 #   FIDGET_SCENARIO_TRACE_LINE=<line> prints which waited-on trace patterns it
-#   matches; FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
+#   matches; FIDGET_SCENARIO_PROFILE_CMDLINE=<command line> with
+#   FIDGET_SCENARIO_PROFILE_DIR=<folder> prints whether that WebView2 holds the
+#   folder; FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
 #   [evidence dir], or in $env:TEMP without one.
 #
@@ -105,6 +109,20 @@ function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) 
         if (-not $pool.Remove($name)) { return "leave: `"$name`" was not open at launch" }
     }
     "close"
+}
+# Whether a WebView2 command line has its --user-data-dir at $Folder or under
+# it (WebView2 adds EBWebView inside the folder it is given). Case-insensitive,
+# as Windows paths are; a sibling such as webview2-old does not count.
+function Test-HoldsProfile([string]$CommandLine, [string]$Folder) {
+    if ($CommandLine -notmatch '--user-data-dir=(?:"([^"]*)"|(\S+))') { return $false }
+    $dir = if ($Matches[1]) { $Matches[1] } else { $Matches[2] }
+    $dir = $dir.TrimEnd('\')
+    $root = $Folder.TrimEnd('\')
+    $dir.Equals($root, [StringComparison]::OrdinalIgnoreCase) -or $dir.StartsWith("$root\", [StringComparison]::OrdinalIgnoreCase)
+}
+if ($env:FIDGET_SCENARIO_PROFILE_CMDLINE) {
+    Write-Output "holds: $(if (Test-HoldsProfile $env:FIDGET_SCENARIO_PROFILE_CMDLINE $env:FIDGET_SCENARIO_PROFILE_DIR) { 'yes' } else { 'no' })"
+    exit 0
 }
 if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
     $left = if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT -eq "none") { [string[]]@() } else { [string[]]($env:FIDGET_SCENARIO_NOTEPAD_LEFT -split '\|') }
@@ -306,6 +324,14 @@ function Note-Foreground([string]$When) { "foreground $When`: $(Describe-Window 
 # made it says so.
 $webviewProfile = Join-Path (Join-Path $env:LOCALAPPDATA "fidget-scenarios") "webview2"
 $coldProfile = -not (Test-Path -LiteralPath $webviewProfile)
+# A WebView2 left by a run that died can still hold the profile, and a launch
+# against it would look like a page that never loads. Named, never killed: it
+# may not be ours.
+$holders = @(Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" | Where-Object { $_.CommandLine -and (Test-HoldsProfile $_.CommandLine $webviewProfile) })
+if ($holders.Count) {
+    [Console]::Error.WriteLine("FAIL: msedgewebview2.exe process $(@($holders | ForEach-Object { $_.ProcessId }) -join ', ') still holds the shared WebView2 profile $webviewProfile; close it (or let it exit), then rerun")
+    exit 1
+}
 function Fail-Startup([string]$Message) {
     if ($coldProfile) { $Message += ". This run made the shared WebView2 profile in $webviewProfile, so it started cold: rerun once" }
     Fail $Message

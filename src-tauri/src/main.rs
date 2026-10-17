@@ -2280,16 +2280,15 @@ fn cover_display(window: &tauri::WebviewWindow, display: Rect) -> Result<(), tau
     window.set_position(LogicalPosition::new(display.x, display.y))
 }
 
-/// Build one overlay, configure it, and put it over its display. The only
-/// place an overlay is made, so click-through, window level, Spaces and hide
-/// rules stay one set. Main thread only: it builds a window and calls AppKit.
-/// The overlay's trace once its own document has loaded: the step between
-/// the window being built and the page's first draft report. `about:blank`
-/// finishes first and is not that document.
+/// The trace once the overlay's own document loads, between its first frame
+/// and its first draft report. `about:blank` finishes first and is skipped.
 fn overlay_page_loaded_line(label: &str, finished: bool, url: &str) -> Option<String> {
     (finished && !url.starts_with("about:")).then(|| format!("overlay: {label} page loaded"))
 }
 
+/// Build one overlay, configure it, and put it over its display. The only
+/// place an overlay is made, so click-through, window level, Spaces and hide
+/// rules stay one set. Main thread only: it builds a window and calls AppKit.
 fn build_overlay(
     app: &tauri::AppHandle,
     label: &str,

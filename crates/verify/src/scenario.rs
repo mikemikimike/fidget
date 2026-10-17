@@ -1394,6 +1394,56 @@ mod tests {
         );
     }
 
+    // Before launch the leaf names any msedgewebview2.exe whose --user-data-dir
+    // is the shared profile or inside it (WebView2 adds EBWebView), and nothing
+    // else: another app's profile or a sibling folder does not count.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_finds_a_webview2_holding_its_profile() {
+        let ours = r"C:\Users\oded\AppData\Local\fidget-scenarios\webview2";
+        let exe = r#""C:\Program Files (x86)\Microsoft\EdgeWebView\Application\130.0.2849.80\msedgewebview2.exe" --embedded-browser-webview=1 --webview-exe-name=fidget.exe"#;
+        for (args, want) in [
+            (
+                r#"--user-data-dir="C:\Users\oded\AppData\Local\fidget-scenarios\webview2\EBWebView" --noerrdialogs"#,
+                "yes",
+            ),
+            (
+                r#"--user-data-dir="c:\users\ODED\appdata\local\FIDGET-SCENARIOS\webview2""#,
+                "yes",
+            ),
+            (
+                r"--type=renderer --user-data-dir=C:\Users\oded\AppData\Local\fidget-scenarios\webview2\EBWebView --lang=en-US",
+                "yes",
+            ),
+            (
+                r#"--user-data-dir="C:\Users\oded\AppData\Local\com.fidget.app\EBWebView""#,
+                "no",
+            ),
+            (
+                r#"--user-data-dir="C:\Users\oded\AppData\Local\fidget-scenarios\webview2-old\EBWebView""#,
+                "no",
+            ),
+            ("--type=crashpad-handler", "no"),
+        ] {
+            let line = format!("{exe} {args}");
+            let out = Command::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(repo_scenarios().join("chat-close-pill-type.win.ps1"))
+                .args([
+                    "--go",
+                    "C:\\Windows\\System32\\cmd.exe",
+                    "C:\\Windows\\System32\\cmd.exe",
+                ])
+                .env("FIDGET_SCENARIO_PROFILE_CMDLINE", &line)
+                .env("FIDGET_SCENARIO_PROFILE_DIR", ours)
+                .output()
+                .unwrap();
+            assert_eq!(out.status.code(), Some(0), "{out:?}");
+            let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            assert_eq!(got, format!("holds: {want}"), "{line}");
+        }
+    }
+
     // Windows PowerShell 5.1 compiles the shared waits' C# and passes their
     // self-check: only a piped line wakes a wait on an empty folder, the log
     // keeps the bytes (UTF-8, LF, non-ASCII), and a wait gives up at its cap.
