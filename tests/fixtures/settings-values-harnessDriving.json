@@ -33,6 +33,7 @@
   "harness_turn_timeout_secs": "300",
   "hidden": false,
   "hotkey": "Control-Option-Command-B",
+  "hover_delay_ms": "800",
   "instances": [
     {
       "id": "bmo-1",

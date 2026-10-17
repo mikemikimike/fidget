@@ -146,7 +146,7 @@ const HEADINGS = {
   Character: ["Character", "Instances"],
   AI: ["AI", "AI source", "Harness", "Model / API", "BYO - Point existing Harness at Fidget", "Last user turn"],
   Privacy: ["What the fidget can see", "Excluded applications", "Memory File"],
-  Development: ["Traces", "Blank AI", "HTTP limits", "Harness attachment"],
+  Development: ["Traces", "Blank AI", "HTTP limits", "Harness attachment", "Quick message"],
   Chat: ["Appearance"],
 };
 
@@ -318,6 +318,7 @@ test("a row whose id is not its field name still draws the value the snapshot ca
   assert.equal(byId(privacy, "consent_accessibility").value, true);
 
   assert.equal(byId(tab(MODEL_API, "Development"), "director_timeout_secs").value, "30");
+  assert.equal(byId(tab(MODEL_API, "Development"), "hover_delay_ms").value, "800");
 });
 
 // #888 named the macOS row for what the character reads rather than for the grant.

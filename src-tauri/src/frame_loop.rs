@@ -2272,6 +2272,7 @@ pub(crate) fn run_frame_loop(
                     visible: presence.visible,
                     fade_ms: presence.fade_ms,
                     sound: sound_allowed,
+                    hover_delay_ms: crate::hover_delay_ms(),
                 };
 
                 // Skip a repeated instruction (#741): Tauri emit is JS eval

@@ -7,7 +7,6 @@ import { test } from "node:test";
 import {
   AUTO_HIDE_DELAY_MS,
   BUBBLE_YIELD_MS,
-  HOVER_DELAY_MS,
   DRAG_DISMISS_PX,
   applyQuickMessageGate,
   createQuickMessage,
@@ -20,6 +19,9 @@ import {
   quickMessageMirror,
   quickMessagePrompt,
 } from "../src/quick-message.js";
+
+// Any dwell the Shell might send. The default lives in the Shell, which sends it on every frame.
+const HOVER_DELAY_MS = 1500;
 
 function harness(options = {}) {
   let time = 0;
@@ -46,7 +48,7 @@ function harness(options = {}) {
       changes.push(qm.typing);
     },
     available: options.available,
-    hoverDelayMs: options.hoverDelayMs,
+    hoverDelay: options.hoverDelay ?? (() => options.hoverDelayMs ?? HOVER_DELAY_MS),
   });
 
   function advance(ms) {
@@ -95,15 +97,23 @@ test("a hover delay from the Shell replaces the 1.5s dwell", () => {
   advance(99);
   assert.equal(qm.visible, false);
   advance(1);
-  assert.equal(qm.visible, true, "FIDGET_HOVER_DELAY_MS shortens the dwell");
+  assert.equal(qm.visible, true, "the Shell's delay replaces the dwell");
 });
 
-test("no hover delay from the Shell keeps the 1.5s dwell", () => {
-  const { qm, advance } = harness({ hoverDelayMs: undefined });
+test("a hover waits the delay in force when it starts, so a Settings change lands on the next hover", () => {
+  let delay = 400;
+  const { qm, advance } = harness({ hoverDelay: () => delay });
 
   qm.enterSprite();
-  advance(HOVER_DELAY_MS - 1);
-  assert.equal(qm.visible, false);
+  advance(400);
+  assert.equal(qm.visible, true, "the first hover waits 400 ms");
+  qm.dismiss();
+
+  delay = 900;
+  qm.leaveSprite();
+  qm.enterSprite();
+  advance(899);
+  assert.equal(qm.visible, false, "the next hover waits the new delay");
   advance(1);
   assert.equal(qm.visible, true);
 });
@@ -603,7 +613,7 @@ test("an unavailable pill appears but refuses text, focus, and send", () => {
 test("a refused send brings the frozen pill back without the line", () => {
   const { qm, sent } = shown();
   qm.setText("hey");
-  qm.dismiss();
+  qm.outside();
   qm.setAvailable(false);
 
   qm.restore("hey");

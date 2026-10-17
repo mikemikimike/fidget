@@ -647,6 +647,9 @@ struct Placement<'a> {
     /// Settings, where Do Not Disturb takes part (#277); the webview only
     /// obeys.
     sound: bool,
+    /// How long a hover waits before the quick message pill opens, in ms. On
+    /// every frame, so a change in Settings lands on the next hover.
+    hover_delay_ms: u64,
 }
 
 struct Spoken {
@@ -2098,17 +2101,23 @@ fn overlay_traces_cadence() -> bool {
     tracing_cadence()
 }
 
-/// `FIDGET_HOVER_DELAY_MS` when it holds a number, for test scripts. None
-/// leaves `HOVER_DELAY_MS` in quick-message.js, the only default.
-fn hover_delay_ms_from(value: Option<String>) -> Option<u64> {
-    value.and_then(|ms| ms.parse().ok())
+/// The variable that owns the Development tab's hover delay row. Test
+/// scripts set it to shorten the dwell.
+pub(crate) const HOVER_DELAY_MS_VAR: &str = "FIDGET_HOVER_DELAY_MS";
+
+/// How long the pointer rests on the Character before the quick message pill
+/// opens, in ms. The only default: the row's placeholder names it, and every
+/// frame carries the delay in force to the overlay.
+const HOVER_DELAY_MS: u64 = 1500;
+
+/// The hover delay in force: the variable, then the Development row, then the default.
+pub(crate) fn hover_delay_ms() -> u64 {
+    dev_flags::hover_delay_ms().unwrap_or(HOVER_DELAY_MS)
 }
 
-/// The pill's hover delay in ms, if a test script set one. Read once.
-#[tauri::command]
-fn overlay_hover_delay_ms() -> Option<u64> {
-    static DELAY: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
-    *DELAY.get_or_init(|| hover_delay_ms_from(std::env::var("FIDGET_HOVER_DELAY_MS").ok()))
+/// What an empty hover delay row means, in ms.
+pub(crate) fn hover_delay_placeholder() -> String {
+    HOVER_DELAY_MS.to_string()
 }
 
 /// Display frames an overlay drew, in Unix ms: when it ran, whether it asked
@@ -4788,7 +4797,6 @@ fn main() {
             overlay_trace_bubble,
             overlay_hit_tests_hotspots,
             overlay_traces_cadence,
-            overlay_hover_delay_ms,
             overlay_cadence,
             overlay_open_chat,
             overlay_request_focus,
@@ -5392,12 +5400,29 @@ mod tests {
         }
     }
 
-    /// quick-message.js holds the default, so only a number is passed on.
+    /// The Development row's value, or the default the row's placeholder names.
     #[test]
-    fn the_hover_delay_is_passed_on_only_when_the_variable_holds_a_number() {
-        assert_eq!(hover_delay_ms_from(None), None);
-        assert_eq!(hover_delay_ms_from(Some("100".into())), Some(100));
-        assert_eq!(hover_delay_ms_from(Some("abc".into())), None);
+    fn the_hover_delay_in_force_is_the_setting_or_the_default() {
+        model::tests::with_env(None, None, None, || {
+            dev_flags::seed(&settings::Settings::default());
+            assert_eq!(hover_delay_ms(), 1500);
+            assert_eq!(hover_delay_placeholder(), "1500");
+
+            for unset in ["", "0", "abc"] {
+                dev_flags::seed(&settings::Settings {
+                    hover_delay_ms: unset.into(),
+                    ..settings::Settings::default()
+                });
+                assert_eq!(hover_delay_ms(), 1500, "{unset:?} leaves the default");
+            }
+
+            dev_flags::seed(&settings::Settings {
+                hover_delay_ms: "800".into(),
+                ..settings::Settings::default()
+            });
+            assert_eq!(hover_delay_ms(), 800);
+            dev_flags::seed(&settings::Settings::default());
+        });
     }
 
     /// Chat floats over the bubble while it has focus and drops to a normal

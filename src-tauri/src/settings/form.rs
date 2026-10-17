@@ -522,6 +522,7 @@ pub const HARNESS_AUTH_RETRY_SECS_ID: &str = "harness_auth_retry_secs";
 pub const HARNESS_TURN_TIMEOUT_SECS_ID: &str = "harness_turn_timeout_secs";
 pub const MCP_BIN_ID: &str = "mcp_bin";
 pub const HARNESS_CWD_ID: &str = "harness_cwd";
+pub const HOVER_DELAY_MS_ID: &str = "hover_delay_ms";
 
 /// A place in Settings the Shell can send the user to. A capability, not a
 /// tab index: the per-OS row id stays in the consent catalog.
@@ -1594,6 +1595,8 @@ fn development_sections(live: &Live) -> Vec<FormSection> {
         env_row_parts("MCP server binary", crate::harness::MCP_BIN);
     let (harness_cwd_label, harness_cwd_frozen, harness_cwd_status) =
         env_row_parts("Working directory", crate::harness::CWD);
+    let (hover_delay_label, hover_delay_frozen, hover_delay_status) =
+        env_row_parts("Hover delay, in milliseconds", crate::HOVER_DELAY_MS_VAR);
 
     vec![
         FormSection {
@@ -1735,6 +1738,27 @@ fn development_sections(live: &Live) -> Vec<FormSection> {
                     status: harness_cwd_status,
                 },
             ],
+        },
+        FormSection {
+            heading: "Quick message".to_string(),
+            serves: None,
+            comment: Some("Also for development and testing. Leave empty for the default.".to_string()),
+            disclosure: Some(format!(
+                "Hover delay: how long the pointer rests on the Character before the quick message opens. Leave empty for {} milliseconds (the default). A change applies to the next hover.",
+                crate::hover_delay_placeholder()
+            )),
+            status: None,
+            rows: vec![FormRow::TextField {
+                id: HOVER_DELAY_MS_ID.to_string(),
+                label: Some(hover_delay_label),
+                placeholder: crate::hover_delay_placeholder(),
+                writes: TextField::HoverDelayMs,
+                frozen: hover_delay_frozen,
+                batched: false,
+                help: Some("How long to rest on the Character before the quick message opens.".to_string()),
+                disclosure: None,
+                status: hover_delay_status,
+            }],
         },
     ]
 }
@@ -2024,6 +2048,7 @@ pub(crate) mod tests {
             director_wake_secs: "180".to_string(),
             harness_auth_retry_secs: "30".to_string(),
             harness_turn_timeout_secs: "300".to_string(),
+            hover_delay_ms: "800".to_string(),
             harness: if driving {
                 "claude".to_string()
             } else {
@@ -2180,6 +2205,7 @@ pub(crate) mod tests {
             "Last user turn",
             "Launch",
             "Memory File",
+            "Quick message",
             "Traces",
             "What the fidget can see",
         ];
@@ -3332,6 +3358,52 @@ pub(crate) mod tests {
             !disclosure.contains("Blank is"),
             "Settings must not name the empty state Blank, got {disclosure:?}"
         );
+    }
+
+    /// The hover delay is an env-backed number like the Harness knobs: empty
+    /// shows the default, and an exported variable freezes the row and says so.
+    #[test]
+    fn the_hover_delay_row_is_a_development_row_the_variable_can_own() {
+        crate::model::tests::with_env(None, None, None, || {
+            let hover_row = |description: &FormDescription| {
+                development_tab(description)
+                    .sections
+                    .iter()
+                    .flat_map(|section| &section.rows)
+                    .find_map(|row| match row {
+                        FormRow::TextField {
+                            id,
+                            placeholder,
+                            frozen,
+                            status,
+                            ..
+                        } if id == HOVER_DELAY_MS_ID => {
+                            Some((placeholder.clone(), *frozen, status.clone()))
+                        }
+                        _ => None,
+                    })
+                    .expect("Development has a hover delay row")
+            };
+
+            let description = describe();
+            assert_eq!(hover_row(&description), ("1500".to_string(), false, None));
+            assert_eq!(
+                description.text_write(HOVER_DELAY_MS_ID),
+                Some(TextField::HoverDelayMs)
+            );
+
+            std::env::set_var(crate::HOVER_DELAY_MS_VAR, "300");
+            let description = describe();
+            std::env::remove_var(crate::HOVER_DELAY_MS_VAR);
+            assert_eq!(
+                hover_row(&description),
+                (
+                    "1500".to_string(),
+                    true,
+                    Some("Overridden by env: FIDGET_HOVER_DELAY_MS".to_string())
+                )
+            );
+        });
     }
 
     /// #447: both knobs are for testing, so they sit on Development rather

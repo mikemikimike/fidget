@@ -298,6 +298,10 @@ fn development_texts(settings: &Settings) -> HashMap<String, String> {
             form::HARNESS_CWD_ID.to_string(),
             model::env_or_file(crate::harness::CWD, &settings.harness_cwd),
         ),
+        (
+            form::HOVER_DELAY_MS_ID.to_string(),
+            limit_in_force::<u64>(crate::HOVER_DELAY_MS_VAR, &settings.hover_delay_ms),
+        ),
     ])
 }
 
@@ -1602,6 +1606,7 @@ pub struct SettingsPatch {
     pub new_session: bool,
     pub chat_ui: Option<String>,
     pub chat_appearance: Option<ChatAppearance>,
+    pub hover_delay_ms: Option<String>,
 }
 
 /// The Character every Instance switches to.
@@ -1711,6 +1716,7 @@ pub enum TextField {
     ExcludedApplications,
     ChatUI,
     ChatAppearance,
+    HoverDelayMs,
 }
 
 impl SettingsPatch {
@@ -1800,6 +1806,7 @@ impl SettingsPatch {
             TextField::ChatAppearance => {
                 self.chat_appearance = Some(ChatAppearance::from_title(value))
             }
+            TextField::HoverDelayMs => self.hover_delay_ms = Some(value.to_string()),
         }
         true
     }
@@ -1941,6 +1948,9 @@ impl Settings {
         }
         if let Some(value) = patch.completer.harness_cwd {
             self.harness_cwd = value;
+        }
+        if let Some(value) = patch.hover_delay_ms {
+            self.hover_delay_ms = value;
         }
         if let Some(value) = patch.trace_frames {
             self.trace_frames = value;
@@ -2114,6 +2124,10 @@ pub struct Settings {
     /// ACP cwd / spawn dir. Empty is the data folder. Session file and Action
     /// Log stay in the data folder (#782).
     pub harness_cwd: String,
+    /// How long the pointer rests on the Character before the quick message
+    /// pill opens, in ms. Empty means unset, and leaves `HOVER_DELAY_MS`.
+    /// Every frame carries it, so a change lands on the next hover.
+    pub hover_delay_ms: String,
     /// Apply writes the project `.mcp.json` when the attached Harness is Pi.
     /// On, including for a file that predates the field.
     #[serde(default = "default_pi_project_mcp")]
@@ -2194,6 +2208,7 @@ impl Default for Settings {
             byo_harness: String::new(),
             mcp_bin: String::new(),
             harness_cwd: String::new(),
+            hover_delay_ms: String::new(),
             pi_project_mcp: true,
             trace_frames: false,
             trace_hittest: false,
@@ -2466,6 +2481,7 @@ mod tests {
             byo_harness: "hermes".into(),
             mcp_bin: "/opt/fidget-mcp".into(),
             harness_cwd: String::new(),
+            hover_delay_ms: String::new(),
             pi_project_mcp: true,
             trace_frames: true,
             trace_hittest: true,
@@ -2882,6 +2898,7 @@ mod tests {
             byo_harness: String::new(),
             mcp_bin: String::new(),
             harness_cwd: String::new(),
+            hover_delay_ms: String::new(),
             pi_project_mcp: true,
             trace_frames: false,
             trace_hittest: false,
@@ -4388,6 +4405,33 @@ mod tests {
         assert_eq!(settings.harness_auth_retry_secs, "5");
         assert_eq!(settings.mcp_bin, "/tmp/fidget-mcp");
         assert_eq!(settings.harness_cwd, "/tmp/project");
+    }
+
+    /// The hover delay row saves through a patch, shows what the variable
+    /// imposes, and reaches the overlay without a relaunch.
+    #[test]
+    fn the_hover_delay_round_trips_and_the_view_shows_the_env() {
+        model::tests::with_env(None, None, None, || {
+            let mut patch = SettingsPatch::default();
+            assert!(patch.set_text(TextField::HoverDelayMs, "800"));
+            let mut settings = Settings::default();
+            apply_with_store(&mut settings, &MemoryStore::new(), patch).unwrap();
+            assert_eq!(settings.hover_delay_ms, "800");
+            assert_eq!(
+                crate::hover_delay_ms(),
+                800,
+                "the overlay's next frame carries it"
+            );
+
+            let view = endpoint_view(&settings);
+            assert_eq!(view.development_texts[form::HOVER_DELAY_MS_ID], "800");
+
+            std::env::set_var(crate::HOVER_DELAY_MS_VAR, "300");
+            let view = endpoint_view(&settings);
+            std::env::remove_var(crate::HOVER_DELAY_MS_VAR);
+            assert_eq!(view.development_texts[form::HOVER_DELAY_MS_ID], "300");
+            dev_flags::seed(&Settings::default());
+        });
     }
 
     /// The row is the AI tab's, and the window fills it from the same
