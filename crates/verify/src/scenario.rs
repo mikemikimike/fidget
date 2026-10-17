@@ -1307,7 +1307,7 @@ mod tests {
             ),
             (
                 "1792238673 hit-test: cursor(2120,1328) scale 1.0 -> point(2120,1328) on overlay 0 miss click-through on  <- flipped",
-                "",
+                "miss",
             ),
             (
                 "1792238674 click: down hits=[true] target=Some(0) cursor=(1720,1328)->(1720,1328) scale=1.0 visible=true sprite=(1657,1264)",
@@ -1347,6 +1347,30 @@ mod tests {
             pill_self_check("FIDGET_SCENARIO_AIM_LOG", path.as_os_str()),
             "aim: (1707,1304)"
         );
+    }
+
+    // Move-Away waits for a hit-test miss only when Fidget last saw the cursor
+    // on the sprite; off it, no line comes until the next periodic trace.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_waits_for_the_miss_only_after_a_hit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("process.log");
+        let hit = "1792238673 hit-test: cursor(1720,1328) scale 1.0 -> point(1720,1328) on overlay 0 HIT  click-through OFF  <- flipped\n";
+        let miss = "1792238674 hit-test: cursor(2120,1328) scale 1.0 -> point(2120,1328) on overlay 0 miss click-through on  <- flipped\n";
+        for (log, want) in [
+            (String::new(), "away: go"),
+            (hit.to_string(), "away: wait"),
+            (format!("{hit}{miss}"), "away: go"),
+            (format!("{miss}{hit}"), "away: wait"),
+        ] {
+            fs::write(&path, &log).unwrap();
+            assert_eq!(
+                pill_self_check("FIDGET_SCENARIO_AWAY_LOG", path.as_os_str()),
+                want,
+                "{log}"
+            );
+        }
     }
 
     /// Whether cleanup may close the window this run opened, from the tabs at
