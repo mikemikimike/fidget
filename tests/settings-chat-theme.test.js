@@ -47,7 +47,7 @@ const THEMES = ["Minimal", "Terminal", "Glass"].flatMap((design) => [
 ]);
 
 // The real Chat page, repainted through the events Chat listens on.
-function chatPaints(themes) {
+function chatPaints(themes, platform = "macos") {
   const opening = {
     name: "Buddy",
     character: "Buddy Bot",
@@ -57,6 +57,7 @@ function chatPaints(themes) {
     model: "",
     host: "",
     chat_ui: "minimal",
+    platform,
     login: null,
     harness_name: "cursor-agent",
     instructions: "",
@@ -94,7 +95,7 @@ function chatPaints(themes) {
 }
 
 // The browser prefers light (Blink's 1), so a Dark pick that paints is the pick.
-function settingsThemes(first, later) {
+function settingsThemes(first, later, platform = "macos") {
   const form = read("settings-snapshot-harnessDriving.json");
   const values = read("settings-values-harnessDriving.json");
   const view = ([chat_ui, chat_appearance]) => ({ ...values, chat_ui, chat_appearance });
@@ -102,7 +103,7 @@ function settingsThemes(first, later) {
 <script>
   ${pageWait()}
   const heard = {};
-  let snapshot = ${JSON.stringify({ form, view: view(first), reveal: null })};
+  let snapshot = ${JSON.stringify({ form, view: view(first), reveal: null, platform })};
   window.__TAURI__ = {
     core: { invoke(name) { return name === "settings_snapshot" ? Promise.resolve(snapshot) : Promise.resolve(); } },
     event: { listen(name, handler) { heard[name] = handler; listeningNow(name); return Promise.resolve(() => {}); } },
@@ -182,4 +183,19 @@ test("Settings paints each Chat UI and mode as the Chat window does", { skip: ch
   });
   // Equal only means something if the themes paint differently.
   assert.equal(new Set(chat.map((one) => JSON.stringify(one))).size, THEMES.length);
+});
+
+test("Settings tints Glass on Linux as the Chat window does", { skip: chromeSkip, timeout: 60000 }, async () => {
+  const glass = THEMES.filter(([design]) => design === "Glass");
+  const chat = await chatPaints(glass, "linux");
+  assert.equal(chat.error, undefined, chat.error);
+  const settings = await settingsThemes(glass[0], glass.slice(1), "linux");
+  assert.equal(settings.error, undefined, settings.error);
+  const seen = [settings.first, ...settings.later].map((page) => page.paint);
+  glass.forEach(([design, appearance], i) => {
+    assert.deepEqual(seen[i], chat[i], `${design}/${appearance} on linux`);
+  });
+  // Equal only means something if Linux paints Glass differently.
+  const mac = await chatPaints(glass);
+  glass.forEach((_, i) => assert.notDeepEqual(chat[i], mac[i]));
 });
