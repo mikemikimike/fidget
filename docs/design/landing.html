@@ -72,14 +72,7 @@
   .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1rem; }
 
   .hero-banner { width: 100%; display: block; height: auto; border-radius: 14px;
-    border: 1px solid var(--line); margin-bottom: 2rem; }
-
-  nav { display: flex; align-items: center; gap: 1.25rem; padding: 1rem 0; }
-  .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700;
-    font-size: 1.15rem; color: var(--ink); text-decoration: none; margin-right: auto; }
-  .brand img { width: 30px; height: 30px; }
-  nav a.link { color: var(--ink-2); text-decoration: none; font-size: .95rem; }
-  nav a.link:hover { color: var(--ink); }
+    border: 1px solid var(--line); margin: 1rem 0 2rem; }
 
   .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 2.5rem;
     align-items: center; padding: 2.5rem 0 3.5rem; }
@@ -185,7 +178,6 @@
 
   @media (max-width: 760px) {
     .hero { grid-template-columns: minmax(0, 1fr); padding-top: 1rem; }
-    nav a.link.opt { display: none; }
     .get { grid-template-columns: 1fr; }
     .cast { grid-template-columns: repeat(4, 1fr); }
     .desk { aspect-ratio: 1 / 1; }
@@ -196,13 +188,8 @@
 </style>
 </head>
 <body>
+{{nav}}
 <div class="wrap">
-  <nav>
-    <a class="brand" href="./"><img src="{{brand}}" alt="">Fidget</a>
-    <a class="link opt" href="#harnesses">Harnesses</a>
-    <a class="link opt" href="#characters">Characters</a>
-    <a class="link" href="https://github.com/omesser/fidget">GitHub</a>
-  </nav>
 
   <picture>
     <source media="(max-width: 760px)" type="image/webp" srcset="hero-banner-mobile.webp" width="960" height="533">

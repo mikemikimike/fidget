@@ -23,6 +23,10 @@ as housekeeping to a visitor — and so does a release file with no tag. The
 macOS Homebrew line is read from the Get It section fenced command, and claims
 nothing when there is none.
 
+Every other page in `<out>` gets the same site header, docs/design/site-nav.html,
+right after its `<body>`, so assemble-site.sh runs this script after the
+steps that publish pages.
+
 The page names frames by the paths make-character-gallery.py publishes under
 `<out>/characters/`, and copies nothing itself, so the gallery's checks are the
 only ones that decide what art reaches the site.
@@ -44,6 +48,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 CHARACTERS = ROOT / "characters"
 SHELL = ROOT / "docs" / "design" / "landing.html"
+NAV = ROOT / "docs" / "design" / "site-nav.html"
 PAGE = "index.html"
 REPO = "https://github.com/omesser/fidget"
 # The README names Buddy Bot as the default Character; the hero is that one.
@@ -454,6 +459,24 @@ def whats_new(release):
             f'<a href="{RELEASES}">All releases →</a></p>')
 
 
+def site_nav(hero):
+    return NAV.read_text(encoding="utf-8").replace("{{brand}}", hero["idle"]["frames"][0])
+
+
+def stamp_nav(out, nav):
+    """Put the site header after the <body> of every page in out but the landing page."""
+    for page in sorted(out.glob("*.html")):
+        if page.name == PAGE:
+            continue
+        text = page.read_text(encoding="utf-8")
+        if 'class="site-nav"' in text:
+            continue
+        stamped, found = re.subn(r"<body[^>]*>", lambda body: body.group(0) + "\n" + nav, text, count=1)
+        if not found:
+            raise Malformed(f"{page.name} has no <body> to put the site header in")
+        page.write_text(stamped, encoding="utf-8")
+
+
 def render(readme_text, characters_root, rust_source, shell, release=None):
     words = read_readme(readme_text)
     _, defaults = gallery.from_rust(rust_source)
@@ -481,7 +504,7 @@ def render(readme_text, characters_root, rust_source, shell, release=None):
         "cast": figures,
         **download_slots(release),
         "whats_new": whats_new(release),
-        "brand": hero["idle"]["frames"][0],
+        "nav": site_nav(hero),
         "hero": sprite(hero["sit"], f'{hero["name"]}, perched on a window',
                        ' id="hero-sprite" aria-describedby="hero-say"'),
         **how_slots(words["how"], shell),
@@ -667,6 +690,25 @@ def self_check():
     assert whats_new({"tagName": "v9", "body": "## What's Changed\n* chore: Tidy up\n"}) == "", \
         "a release with nothing written for a visitor drew a strip"
 
+    with tempfile.TemporaryDirectory() as out:
+        out = pathlib.Path(out)
+        (out / "a.html").write_text('<html><body class="x"><p>a</p></body></html>', encoding="utf-8")
+        (out / PAGE).write_text("<body>landing</body>", encoding="utf-8")
+        stamp_nav(out, '<header class="site-nav">N</header>')
+        stamp_nav(out, '<header class="site-nav">N</header>')
+        assert (out / "a.html").read_text(encoding="utf-8") == \
+            '<html><body class="x">\n<header class="site-nav">N</header><p>a</p></body></html>', \
+            "a page did not get the site header once, right after its <body>"
+        assert (out / PAGE).read_text(encoding="utf-8") == "<body>landing</body>", \
+            "the landing page got a second header"
+        (out / "b.html").write_text("<p>no body</p>", encoding="utf-8")
+        try:
+            stamp_nav(out, "N")
+        except Malformed:
+            pass
+        else:
+            raise AssertionError("a page with no <body> took no header and passed")
+
     print(f"self-check: {len(words['features'])} features, {len(words['harnesses'])} Harnesses, checks passed")
 
 
@@ -693,13 +735,16 @@ def main():
         release = json.loads(arguments.release.read_text(encoding="utf-8"))
     else:
         print(f"no release file, so every download button links {LATEST} and the What's new strip is absent")
+    rust = gallery.RUST.read_text(encoding="utf-8")
     try:
         page = render(arguments.readme.read_text(encoding="utf-8"), CHARACTERS,
-                      gallery.RUST.read_text(encoding="utf-8"), SHELL.read_text(encoding="utf-8"), release)
+                      rust, SHELL.read_text(encoding="utf-8"), release)
+        arguments.out.mkdir(parents=True, exist_ok=True)
+        (arguments.out / PAGE).write_text(page, encoding="utf-8")
+        _, hero = read_cast(CHARACTERS, gallery.from_rust(rust)[1]["fps"])
+        stamp_nav(arguments.out, site_nav(hero))
     except Malformed as broken:
         sys.exit(f"landing page: {broken}")
-    arguments.out.mkdir(parents=True, exist_ok=True)
-    (arguments.out / PAGE).write_text(page, encoding="utf-8")
     print(f"{arguments.out / PAGE}: generated from {arguments.readme.name} and {CHARACTERS.name}/")
 
 

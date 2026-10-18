@@ -333,3 +333,13 @@ test("the How it works section is a two-lane picture from the README", () => {
   assert.match(section, /<pre[^>]*>[\s\S]*Opening wake/);
   assert.match(section, /<dl class="how-sheet">[\s\S]*?<\/dl>/);
 });
+
+test("every published page carries the site header with a link home", () => {
+  const pages = readdirSync(site).filter((name) => name.endsWith(".html"));
+  assert.ok(pages.length > 1, `the site published ${pages.length} page`);
+  for (const name of pages) {
+    const page = published(name);
+    assert.equal(page.match(/<header class="site-nav">/g)?.length, 1, `${name} lacks the one site header`);
+    assert.ok(page.includes('<a class="site-brand" href="./">'), `${name} has no link home`);
+  }
+});
