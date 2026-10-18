@@ -45,7 +45,9 @@
 #   FIDGET_SCENARIO_PILL_LOG=<process.log> prints whether "two" (or the pattern
 #   named by FIDGET_SCENARIO_PILL_TYPED) typed into the pill landed or the pill
 #   went first, judged from FIDGET_SCENARIO_PILL_OPENED_AT (0-based); FIDGET_SCENARIO_READ_DOC=<file> prints
-#   the file as Notepad's is read, or busy;
+#   the file as Notepad's is read, or busy; FIDGET_SCENARIO_TYPE_BEFORE,
+#   FIDGET_SCENARIO_TYPE_WORD and FIDGET_SCENARIO_TYPE_EXPECTED print the file
+#   after each character typed into Notepad, split by |;
 #   FIDGET_SCENARIO_UNEXPECTED=<results.txt> throws, to check the FAIL line;
 #   FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
