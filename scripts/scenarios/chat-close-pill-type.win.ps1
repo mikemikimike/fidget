@@ -271,7 +271,9 @@ if ($env:FIDGET_SCENARIO_PROFILE_LOCK) {
 # Cleanup leaving Notepad's window open is a note, not a failure: the note goes
 # to results.txt and the console, and the caller gets "" back.
 function Leave-WindowOpen([string]$Why) {
-    "note: cleanup left the Notepad window open: $Why" | Tee-Object -FilePath $results -Append | Write-Output
+    $line = "note: cleanup left the Notepad window open: $Why"
+    $line | Add-Content -LiteralPath $results
+    Write-Host $line
     ""
 }
 if ($env:FIDGET_SCENARIO_LEAVE_NOTE) {
