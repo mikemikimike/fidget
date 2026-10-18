@@ -1184,7 +1184,7 @@ mod tests {
     #[test]
     fn chat_close_pill_type_win_closes_only_its_own_notepad_tab() {
         let closes_window =
-            "plan: close our tab, then the window this run opened if only an empty Untitled tab is left";
+            "plan: close our tab, then the window this run opened if no tab is left";
         let tab_only = "plan: close our tab only";
         for (tabs, before, want) in [
             ("ours.txt", false, closes_window),
@@ -1627,15 +1627,17 @@ mod tests {
     }
 
     // Win11 Notepad is one process for every window, so a run that started it
-    // closes only its own window, and only when nothing but an empty Untitled
-    // tab Notepad made itself is left. A tab restored at launch is Oded's: the
-    // #1590 live run closed a window holding his modified doc.txt.
+    // closes only its own window, and only when no tab is left in it: any tab,
+    // even an Untitled one, may hold the user's unsaved text (the #1590 live
+    // run closed a window holding Oded's restored, modified doc.txt).
     #[cfg(windows)]
     #[test]
-    fn chat_close_pill_type_win_closes_its_window_only_with_nothing_of_the_users_left() {
+    fn chat_close_pill_type_win_closes_its_window_only_with_no_tab_left() {
         assert_eq!(window_verdict("ours.txt", "none"), "window: close");
-        assert_eq!(window_verdict("ours.txt", "Untitled"), "window: close");
         for (at_launch, left, want) in [
+            // One tab with a blank name ("blank": an empty env var reads as unset).
+            ("ours.txt", "blank", "\"\" is still open"),
+            ("ours.txt", "Untitled", "\"Untitled\" is still open"),
             (
                 "doc.txt|ours.txt",
                 "doc.txt",
@@ -1651,16 +1653,8 @@ mod tests {
                 "notes.txt|Untitled|Untitled",
                 "\"notes.txt\" was open at launch",
             ),
-            (
-                "ours.txt",
-                "todo.txt",
-                "\"todo.txt\" is not an empty Untitled tab",
-            ),
-            (
-                "ours.txt",
-                "Untitled*",
-                "\"Untitled*\" is not an empty Untitled tab",
-            ),
+            ("ours.txt", "todo.txt", "\"todo.txt\" is still open"),
+            ("ours.txt", "Untitled*", "\"Untitled*\" is still open"),
         ] {
             assert_eq!(
                 window_verdict(at_launch, left),
@@ -1668,6 +1662,41 @@ mod tests {
                 "{at_launch} -> {left}"
             );
         }
+    }
+
+    // A failed UI Automation read of a window that is still there throws, so
+    // cleanup leaves it open; a window already gone has no tabs.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_a_failed_tab_read_never_reads_as_no_tabs() {
+        for (mode, want) in [
+            ("doc.txt|Untitled", "tabs: doc.txt|Untitled"),
+            ("error-gone", "tabs: none"),
+            (
+                "error-open",
+                "tabs: throws: Notepad's tabs could not be read: ",
+            ),
+        ] {
+            let got = pill_self_check("FIDGET_SCENARIO_TAB_READ", mode.as_ref());
+            assert!(got.starts_with(want), "{mode}: {got}");
+        }
+    }
+
+    // Leaving Notepad's window open is a note in results.txt, not a cleanup
+    // failure: the 08:43 live run printed "FAIL: cleanup: note: cleanup left the
+    // Notepad window open" after PASS, because the note leaked into the return.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_leaving_the_window_is_not_a_cleanup_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let results = dir.path().join("results.txt");
+        let out = pill_self_check("FIDGET_SCENARIO_LEAVE_NOTE", results.as_os_str());
+        assert_eq!(out.lines().last(), Some("why: none"), "{out}");
+        let text = fs::read_to_string(&results).unwrap_or_default();
+        assert!(
+            text.contains("note: cleanup left the Notepad window open: test"),
+            "{text}"
+        );
     }
 
     // Before launch the leaf reads WebView2's EBWebView\lockfile: missing and

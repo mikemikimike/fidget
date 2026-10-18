@@ -4,7 +4,7 @@
 #   already open or a window of its own, and Fidget as a standing BMO with the
 #   fixture Harness. Cleanup closes only that tab, so it never comes back in
 #   Notepad's restored session. If this run started Notepad, it also closes
-#   that one window, and only when nothing but an empty Untitled tab is left.
+#   that one window, and only when no tab is left in it.
 # Input: SendInput cursor moves, clicks, typed words, Escape, Enter, Ctrl+Home,
 #   Ctrl+S. Case 5 opens and closes a small window of the script's own.
 #   Each press is held until Fidget traces it down. A pill word is one SendInput;
@@ -36,7 +36,8 @@
 # Self-checks that launch nothing: FIDGET_SCENARIO_NOTEPAD_TABS (names split by
 #   |), FIDGET_SCENARIO_DOC and FIDGET_SCENARIO_NOTEPAD_BEFORE=1|0 print the
 #   Notepad cleanup plan, and adding FIDGET_SCENARIO_NOTEPAD_LEFT (the tabs left
-#   once ours closes, or none) prints whether the window may close;
+#   once ours closes, none, or blank for one blank name) prints whether the
+#   window may close;
 #   FIDGET_SCENARIO_READY_LOG=<process.log> prints whether the overlay was
 #   listening; FIDGET_SCENARIO_AIM_LOG=<process.log> prints the sprite's middle;
 #   FIDGET_SCENARIO_TRACE_LINE=<line> prints which waited-on trace patterns it
@@ -48,6 +49,10 @@
 #   the file as Notepad's is read, or busy; FIDGET_SCENARIO_TYPE_BEFORE,
 #   FIDGET_SCENARIO_TYPE_WORD and FIDGET_SCENARIO_TYPE_EXPECTED print the file
 #   after each character typed into Notepad, split by |;
+#   FIDGET_SCENARIO_TAB_READ=<names split by |, error-open or error-gone>
+#   prints the tab names cleanup reads, or that the read throws;
+#   FIDGET_SCENARIO_LEAVE_NOTE=<results.txt> prints what cleanup gets back
+#   after leaving the window open (none);
 #   FIDGET_SCENARIO_UNEXPECTED=<results.txt> throws, to check the FAIL line;
 #   FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
@@ -187,19 +192,18 @@ function Get-NotepadPlan([string[]]$Tabs, [string]$Ours, [bool]$WasRunning) {
     if ($mine -eq 0) { return "fail: no Notepad tab shows $Ours" }
     if ($mine -gt 1) { return "fail: Notepad already shows $Ours in $mine tabs" }
     if ($WasRunning) { return "close our tab only" }
-    "close our tab, then the window this run opened if only an empty Untitled tab is left"
+    "close our tab, then the window this run opened if no tab is left"
 }
 # After our tab is closed, whether the window this run opened may close too:
-# only with no tab left but an empty "Untitled" one Notepad made itself. A tab
-# open at launch is the user's, restored by Notepad (the #1590 live run's
-# modified doc.txt), and so is any other name; either leaves the window open.
+# only with no tab left. Any tab, Untitled too, may hold the user's unsaved
+# text; one open at launch is the user's, restored by Notepad (the #1590 live
+# run's modified doc.txt).
 function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) {
+    if ($null -eq $Left -or $Left.Count -eq 0) { return "close" }
+    $name = $Left[0]
     $theirs = @($AtLaunch | Where-Object { -not $_.Contains($Ours) })
-    foreach ($name in $Left) {
-        if ($theirs -ccontains $name) { return "leave: `"$name`" was open at launch" }
-        if ($name -cne "Untitled") { return "leave: `"$name`" is not an empty Untitled tab" }
-    }
-    "close"
+    if ($theirs -ccontains $name) { return "leave: `"$name`" was open at launch" }
+    "leave: `"$name`" is still open"
 }
 # WebView2's lock on a profile: the browser holds <profile>\EBWebView\lockfile
 # open for writing, sharing only reads, and the file goes when it closes
@@ -266,8 +270,51 @@ if ($env:FIDGET_SCENARIO_PROFILE_LOCK) {
     Write-Output "lock: $($verdict.State)$(if ($verdict.Pids.Count) { " pid $($verdict.Pids -join ',')" })"
     exit 0
 }
+# The tab names in one Notepad window, read through UI Automation. A window
+# already gone has none; a failed read while it is still there throws, so it
+# never reads as no tabs. $Read and $Exists stand in for UI Automation and
+# IsWindow in the self-check.
+function Get-TabNames([IntPtr]$H, [scriptblock]$Read = $null, [scriptblock]$Exists = $null) {
+    if (-not $Read) { $Read = { param($W) [string[]]@($UiaEl::FromHandle($W).FindAll([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::TabItem))) | ForEach-Object { $_.Current.Name }) } }
+    if (-not $Exists) { $Exists = { param($W) [PillWin]::IsWindow($W) } }
+    try {
+        [string[]]@(& $Read $H)
+    } catch [System.Windows.Automation.ElementNotAvailableException] {
+        if (& $Exists $H) { throw "Notepad's tabs could not be read: $($_.Exception.Message)" }
+        [string[]]@()
+    }
+}
+if ($env:FIDGET_SCENARIO_TAB_READ) {
+    # ElementNotAvailableException lives in UIAutomationTypes.
+    Add-Type -AssemblyName UIAutomationTypes
+    $mode = $env:FIDGET_SCENARIO_TAB_READ
+    $read = if ($mode.StartsWith("error")) { { throw [System.Windows.Automation.ElementNotAvailableException]::new() } } else { { [string[]]($mode -split '\|') } }
+    try {
+        $names = Get-TabNames ([IntPtr]::Zero) $read { $mode -ne "error-gone" }
+        Write-Output "tabs: $(if ($names) { $names -join '|' } else { 'none' })"
+    } catch { Write-Output "tabs: throws: $_" }
+    exit 0
+}
+# Cleanup leaving Notepad's window open is a note, not a failure: the note goes
+# to results.txt and the console, and the caller gets "" back.
+function Leave-WindowOpen([string]$Why) {
+    $line = "note: cleanup left the Notepad window open: $Why"
+    $line | Add-Content -LiteralPath $results
+    Write-Host $line
+    ""
+}
+if ($env:FIDGET_SCENARIO_LEAVE_NOTE) {
+    $results = $env:FIDGET_SCENARIO_LEAVE_NOTE
+    $why = Leave-WindowOpen "test"
+    Write-Output "why: $(if ($why) { "[$(@($why) -join '|')]" } else { 'none' })"
+    exit 0
+}
 if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
-    $left = if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT -eq "none") { [string[]]@() } else { [string[]]($env:FIDGET_SCENARIO_NOTEPAD_LEFT -split '\|') }
+    $left = switch ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
+        "none" { [string[]]@() }
+        "blank" { [string[]]@("") }
+        default { [string[]]($env:FIDGET_SCENARIO_NOTEPAD_LEFT -split '\|') }
+    }
     Write-Output "window: $(Get-WindowVerdict ($env:FIDGET_SCENARIO_NOTEPAD_TABS -split '\|') $left $env:FIDGET_SCENARIO_DOC)"
     exit 0
 }
@@ -698,13 +745,6 @@ function Find-OurTab {
     }
     $null
 }
-# The tab names in one Notepad window, read through UI Automation. A window
-# already gone has none.
-function Get-TabNames([IntPtr]$H) {
-    try {
-        [string[]]@($UiaEl::FromHandle($H).FindAll([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::TabItem))) | ForEach-Object { $_.Current.Name })
-    } catch [System.Windows.Automation.ElementNotAvailableException] { [string[]]@() }
-}
 # Closes our tab by its own close button, so Notepad's session forgets it; a
 # prompt about our unsaved scratch text gets Don't save. Returns "" or what failed.
 function Close-OurNotepad {
@@ -726,12 +766,9 @@ function Close-OurNotepad {
     # only our own window may go, and only with nothing of the user's left in it
     # (a restored session's tabs are the user's). Closed, never killed.
     if (-not [PillWin]::IsWindow($script:hwnd)) { return "" }
-    $left = Get-TabNames $script:hwnd
+    try { $left = Get-TabNames $script:hwnd } catch { return (Leave-WindowOpen "$_") }
     $verdict = Get-WindowVerdict $script:launchTabs $left $docName
-    if ($verdict.StartsWith("leave")) {
-        "note: cleanup left the Notepad window open: $($verdict.Substring(7))" | Tee-Object -FilePath $results -Append | Write-Output
-        return ""
-    }
+    if ($verdict.StartsWith("leave")) { return (Leave-WindowOpen $verdict.Substring(7)) }
     $null = [PillWin]::PostMessage($script:hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
     if (-not (Wait-Ui 3 { -not [PillWin]::IsWindow($script:hwnd) })) { return "the Notepad window this run opened did not close in 3 s" }
     ""
@@ -825,7 +862,7 @@ try {
     $plan = Get-NotepadPlan $ourTab.Names $docName $notepadWasRunning
     if ($plan.StartsWith("fail: ")) { Fail $plan.Substring(6) }
     # The tabs at launch, read through UI Automation, decide whether cleanup may close the window.
-    $script:launchTabs = Get-TabNames $script:hwnd
+    try { $script:launchTabs = Get-TabNames $script:hwnd } catch { Fail "at launch: $_" }
     "notepad: launch tabs `"$($script:launchTabs -join '", "')`"" | Add-Content -LiteralPath $focusLog
     "notepad: process $($script:notepad.Id), tabs $($ourTab.Names.Count), was running $notepadWasRunning; cleanup will $plan" | Add-Content -LiteralPath $focusLog
     if ([PillWin]::IsIconic($script:hwnd)) { Fail "the Notepad window holding $docName is minimized; the run leaves it that way" }

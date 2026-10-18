@@ -116,7 +116,7 @@ leaves.
 `chat-close-pill-type` has a `.win.ps1` leaf. It types into a uniquely named
 file in Notepad, leaves other Notepad tabs and windows alone, and on cleanup
 closes only its own tab. If it started Notepad, it also closes that one window,
-and only when nothing but an empty Untitled tab is left. It skips while
+and only when no tab is left in it. It skips while
 Fidget is running. A fullscreen app keeps running: the leaf logs it to
 `focus.log` and never focuses or moves it. Each run writes a new
 `chat-close-pill-type-<time>-<hex>` folder under the evidence dir it is given,
@@ -185,8 +185,7 @@ macOS and X11 leaves share `poke-mid-climb-check.py`. Windows has the same
 check in PowerShell, with the same messages, so the one broken-fixture table
 in `crates/verify` covers all three.
 
-`chat-close-pill-type` has an `.x11.sh` leaf and no Windows leaf yet; that
-comes with the Windows hand-back of the pill's keyboard. The X11 leaf starts
+`chat-close-pill-type` also has an `.x11.sh` leaf. It starts
 its own Xvfb display with xfwm4 and mousepad, so it leaves your display alone,
 and skips when one of those, `xdotool`, `xprop` or `inotifywait` is missing.
 It reads the editor's text by saving with Ctrl+S and waiting for the rename
