@@ -232,14 +232,18 @@ test("the Homebrew copy button copies the command and says Copied", { skip }, as
 // Where the Homebrew line's pieces land, read back from layout.
 const BREW_LAYOUT = `(() => {
   const note = document.querySelector('[data-os-note="macos"]');
-  const code = note.querySelector("code");
   const label = document.createRange();
   label.selectNodeContents(note.firstChild);
+  // The code is a flex item, so its own client rects are one box even when
+  // its text wraps; the rects of a Range over its text are the line boxes.
+  const text = document.createRange();
+  text.selectNodeContents(note.querySelector("code"));
   const box = (rect) => ({ top: rect.top, bottom: rect.bottom, right: rect.right });
   return {
     width: document.documentElement.clientWidth,
     label: box(label.getBoundingClientRect()),
-    code: [...code.getClientRects()].map(box),
+    lines: new Set([...text.getClientRects()].map((rect) => Math.round(rect.top))).size,
+    code: box(text.getBoundingClientRect()),
     copy: box(note.querySelector(".copy").getBoundingClientRect()),
   };
 })()`;
@@ -254,8 +258,8 @@ test("the Homebrew command stays whole, beside its Copy button, and on screen", 
         { width, height: 900, deviceScaleFactor: 1, mobile: false }, sessionId);
       const at = (await cdp.send("Runtime.evaluate", { expression: BREW_LAYOUT, returnByValue: true },
         sessionId)).result.value;
-      assert.equal(at.code.length, 1, `at ${width}px the command broke across ${at.code.length} lines`);
-      const [code] = at.code;
+      assert.equal(at.lines, 1, `at ${width}px the command broke across ${at.lines} lines`);
+      const { code } = at;
       assert.ok(sameLine(code, at.copy), `at ${width}px Copy left the command's line`);
       assert.ok(at.copy.right <= at.width, `at ${width}px Copy ran off-screen: ${JSON.stringify(at)}`);
       if (labelBeside) assert.ok(sameLine(at.label, code), `at ${width}px the label sat on its own line`);
