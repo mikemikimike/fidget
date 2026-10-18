@@ -2423,8 +2423,6 @@ fn build_overlay(
 /// Build one Instance's Chat surface. No overlay flags: click-through would
 /// swallow the caret click; always-on-top would follow the user out of the app.
 /// Stays under the overlay as a Perch; typing reaches it via key focus.
-/// Transparent so the Glass design's translucent panel shows the desktop. An
-/// opaque window paints black under it. The other designs paint an opaque panel.
 fn build_chat(
     app: &tauri::AppHandle,
     label: &str,
@@ -2436,6 +2434,7 @@ fn build_chat(
         .title(title)
         .inner_size(CHAT_SIZE.0, CHAT_SIZE.1)
         .min_inner_size(320.0, 320.0)
+        // An opaque window paints black under the Glass panel.
         .transparent(true)
         .focused(true);
     if let Some((x, y)) = at {

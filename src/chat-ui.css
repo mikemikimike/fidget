@@ -465,8 +465,8 @@
 
 /* Pane of glass. Port of .v-glass from docs/design/chat-mockups.html: a tinted
    panel with thin light borders over a transparent window. The mockup's
-   backdrop-filter is left out: in a webview it can blur only the page, never
-   the desktop, and here it painted the panel tint a second time. */
+   backdrop-filter is left out: in a webview it blurs only the page under the
+   body, never the desktop, so all it adds is a second coat of tint. */
 .chat-ui-glass {
   --chat-panel: rgba(14,17,24,.62);
   --chat-ink: #F1F4F9;

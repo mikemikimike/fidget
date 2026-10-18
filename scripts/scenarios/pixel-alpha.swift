@@ -5,6 +5,10 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
+guard CommandLine.arguments.count == 2 else {
+  FileHandle.standardError.write("usage: pixel-alpha <png>\n".data(using: .utf8)!)
+  exit(2)
+}
 let url = URL(fileURLWithPath: CommandLine.arguments[1]) as CFURL
 guard let source = CGImageSourceCreateWithURL(url, nil),
   let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
