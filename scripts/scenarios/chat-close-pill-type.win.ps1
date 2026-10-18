@@ -36,7 +36,8 @@
 # Self-checks that launch nothing: FIDGET_SCENARIO_NOTEPAD_TABS (names split by
 #   |), FIDGET_SCENARIO_DOC and FIDGET_SCENARIO_NOTEPAD_BEFORE=1|0 print the
 #   Notepad cleanup plan, and adding FIDGET_SCENARIO_NOTEPAD_LEFT (the tabs left
-#   once ours closes, none, or blank for one blank name) prints whether the window may close;
+#   once ours closes, none, or blank for one blank name) prints whether the
+#   window may close;
 #   FIDGET_SCENARIO_READY_LOG=<process.log> prints whether the overlay was
 #   listening; FIDGET_SCENARIO_AIM_LOG=<process.log> prints the sprite's middle;
 #   FIDGET_SCENARIO_TRACE_LINE=<line> prints which waited-on trace patterns it
@@ -194,7 +195,7 @@ function Get-NotepadPlan([string[]]$Tabs, [string]$Ours, [bool]$WasRunning) {
 # text; one open at launch is the user's, restored by Notepad (the #1590 live
 # run's modified doc.txt).
 function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) {
-    if (-not $Left -or $Left.Count -eq 0) { return "close" }
+    if ($null -eq $Left -or $Left.Count -eq 0) { return "close" }
     $name = $Left[0]
     $theirs = @($AtLaunch | Where-Object { -not $_.Contains($Ours) })
     if ($theirs -ccontains $name) { return "leave: `"$name`" was open at launch" }
@@ -702,11 +703,15 @@ function Find-OurTab {
     $null
 }
 # The tab names in one Notepad window, read through UI Automation. A window
-# already gone has none.
+# already gone has none; a failed read while it is still there throws, so it
+# never reads as no tabs.
 function Get-TabNames([IntPtr]$H) {
     try {
         [string[]]@($UiaEl::FromHandle($H).FindAll([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::TabItem))) | ForEach-Object { $_.Current.Name })
-    } catch [System.Windows.Automation.ElementNotAvailableException] { [string[]]@() }
+    } catch [System.Windows.Automation.ElementNotAvailableException] {
+        if ([PillWin]::IsWindow($H)) { throw "Notepad's tabs could not be read: $($_.Exception.Message)" }
+        [string[]]@()
+    }
 }
 # Closes our tab by its own close button, so Notepad's session forgets it; a
 # prompt about our unsaved scratch text gets Don't save. Returns "" or what failed.
@@ -729,7 +734,10 @@ function Close-OurNotepad {
     # only our own window may go, and only with nothing of the user's left in it
     # (a restored session's tabs are the user's). Closed, never killed.
     if (-not [PillWin]::IsWindow($script:hwnd)) { return "" }
-    $left = Get-TabNames $script:hwnd
+    try { $left = Get-TabNames $script:hwnd } catch {
+        "note: cleanup left the Notepad window open: $_" | Tee-Object -FilePath $results -Append | Write-Output
+        return ""
+    }
     $verdict = Get-WindowVerdict $script:launchTabs $left $docName
     if ($verdict.StartsWith("leave")) {
         "note: cleanup left the Notepad window open: $($verdict.Substring(7))" | Tee-Object -FilePath $results -Append | Write-Output
