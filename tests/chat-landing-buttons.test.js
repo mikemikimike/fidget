@@ -6,15 +6,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
-const skip = chrome ? false : "headless Chromium is not installed";
 
 const BRANDED = ["claude", "codex", "copilot", "cursor-agent", "goose", "grok", "hermes", "opencode", "pi", "antigravity"];
 
@@ -156,12 +153,12 @@ function drive() {
 </script>`;
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: ["--window-size=420,900"] });
 }
 
-test("every branded button stays after a failed first pick", { skip, timeout: 60000 }, async () => {
+test("every branded button stays after a failed first pick", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
 
@@ -185,14 +182,14 @@ test("every branded button stays after a failed first pick", { skip, timeout: 60
   }
 });
 
-test("a failed pick followed by another failed pick keeps all the buttons", { skip, timeout: 60000 }, async () => {
+test("a failed pick followed by another failed pick keeps all the buttons", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual([seen.firstOfTwo.title, seen.firstOfTwo.buttons], ["Claude Code couldn't start", BRANDED]);
   assert.deepEqual([seen.secondOfTwo.title, seen.secondOfTwo.buttons], ["Claude Code needs npx", BRANDED]);
 });
 
-test("the sign-in landing draws its sign-in buttons beside all the branded buttons", { skip, timeout: 60000 }, async () => {
+test("the sign-in landing draws its sign-in buttons beside all the branded buttons", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(
@@ -201,7 +198,7 @@ test("the sign-in landing draws its sign-in buttons beside all the branded butto
   );
 });
 
-test("a sign-in in flight disables the branded buttons and Retry, and a press does nothing", { skip, timeout: 60000 }, async () => {
+test("a sign-in in flight disables the branded buttons and Retry, and a press does nothing", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.equal(seen.signingIn.disabled, 11, "ten branded buttons and Retry");
@@ -209,7 +206,7 @@ test("a sign-in in flight disables the branded buttons and Retry, and a press do
   assert.equal(seen.signedIn.disabled, 0, "they come back when the sign-in ends");
 });
 
-test("a model API that connects clears the buttons, and a switched-off one does too", { skip, timeout: 60000 }, async () => {
+test("a model API that connects clears the buttons, and a switched-off one does too", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(
@@ -222,7 +219,7 @@ test("a model API that connects clears the buttons, and a switched-off one does 
   );
 });
 
-test("a button on the failed landing picks that Harness, and the buttons go once one answers", { skip, timeout: 60000 }, async () => {
+test("a button on the failed landing picks that Harness, and the buttons go once one answers", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive();
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(seen.pickedAgain, [["select_harness", "codex"]]);

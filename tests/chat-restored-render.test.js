@@ -6,18 +6,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-const chrome = findChrome();
-
 // The renderer job in CI has Chromium, so a missing browser there is a broken
 // gate, not a reason to skip: the test runs, and fails on the missing binary.
-const CHROME_OR_CI = chrome || process.env.CI ? false : "headless Chromium is not installed";
+const CHROME_OR_CI = process.env.CI ? false : chromeSkip;
 
 const OPENING = {
   name: "Buddy Bot",
@@ -96,7 +94,7 @@ ${steps}
 
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: ["--window-size=420,560"] });
 }
@@ -122,7 +120,7 @@ const DRAWN = [
 
 test(
   "a loaded session's whole replay sits above the waiting line, and the answer still lands on it",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
+  { skip: chromeSkip, timeout: 60000 },
   async () => {
     const report = await drive(`
     document.getElementById("line").value = "are you back?";
@@ -162,7 +160,7 @@ test(
 
 test(
   "a replayed thought opens on a click, like a landed live one",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
+  { skip: chromeSkip, timeout: 60000 },
   async () => {
     const report = await drive(`
     emit("chat-restored", ${JSON.stringify(HISTORY)});
@@ -182,7 +180,7 @@ test(
 // log, so the Shell sends the history live and again on the replay.
 test(
   "a window that hears the history twice draws it once",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
+  { skip: chromeSkip, timeout: 60000 },
   async () => {
     const report = await drive(`
     emit("chat-restored", ${JSON.stringify(HISTORY)});

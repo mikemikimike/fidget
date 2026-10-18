@@ -4,15 +4,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageClock } from "./page-clock.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
 
 // Nothing configured, so nothing can answer and nothing is starting.
 const opening = { configured: false, enabled: true, harness: null, login: "" };
@@ -100,14 +98,12 @@ function press() {
 
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html);
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
-test("a click on Open chat opens Chat, closes the pill, and is no Poke", { skip, timeout: 60000 }, async () => {
+test("a click on Open chat opens Chat, closes the pill, and is no Poke", { skip: chromeSkip, timeout: 60000 }, async () => {
   const report = await press();
   assert.equal(report.hint, "No AI connected yet.");
   assert.equal(report.control, "Open chat");

@@ -4,14 +4,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
 
 const frame = {
   sprites: [
@@ -118,16 +116,15 @@ function run() {
 
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html);
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
 let report = null;
 const probe = () => (report ??= run());
 
-test("a late listener's first placement is drawn", { skip, timeout: 60000 }, async () => {
+test("a late listener's first placement is drawn", { skip: chromeSkip, timeout: 60000 }, async () => {
   const { asks, drawn } = await probe();
   assert.equal(asks.first, 1);
   assert.deepEqual(drawn, {
@@ -138,7 +135,7 @@ test("a late listener's first placement is drawn", { skip, timeout: 60000 }, asy
   });
 });
 
-test("an unchanged resend asks for no frame, and a change still does", { skip, timeout: 60000 }, async () => {
+test("an unchanged resend asks for no frame, and a change still does", { skip: chromeSkip, timeout: 60000 }, async () => {
   const { asks, frameIndex } = await probe();
   assert.equal(asks.resend, 0, "the resend requested a display frame");
   assert.equal(asks.changed, 1);

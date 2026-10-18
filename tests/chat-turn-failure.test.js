@@ -5,9 +5,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
@@ -16,8 +16,6 @@ const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const BALANCE_EXHAUSTED =
   "Internal error: API error (status 402 Payment Required): Grok Build usage balance exhausted";
 const TIMEOUT = "harness turn exceeded 60s; cancelled";
-
-const chrome = findChrome();
 
 function turnFailurePage(payloads) {
   const opening = {
@@ -91,7 +89,7 @@ function turnFailurePage(payloads) {
 </script>`;
   return readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
 }
 
@@ -99,9 +97,7 @@ function paint(payloads, width) {
   return probePage(turnFailurePage(payloads), { args: [`--window-size=${width},560`] });
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
-test("a turn the Harness failed shows its words in a Harness error box", { skip, timeout: 90000 }, async () => {
+test("a turn the Harness failed shows its words in a Harness error box", { skip: chromeSkip, timeout: 90000 }, async () => {
   // The narrowest Chat, where a long unbroken error would push it sideways.
   const report = await paint([{ error: BALANCE_EXHAUSTED, failure: BALANCE_EXHAUSTED }], 320);
   assert.equal(report.kicker, "Harness error");
@@ -114,7 +110,7 @@ test("a turn the Harness failed shows its words in a Harness error box", { skip,
   assert.equal(report.sideways, 0, "the box pushed Chat sideways");
 });
 
-test("an error the Shell names stays a note", { skip, timeout: 90000 }, async () => {
+test("an error the Shell names stays a note", { skip: chromeSkip, timeout: 90000 }, async () => {
   const report = await paint([{ error: TIMEOUT }], 420);
   assert.deepEqual(report.notes, [TIMEOUT]);
   assert.equal(report.kicker, null);

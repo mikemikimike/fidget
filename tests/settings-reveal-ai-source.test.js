@@ -6,17 +6,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const FIXTURES = new URL("./fixtures/", import.meta.url);
 const read = (name) => JSON.parse(readFileSync(new URL(name, FIXTURES), "utf8"));
-
-const chrome = findChrome();
-const skip = chrome ? false : "headless Chromium is not installed";
 
 // What `Reveal::AiSource.target()` serializes to. form.rs pins the same pair.
 const AI_SOURCE = { tab: "AI", row: "harness", focus: "control" };
@@ -25,7 +22,7 @@ const PRIVACY_ROW = { tab: "Privacy", row: "consent_accessibility", focus: "row"
 function render(pageName, stub, { size = "760,640" } = {}) {
   const html = readFileSync(join(SRC, pageName), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: [`--window-size=${size}`] });
 }
@@ -86,20 +83,20 @@ export function settingsWith({ first, later = null, size = "760,640", freeze = n
 
 const without = ({ inView, checked, ...rest }) => rest;
 
-test("Settings opened on the AI source aim shows the AI tab with the picker focused", { skip, timeout: 60000 }, async () => {
+test("Settings opened on the AI source aim shows the AI tab with the picker focused", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await settingsWith({ first: AI_SOURCE });
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual(without(seen.first), { tab: "AI", focus: "harness", tag: "SELECT", ring: true });
 });
 
-test("an open Settings page on another tab moves to the AI source picker", { skip, timeout: 60000 }, async () => {
+test("an open Settings page on another tab moves to the AI source picker", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await settingsWith({ first: null, later: AI_SOURCE });
   assert.equal(seen.error, undefined, seen.error);
   assert.equal(seen.first.tab, "Presence");
   assert.deepEqual(without(seen.later), { tab: "AI", focus: "harness", tag: "SELECT", ring: true });
 });
 
-test("the Chat landing button opens Settings on the AI source, not plain Settings", { skip, timeout: 60000 }, async () => {
+test("the Chat landing button opens Settings on the AI source, not plain Settings", { skip: chromeSkip, timeout: 60000 }, async () => {
   const opening = {
     name: "Buddy Bot", character: "Buddy Bot", configured: false, enabled: true, harness: null,
     model: "", host: "", chat_ui: "minimal", login: null, harness_name: null,
@@ -136,7 +133,7 @@ test("the Chat landing button opens Settings on the AI source, not plain Setting
   assert.deepEqual(seen.calls, ["show_ai_source"]);
 });
 
-test("the Privacy row keeps the row focused and its consent box unchecked", { skip, timeout: 60000 }, async () => {
+test("the Privacy row keeps the row focused and its consent box unchecked", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await settingsWith({ first: PRIVACY_ROW, values: { consent_accessibility: false } });
   assert.equal(seen.error, undefined, seen.error);
   assert.equal(seen.first.tab, "Privacy");
@@ -144,13 +141,13 @@ test("the Privacy row keeps the row focused and its consent box unchecked", { sk
   assert.deepEqual(seen.first.checked, [false], "the aim grants nothing");
 });
 
-test("a frozen picker leaves the focus on its row", { skip, timeout: 60000 }, async () => {
+test("a frozen picker leaves the focus on its row", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await settingsWith({ first: AI_SOURCE, freeze: "harness" });
   assert.equal(seen.error, undefined, seen.error);
   assert.deepEqual([seen.first.tab, seen.first.tag, seen.first.focus], ["AI", "DIV", "harness"]);
 });
 
-test("the focused picker is inside a short window", { skip, timeout: 60000 }, async () => {
+test("the focused picker is inside a short window", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await settingsWith({ first: AI_SOURCE, size: "760,360" });
   assert.equal(seen.error, undefined, seen.error);
   assert.equal(seen.first.tag, "SELECT");

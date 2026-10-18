@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
@@ -14,8 +14,6 @@ const REPLY =
   "Run `cargo test -p fidget-core` in the repo root.\n\n```bash\ncargo test -p fidget-core -- --test-threads=1\n```";
 const FENCE = "cargo test -p fidget-core -- --test-threads=1";
 const INLINE = "cargo test -p fidget-core";
-
-const chrome = findChrome();
 
 function channel(color) {
   const text = String(color);
@@ -157,14 +155,14 @@ function paint(theme) {
 
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: ["--force-dark-mode"] });
 }
 
 test(
   "a harness reply's inline and fenced code read apart from the panel",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 90000 },
+  { skip: chromeSkip, timeout: 90000 },
   async () => {
     for (const theme of ["minimal", "terminal"]) {
       const report = await paint(theme);

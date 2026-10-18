@@ -5,9 +5,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
@@ -20,8 +20,6 @@ const FAILED = {
   output: "running 1 test\ndyld[0]: Library not loaded: /opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib",
   node_check: null,
 };
-
-const chrome = findChrome();
 
 function opening(harness) {
   return {
@@ -130,15 +128,13 @@ function paint(open, width = 420) {
 
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: [`--window-size=${width},560`] });
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
 for (const width of [420, 360, 320]) {
-  test(`a launcher that failed to start boxes what it ran and printed at ${width}`, { skip, timeout: 60000 }, async () => {
+  test(`a launcher that failed to start boxes what it ran and printed at ${width}`, { skip: chromeSkip, timeout: 60000 }, async () => {
     const report = await paint(opening({ failed: FAILED }), width);
     assert.equal(report.kicker, "Harness error");
     assert.equal(report.title, "Codex couldn't start");
@@ -154,7 +150,7 @@ for (const width of [420, 360, 320]) {
   });
 }
 
-test("a Harness named by its launcher path keeps the path out of the title (#1186)", { skip, timeout: 60000 }, async () => {
+test("a Harness named by its launcher path keeps the path out of the title (#1186)", { skip: chromeSkip, timeout: 60000 }, async () => {
   const named = opening({ name: LAUNCHER, failed: FAILED });
   named.harness_name = LAUNCHER;
   const report = await paint(named, 320);
@@ -164,7 +160,7 @@ test("a Harness named by its launcher path keeps the path out of the title (#118
   assert.equal(report.sideways, 0, "the title pushed the landing sideways");
 });
 
-test("an npx launcher that failed shows the Node.js check in its own box", { skip, timeout: 60000 }, async () => {
+test("an npx launcher that failed shows the Node.js check in its own box", { skip: chromeSkip, timeout: 60000 }, async () => {
   const report = await paint(
     opening({
       failed: { command: "npx -y @agentclientprotocol/codex-acp@latest", reason: "exited before initialize", output: "", node_check: "node --version" },
@@ -175,7 +171,7 @@ test("an npx launcher that failed shows the Node.js check in its own box", { ski
   assert.match(report.selected, /It exited before initialize, and printed nothing\./);
 });
 
-test("a launcher that failed preflight boxes the probe it ran and what it printed", { skip, timeout: 60000 }, async () => {
+test("a launcher that failed preflight boxes the probe it ran and what it printed", { skip: chromeSkip, timeout: 60000 }, async () => {
   const unhealthy = {
     command: "npx --version",
     reason: "exited with exit status: 1",
@@ -194,7 +190,7 @@ test("a launcher that failed preflight boxes the probe it ran and what it printe
   assert.equal(report.sideways, 0, "the landing scrolls sideways");
 });
 
-test("a missing launcher links its install page to the browser", { skip, timeout: 60000 }, async () => {
+test("a missing launcher links its install page to the browser", { skip: chromeSkip, timeout: 60000 }, async () => {
   const report = await paint(opening({ missing: "npx", install: "https://nodejs.org/" }));
   assert.equal(report.title, "Codex needs npx");
   assert.deepEqual(report.titleCode, ["npx"]);

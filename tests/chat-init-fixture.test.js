@@ -5,14 +5,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
 
 function opening(harness) {
   return {
@@ -79,12 +77,12 @@ function paint(open) {
 
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html);
 }
 
-test("fixture Harness with slow initialize shows starting state", { skip: !chrome }, async () => {
+test("fixture Harness with slow initialize shows starting state", { skip: chromeSkip }, async () => {
   const result = await paint(opening({ initializing: true }));
 
   assert.equal(result.landingHidden, false, "landing is visible");
