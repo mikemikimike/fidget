@@ -49,6 +49,8 @@
 #   the file as Notepad's is read, or busy; FIDGET_SCENARIO_TYPE_BEFORE,
 #   FIDGET_SCENARIO_TYPE_WORD and FIDGET_SCENARIO_TYPE_EXPECTED print the file
 #   after each character typed into Notepad, split by |;
+#   FIDGET_SCENARIO_TAB_READ=<names split by |, error-open or error-gone>
+#   prints the tab names cleanup reads, or that the read throws;
 #   FIDGET_SCENARIO_LEAVE_NOTE=<results.txt> prints what cleanup gets back
 #   after leaving the window open (none);
 #   FIDGET_SCENARIO_UNEXPECTED=<results.txt> throws, to check the FAIL line;
@@ -266,6 +268,30 @@ public static class PillRm {
 if ($env:FIDGET_SCENARIO_PROFILE_LOCK) {
     $verdict = Get-ProfileLock $env:FIDGET_SCENARIO_PROFILE_LOCK
     Write-Output "lock: $($verdict.State)$(if ($verdict.Pids.Count) { " pid $($verdict.Pids -join ',')" })"
+    exit 0
+}
+# The tab names in one Notepad window, read through UI Automation. A window
+# already gone has none; a failed read while it is still there throws, so it
+# never reads as no tabs. $Read and $Exists stand in for UI Automation and
+# IsWindow in the self-check.
+function Get-TabNames([IntPtr]$H, [scriptblock]$Read = $null, [scriptblock]$Exists = $null) {
+    if (-not $Read) { $Read = { param($W) [string[]]@($UiaEl::FromHandle($W).FindAll([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::TabItem))) | ForEach-Object { $_.Current.Name }) } }
+    if (-not $Exists) { $Exists = { param($W) [PillWin]::IsWindow($W) } }
+    try {
+        [string[]]@(& $Read $H)
+    } catch [System.Windows.Automation.ElementNotAvailableException] {
+        if (& $Exists $H) { throw "Notepad's tabs could not be read: $($_.Exception.Message)" }
+        [string[]]@()
+    }
+}
+if ($env:FIDGET_SCENARIO_TAB_READ) {
+    Add-Type -AssemblyName UIAutomationClient
+    $mode = $env:FIDGET_SCENARIO_TAB_READ
+    $read = if ($mode.StartsWith("error")) { { throw [System.Windows.Automation.ElementNotAvailableException]::new() } } else { { [string[]]($mode -split '\|') } }
+    try {
+        $names = Get-TabNames ([IntPtr]::Zero) $read { $mode -ne "error-gone" }
+        Write-Output "tabs: $(if ($names) { $names -join '|' } else { 'none' })"
+    } catch { Write-Output "tabs: throws: $_" }
     exit 0
 }
 # Cleanup leaving Notepad's window open is a note, not a failure: the note goes
@@ -718,17 +744,6 @@ function Find-OurTab {
     }
     $null
 }
-# The tab names in one Notepad window, read through UI Automation. A window
-# already gone has none; a failed read while it is still there throws, so it
-# never reads as no tabs.
-function Get-TabNames([IntPtr]$H) {
-    try {
-        [string[]]@($UiaEl::FromHandle($H).FindAll([System.Windows.Automation.TreeScope]::Descendants, (Of-Type ([System.Windows.Automation.ControlType]::TabItem))) | ForEach-Object { $_.Current.Name })
-    } catch [System.Windows.Automation.ElementNotAvailableException] {
-        if ([PillWin]::IsWindow($H)) { throw "Notepad's tabs could not be read: $($_.Exception.Message)" }
-        [string[]]@()
-    }
-}
 # Closes our tab by its own close button, so Notepad's session forgets it; a
 # prompt about our unsaved scratch text gets Don't save. Returns "" or what failed.
 function Close-OurNotepad {
@@ -846,7 +861,7 @@ try {
     $plan = Get-NotepadPlan $ourTab.Names $docName $notepadWasRunning
     if ($plan.StartsWith("fail: ")) { Fail $plan.Substring(6) }
     # The tabs at launch, read through UI Automation, decide whether cleanup may close the window.
-    $script:launchTabs = Get-TabNames $script:hwnd
+    try { $script:launchTabs = Get-TabNames $script:hwnd } catch { Fail "at launch: $_" }
     "notepad: launch tabs `"$($script:launchTabs -join '", "')`"" | Add-Content -LiteralPath $focusLog
     "notepad: process $($script:notepad.Id), tabs $($ourTab.Names.Count), was running $notepadWasRunning; cleanup will $plan" | Add-Content -LiteralPath $focusLog
     if ([PillWin]::IsIconic($script:hwnd)) { Fail "the Notepad window holding $docName is minimized; the run leaves it that way" }

@@ -1664,6 +1664,24 @@ mod tests {
         }
     }
 
+    // A failed UI Automation read of a window that is still there throws, so
+    // cleanup leaves it open; a window already gone has no tabs.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_a_failed_tab_read_never_reads_as_no_tabs() {
+        for (mode, want) in [
+            ("doc.txt|Untitled", "tabs: doc.txt|Untitled"),
+            ("error-gone", "tabs: none"),
+            (
+                "error-open",
+                "tabs: throws: Notepad's tabs could not be read: ",
+            ),
+        ] {
+            let got = pill_self_check("FIDGET_SCENARIO_TAB_READ", mode.as_ref());
+            assert!(got.starts_with(want), "{mode}: {got}");
+        }
+    }
+
     // Leaving Notepad's window open is a note in results.txt, not a cleanup
     // failure: the 08:43 live run printed "FAIL: cleanup: note: cleanup left the
     // Notepad window open" after PASS, because the note leaked into the return.
