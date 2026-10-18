@@ -33,6 +33,31 @@ Try the gestures in your browser: [Fidget Cues](https://omesser.github.io/fidget
 - **Knows what you're up to:** It can see and react to your open windows - titles only, and only with consent, for context-aware chatter. It never reads screen pixels and [never takes screenshots](#computer-use); Reading titles and application names needs your explicit consent.
 - **Gets out of your way when you ask it to:** Automatically fades away when in fullscreen, hides at will on hotkey, and comes back when you want it to.
 
+## Characters
+
+Buddy Bot is the default. Eight Characters ship; each moves and speaks differently. A name links to its full prompt.
+
+<table>
+<tr>
+<td align="center" width="25%"><img src="./docs/readme/buddy-bot-walk.gif" height="96" alt="Buddy Bot" /><br><b><a href="./characters/buddy-bot/personality.txt">Buddy Bot</a></b><br><sub>Friendly and curious; he's your helpful assistant.</sub></td>
+<td align="center" width="25%"><img src="./docs/readme/black-mage-talk.gif" height="96" alt="Black Mage" /><br><b><a href="./characters/black-mage/personality.txt">Black Mage</a></b><br><sub>Cynical spellcaster, cryptic and theatrical.</sub></td>
+<td align="center" width="25%"><img src="./docs/readme/bmo-sing.gif" height="96" alt="BMO" /><br><b><a href="./characters/bmo/personality.txt">BMO</a></b><br><sub>Earnest, childlike, delighted to be here.</sub></td>
+<td align="center" width="25%"><img src="./docs/readme/cat-walk.gif" height="96" alt="Cat" /><br><b><a href="./characters/cat/personality.txt">Cat</a></b><br><sub>Every window is furniture. Never helpful.</sub></td>
+</tr>
+<tr>
+<td align="center" width="25%"><img src="./docs/readme/jotaro-kujo-react.gif" height="96" alt="Jotaro Kujo" /><br><b><a href="./characters/jotaro-kujo/personality.txt">Jotaro Kujo</a></b><br><sub>Terse, perpetually bored, tougher than he lets on.</sub></td>
+<td align="center" width="25%"><img src="./docs/readme/nim-sleep.gif" height="96" alt="Nim" /><br><b><a href="./characters/nim/personality.txt">Nim</a></b><br><sub>Sleeps eleven hours a day. Soft-spoken.</sub></td>
+<td align="center" width="25%"><img src="./docs/readme/timber-wolf-walk.gif" height="96" alt="Timber Wolf" /><br><b><a href="./characters/timber-wolf/personality.txt">Timber Wolf</a></b><br><sub>Patrol mech. Clan warriors don't waste words.</sub></td>
+<td align="center" width="25%"><img src="./docs/readme/trump-wave.gif" height="96" alt="Trump" /><br><b><a href="./characters/trump/personality.txt">Trump</a></b><br><sub>The desktop is his rally. Bombastic.</sub></td>
+</tr>
+</table>
+
+### Trump takes the stage
+
+https://github.com/user-attachments/assets/31bf24c7-7fe7-43d0-92d7-a4a3bd6d4c11
+
+Characters are packages of art, personality, and tuning. See [DEVELOPMENT.md](./docs/DEVELOPMENT.md#character-packages); the format is still evolving.
+
 ## Get It
 
 On macOS (Apple Silicon) with [Homebrew](https://brew.sh):
@@ -63,7 +88,7 @@ It works offline with no key. With nothing configured, Static weights pick idle 
 
 Right-click the fidget, or click the tray icon, and choose Settings….
 
-Settings → Character picks which character it wears. Buddy Bot is the default. The others are under [Characters](#characters).
+Settings → Character picks which character it wears. Buddy Bot is the default. The others are in [Characters](#characters).
 
 Settings → AI chooses who answers. Under AI source, pick `Harness · claude` or another name from [Harness Support](#harness-support). The Harness signs in on its own. Model under Harness names the model it runs on, and blank keeps the Harness's own default. For a Model API, pick Model API in AI source, then set Base URL, Model, and API key under Model / API. Presets fill the Base URL for OpenAI, Anthropic, xAI, and Ollama. Type any other OpenAI-compatible endpoint into Base URL. Apply saves the choice.
 
@@ -175,31 +200,6 @@ A later wake
   State: Perched
   Window titles (allowed): README.md - VS Code
 ```
-
-## Characters
-
-Buddy Bot is the default. Eight Characters ship; each moves and speaks differently. A name links to its full prompt.
-
-<table>
-<tr>
-<td align="center" width="25%"><img src="./docs/readme/buddy-bot-walk.gif" height="96" alt="Buddy Bot" /><br><b><a href="./characters/buddy-bot/personality.txt">Buddy Bot</a></b><br><sub>Friendly and curious; he's your helpful assistant.</sub></td>
-<td align="center" width="25%"><img src="./docs/readme/black-mage-talk.gif" height="96" alt="Black Mage" /><br><b><a href="./characters/black-mage/personality.txt">Black Mage</a></b><br><sub>Cynical spellcaster, cryptic and theatrical.</sub></td>
-<td align="center" width="25%"><img src="./docs/readme/bmo-sing.gif" height="96" alt="BMO" /><br><b><a href="./characters/bmo/personality.txt">BMO</a></b><br><sub>Earnest, childlike, delighted to be here.</sub></td>
-<td align="center" width="25%"><img src="./docs/readme/cat-walk.gif" height="96" alt="Cat" /><br><b><a href="./characters/cat/personality.txt">Cat</a></b><br><sub>Every window is furniture. Never helpful.</sub></td>
-</tr>
-<tr>
-<td align="center" width="25%"><img src="./docs/readme/jotaro-kujo-react.gif" height="96" alt="Jotaro Kujo" /><br><b><a href="./characters/jotaro-kujo/personality.txt">Jotaro Kujo</a></b><br><sub>Terse, perpetually bored, tougher than he lets on.</sub></td>
-<td align="center" width="25%"><img src="./docs/readme/nim-sleep.gif" height="96" alt="Nim" /><br><b><a href="./characters/nim/personality.txt">Nim</a></b><br><sub>Sleeps eleven hours a day. Soft-spoken.</sub></td>
-<td align="center" width="25%"><img src="./docs/readme/timber-wolf-walk.gif" height="96" alt="Timber Wolf" /><br><b><a href="./characters/timber-wolf/personality.txt">Timber Wolf</a></b><br><sub>Patrol mech. Clan warriors don't waste words.</sub></td>
-<td align="center" width="25%"><img src="./docs/readme/trump-wave.gif" height="96" alt="Trump" /><br><b><a href="./characters/trump/personality.txt">Trump</a></b><br><sub>The desktop is his rally. Bombastic.</sub></td>
-</tr>
-</table>
-
-### Trump takes the stage
-
-https://github.com/user-attachments/assets/31bf24c7-7fe7-43d0-92d7-a4a3bd6d4c11
-
-Characters are packages of art, personality, and tuning. See [DEVELOPMENT.md](./docs/DEVELOPMENT.md#character-packages); the format is still evolving.
 
 ## Harness Support
 
