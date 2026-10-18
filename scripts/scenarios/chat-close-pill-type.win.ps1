@@ -194,8 +194,8 @@ function Get-NotepadPlan([string[]]$Tabs, [string]$Ours, [bool]$WasRunning) {
 # text; one open at launch is the user's, restored by Notepad (the #1590 live
 # run's modified doc.txt).
 function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) {
-    if (@($Left).Count -eq 0) { return "close" }
-    $name = @($Left)[0]
+    if (-not $Left -or $Left.Count -eq 0) { return "close" }
+    $name = $Left[0]
     $theirs = @($AtLaunch | Where-Object { -not $_.Contains($Ours) })
     if ($theirs -ccontains $name) { return "leave: `"$name`" was open at launch" }
     "leave: `"$name`" is still open"
