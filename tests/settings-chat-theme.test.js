@@ -48,6 +48,9 @@ function settingsThemes(first, later) {
       ink: getComputedStyle(document.body).color,
       // Glass frames Chat's pane; the OS already frames this window.
       framed: getComputedStyle(document.body).borderTopWidth !== "0px",
+      shadow: getComputedStyle(document.body).boxShadow,
+      // Blink writes rgba() only below alpha 1; a see-through page shows the webview's black backing.
+      opaque: getComputedStyle(document.body).backgroundColor.startsWith("rgb("),
     };
   };
   async function run() {
@@ -75,6 +78,8 @@ const expect = ([design, appearance]) => ({
   palette: appearance.toLowerCase(),
   ink: INK[`${design}/${appearance}`],
   framed: false,
+  shadow: "none",
+  opaque: true,
 });
 
 test("Settings opens in the picked Chat UI and Light/Dark Mode", { skip: chromeSkip, timeout: 60000 }, async () => {
