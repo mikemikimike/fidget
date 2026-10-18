@@ -262,3 +262,63 @@ test("a README that stops advertising Homebrew empties the install line", () => 
   assert.ok(!page.includes("Or install with Homebrew"),
     "the page claimed a Homebrew line the README does not make");
 });
+
+test("the How it works section is a two-lane picture from the README", () => {
+  const page = published(PAGE);
+  const section = page.match(/<section id="how-it-works">([\s\S]*?)<\/section>/)?.[1];
+  assert.ok(section, "the page has no How it works section");
+  assert.match(section, /<h2>How it works<\/h2>/);
+  assert.match(section, /A pet first\. The AI is the part that makes it someone\./);
+  assert.ok(section.includes("<svg"), "the picture is not inline SVG");
+  assert.ok(!/mermaid/i.test(section), "the section shipped mermaid");
+  assert.ok(!/<script[^>]*(src="[^"]*mermaid|class="[^"]*mermaid)/i.test(page),
+    "the page loaded a mermaid script");
+
+  const always = section.match(/<svg[^>]*data-lane="always"[^>]*>[\s\S]*?<\/svg>/)?.[0];
+  const director = section.match(/<svg[^>]*data-lane="director"[^>]*>[\s\S]*?<\/svg>/)?.[0];
+  assert.ok(always, "lane 1 is not its own svg");
+  assert.ok(director, "lane 2 is not its own svg");
+  assert.ok(always.includes(">Frame loop</") && always.includes(">You</") && always.includes(">Your fidget</"),
+    "lane 1 svg lost a name");
+  assert.ok(director.includes(">Personality</") && director.includes(">Instance Prompt</")
+    && director.includes(">Window titles</") && director.includes(">Director</")
+    && director.includes(">ACP</") && director.includes(">MCP</"),
+    "lane 2 svg lost a name");
+
+  const sheets = section.match(/<dl class="how-sheet">([\s\S]*?)<\/dl>/g) ?? [];
+  assert.equal(sheets.length, 2, "the section's captions are not two per-lane sheets");
+  assert.ok(sheets[0].includes("Walks, falls, lands, perches") && sheets[0].includes("Poke, throw, drag, summon."),
+    "lane 1's captions left the page");
+  assert.ok(sheets[1].includes("Who it is. A plain text file.") && sheets[1].includes("Your own twist, on top.")
+    && sheets[1].includes("Only if you say yes. Never pixels.") && sheets[1].includes("Wakes now and then")
+    && sheets[1].includes("nap, prowl, patrol…") && sheets[1].includes("A line")
+    && sheets[1].includes("attach over ACP on stdio") && sheets[1].includes("the Harness calls back over MCP")
+    && sheets[1].includes("Your agent"),
+    "lane 2's captions left the page");
+
+  const withoutSheets = section.replace(/<dl[\s\S]*?<\/dl>/g, "");
+  const bareAlways = withoutSheets.match(/<svg[^>]*data-lane="always"[^>]*>[\s\S]*?<\/svg>/)?.[0];
+  assert.ok(bareAlways?.includes(">Frame loop</"),
+    "lane names were only in the caption sheet");
+
+  assert.match(section, /data-lane="always"/);
+  assert.match(section, /data-lane="director"/);
+  assert.match(section, /data-light="frame"/);
+  assert.match(section, /data-light="director"/);
+  assert.match(section, /data-light="behavior"/);
+  assert.ok(!/class="[^"]*how-motion/.test(page) && !/class="[^"]*how-lit-/.test(page),
+    "the published page armed the light-up classes");
+
+  const blocks = page.match(/<script>\n[\s\S]*?<\/script>/g) ?? [];
+  assert.equal(blocks.length, 2);
+  assert.ok(blocks[0].includes("IntersectionObserver"), "the observer is not in the first script");
+  assert.match(blocks[0], /if \(how && !still\)/);
+  assert.match(blocks[0], /\[[^\]]*"frame"[^\]]*"director"[^\]]*"behavior"[^\]]*\]/);
+  assert.ok(!blocks[0].includes("fetch(") && !blocks[1].includes("fetch("),
+    "a How it works script reached the network");
+
+  assert.match(section, /<a href="design\.html">The full design →<\/a>/);
+  assert.match(section, /<p class="how-wake-lead">A sample of an opening wake and a later follow-up, not a live dump:<\/p>\s*<pre[^>]*>/);
+  assert.match(section, /<pre[^>]*>[\s\S]*Opening wake/);
+  assert.match(section, /<dl class="how-sheet">[\s\S]*?<\/dl>/);
+});
