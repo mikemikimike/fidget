@@ -6,13 +6,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageClock } from "./page-clock.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
 
 const frame = (hoverDelayMs) => ({
   sprites: [
@@ -84,9 +82,7 @@ function hover() {
   return probePage(html);
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
-test("the pill opens after the hover delay the latest frame carries", { skip, timeout: 60000 }, async () => {
+test("the pill opens after the hover delay the latest frame carries", { skip: chromeSkip, timeout: 60000 }, async () => {
   const report = await hover();
   assert.deepEqual(report, { before: false, after: true });
 });
