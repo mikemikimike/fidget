@@ -27,7 +27,7 @@ did not run.
 The Model API already reaches OpenRouter. Set Base URL to
 `https://openrouter.ai/api`, Model to an OpenRouter slug such as
 `anthropic/claude-haiku-5.5`, and API key to the OpenRouter key. Three gaps
-remain. Each one is small, and each one fixes a bug that any proxy hosted under
+remain, and each one is small. The first is a bug that any proxy hosted under
 a path prefix also has.
 
 1. The preflight and `probe-model` ask `https://openrouter.ai/v1/models`. That
@@ -74,23 +74,40 @@ skips every line that does not start with `data:` and stops on `[DONE]`.
 `delta.reasoning`
 ([reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens.md)).
 `read_event` already reads `chunk["reasoning"]` as a thought. A thinking model
-therefore draws its thought in Chat and earns `THINK_CEILING` on the next turn,
+therefore fills the Thinking row and earns `THINK_CEILING` on the next turn,
 as on vLLM and Ollama.
 
-Fidget sends effort as a top-level `reasoning_effort`, while OpenRouter
-documents `reasoning: {effort}`. Of 471 listed models, 209 name
-`reasoning_effort` in `supported_parameters` and 341 name `reasoning`
-(Measured, `GET /api/v1/models`). OpenRouter ignores unsupported parameters
-rather than refusing them (API overview). As a result, the `Field::Effort`
-fallback never fires. On a model that takes only `reasoning`, the effort is
-dropped without a word (Inferred). This is acceptable for v1, because a blank
-effort is the default.
+**Unsupported parameters (Source).** OpenRouter ignores a parameter the model
+does not support, rather than refusing it (API overview). So no 400 ever names
+one, and the `Field` fallbacks in `Endpoint::post` never fire on OpenRouter.
 
-**Token cap (Measured).** Of 471 models, 458 list `max_tokens` in
-`supported_parameters` and 79 list `max_completion_tokens`. The `Field::Cap`
-rename is not needed. On the 13 models that list neither, OpenRouter ignores
-the cap instead of refusing it, so no cap applies there (Inferred, from the
-API overview's rule on unsupported parameters).
+**Reasoning effort (Measured).** Fidget sends effort as a top-level
+`reasoning_effort`, while OpenRouter documents `reasoning: {effort}`. Of 471
+listed models, 209 name `reasoning_effort` in `supported_parameters` and 341
+name `reasoning` (`GET /api/v1/models`). On a model that takes only
+`reasoning`, the effort is dropped without a word (Inferred). This is
+acceptable for v1, because a blank effort is the default.
+
+**Turn ceiling (Measured, Source).** Of 471 models, 458 list `max_tokens` and
+79 list `max_completion_tokens`. The `Field::Cap` rename is not needed. On the
+13 models that list neither, no ceiling applies (Inferred).
+
+The ceiling has a gap that is not OpenRouter's. `Endpoint::wire_budget` sends
+`TURN_CEILING` (1024) until a turn on the host has marked its thinking, and
+only then `THINK_CEILING` (8192). On OpenRouter, the host is one URL for every
+model. Two cases follow (Inferred):
+
+- The first turn of a reasoning model goes out at 1024 and can end as
+  "spent all 1024 tokens thinking". This is the same first-turn cost as on any
+  other host.
+- A model whose provider does not stream its reasoning as text never marks.
+  OpenRouter returns some reasoning only as encrypted `reasoning_details`
+  (reasoning tokens docs). Such a model stays at 1024 on every turn, while its
+  hidden reasoning still counts against the 1024.
+
+Both cases already have a lever: `FIDGET_DIRECTOR_MAX_TOKENS` and its Settings
+row. A keyed probe on one encrypted-reasoning model would show whether the
+second case is real.
 
 **Usage chunk (Source).** On chat completions, the last chunk before `[DONE]`
 carries `usage` and one choice with empty content (streaming docs).
@@ -114,7 +131,8 @@ The base path is lost.
 `director: https://openrouter.ai /v1/models answered 404; staying on StaticDirector until it answers`.
 The message is false. The preflight is diagnostic only, and the next wake
 still goes out, so the Director works. But the first line the user reads says
-it does not. `scripts/probe-model.sh` prints the same verdict.
+it does not. `run_probe`, behind `scripts/probe-model.sh`, asks the same URL
+and prints `/v1/models answered 404`.
 
 Fix the root cause rather than special-casing OpenRouter. Derive the models
 URL from the inference URL. Replace a trailing `/chat/completions` or
@@ -155,24 +173,26 @@ truncated. The turn therefore ends as `Streamed::Complete` (Source):
 
 The cases that matter for a desktop pet are 429 on a `:free` model and 402
 when credits run out. Free models allow 20 requests per minute, and 50 per day
-on an account that has bought less than 10 credits (limits). One ambient wake
-per Instance can reach the daily cap in a working day (Inferred).
+on an account that has bought less than 10 credits (limits). Proactive model
+calls from one Character Instance can reach the daily cap in a working day
+(Inferred).
 
-The fix is one field in `Event` and one arm in `reply_from`. Treat an `error`
-object, or `finish_reason: "error"`, as `Unsent::Failed` that carries
-`error.message`. Do the same in `content_from_body` for the non-streaming
+The fix runs through three places. `Event` gains the error message.
+`read_frames` stops on it and returns it, which needs a new `Streamed` variant.
+`reply_from` turns that variant into `Unsent::Failed` that carries
+`error.message`. `content_from_body` does the same for the non-streaming
 answer. Any OpenAI-compatible host that reports errors in-band benefits.
 
 ### 4. Not needed
 
-- **Attribution headers.** `HTTP-Referer` and `X-OpenRouter-Title` only list
+- **Attribution headers:** `HTTP-Referer` and `X-OpenRouter-Title` only list
   the app on OpenRouter's rankings
   ([app attribution](https://openrouter.ai/docs/app-attribution.md)). Fidget
   sends `User-Agent: fidget`. Skip them until someone asks to be listed.
-- **`reasoning_details` passback.** OpenRouter asks callers to send it back for
+- **`reasoning_details` passback:** OpenRouter asks callers to send it back for
   encrypted reasoning in tool loops. The HTTP Completer runs no tools. Its
   session stores only answer text.
-- **Provider routing, `models` fallbacks, and `:nitro`.** Each one is a request
+- **Provider routing, `models` fallbacks, and `:nitro`:** Each one is a request
   field Fidget has no Settings row for. A slug suffix such as `:nitro` already
   works through the Model field (Inferred).
 
@@ -194,7 +214,7 @@ The README's Model API paragraph names the presets it fills. Adding a row
 makes that list stale. The README is the owner's copy, so the PR names the
 line and leaves the wording to the owner.
 
-**Key entry (Experience First).** Today the user creates a key on
+**Key entry (Source).** Today the user creates a key on
 openrouter.ai and pastes it. OpenRouter also has OAuth PKCE
 ([OAuth](https://openrouter.ai/docs/guides/overview/auth/oauth.md)). A headless
 variant shows a code for the user to paste, so it needs no callback server.
@@ -215,8 +235,8 @@ Finder-launched Fidget takes only `PATH` from the login shell (Source). A
 `export ANTHROPIC_BASE_URL=...` in `.zshrc` therefore reaches the Harness only
 when Fidget starts from a terminal (Inferred).
 
-Each Harness needs its provider set in its own config file. Fidget does not
-read or write that file.
+Each Harness needs its provider set in its own config, such as the user's
+`~/.codex/config.toml`. Fidget does not read or write that config (Source).
 
 Fidget does write one thing a Harness reads as a model. The Harness Model row
 goes out through `session/set_config_option`. For Codex,
@@ -231,7 +251,8 @@ adapter accepts a slug it did not list is unverified.
 |---|---|---|---|
 | `claude` | Claude Code with `ANTHROPIC_BASE_URL=https://openrouter.ai/api`, `ANTHROPIC_AUTH_TOKEN=<key>`, and `ANTHROPIC_API_KEY=""`, through OpenRouter's Anthropic-compatible `/api/v1/messages` ([Claude Code guide](https://openrouter.ai/docs/guides/guides/claude-code-integration.md)). The Agent SDK under `claude-agent-acp` uses the same variables ([Agent SDK guide](https://openrouter.ai/docs/guides/community/anthropic-agent-sdk)). | None | Endpoint answers 401 in Anthropic error shape without a key (Measured). OpenRouter guarantees this only with Anthropic as the provider (Source). |
 | `codex` | `model_provider = "openrouter"` and a `[model_providers.openrouter]` table with `base_url = "https://openrouter.ai/api/v1"` in `~/.codex/config.toml` ([Codex guide](https://openrouter.ai/docs/guides/guides/codex-cli.md)) | None | `/api/v1/responses` exists and answers 401 without a key (Measured). It is stateless and refuses `store: true` or `previous_response_id` with 400 ([Responses](https://openrouter.ai/docs/api_reference/responses/overview.md)). Whether `codex-acp` sends either field is unverified. |
-| `opencode`, `pi`, `goose`, `hermes` | Each has its own provider config | None | Inferred from each project's provider support. Not read this session. |
+| `pi` | Its own config in `~/.pi/agent/`. `docs/harness.md` also says that an unconfigured Pi may pick up an ambient provider key from the environment. | None | The ambient-key route is Source. That Pi takes OpenRouter is Inferred. |
+| `opencode`, `goose`, `hermes` | Each has its own provider config | None | Inferred from each project's provider support. Not read this session. |
 | `copilot`, `cursor-agent`, `grok`, `antigravity` | None. Each runs on its vendor's account | None | Out of scope (Inferred). |
 
 For `claude`, the variables have to reach the adapter. Claude Code's
@@ -256,7 +277,7 @@ subscription login is never replaced without a prompt.
 2. **`fix(model): Cap the served-model list in the preflight verdict`.** Fixes
    gap 2.
 3. **`fix(model): Read an in-band error as a failed turn`.** Fixes gap 3 in
-   `read_event`, `reply_from`, and `content_from_body`. Test it with canned SSE
+   `read_event`, `read_frames`, `reply_from`, and `content_from_body`. Test it with canned SSE
    bytes through `read_stream`, as the existing stream tests do.
 4. **`feat(settings): Add OpenRouter to the Base URL picker`.** One
    `ENDPOINTS` row. Depends on 1, so the first launch after a pick does not
@@ -266,8 +287,8 @@ subscription login is never replaced without a prompt.
 
 ## Open decisions
 
-1. Should OpenRouter get a row in the Base URL picker, or stay a Custom URL?
-   The recommendation is a row, after follow-up 1.
+1. Should OpenRouter get a row in the Base URL picker? The recommendation is
+   yes, after follow-up 1.
 2. Should `docs/harness.md` carry OpenRouter recipes for `claude` and `codex`?
    The recommendation is yes, after a keyed probe.
 3. Should "Sign in with OpenRouter" (OAuth PKCE) be filed for V2? It is not
