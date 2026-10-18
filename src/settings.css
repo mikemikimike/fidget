@@ -12,10 +12,10 @@
   font-family: var(--chat-sans);
 }
 
-/* Glass draws Chat's body as a floating pane. Settings is an opaque OS window,
-   so the pane's frame goes, and Canvas rather than the webview's backing sits
-   under the tint (#1620 found that backing black). */
-.chat-ui-glass .set-page {
+/* Glass draws Chat's body as a floating pane; Settings is an opaque OS window.
+   Canvas sits under the tint, not the webview's black backing. `body.` ties
+   Glass Light's body rule in chat-ui.css, and this later sheet wins. */
+.chat-ui-glass body.set-page {
   background-color: Canvas;
   border: 0;
   border-radius: 0;
