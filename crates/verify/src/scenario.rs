@@ -1184,7 +1184,7 @@ mod tests {
     #[test]
     fn chat_close_pill_type_win_closes_only_its_own_notepad_tab() {
         let closes_window =
-            "plan: close our tab, then the window this run opened if it holds only tabs seen at launch";
+            "plan: close our tab, then the window this run opened if only an empty Untitled tab is left";
         let tab_only = "plan: close our tab only";
         for (tabs, before, want) in [
             ("ours.txt", false, closes_window),
@@ -1627,27 +1627,47 @@ mod tests {
     }
 
     // Win11 Notepad is one process for every window, so a run that started it
-    // closes only its own window, and only while every tab left was there at
-    // launch: anything opened during the run keeps the window open.
+    // closes only its own window, and only when nothing but an empty Untitled
+    // tab Notepad made itself is left. A tab restored at launch is Oded's: the
+    // #1590 live run closed a window holding his modified doc.txt.
     #[cfg(windows)]
     #[test]
-    fn chat_close_pill_type_win_closes_its_window_only_with_launch_tabs_left() {
+    fn chat_close_pill_type_win_closes_its_window_only_with_nothing_of_the_users_left() {
         assert_eq!(window_verdict("ours.txt", "none"), "window: close");
-        assert_eq!(
-            window_verdict(
-                "notes.txt|ours.txt|Untitled|Untitled",
-                "notes.txt|Untitled|Untitled"
+        assert_eq!(window_verdict("ours.txt", "Untitled"), "window: close");
+        for (at_launch, left, want) in [
+            (
+                "doc.txt|ours.txt",
+                "doc.txt",
+                "\"doc.txt\" was open at launch",
             ),
-            "window: close"
-        );
-        assert_eq!(
-            window_verdict("ours.txt", "todo.txt"),
-            "window: leave: \"todo.txt\" was not open at launch"
-        );
-        assert_eq!(
-            window_verdict("notes.txt|ours.txt", "notes.txt|notes.txt"),
-            "window: leave: \"notes.txt\" was not open at launch"
-        );
+            (
+                "ours.txt|Untitled",
+                "Untitled",
+                "\"Untitled\" was open at launch",
+            ),
+            (
+                "notes.txt|ours.txt|Untitled|Untitled",
+                "notes.txt|Untitled|Untitled",
+                "\"notes.txt\" was open at launch",
+            ),
+            (
+                "ours.txt",
+                "todo.txt",
+                "\"todo.txt\" is not an empty Untitled tab",
+            ),
+            (
+                "ours.txt",
+                "Untitled*",
+                "\"Untitled*\" is not an empty Untitled tab",
+            ),
+        ] {
+            assert_eq!(
+                window_verdict(at_launch, left),
+                format!("window: leave: {want}"),
+                "{at_launch} -> {left}"
+            );
+        }
     }
 
     // Before launch the leaf reads WebView2's EBWebView\lockfile: missing and
