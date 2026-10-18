@@ -2839,6 +2839,9 @@ struct ChatOpening {
     /// Which Chat UI design the user picked: "minimal", "terminal", or "glass".
     chat_ui: String,
     chat_appearance: ChatAppearance,
+    /// `std::env::consts::OS`. Glass tints harder on "linux", where the
+    /// webview cannot blur the desktop behind Chat.
+    platform: &'static str,
     /// A Harness is attached but not signed in. Names the login command for
     /// the user's own terminal.
     login: Option<String>,
@@ -2942,6 +2945,7 @@ fn chat_opening_layers(
         host: inspect.host.clone(),
         chat_ui: chat_ui.to_string(),
         chat_appearance,
+        platform: std::env::consts::OS,
         login: inspect
             .harness
             .as_ref()
@@ -3059,6 +3063,7 @@ fn chat_opening(instance: String, state: tauri::State<'_, SettingsState>) -> Cha
             .ok()
             .map(|settings| settings.chat_appearance)
             .unwrap_or_default(),
+        platform: std::env::consts::OS,
         instance_prompt,
         prompt_limit: roster::INSTANCE_PROMPT_LIMIT,
     }

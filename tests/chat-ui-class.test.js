@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { applyChatUiClass, normalizeChatUi } from "../src/chat-ui-class.js";
+import { applyChatUiClass, applyPlatform, normalizeChatUi } from "../src/chat-ui-class.js";
 
 // Real DOMTokenList-like implementation for testing
 class TestClassList {
@@ -121,4 +121,14 @@ test("applyChatUiClass handles empty/null design gracefully", () => {
   assert.ok(!root.classList.contains("chat-ui-terminal"), "terminal should be removed");
   assert.ok(root.classList.contains("chat-ui-minimal"), "should fall back to minimal");
   assert.equal(root.className, "chat-ui-minimal");
+});
+
+test("applyPlatform flags Linux and nothing else", () => {
+  const root = { dataset: {} };
+  applyPlatform(root, "linux");
+  assert.equal(root.dataset.platform, "linux");
+  for (const other of ["macos", "windows", "", undefined]) {
+    applyPlatform(root, other);
+    assert.equal(root.dataset.platform, undefined, String(other));
+  }
 });
