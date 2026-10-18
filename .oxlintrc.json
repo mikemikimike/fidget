@@ -1,0 +1,6 @@
+{
+  "plugins": [],
+  "categories": {"correctness": "off"},
+  "env": {"browser": true},
+  "rules": {"no-undef": "error", "no-global-assign": "error"}
+}
