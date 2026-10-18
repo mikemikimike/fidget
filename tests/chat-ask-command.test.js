@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
@@ -36,8 +36,6 @@ function ask(request, title, content) {
     ],
   };
 }
-
-const chrome = findChrome();
 
 function surface(theme) {
   const opening = {
@@ -143,7 +141,7 @@ function surface(theme) {
 
 test(
   "an ask's command is drawn as code, painted like reply code",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 90000 },
+  { skip: chromeSkip, timeout: 90000 },
   async () => {
     for (const theme of ["minimal", "terminal"]) {
       const report = await surface(theme);

@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 // tests, so a slow first start fails loudly instead of hiding behind a longer wait.
 const CALL_MS = 3000;
 
-export function findChrome() {
+function findChrome() {
   if (process.env.FIDGET_CHROME) {
     return process.env.FIDGET_CHROME;
   }
@@ -22,8 +22,9 @@ export function findChrome() {
   return null;
 }
 
-// One lookup per importing process, so probePage and every skip gate agree.
-const chromePath = findChrome();
+// One lookup per importing process, so probePage and every launcher and skip
+// gate agree. Null when no browser was found; chromeSkip says so.
+export const chromePath = findChrome();
 
 // False when a browser was found, else the reason `test(..., { skip })` shows.
 export const chromeSkip = chromePath ? false : "headless Chromium is not installed";

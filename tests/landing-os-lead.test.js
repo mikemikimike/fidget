@@ -10,14 +10,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { findChrome, launchWithPipe, createPageTarget, cleanupChrome } from "./chrome-cdp.js";
+import { chromeSkip, chromePath, launchWithPipe, createPageTarget, cleanupChrome } from "./chrome-cdp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
 const WAIT_MS = 3000;
-
-const chrome = findChrome();
-const skip = chrome ? false : "headless Chromium is not installed";
 
 const CHROME_UA = "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.8059.85 Safari/537.36";
 // The metadata carries the architecture, the high-entropy half of "does this
@@ -121,7 +118,7 @@ async function withSite(run) {
     const site = join(dir, "_site");
     const built = spawnSync("bash", ["scripts/assemble-site.sh", site, "/dev/null"], { cwd: ROOT, encoding: "utf8" });
     assert.equal(built.status, 0, `assemble-site.sh failed: ${built.stderr}`);
-    cdp = launchWithPipe(chrome, [
+    cdp = launchWithPipe(chromePath, [
       "--headless=new",
       "--disable-gpu",
       "--no-sandbox",
@@ -171,7 +168,7 @@ async function pose(site, cdp, useCase, beforeNavigate) {
   };
 }
 
-test("the browser's platform leads the buttons and its install line", { skip }, async () => {
+test("the browser's platform leads the buttons and its install line", { skip: chromeSkip }, async () => {
   await withSite(async (site, cdp) => {
     for (const [name, useCase] of Object.entries(cases)) {
       const { state, errors } = await pose(site, cdp, useCase);
@@ -195,7 +192,7 @@ test("the browser's platform leads the buttons and its install line", { skip }, 
   });
 });
 
-test("the Homebrew copy button copies the command and says Copied", { skip }, async () => {
+test("the Homebrew copy button copies the command and says Copied", { skip: chromeSkip }, async () => {
   await withSite(async (site, cdp) => {
     // The permission is browser-wide, so it is granted before any target opens;
     // reading the value back needs the read grant a write alone does not give.
@@ -245,7 +242,7 @@ const BREW_LAYOUT = `(() => {
   };
 })()`;
 
-test("the Homebrew command stays whole, beside its Copy button, and on screen", { skip }, async () => {
+test("the Homebrew command stays whole, beside its Copy button, and on screen", { skip: chromeSkip }, async () => {
   await withSite(async (site, cdp) => {
     const { sessionId } = await pose(site, cdp, cases["macOS on ARM"]);
     for (const width of [1280, 390]) {
@@ -272,7 +269,7 @@ const HEADER_AT = `(() => {
   };
 })()`;
 
-test("the site header stays at the top, flush left, on every page", { skip }, async () => {
+test("the site header stays at the top, flush left, on every page", { skip: chromeSkip }, async () => {
   await withSite(async (site, cdp) => {
     const { sessionId } = await pose(site, cdp, cases["macOS on ARM"]);
     for (const page of readdirSync(site).filter((name) => name.endsWith(".html"))) {

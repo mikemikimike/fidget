@@ -9,13 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { findChrome, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
+import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
 const PROBE_MS = 3000;
-
-const chrome = findChrome();
 
 const probe = `
 <script>
@@ -106,7 +104,7 @@ async function launch() {
       .replace("<head>", `<head>${probe}`);
     writeFileSync(join(site, "cues.html"), html);
 
-    cdp = launchWithPipe(chrome, [
+    cdp = launchWithPipe(chromePath, [
       "--headless=new",
       "--disable-gpu",
       "--no-sandbox",
@@ -133,9 +131,7 @@ async function launch() {
   }
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
-test("a throw into the desk's right wall puffs flush against it, centred on the wall", async () => {
+test("a throw into the desk's right wall puffs flush against it, centred on the wall", { skip: chromeSkip }, async () => {
   const puff = await launch();
   assert.deepEqual(puff.errors, [], "the page threw nothing");
   const gap = puff.width - (puff.right + puff.shadow);

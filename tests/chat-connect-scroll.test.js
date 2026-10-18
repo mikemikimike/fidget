@@ -9,11 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { chromeSkip, findChrome, injectBase } from "./chrome-cdp.js";
+import { chromeSkip, chromePath, injectBase } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
 
 const unconfigured = {
   name: "BMO",
@@ -127,7 +125,7 @@ async function withChat(run, { rejectHarness = false } = {}) {
 
   const port = await freePort();
   const child = spawn(
-    chrome,
+    chromePath,
     [
       "--headless=new",
       "--disable-gpu",
