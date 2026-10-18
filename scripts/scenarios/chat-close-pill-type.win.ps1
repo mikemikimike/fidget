@@ -285,7 +285,8 @@ function Get-TabNames([IntPtr]$H, [scriptblock]$Read = $null, [scriptblock]$Exis
     }
 }
 if ($env:FIDGET_SCENARIO_TAB_READ) {
-    Add-Type -AssemblyName UIAutomationClient
+    # ElementNotAvailableException lives in UIAutomationTypes.
+    Add-Type -AssemblyName UIAutomationTypes
     $mode = $env:FIDGET_SCENARIO_TAB_READ
     $read = if ($mode.StartsWith("error")) { { throw [System.Windows.Automation.ElementNotAvailableException]::new() } } else { { [string[]]($mode -split '\|') } }
     try {
