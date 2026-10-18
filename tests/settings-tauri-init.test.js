@@ -113,6 +113,7 @@ test("__TAURI__ appears mid-poll after some failed attempts (Windows race)", asy
     },
     documentElement: {
       dataset: {},
+      classList: { add() {}, remove() {} },
     },
   };
 
@@ -195,6 +196,7 @@ test("initializeWithTauri registers event listeners when __TAURI__ present", asy
     },
     documentElement: {
       dataset: {},
+      classList: { add() {}, remove() {} },
     },
   };
 
@@ -287,6 +289,7 @@ test("showTauriTimeoutError sets role=alert and shows no-retry message", async (
     addEventListener: () => {},
     documentElement: {
       dataset: {},
+      classList: { add() {}, remove() {} },
     },
   };
 

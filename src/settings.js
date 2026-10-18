@@ -1,4 +1,5 @@
 import { mountChatAppearance } from "./chat-appearance.js";
+import { applyChatUiClass } from "./chat-ui-class.js";
 
 // One interpreter of `form::describe()`, in two halves. `controls(tab, values)`
 // is pure: the tab as a flat list of {role, id, label, value, frozen} in render
@@ -629,7 +630,8 @@ export function showError(message, onRetry) {
 // Snapshot + settings-refresh once Tauri is in the page; tab clicks still
 // work without it so the shell does not sit dead in a non-Tauri load.
 if (typeof document !== "undefined") {
-  mountChatAppearance(document.documentElement);
+  const root = document.documentElement;
+  const applyChatAppearance = mountChatAppearance(root);
 
   const tablist = document.querySelector('[role="tablist"]');
   const panel = document.querySelector('[role="tabpanel"]');
@@ -657,6 +659,10 @@ if (typeof document !== "undefined") {
         if (lastSnapshotPromise === currentLoad) {
           currentForm = snapshot.form;
           currentValues = snapshot.view;
+          // The view carries the Chat rows' titles ("Glass", "Dark"); the
+          // helpers take Chat's lowercase wire values.
+          applyChatUiClass(root, String(currentValues.chat_ui).toLowerCase());
+          applyChatAppearance(String(currentValues.chat_appearance).toLowerCase());
           draft = pruneDraft(draft, currentValues);
           if (snapshot.reveal) {
             showReveal(snapshot.reveal);
