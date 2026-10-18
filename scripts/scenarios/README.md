@@ -30,6 +30,10 @@ skipped or printed the header, 3 a tool error.
 360 and 320 points and checks that the header keeps one row and never scrolls
 sideways.
 
+`chat-glass.sh` takes the same two binaries. It opens Chat in the Glass design
+and checks the window's median alpha, so an opaque window or a doubled panel
+tint fails. `pixel-alpha.swift` reads the alpha.
+
 `chat-level.sh` takes the same two binaries. It checks that Chat stays at
 layer 0 while focused (a Perch under the overlay), and that minimizing Chat,
 focused or not, logs the change that lets the quick-message pill back.
