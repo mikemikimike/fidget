@@ -6,16 +6,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const FIXTURES = new URL("./fixtures/", import.meta.url);
 const read = (name) => JSON.parse(readFileSync(new URL(name, FIXTURES), "utf8"));
-
-const chrome = findChrome();
 
 // The sentences `ConfigFailure::notice` writes. harness.rs checks the same
 // fixture, so the page draws what the Shell sends.
@@ -67,14 +65,12 @@ ${steps}
 </script>`;
   const html = readFileSync(join(SRC, "settings.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: [`--window-size=${size}`] });
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
-test("a refused model shows its notice and the old value is back in the field", { skip, timeout: 60000 }, async () => {
+test("a refused model shows its notice and the old value is back in the field", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive({
     before: { harness_model: "nope", director_model: "nope" },
     steps: `
@@ -94,7 +90,7 @@ test("a refused model shows its notice and the old value is back in the field", 
   assert.deepEqual(seen.twin, { value: "gpt-4o-mini", notice: null, alert: null });
 });
 
-test("a Harness with no effort setting says so under the effort field", { skip, timeout: 60000 }, async () => {
+test("a Harness with no effort setting says so under the effort field", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive({
     before: { director_reasoning_effort: "high" },
     steps: `
@@ -110,7 +106,7 @@ test("a Harness with no effort setting says so under the effort field", { skip, 
   assert.match(seen.refused.notice, /You asked for "high"/, "the tried value is in the notice");
 });
 
-test("a notice goes when the next snapshot carries none", { skip, timeout: 60000 }, async () => {
+test("a notice goes when the next snapshot carries none", { skip: chromeSkip, timeout: 60000 }, async () => {
   const seen = await drive({
     before: { harness_model: "gpt-4o-mini", harness_model_notice: MODEL_NOTICE },
     steps: `
@@ -127,7 +123,7 @@ test("a notice goes when the next snapshot carries none", { skip, timeout: 60000
   assert.equal(seen.cleared.notice, null);
 });
 
-test("a tried value with markup is shown as text and injects nothing", { skip, timeout: 60000 }, async () => {
+test("a tried value with markup is shown as text and injects nothing", { skip: chromeSkip, timeout: 60000 }, async () => {
   const hostile = 'Model did not apply. You asked for "<img src=x onerror=window.__pwn=1><b>x</b>". The Harness refused it: <script>window.__pwn=1</script>. Fidget put back the Harness default.';
   const seen = await drive({
     before: { harness_model: "x" },

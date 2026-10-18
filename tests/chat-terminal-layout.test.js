@@ -1,18 +1,11 @@
 import assert from "node:assert/strict";
-import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
-
-const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 
 function paint() {
   const html = `<!doctype html>
 <html class="chat-ui-terminal">
   <head>
-    <base href="${pathToFileURL(SRC).href}">
     <link rel="stylesheet" href="chat-ui.css">
   </head>
   <body>
@@ -80,7 +73,7 @@ function paint() {
   return probePage(html, { args: ["--window-size=420,640"] });
 }
 
-const browser = { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 };
+const browser = { skip: chromeSkip, timeout: 60000 };
 
 test("the terminal log gives the words the width, and the focus ring stays clear of the status bar", browser, async () => {
   const painted = await paint();

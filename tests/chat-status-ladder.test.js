@@ -10,9 +10,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
@@ -39,8 +39,6 @@ const LONG_CELLS = [
 const OVER_CELLS = ["x".repeat(80), "—", "—", "—", "→", "wake 12s", "—"];
 const CAP_CELLS = ["m".repeat(24), "m".repeat(24), "m".repeat(24), "m".repeat(24), "→", "wake 2h", "m".repeat(24)];
 const PLAIN_LINE = "Wander toward cursor for a very long time · next thought in 12s";
-
-const chrome = findChrome();
 
 function measure() {
   const opening = {
@@ -287,7 +285,7 @@ function measure() {
 
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: ["--window-size=420,560"] });
 }
@@ -298,7 +296,7 @@ function why(theme, name, scene) {
 
 test(
   "the open ladder is its own full-width wrapping row",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 90000 },
+  { skip: chromeSkip, timeout: 90000 },
   async () => {
     const reports = await measure();
     assert.deepEqual(reports.childIds, CELL_IDS);

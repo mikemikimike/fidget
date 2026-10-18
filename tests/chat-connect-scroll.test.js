@@ -9,21 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { chromeSkip, findChrome, injectBase } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-function chromeBin() {
-  if (process.env.FIDGET_CHROME) return process.env.FIDGET_CHROME;
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
-    const found = spawnSync("bash", ["-lc", `command -v ${name}`], { encoding: "utf8" });
-    const path = found.stdout.trim();
-    if (found.status === 0 && path) return path;
-  }
-  return null;
-}
-
-const chrome = chromeBin();
-const skip = chrome ? false : "headless Chromium is not installed";
+const chrome = findChrome();
 
 const unconfigured = {
   name: "BMO",
@@ -129,10 +119,10 @@ async function withChat(run, { rejectHarness = false } = {}) {
     };
   };
 </script>`;
-  const html = spawnSync("cat", [join(SRC, "chat.html")], { encoding: "utf8" }).stdout.replace(
+  const html = injectBase(spawnSync("cat", [join(SRC, "chat.html")], { encoding: "utf8" }).stdout.replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
-  );
+    `<head>${stub}`,
+  ));
   writeFileSync(page, html);
 
   const port = await freePort();
@@ -214,7 +204,7 @@ async function withChat(run, { rejectHarness = false } = {}) {
   }
 }
 
-test("a branded connect keeps the landing status at the top", { skip, timeout: 60000 }, async () => {
+test("a branded connect keeps the landing status at the top", { skip: chromeSkip, timeout: 60000 }, async () => {
   await withChat(async ({ send, evalJs }) => {
     const place = await evalJs(`window.__reveal("grok")`);
     assert.ok(place.scrollTop > 0, "the transcript could not scroll");
@@ -256,7 +246,7 @@ test("a branded connect keeps the landing status at the top", { skip, timeout: 6
   });
 });
 
-test("a branded connect the Shell refuses shows its error", { skip, timeout: 60000 }, async () => {
+test("a branded connect the Shell refuses shows its error", { skip: chromeSkip, timeout: 60000 }, async () => {
   await withChat(
     async ({ send, evalJs }) => {
       const place = await evalJs(`window.__reveal("grok")`);

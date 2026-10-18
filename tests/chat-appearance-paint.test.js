@@ -1,16 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import {
-  findChrome,
-  launchWithPipe,
-  createPageTarget,
-  captureConsoleLog,
-  cleanupChrome,
-} from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 const CSS = readFileSync(new URL("../src/chat-ui.css", import.meta.url), "utf8");
@@ -37,20 +30,13 @@ function resolveToken(value) {
   return decl[1].trim().replace(/\s+/g, "");
 }
 
-const chrome = findChrome();
-
 // One Chrome launch per test: `body` runs once per design on the same page and
 // returns that design's readings. A launch costs seconds, the loop costs nothing.
 async function probe(body, forceDark, preferredColorScheme) {
-  const dir = mkdtempSync(join(tmpdir(), "chat-appearance-paint-"));
-  let cdp;
-  try {
-    const page = join(dir, "harness.html");
-    const appearance = pathToFileURL(join(SRC, "chat-appearance.js")).href;
-    const html = `<!doctype html>
+  const appearance = pathToFileURL(join(SRC, "chat-appearance.js")).href;
+  const html = `<!doctype html>
 <html>
   <head>
-    <base href="${pathToFileURL(SRC).href}">
     <link rel="stylesheet" href="chat-ui.css">
   </head>
   <body>
@@ -76,41 +62,18 @@ async function probe(body, forceDark, preferredColorScheme) {
     </script>
   </body>
 </html>`;
-    writeFileSync(page, html);
-
-    const args = [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-    ];
-    if (forceDark) {
-      args.push("--force-dark-mode");
-    }
-    if (preferredColorScheme !== undefined) {
-      args.push(`--blink-settings=preferredColorScheme=${preferredColorScheme}`);
-    }
-
-    cdp = launchWithPipe(chrome, args);
-    const { sessionId, navigate } = await createPageTarget(cdp);
-    const result = await captureConsoleLog(
-      cdp,
-      sessionId,
-      "__PROBE_RESULT__",
-      3100,
-      () => navigate(pathToFileURL(page).href),
-    );
-    return result;
-  } finally {
-    if (cdp) await cleanupChrome(cdp);
-    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  const args = [];
+  if (forceDark) {
+    args.push("--force-dark-mode");
   }
+  if (preferredColorScheme !== undefined) {
+    args.push(`--blink-settings=preferredColorScheme=${preferredColorScheme}`);
+  }
+  return probePage(html, { args, timeout: 3100 });
 }
 
 const flat = (value) => value.replace(/\s+/g, "");
-const browser = { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 };
+const browser = { skip: chromeSkip, timeout: 60000 };
 
 test("forced light paints each design's light panel and pins color-scheme", browser, async () => {
   const reports = await probe(

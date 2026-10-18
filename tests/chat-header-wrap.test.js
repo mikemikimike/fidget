@@ -6,16 +6,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 // From wider than build_chat's inner_size, past its 320 minimum.
 const WIDTHS = Array.from({ length: 29 }, (_, i) => 480 - i * 10);
 
-const chrome = findChrome();
 const THEMES = ["minimal", "terminal", "glass"];
 
 // A custom Harness command's argv[0]. No hyphen: a hyphen is a break opportunity.
@@ -113,7 +112,7 @@ function measure(name, harness = { name: "cursor-agent", session: "fd4be1a2-497f
 
   const html = readFileSync(join(SRC, "chat.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: ["--window-size=420,560"] });
 }
@@ -139,7 +138,7 @@ function check(theme, report) {
 
 test(
   "the Chat header stays one row and wraps the mind line, then the name, then the chip",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
+  { skip: chromeSkip, timeout: 60000 },
   async () => {
     const reports = await measure("Buddy Bot");
     for (const theme of THEMES) {
@@ -156,7 +155,7 @@ test(
 
 test(
   "a name too long for the row wraps beside the chip and the mind line",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
+  { skip: chromeSkip, timeout: 60000 },
   async () => {
     const reports = await measure("Sir Reginald Buddington the Third of Cupertino");
     for (const theme of THEMES) {
@@ -173,7 +172,7 @@ test(
 
 test(
   "a custom Harness path with no break opportunity wraps inside the path instead of widening the header",
-  { skip: chrome ? false : "headless Chromium is not installed", timeout: 60000 },
+  { skip: chromeSkip, timeout: 60000 },
   async () => {
     const reports = await measure("Buddy Bot", {
       name: LONG_HARNESS_PATH,

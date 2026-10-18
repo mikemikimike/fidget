@@ -5,15 +5,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageClock } from "./page-clock.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
 
 const opening = {
   name: "Buddy Bot",
@@ -175,14 +173,12 @@ function drive() {
 
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: ["--window-size=1000,700"] });
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
-test("the pill steps clear of a speech bubble and of the thinking dots", { skip, timeout: 90000 }, async () => {
+test("the pill steps clear of a speech bubble and of the thinking dots", { skip: chromeSkip, timeout: 90000 }, async () => {
   const report = await drive();
   assert.equal(report.error, undefined, report.error);
   assert.equal(report.cases.length, 10);

@@ -3,18 +3,15 @@
 // centred on the contact, lying along it.
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
 const PROBE_MS = 3000;
-
-const chrome = findChrome();
 
 function harness(sprite, css) {
   const frame = {
@@ -106,38 +103,11 @@ function harness(sprite, css) {
 }
 
 async function launch(sprite, css = "") {
-  const dir = mkdtempSync(join(tmpdir(), "cue-landing-"));
-  const page = join(dir, "harness.html");
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${harness(sprite, css)}`,
+    `<head>${harness(sprite, css)}`,
   );
-  writeFileSync(page, html);
-
-  const cdp = launchWithPipe(chrome, [
-    "--headless=new",
-    "--disable-gpu",
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    `--user-data-dir=${join(dir, "profile")}`,
-    "--allow-file-access-from-files",
-    "--window-size=800,600",
-  ]);
-
-  try {
-    const { sessionId, navigate } = await createPageTarget(cdp);
-    const result = await captureConsoleLog(
-      cdp,
-      sessionId,
-      "__PROBE_RESULT__",
-      PROBE_MS + 100,
-      () => navigate(pathToFileURL(page).href)
-    );
-    return result;
-  } finally {
-    await cleanupChrome(cdp);
-    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
-  }
+  return probePage(html, { args: ["--window-size=800,600"], timeout: PROBE_MS + 100 });
 }
 
 // A 800x600 overlay. `gap` is from the surface to the puff's outer edge, shadow
@@ -171,17 +141,15 @@ function assertLanded(puff, surface) {
   assert.ok(surface.along(puff), `lies along the surface: ${JSON.stringify(puff)}`);
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
 for (const cue of ["drop", "throw"]) {
   for (const [name, surface] of Object.entries(SURFACES)) {
-    test(`a ${cue} on the ${name} puffs flush against it, centred on the contact`, { skip }, async () => {
+    test(`a ${cue} on the ${name} puffs flush against it, centred on the contact`, { skip: chromeSkip }, async () => {
       assertLanded(await launch({ cue, ...surface.contact }), surface);
     });
   }
 }
 
-test("a landing the Shell sent no contact for puffs on the floor under the feet", { skip }, async () => {
+test("a landing the Shell sent no contact for puffs on the floor under the feet", { skip: chromeSkip }, async () => {
   const puff = await launch({ cue: "drop", ripple_x: null, ripple_y: null, ripple_normal: null });
   assertLanded(puff, {
     gap: (p) => 364 - (p.bottom + p.shadow),
@@ -190,7 +158,7 @@ test("a landing the Shell sent no contact for puffs on the floor under the feet"
   });
 });
 
-test("a same-tick landing beside the right edge below the Dock hits the wall, not the Dock", { skip }, async () => {
+test("a same-tick landing beside the right edge below the Dock hits the wall, not the Dock", { skip: chromeSkip }, async () => {
   const puff = await launch({ cue: "throw", ripple_x: 800, ripple_y: 560, ripple_normal: { x: -1, y: 0 } });
   const wallGap = 800 - (puff.right + puff.shadow);
   const verticalDrift = (puff.top + puff.bottom) / 2 - 560;
@@ -199,7 +167,7 @@ test("a same-tick landing beside the right edge below the Dock hits the wall, no
   assert.ok(puff.bottom - puff.top > puff.right - puff.left, `vertical orientation confirms wall, not floor or Dock`);
 });
 
-test("a left wall puff near the top corner stays at the contact, not at y=0", { skip }, async () => {
+test("a left wall puff near the top corner stays at the contact, not at y=0", { skip: chromeSkip }, async () => {
   const puff = await launch({ cue: "drop", ripple_x: 0, ripple_y: 10, ripple_normal: { x: 1, y: 0 } });
   const drift = (puff.top + puff.bottom) / 2 - 10;
   assert.ok(Math.abs(drift) <= 0.01, `centred at y=10, not y=0: ${drift}px off, puff at ${JSON.stringify(puff)}`);
@@ -220,7 +188,7 @@ const RESTYLES = {
 
 for (const [restyle, css] of Object.entries(RESTYLES)) {
   for (const name of ["left wall", "right wall"]) {
-    test(`a ${name} puff with ${restyle} still lands flush`, { skip }, async () => {
+    test(`a ${name} puff with ${restyle} still lands flush`, { skip: chromeSkip }, async () => {
       const surface = SURFACES[name];
       assertLanded(await launch({ cue: "drop", ...surface.contact }, css), surface);
     });

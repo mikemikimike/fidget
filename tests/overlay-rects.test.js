@@ -5,13 +5,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findChrome, probePage } from "./chrome-cdp.js";
+import { chromeSkip, probePage } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-
-const chrome = findChrome();
 
 const sprite = (id, x, extra) => ({
   id,
@@ -130,14 +128,12 @@ async function launch() {
 
   const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
     "<head>",
-    `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
+    `<head>${stub}`,
   );
   return probePage(html, { args: ["--window-size=1400,900"] });
 }
 
-const skip = chrome ? false : "headless Chromium is not installed";
-
-test("Open chat and the pill take clicks; the bubble and its dots are only drawn", { skip, timeout: 60000 }, async () => {
+test("Open chat and the pill take clicks; the bubble and its dots are only drawn", { skip: chromeSkip, timeout: 60000 }, async () => {
   const { reported, expected } = await drive();
   assert.ok(reported, "the overlay reported its rects");
   // Each names the sprite it rides with and where that sprite was, so the
@@ -158,7 +154,7 @@ test("Open chat and the pill take clicks; the bubble and its dots are only drawn
   assert.equal(reported.length, rows.length, "nothing else is reported");
 });
 
-test("an overlay that hands its bubbles on clears its rects, and only a change is sent", { skip, timeout: 60000 }, async () => {
+test("an overlay that hands its bubbles on clears its rects, and only a change is sent", { skip: chromeSkip, timeout: 60000 }, async () => {
   const { handedOff, sent } = await drive();
   assert.deepEqual(handedOff, [], "an empty list clears");
   const repeats = sent.filter((rects, i) => i > 0 && rects === sent[i - 1]);
