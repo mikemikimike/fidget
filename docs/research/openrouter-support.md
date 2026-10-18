@@ -106,8 +106,10 @@ path.
 **Fix.** Key the account by hosted endpoint, for example
 `director-api-key:openrouter.ai`. Local rows need no key (`is_local`). A
 Custom URL keeps the shared account. The key row's placeholder then says
-which endpoint the key is for. Under the no-backcompat rule, the shared
-account is not migrated.
+which endpoint the key is for. The shared account is not migrated: the
+owner's call is no backcompat before v1. The cost is that anyone on the
+OpenAI, Anthropic, or xAI rows pastes their key again once after the upgrade.
+The rejected alternative reads `director-api-key` once as a fallback.
 
 **Where to get a key.** The key row's help line names OpenRouter's key page
 when OpenRouter is picked. The URL is read off OpenRouter's docs when the
@@ -118,10 +120,10 @@ slice is built, not here.
 **What exists (Source).** `src/chat.html` draws one `.connect-btn` per
 Harness, each with an inline SVG mark and a `data-harness` name. Each
 Harness has a `--<name>-accent` in `src/chat-ui.css`, most with a
-light-theme value too. The accent colors the button's border, its hover fill, and its icon
-through `currentColor`. A click calls `select_harness`, and a "More options in
-Settings" button calls `show_ai_source`, which opens Settings through
-`Reveal::AiSource`.
+light-theme value too. The accent colors the button's border, its hover
+fill, and its icon through `currentColor`. A click calls `select_harness`, and
+a "More options in Settings" button calls `show_ai_source`, which opens
+Settings through `Reveal::AiSource`.
 
 **The glyph (Measured, Source).** OpenRouter's brand page offers a glyph "for
 avatars, favicons, small sizes" as SVG, in four colorways. Its one rule is
@@ -263,8 +265,9 @@ other proxy mounted under a prefix (Inferred).
 
 When the model is not served, `preflight_verdict` joins every served id into
 one message. OpenRouter serves 471 ids, and the joined list is 12,173
-characters (Measured). OpenRouter slugs also look alike. `anthropic/claude-haiku-5.5`
-and `anthropic/claude-haiku-5.5:batch` are both listed. A user who typed
+characters (Measured). OpenRouter slugs also look alike.
+`anthropic/claude-haiku-5.5` and `anthropic/claude-haiku-5.5:batch` are both
+listed. A user who typed
 `claude-haiku-5.5` without the vendor prefix gets the whole catalog. Cap the
 list, for example at the ten closest ids, or name only the count.
 
@@ -335,7 +338,7 @@ Each place that changes, and the slice it rides with:
 |---|---|---|
 | `README.md`, "Get It", the Model API paragraph | It names the presets Base URL fills. OpenRouter joins the list. | 6 |
 | `README.md`, "Prior Art and Attribution" | Where the OpenRouter glyph comes from and whose trademark it is. | 6 |
-| `src/chat.html`, landing title and lede | Stop saying "Harness" and "no credentials stored here" when OpenRouter is offered. | 6 |
+| `src/chat.html` and `landingCopy` in `src/chat-connect.js`, landing title and lede | Stop saying "Harness" and "no credentials stored here" when OpenRouter is offered. | 6 |
 | `docs/harness.md`, "Quick Start" | An `# OpenRouter` block beside OpenAI, Anthropic, xAI, and Ollama. | 5 |
 | `docs/harness.md`, "Provider Details" | The in-band error, the free-model limits, and `openrouter/auto`. | 5 |
 | `docs/harness.md`, a new section | The Claude and Codex recipes. | 7 |
@@ -393,10 +396,12 @@ subscription login is never replaced without a prompt. The recipes go in
 
 `ori` is OpenRouter's CLI. Its "Ori Harness" mode is documented as "Run your
 existing agent CLI on OpenRouter". It signs in with OAuth PKCE and launches
-"the real agent CLI on your machine" for Claude Code, Codex, Hermes, OpenCode, Pi, and others
-([Ori Harness](https://openrouter.ai/docs/guides/ori/harness)). The untracked
-`.ori/` folder at the repository root is its workspace state. Its one session
-record names `"harness": "ori"` and this spike's prompt (Measured).
+"the real agent CLI on your machine" for Claude Code, Codex, Hermes,
+OpenCode, Pi, and others
+([Ori Harness](https://openrouter.ai/docs/guides/ori/harness)). An untracked
+`.ori/` folder in the owner's local checkout, not in the repo, holds its
+state. Its one session record names `"harness": "ori"` and this spike's
+prompt (Measured).
 
 **Fidget should not launch it.** The evidence (Measured, on 0.15.7-alpha):
 
@@ -430,8 +435,11 @@ in any order.
    Verified by canned SSE bytes through `read_stream`, as the existing stream
    tests do, asserting `Unsent::Failed` carries "Rate limit exceeded".
 4. **`feat(settings): Keep one API key per hosted endpoint`.** `secrets.rs`
-   accounts, the API key row's read and write, and its placeholder.
-   Verified by `MemoryStore` tests that an OpenAI key and an OpenRouter key coexist and that switching Base URL reads the other one.
+   accounts, the API key row's read and write, and its placeholder. No
+   migration, as the owner's call before v1: anyone on the OpenAI, Anthropic,
+   or xAI rows pastes their key again once after the upgrade. Verified by
+   `MemoryStore` tests that an OpenAI key and an OpenRouter key coexist and
+   that switching Base URL reads the other one.
 5. **`feat(settings): Add OpenRouter to the Base URL picker`.** The `ENDPOINTS`
    row, the blank-Model fill with `openrouter/auto`, the key row's help line,
    the `settings-snapshot-modelApi.json` fixture, and the `docs/harness.md`
@@ -443,7 +451,8 @@ in any order.
 6. **`feat(chat): Offer OpenRouter on the Chat landing`.** The glyph and
    `--openrouter-accent` in `src/chat.html` and `src/chat-ui.css`, the new
    select command in `main.rs`, `Reveal::ApiKey` in `form.rs`, the landing
-   copy, and the README lines. Verified by a `form.rs` test that the aim lands
+   copy in `src/chat.html` and `landingCopy` in `src/chat-connect.js`, and the
+   README lines. Verified by a `form.rs` test that the aim lands
    on the key row the form draws, like
    `the_ai_source_aim_lands_on_the_picker_the_form_draws`, and a cropped
    render of the landing in both themes on the PR. Depends on 5.
@@ -476,5 +485,8 @@ The owner decided these on 2026-10-18.
 1. Does OpenRouter go in the Base URL picker under Model API, as recommended,
    rather than as its own entry in the AI source picker?
 2. Should each hosted endpoint keep its own API key (slice 4), so picking
-   OpenRouter never sends a stored OpenAI key to `openrouter.ai`?
+   OpenRouter never sends a stored OpenAI key to `openrouter.ai`? The cost:
+   anyone on the OpenAI, Anthropic, or xAI rows pastes their key again once
+   after the upgrade, since the shared account is not migrated. The rejected
+   alternative reads `director-api-key` once as a fallback.
 3. Should picking OpenRouter fill a blank Model with `openrouter/auto`?
