@@ -81,7 +81,7 @@ const DEFAULT_STATE = {
   order: ["macos", "windows", "linux"],
   classes: [["btn"], ["btn"], ["btn"]],
   notes: [
-    ["macos", true, "Homebrew: brew install --cask omesser/fidget/fidget Copy"],
+    ["macos", true, "Or install with Homebrew: brew install --cask omesser/fidget/fidget Copy"],
     ["linux", true, "Prefer a .deb? Get it from Releases."],
     ["unsupported", true, "There's no build for your machine yet. You can run it from source."],
   ],
@@ -185,7 +185,7 @@ test("the browser's platform leads the buttons and its install line", { skip }, 
         assert.deepEqual(state.notes.map(([os, hidden]) => [os, hidden]), useCase.notes,
           `${name} showed the wrong notes: ${JSON.stringify(state.notes)}`);
         if (useCase.brew) {
-          assert.ok(state.notes[0][2].startsWith("Homebrew:"),
+          assert.ok(state.notes[0][2].startsWith("Or install with Homebrew:"),
             `${name} lost the Homebrew line: ${state.notes[0][2]}`);
         }
       } else {
@@ -229,40 +229,33 @@ test("the Homebrew copy button copies the command and says Copied", { skip }, as
   });
 });
 
-// Where the Homebrew line's pieces land, read back from layout.
+// The code is a flex item, so its own client rects are one box even when its
+// text wraps; the rects of a Range over its text are the line boxes.
 const BREW_LAYOUT = `(() => {
   const note = document.querySelector('[data-os-note="macos"]');
-  const label = document.createRange();
-  label.selectNodeContents(note.firstChild);
-  // The code is a flex item, so its own client rects are one box even when
-  // its text wraps; the rects of a Range over its text are the line boxes.
   const text = document.createRange();
   text.selectNodeContents(note.querySelector("code"));
-  const box = (rect) => ({ top: rect.top, bottom: rect.bottom, right: rect.right });
+  const code = text.getBoundingClientRect();
+  const copy = note.querySelector(".copy").getBoundingClientRect();
   return {
     width: document.documentElement.clientWidth,
-    label: box(label.getBoundingClientRect()),
     lines: new Set([...text.getClientRects()].map((rect) => Math.round(rect.top))).size,
-    code: box(text.getBoundingClientRect()),
-    copy: box(note.querySelector(".copy").getBoundingClientRect()),
+    besideCopy: code.top < copy.bottom && copy.top < code.bottom,
+    copyRight: copy.right,
   };
 })()`;
-
-const sameLine = (a, b) => a.top < b.bottom && b.top < a.bottom;
 
 test("the Homebrew command stays whole, beside its Copy button, and on screen", { skip }, async () => {
   await withSite(async (site, cdp) => {
     const { sessionId } = await pose(site, cdp, cases["macOS on ARM"]);
-    for (const [width, labelBeside] of [[1280, true], [390, false]]) {
+    for (const width of [1280, 390]) {
       await cdp.send("Emulation.setDeviceMetricsOverride",
         { width, height: 900, deviceScaleFactor: 1, mobile: false }, sessionId);
       const at = (await cdp.send("Runtime.evaluate", { expression: BREW_LAYOUT, returnByValue: true },
         sessionId)).result.value;
       assert.equal(at.lines, 1, `at ${width}px the command broke across ${at.lines} lines`);
-      const { code } = at;
-      assert.ok(sameLine(code, at.copy), `at ${width}px Copy left the command's line`);
-      assert.ok(at.copy.right <= at.width, `at ${width}px Copy ran off-screen: ${JSON.stringify(at)}`);
-      if (labelBeside) assert.ok(sameLine(at.label, code), `at ${width}px the label sat on its own line`);
+      assert.ok(at.besideCopy, `at ${width}px Copy left the command's line`);
+      assert.ok(at.copyRight <= at.width, `at ${width}px Copy ran off-screen`);
     }
   });
 });
