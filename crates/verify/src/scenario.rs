@@ -1664,6 +1664,23 @@ mod tests {
         }
     }
 
+    // Leaving Notepad's window open is a note in results.txt, not a cleanup
+    // failure: the 08:43 live run printed "FAIL: cleanup: note: cleanup left the
+    // Notepad window open" after PASS, because the note leaked into the return.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_leaving_the_window_is_not_a_cleanup_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let results = dir.path().join("results.txt");
+        let out = pill_self_check("FIDGET_SCENARIO_LEAVE_NOTE", results.as_os_str());
+        assert_eq!(out.lines().last(), Some("why: none"), "{out}");
+        let text = fs::read_to_string(&results).unwrap_or_default();
+        assert!(
+            text.contains("note: cleanup left the Notepad window open: test"),
+            "{text}"
+        );
+    }
+
     // Before launch the leaf reads WebView2's EBWebView\lockfile: missing and
     // free let the run go on, and so does a reader; held the way Chromium
     // holds it (write access, sharing only reads) is in use, with its pid.

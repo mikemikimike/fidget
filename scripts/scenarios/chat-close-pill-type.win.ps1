@@ -49,6 +49,8 @@
 #   the file as Notepad's is read, or busy; FIDGET_SCENARIO_TYPE_BEFORE,
 #   FIDGET_SCENARIO_TYPE_WORD and FIDGET_SCENARIO_TYPE_EXPECTED print the file
 #   after each character typed into Notepad, split by |;
+#   FIDGET_SCENARIO_LEAVE_NOTE=<results.txt> prints what cleanup gets back
+#   after leaving the window open (none);
 #   FIDGET_SCENARIO_UNEXPECTED=<results.txt> throws, to check the FAIL line;
 #   FIDGET_SCENARIO_PREPARE_ONLY=1 makes the run folder and stops.
 # Each run writes to a new chat-close-pill-type-<time>-<hex> folder in
@@ -264,6 +266,18 @@ public static class PillRm {
 if ($env:FIDGET_SCENARIO_PROFILE_LOCK) {
     $verdict = Get-ProfileLock $env:FIDGET_SCENARIO_PROFILE_LOCK
     Write-Output "lock: $($verdict.State)$(if ($verdict.Pids.Count) { " pid $($verdict.Pids -join ',')" })"
+    exit 0
+}
+# Cleanup leaving Notepad's window open is a note, not a failure: the note goes
+# to results.txt and the console, and the caller gets "" back.
+function Leave-WindowOpen([string]$Why) {
+    "note: cleanup left the Notepad window open: $Why" | Tee-Object -FilePath $results -Append | Write-Output
+    ""
+}
+if ($env:FIDGET_SCENARIO_LEAVE_NOTE) {
+    $results = $env:FIDGET_SCENARIO_LEAVE_NOTE
+    $why = Leave-WindowOpen "test"
+    Write-Output "why: $(if ($why) { "[$(@($why) -join '|')]" } else { 'none' })"
     exit 0
 }
 if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
@@ -734,15 +748,9 @@ function Close-OurNotepad {
     # only our own window may go, and only with nothing of the user's left in it
     # (a restored session's tabs are the user's). Closed, never killed.
     if (-not [PillWin]::IsWindow($script:hwnd)) { return "" }
-    try { $left = Get-TabNames $script:hwnd } catch {
-        "note: cleanup left the Notepad window open: $_" | Tee-Object -FilePath $results -Append | Write-Output
-        return ""
-    }
+    try { $left = Get-TabNames $script:hwnd } catch { return (Leave-WindowOpen "$_") }
     $verdict = Get-WindowVerdict $script:launchTabs $left $docName
-    if ($verdict.StartsWith("leave")) {
-        "note: cleanup left the Notepad window open: $($verdict.Substring(7))" | Tee-Object -FilePath $results -Append | Write-Output
-        return ""
-    }
+    if ($verdict.StartsWith("leave")) { return (Leave-WindowOpen $verdict.Substring(7)) }
     $null = [PillWin]::PostMessage($script:hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
     if (-not (Wait-Ui 3 { -not [PillWin]::IsWindow($script:hwnd) })) { return "the Notepad window this run opened did not close in 3 s" }
     ""
