@@ -795,6 +795,9 @@ struct SettingsSnapshot {
     view: std::collections::BTreeMap<String, settings::RowValue>,
     /// One shot, cleared by this read. Absent when nothing asked to point.
     reveal: Option<settings::form::RevealTarget>,
+    /// `std::env::consts::OS`, as `ChatOpening` sends it, so Settings tints
+    /// Glass the way Chat does.
+    platform: &'static str,
 }
 
 #[tauri::command]
@@ -824,6 +827,7 @@ fn settings_snapshot(app: tauri::AppHandle) -> Result<SettingsSnapshot, String> 
         form: settings::form::describe_with(&live),
         view: view.row_values(),
         reveal,
+        platform: std::env::consts::OS,
     })
 }
 

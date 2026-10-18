@@ -1,5 +1,5 @@
 import { mountChatAppearance } from "./chat-appearance.js";
-import { applyChatUiClass } from "./chat-ui-class.js";
+import { applyChatUiClass, applyPlatform } from "./chat-ui-class.js";
 
 // One interpreter of `form::describe()`, in two halves. `controls(tab, values)`
 // is pure: the tab as a flat list of {role, id, label, value, frozen} in render
@@ -663,6 +663,7 @@ if (typeof document !== "undefined") {
           // helpers take Chat's lowercase wire values.
           applyChatUiClass(root, String(currentValues.chat_ui).toLowerCase());
           applyChatAppearance(String(currentValues.chat_appearance).toLowerCase());
+          applyPlatform(root, snapshot.platform);
           draft = pruneDraft(draft, currentValues);
           if (snapshot.reveal) {
             showReveal(snapshot.reveal);
