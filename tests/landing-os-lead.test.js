@@ -228,3 +228,34 @@ test("the Homebrew copy button copies the command and says Copied", { skip }, as
     // permission granted; then only the label is affordable to assert.
   });
 });
+
+// The code is a flex item, so its own client rects are one box even when its
+// text wraps; the rects of a Range over its text are the line boxes.
+const BREW_LAYOUT = `(() => {
+  const note = document.querySelector('[data-os-note="macos"]');
+  const text = document.createRange();
+  text.selectNodeContents(note.querySelector("code"));
+  const code = text.getBoundingClientRect();
+  const copy = note.querySelector(".copy").getBoundingClientRect();
+  return {
+    width: document.documentElement.clientWidth,
+    lines: new Set([...text.getClientRects()].map((rect) => Math.round(rect.top))).size,
+    besideCopy: code.top < copy.bottom && copy.top < code.bottom,
+    copyRight: copy.right,
+  };
+})()`;
+
+test("the Homebrew command stays whole, beside its Copy button, and on screen", { skip }, async () => {
+  await withSite(async (site, cdp) => {
+    const { sessionId } = await pose(site, cdp, cases["macOS on ARM"]);
+    for (const width of [1280, 390]) {
+      await cdp.send("Emulation.setDeviceMetricsOverride",
+        { width, height: 900, deviceScaleFactor: 1, mobile: false }, sessionId);
+      const at = (await cdp.send("Runtime.evaluate", { expression: BREW_LAYOUT, returnByValue: true },
+        sessionId)).result.value;
+      assert.equal(at.lines, 1, `at ${width}px the command broke across ${at.lines} lines`);
+      assert.ok(at.besideCopy, `at ${width}px Copy left the command's line`);
+      assert.ok(at.copyRight <= at.width, `at ${width}px Copy ran off-screen`);
+    }
+  });
+});
