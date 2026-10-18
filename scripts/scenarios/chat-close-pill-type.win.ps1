@@ -4,7 +4,7 @@
 #   already open or a window of its own, and Fidget as a standing BMO with the
 #   fixture Harness. Cleanup closes only that tab, so it never comes back in
 #   Notepad's restored session. If this run started Notepad, it also closes
-#   that one window, and only when nothing but an empty Untitled tab is left.
+#   that one window, and only when no tab is left in it.
 # Input: SendInput cursor moves, clicks, typed words, Escape, Enter, Ctrl+Home,
 #   Ctrl+S. Case 5 opens and closes a small window of the script's own.
 #   Each press is held until Fidget traces it down. A pill word is one SendInput;
@@ -187,19 +187,18 @@ function Get-NotepadPlan([string[]]$Tabs, [string]$Ours, [bool]$WasRunning) {
     if ($mine -eq 0) { return "fail: no Notepad tab shows $Ours" }
     if ($mine -gt 1) { return "fail: Notepad already shows $Ours in $mine tabs" }
     if ($WasRunning) { return "close our tab only" }
-    "close our tab, then the window this run opened if only an empty Untitled tab is left"
+    "close our tab, then the window this run opened if no tab is left"
 }
 # After our tab is closed, whether the window this run opened may close too:
-# only with no tab left but an empty "Untitled" one Notepad made itself. A tab
-# open at launch is the user's, restored by Notepad (the #1590 live run's
-# modified doc.txt), and so is any other name; either leaves the window open.
+# only with no tab left. Any tab, Untitled too, may hold the user's unsaved
+# text; one open at launch is the user's, restored by Notepad (the #1590 live
+# run's modified doc.txt).
 function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) {
+    if (@($Left).Count -eq 0) { return "close" }
+    $name = @($Left)[0]
     $theirs = @($AtLaunch | Where-Object { -not $_.Contains($Ours) })
-    foreach ($name in $Left) {
-        if ($theirs -ccontains $name) { return "leave: `"$name`" was open at launch" }
-        if ($name -cne "Untitled") { return "leave: `"$name`" is not an empty Untitled tab" }
-    }
-    "close"
+    if ($theirs -ccontains $name) { return "leave: `"$name`" was open at launch" }
+    "leave: `"$name`" is still open"
 }
 # WebView2's lock on a profile: the browser holds <profile>\EBWebView\lockfile
 # open for writing, sharing only reads, and the file goes when it closes

@@ -116,7 +116,7 @@ leaves.
 `chat-close-pill-type` has a `.win.ps1` leaf. It types into a uniquely named
 file in Notepad, leaves other Notepad tabs and windows alone, and on cleanup
 closes only its own tab. If it started Notepad, it also closes that one window,
-and only when nothing but an empty Untitled tab is left. It skips while
+and only when no tab is left in it. It skips while
 Fidget is running. A fullscreen app keeps running: the leaf logs it to
 `focus.log` and never focuses or moves it. Each run writes a new
 `chat-close-pill-type-<time>-<hex>` folder under the evidence dir it is given,
