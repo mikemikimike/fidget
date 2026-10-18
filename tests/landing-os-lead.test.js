@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -267,14 +267,15 @@ const HEADER_AT = `(() => {
   return {
     scrolled: scrollY > 0,
     top: document.querySelector(".site-nav")?.getBoundingClientRect().top ?? null,
+    left: document.querySelector(".site-nav")?.getBoundingClientRect().left ?? null,
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   };
 })()`;
 
-test("the site header stays at the top of the landing page and the gallery", { skip }, async () => {
+test("the site header stays at the top, flush left, on every page", { skip }, async () => {
   await withSite(async (site, cdp) => {
     const { sessionId } = await pose(site, cdp, cases["macOS on ARM"]);
-    for (const page of ["index.html", "characters.html"]) {
+    for (const page of readdirSync(site).filter((name) => name.endsWith(".html"))) {
       const loaded = new Promise((resolve) => cdp.on(sessionId, "Page.loadEventFired", resolve));
       await cdp.send("Page.navigate", { url: pathToFileURL(join(site, page)).href }, sessionId);
       await loaded;
@@ -285,7 +286,8 @@ test("the site header stays at the top of the landing page and the gallery", { s
           sessionId)).result.value;
         assert.ok(at.scrolled, `${page} at ${width}px did not scroll`);
         assert.equal(at.top, 0, `${page} at ${width}px left the header at ${at.top}`);
-        assert.ok(at.overflow <= 0, `${page} at ${width}px runs ${at.overflow}px wider than the screen`);
+        assert.equal(at.left, 0, `${page} at ${width}px set the header ${at.left}px in`);
+        if (["index.html", "characters.html"].includes(page)) assert.ok(at.overflow <= 0, `${page} at ${width}px runs ${at.overflow}px wider than the screen`);
       }
     }
   });
