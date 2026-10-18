@@ -24,11 +24,15 @@ const INK = {
   "Glass/Light": "rgb(26, 31, 43)",
 };
 
-// What a theme paints on the page itself: the body's pane and the root behind it.
+// What a theme paints on the page itself: the body's pane and the root behind it,
+// and whether the page outgrows the window, which scrolls the root.
 const PAINT = `
   function paint() {
     const body = getComputedStyle(document.body);
+    const root = document.documentElement;
     return {
+      overflowX: root.scrollWidth > window.innerWidth,
+      overflowY: root.scrollHeight > window.innerHeight,
       backgroundColor: body.backgroundColor,
       backgroundImage: body.backgroundImage,
       borderTopWidth: body.borderTopWidth,
@@ -198,4 +202,16 @@ test("Settings tints Glass on Linux as the Chat window does", { skip: chromeSkip
   // Equal only means something if Linux paints Glass differently.
   const mac = await chatPaints(glass);
   glass.forEach((_, i) => assert.notDeepEqual(chat[i], mac[i]));
+});
+
+test("no Chat UI makes Chat or Settings overflow its window", { skip: chromeSkip, timeout: 60000 }, async () => {
+  const chat = await chatPaints(THEMES);
+  assert.equal(chat.error, undefined, chat.error);
+  const settings = await settingsThemes(THEMES[0], THEMES.slice(1));
+  assert.equal(settings.error, undefined, settings.error);
+  const pages = { chat, settings: [settings.first, ...settings.later].map((page) => page.paint) };
+  const overflowing = Object.entries(pages).flatMap(([page, paints]) =>
+    THEMES.filter((_, i) => paints[i].overflowX || paints[i].overflowY).map(([design, mode]) => `${page} ${design}/${mode}`),
+  );
+  assert.deepEqual(overflowing, []);
 });

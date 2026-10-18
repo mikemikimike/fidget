@@ -498,6 +498,7 @@
 }
 
 .chat-ui-glass body {
+  box-sizing: border-box;
   background: linear-gradient(rgba(14,17,24,.62), rgba(14,17,24,.74));
   -webkit-backdrop-filter: blur(22px) saturate(150%);
   backdrop-filter: blur(22px) saturate(150%);
