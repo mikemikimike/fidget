@@ -463,10 +463,8 @@
   outline-offset: -2px;
 }
 
-/* Pane of glass. Port of .v-glass from docs/design/chat-mockups.html: a tinted
-   panel with thin light borders over a transparent window. The mockup's
-   backdrop-filter is left out: in a webview it blurs only the page under the
-   body, never the desktop, so all it adds is a second coat of tint. */
+/* Pane of glass. Port of .v-glass from docs/design/chat-mockups.html: a frosted
+   panel with backdrop blur and thin light borders, over a transparent window. */
 .chat-ui-glass {
   --chat-panel: rgba(14,17,24,.62);
   --chat-ink: #F1F4F9;
@@ -493,8 +491,16 @@
   --chat-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* A root background, even an empty image, keeps the body's tint off the page
+   canvas. On the canvas the body's blur would sample it and tint twice. */
+.chat-ui-glass {
+  background-image: linear-gradient(transparent, transparent);
+}
+
 .chat-ui-glass body {
   background: linear-gradient(rgba(14,17,24,.62), rgba(14,17,24,.74));
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
   border: 1px solid rgba(255,255,255,.22);
   border-radius: 18px;
   box-shadow: 0 26px 64px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.28);
