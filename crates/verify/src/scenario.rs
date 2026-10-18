@@ -1635,6 +1635,8 @@ mod tests {
     fn chat_close_pill_type_win_closes_its_window_only_with_no_tab_left() {
         assert_eq!(window_verdict("ours.txt", "none"), "window: close");
         for (at_launch, left, want) in [
+            // One tab with a blank name ("blank": an empty env var reads as unset).
+            ("ours.txt", "blank", "\"\" is still open"),
             ("ours.txt", "Untitled", "\"Untitled\" is still open"),
             (
                 "doc.txt|ours.txt",

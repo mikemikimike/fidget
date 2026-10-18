@@ -36,7 +36,7 @@
 # Self-checks that launch nothing: FIDGET_SCENARIO_NOTEPAD_TABS (names split by
 #   |), FIDGET_SCENARIO_DOC and FIDGET_SCENARIO_NOTEPAD_BEFORE=1|0 print the
 #   Notepad cleanup plan, and adding FIDGET_SCENARIO_NOTEPAD_LEFT (the tabs left
-#   once ours closes, or none) prints whether the window may close;
+#   once ours closes, none, or blank for one blank name) prints whether the window may close;
 #   FIDGET_SCENARIO_READY_LOG=<process.log> prints whether the overlay was
 #   listening; FIDGET_SCENARIO_AIM_LOG=<process.log> prints the sprite's middle;
 #   FIDGET_SCENARIO_TRACE_LINE=<line> prints which waited-on trace patterns it
@@ -266,7 +266,11 @@ if ($env:FIDGET_SCENARIO_PROFILE_LOCK) {
     exit 0
 }
 if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
-    $left = if ($env:FIDGET_SCENARIO_NOTEPAD_LEFT -eq "none") { [string[]]@() } else { [string[]]($env:FIDGET_SCENARIO_NOTEPAD_LEFT -split '\|') }
+    $left = switch ($env:FIDGET_SCENARIO_NOTEPAD_LEFT) {
+        "none" { [string[]]@() }
+        "blank" { [string[]]@("") }
+        default { [string[]]($env:FIDGET_SCENARIO_NOTEPAD_LEFT -split '\|') }
+    }
     Write-Output "window: $(Get-WindowVerdict ($env:FIDGET_SCENARIO_NOTEPAD_TABS -split '\|') $left $env:FIDGET_SCENARIO_DOC)"
     exit 0
 }
