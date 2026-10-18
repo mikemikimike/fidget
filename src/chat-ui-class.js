@@ -13,3 +13,13 @@ export function applyChatUiClass(root, design) {
   root.classList.remove(...DESIGNS.map((name) => `chat-ui-${name}`));
   root.classList.add(`chat-ui-${normalizeChatUi(design)}`);
 }
+
+// Flags Linux, whose webview cannot blur the desktop behind Chat, so Glass
+// can paint a stronger tint there.
+export function applyPlatform(root, platform) {
+  if (platform === "linux") {
+    root.dataset.platform = "linux";
+  } else {
+    delete root.dataset.platform;
+  }
+}

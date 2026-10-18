@@ -14,7 +14,7 @@ import {
 } from "./chat-connect.js";
 import { createNamesNotice } from "./chat-names-hint.js";
 import { planSteps } from "./chat-plan.js";
-import { applyChatUiClass } from "./chat-ui-class.js";
+import { applyChatUiClass, applyPlatform } from "./chat-ui-class.js";
 import { MISSING_ANSWER, createChatTurns } from "./chat-settle.js";
 import { createComposerRecall } from "./chat-recall.js";
 import { createThinking } from "./chat-thinking.js";
@@ -1320,6 +1320,7 @@ async function start() {
 
   // Apply Chat UI design immediately to prevent FOUC.
   applyChatUiClass(document.documentElement, opening.chat_ui || "minimal");
+  applyPlatform(document.documentElement, opening.platform);
   applyChatAppearance(opening.chat_appearance);
 
   showWho(opening);

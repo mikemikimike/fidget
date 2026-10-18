@@ -2839,6 +2839,9 @@ struct ChatOpening {
     /// Which Chat UI design the user picked: "minimal", "terminal", or "glass".
     chat_ui: String,
     chat_appearance: ChatAppearance,
+    /// `std::env::consts::OS`. Glass tints harder on "linux", where the
+    /// webview cannot blur the desktop behind Chat.
+    platform: &'static str,
     /// A Harness is attached but not signed in. Names the login command for
     /// the user's own terminal.
     login: Option<String>,
@@ -2942,6 +2945,7 @@ fn chat_opening_layers(
         host: inspect.host.clone(),
         chat_ui: chat_ui.to_string(),
         chat_appearance,
+        platform: std::env::consts::OS,
         login: inspect
             .harness
             .as_ref()
@@ -3059,6 +3063,7 @@ fn chat_opening(instance: String, state: tauri::State<'_, SettingsState>) -> Cha
             .ok()
             .map(|settings| settings.chat_appearance)
             .unwrap_or_default(),
+        platform: std::env::consts::OS,
         instance_prompt,
         prompt_limit: roster::INSTANCE_PROMPT_LIMIT,
     }
@@ -5922,6 +5927,19 @@ mod tests {
         assert!(opening.configured);
         assert!(!opening.enabled);
         assert!(opening.harness.is_none());
+    }
+
+    /// Production change that would fail this: Glass on Linux keeping the
+    /// mockup's tint because Chat was never told it runs there.
+    #[test]
+    fn chat_opening_names_linux_only_on_linux() {
+        let mut roster = Roster::new();
+        let character = stub_character("nim");
+        let id = roster.spawn(&character, "Pip".to_string(), Point { x: 10.0, y: 20.0 });
+        let instance = roster.get(&id).expect("still there");
+
+        let opening = chat_opening_from(instance, &stub_inspect(), "");
+        assert_eq!(opening.platform == "linux", cfg!(target_os = "linux"));
     }
 
     /// Production change that would fail this: an opening that says a Harness

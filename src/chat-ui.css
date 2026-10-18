@@ -741,6 +741,16 @@
   text-shadow: none;
 }
 
+/* Linux: WebKitGTK blurs only its own page, so the desktop shows through the
+   tint unblurred. A stronger tint stands in for the blur. */
+[data-platform="linux"].chat-ui-glass body {
+  background: linear-gradient(rgba(14,17,24,.92), rgba(14,17,24,.93));
+}
+
+[data-platform="linux"][data-chat-palette="light"].chat-ui-glass body {
+  background: linear-gradient(rgba(248,249,252,.93), rgba(242,244,248,.95));
+}
+
 [data-chat-palette="light"].chat-ui-glass .tb button {
   background: rgba(0,0,0,.08);
 }
