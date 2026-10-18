@@ -259,3 +259,34 @@ test("the Homebrew command stays whole, beside its Copy button, and on screen", 
     }
   });
 });
+
+// Where the site header sits after a scroll, and whether the page runs wider
+// than the viewport.
+const HEADER_AT = `(() => {
+  scrollTo(0, 1500);
+  return {
+    scrolled: scrollY > 0,
+    top: document.querySelector(".site-nav")?.getBoundingClientRect().top ?? null,
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+})()`;
+
+test("the site header stays at the top of the landing page and the gallery", { skip }, async () => {
+  await withSite(async (site, cdp) => {
+    const { sessionId } = await pose(site, cdp, cases["macOS on ARM"]);
+    for (const page of ["index.html", "characters.html"]) {
+      const loaded = new Promise((resolve) => cdp.on(sessionId, "Page.loadEventFired", resolve));
+      await cdp.send("Page.navigate", { url: pathToFileURL(join(site, page)).href }, sessionId);
+      await loaded;
+      for (const width of [1280, 390]) {
+        await cdp.send("Emulation.setDeviceMetricsOverride",
+          { width, height: 800, deviceScaleFactor: 1, mobile: false }, sessionId);
+        const at = (await cdp.send("Runtime.evaluate", { expression: HEADER_AT, returnByValue: true },
+          sessionId)).result.value;
+        assert.ok(at.scrolled, `${page} at ${width}px did not scroll`);
+        assert.equal(at.top, 0, `${page} at ${width}px left the header at ${at.top}`);
+        assert.ok(at.overflow <= 0, `${page} at ${width}px runs ${at.overflow}px wider than the screen`);
+      }
+    }
+  });
+});

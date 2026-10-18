@@ -27,6 +27,7 @@ python3 scripts/make-character-gallery.py --self-check
 python3 scripts/make-character-gallery.py --out "$site"
 python3 scripts/make-expression-page.py --self-check
 python3 scripts/make-expression-page.py --out "$site"
+# The landing page runs after every page step: it gives each published page the site header.
 python3 scripts/make-landing-page.py --self-check
 python3 scripts/make-landing-page.py --out "$site" --release "$release"
 cp src-tauri/icons/icon.png "$site/icon.png"
