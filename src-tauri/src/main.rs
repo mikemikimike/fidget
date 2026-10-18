@@ -2518,6 +2518,8 @@ fn build_settings(
         .title("Settings")
         .inner_size(600.0, 520.0)
         .min_inner_size(480.0, 400.0)
+        // Settings wears the Chat UI, whose rules assume Chat's see-through window.
+        .transparent(true)
         .focused(true)
         .on_page_load(move |_window, payload| {
             if payload.event() != tauri::webview::PageLoadEvent::Finished {
