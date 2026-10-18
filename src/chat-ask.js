@@ -15,7 +15,8 @@ const SILENT = "The Harness asked for permission without saying what for.";
 
 // What the row draws, in order: `{ kind, text }`. `markdown` is Harness
 // content, or `input` as a JSON fence when there is no content. `metadata`
-// is the `kind · paths` tail. `drawReply` draws the markdown.
+// is the `kind · paths` tail. `drawReply` draws `markdown`, and `drawTitle`
+// draws the title as its text with only its backticked spans as code.
 export function askSays(ask) {
   const title = stripUnsafe(ask?.title ?? "");
   const kind = stripUnsafe(ask?.kind ?? "");
