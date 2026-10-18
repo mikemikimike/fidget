@@ -22,6 +22,12 @@ export function findChrome() {
   return null;
 }
 
+// One lookup per importing process, so probePage and every skip gate agree.
+const chromePath = findChrome();
+
+// False when a browser was found, else the reason `test(..., { skip })` shows.
+export const chromeSkip = chromePath ? false : "headless Chromium is not installed";
+
 export function launchWithPipe(chrome, args) {
   const proc = spawn(chrome, [
     ...args,
@@ -231,15 +237,26 @@ export async function cleanupChrome(cdp) {
   try { await Promise.race([cdp.closePromise, capped]); } finally { clearTimeout(timer); }
 }
 
+// The probe html lands in a temp dir, so relative src/ URLs only resolve with the
+// base pinned; callers that already carry a <base> run untouched instead.
+export function injectBase(html, srcHref = new URL("../src/", import.meta.url).href) {
+  const head = html.match(/<head(?:\s[^>]*)?>/i);
+  if (!head) {
+    throw new Error(`no <head> in the html to inject <base href="${srcHref}"> into`);
+  }
+  return html.replace(head[0], `${head[0]}<base href="${srcHref}">`);
+}
+
 // Writes `html` to a temp page, opens it headless, and resolves with the JSON the
-// page logs as `__PROBE_RESULT__<json>`, after it logs `__PROBE_READY__`.
-export async function probePage(html, { args = [], timeout = 3000 } = {}) {
+// page logs as `__PROBE_RESULT__<json>`, after it logs `__PROBE_READY__`. Injects a
+// `<base href>` pinning src/ when the html brings no `<base>` of its own.
+export async function probePage(html, { args = [], timeout = 3000, srcHref } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "probe-page-"));
   let cdp;
   try {
     const page = join(dir, "harness.html");
-    writeFileSync(page, html);
-    cdp = launchWithPipe(findChrome(), [
+    writeFileSync(page, html.includes("<base ") ? html : injectBase(html, srcHref));
+    cdp = launchWithPipe(chromePath, [
       "--headless=new",
       "--disable-gpu",
       "--no-sandbox",
