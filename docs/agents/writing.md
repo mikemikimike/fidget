@@ -82,6 +82,15 @@ makes them reconstruct the problem from the diff.
 A pull request small enough that all three answers are one sentence each should
 give one sentence each. The template is a floor, not a quota.
 
+## The close keyword closes the issue
+
+A pull request that implements a tracker item carries that link in closing-keyword
+form — `Closes #123` — in its description. GitHub closes the linked issue only
+when the keyword rides in the body the squash merge keeps, so a bare
+`#123` mention leaves the item open with its acceptance boxes unchecked.
+When an agent must sweep up the slack, ticking the boxes wants the edit-unsigned,
+signed-comment rule above.
+
 ## A visual change shows itself
 
 When a pull request changes what the product looks like, the description
