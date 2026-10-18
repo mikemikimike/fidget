@@ -2434,6 +2434,8 @@ fn build_chat(
         .title(title)
         .inner_size(CHAT_SIZE.0, CHAT_SIZE.1)
         .min_inner_size(320.0, 320.0)
+        // An opaque window paints black under the Glass panel.
+        .transparent(true)
         .focused(true);
     if let Some((x, y)) = at {
         builder = builder.position(x, y);
