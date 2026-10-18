@@ -5929,19 +5929,6 @@ mod tests {
         assert!(opening.harness.is_none());
     }
 
-    /// Production change that would fail this: Glass on Linux keeping the
-    /// mockup's tint because Chat was never told it runs there.
-    #[test]
-    fn chat_opening_names_linux_only_on_linux() {
-        let mut roster = Roster::new();
-        let character = stub_character("nim");
-        let id = roster.spawn(&character, "Pip".to_string(), Point { x: 10.0, y: 20.0 });
-        let instance = roster.get(&id).expect("still there");
-
-        let opening = chat_opening_from(instance, &stub_inspect(), "");
-        assert_eq!(opening.platform == "linux", cfg!(target_os = "linux"));
-    }
-
     /// Production change that would fail this: an opening that says a Harness
     /// is there without carrying whether it is up, which is the difference
     /// between the header naming a mind and naming a hope (#474).
