@@ -1184,7 +1184,7 @@ mod tests {
     #[test]
     fn chat_close_pill_type_win_closes_only_its_own_notepad_tab() {
         let closes_window =
-            "plan: close our tab, then the window this run opened if it holds only tabs seen at launch";
+            "plan: close our tab, then the window this run opened if only an empty Untitled tab is left";
         let tab_only = "plan: close our tab only";
         for (tabs, before, want) in [
             ("ours.txt", false, closes_window),
@@ -1287,6 +1287,18 @@ mod tests {
                 "listening two",
             ),
             (
+                "1792238686 overlay: draft instance=d4 text=\"eight\" focused=true",
+                "listening eight",
+            ),
+            (
+                "1792238687 overlay: draft instance=d4 text=\"five\" focused=true",
+                "listening five",
+            ),
+            (
+                "1792238686 overlay: draft instance=d4 text=\"eight\" focused=false",
+                "listening",
+            ),
+            (
                 "1792238678 overlay: draft instance=d4 text=\"tw\" focused=true",
                 "listening",
             ),
@@ -1300,7 +1312,7 @@ mod tests {
             ),
             (
                 "1792238681 overlay: hand back Restore to 0x150e64 -> 0",
-                "pillGone",
+                "pillGone restore",
             ),
             (
                 "1792238682 overlay overlay-0: window blur foreground=false dnd=off",
@@ -1319,12 +1331,26 @@ mod tests {
                 "pillOpen",
             ),
             (
+                "1792238681 overlay: hand back Restore to 0x1a2b -> 1",
+                "pillGone restore",
+            ),
+            (
+                "1792238682 overlay: hand back StepAside to 0x3c4d -> 1",
+                "pillGone stepAside",
+            ),
+            ("1792238683 overlay: hand back StepAside to none", "pillGone"),
+            ("1792238684 overlay: hand back Stay to none", "pillGone stay"),
+            (
                 "1792238673 hit-test: cursor(1720,1328) scale 1.0 -> point(1720,1328) on overlay 0 HIT  click-through OFF  <- flipped",
                 "hitTest hit",
             ),
             (
                 "1792238673 hit-test: cursor(2120,1328) scale 1.0 -> point(2120,1328) on overlay 0 miss click-through on  <- flipped",
                 "hitTest miss",
+            ),
+            (
+                "1792238685 hit-test: cursor(1600,1180) scale 1.0 -> point(1600,1180) on overlay 0 miss click-through OFF  <- flipped",
+                "hitTest miss control",
             ),
             (
                 "1792238674 click: down hits=[true] target=Some(0) cursor=(1720,1328)->(1720,1328) scale=1.0 visible=true sprite=(1657,1264)",
@@ -1379,6 +1405,40 @@ mod tests {
                 pill_self_check_with(&[
                     ("FIDGET_SCENARIO_PILL_LOG", path.as_os_str()),
                     ("FIDGET_SCENARIO_PILL_OPENED_AT", "0".as_ref()),
+                ]),
+                want,
+                "{log}"
+            );
+        }
+    }
+
+    // Case 7 opens its own pill by hover, then clicks it: "eight" after the
+    // click lines is typed, and a close the click caused fails it.
+    #[cfg(windows)]
+    #[test]
+    fn chat_close_pill_type_win_judges_the_pill_click_from_its_hover_opening() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("process.log");
+        let d = "1792261251 overlay: draft instance=e7";
+        let open = "1792261251 overlay: pill open SetForegroundWindow(0x40ec4) -> 1 GetForegroundWindow() -> 0x40ec4";
+        let click = "1792261252 click: down hits=[true] target=Some(0) cursor=(1720,1300)->(1720,1300) scale=1.0 visible=true sprite=(1657,1264)\n\
+             1792261252 click: up hits=[true] target=Some(0) cursor=(1720,1300)->(1720,1300) scale=1.0 visible=true sprite=(1657,1264)";
+        for (log, want) in [
+            (
+                format!("{open}\n{d} text=\"\" focused=true\n{click}\n{d} text=\"eight\" focused=true\n"),
+                "pill: typed".to_string(),
+            ),
+            (
+                format!("{open}\n{d} text=\"\" focused=true\n{click}\n{d} closed\n{d} text=\"eight\" focused=true\n"),
+                format!("pill: lost {d} closed"),
+            ),
+        ] {
+            fs::write(&path, &log).unwrap();
+            assert_eq!(
+                pill_self_check_with(&[
+                    ("FIDGET_SCENARIO_PILL_LOG", path.as_os_str()),
+                    ("FIDGET_SCENARIO_PILL_OPENED_AT", "0".as_ref()),
+                    ("FIDGET_SCENARIO_PILL_TYPED", "eight".as_ref()),
                 ]),
                 want,
                 "{log}"
@@ -1567,27 +1627,47 @@ mod tests {
     }
 
     // Win11 Notepad is one process for every window, so a run that started it
-    // closes only its own window, and only while every tab left was there at
-    // launch: anything opened during the run keeps the window open.
+    // closes only its own window, and only when nothing but an empty Untitled
+    // tab Notepad made itself is left. A tab restored at launch is Oded's: the
+    // #1590 live run closed a window holding his modified doc.txt.
     #[cfg(windows)]
     #[test]
-    fn chat_close_pill_type_win_closes_its_window_only_with_launch_tabs_left() {
+    fn chat_close_pill_type_win_closes_its_window_only_with_nothing_of_the_users_left() {
         assert_eq!(window_verdict("ours.txt", "none"), "window: close");
-        assert_eq!(
-            window_verdict(
-                "notes.txt|ours.txt|Untitled|Untitled",
-                "notes.txt|Untitled|Untitled"
+        assert_eq!(window_verdict("ours.txt", "Untitled"), "window: close");
+        for (at_launch, left, want) in [
+            (
+                "doc.txt|ours.txt",
+                "doc.txt",
+                "\"doc.txt\" was open at launch",
             ),
-            "window: close"
-        );
-        assert_eq!(
-            window_verdict("ours.txt", "todo.txt"),
-            "window: leave: \"todo.txt\" was not open at launch"
-        );
-        assert_eq!(
-            window_verdict("notes.txt|ours.txt", "notes.txt|notes.txt"),
-            "window: leave: \"notes.txt\" was not open at launch"
-        );
+            (
+                "ours.txt|Untitled",
+                "Untitled",
+                "\"Untitled\" was open at launch",
+            ),
+            (
+                "notes.txt|ours.txt|Untitled|Untitled",
+                "notes.txt|Untitled|Untitled",
+                "\"notes.txt\" was open at launch",
+            ),
+            (
+                "ours.txt",
+                "todo.txt",
+                "\"todo.txt\" is not an empty Untitled tab",
+            ),
+            (
+                "ours.txt",
+                "Untitled*",
+                "\"Untitled*\" is not an empty Untitled tab",
+            ),
+        ] {
+            assert_eq!(
+                window_verdict(at_launch, left),
+                format!("window: leave: {want}"),
+                "{at_launch} -> {left}"
+            );
+        }
     }
 
     // Before launch the leaf reads WebView2's EBWebView\lockfile: missing and
