@@ -36,7 +36,7 @@ a path prefix also has.
    and 12,173 characters, all on one line.
 3. OpenRouter reports some errors as HTTP 200 with an `error` field and
    `finish_reason: "error"`. Fidget reads such a turn as a finished reply. The
-   error message never reaches the Action Log.
+   error message then never reaches the Action Log (Inferred).
 
 Adding OpenRouter to the Base URL picker is one row in `ENDPOINTS`.
 
@@ -171,8 +171,9 @@ truncated. The turn therefore ends as `Streamed::Complete` (Source):
 - With text before the error, the partial text is spoken as if whole. Its
   first line is parsed as a Behavior (Inferred).
 
-The cases that matter for a desktop pet are 429 on a `:free` model and 402
-when credits run out. Free models allow 20 requests per minute, and 50 per day
+The in-band case that matters for a desktop pet is a 429 on a `:free` model.
+Missing credits are not in-band. OpenRouter answers them with an HTTP 402,
+which `status_error` already reports (errors). Free models allow 20 requests per minute, and 50 per day
 on an account that has bought less than 10 credits (limits). Proactive model
 calls from one Character Instance can reach the daily cap in a working day
 (Inferred).
