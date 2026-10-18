@@ -222,8 +222,7 @@ variant shows a code for the user to paste, so it needs no callback server.
 The code is single-use and lasts 10 minutes. `POST /api/v1/auth/keys`
 exchanges it for a key, and Fidget would store that key in the keychain like a
 pasted key. This is the one OpenRouter-specific feature that changes what the
-user does. It is not needed to support OpenRouter, so it is listed as a
-decision below.
+user does. It is not needed to support OpenRouter, so it is follow-up 6.
 
 ## Harness presets
 
@@ -285,12 +284,17 @@ subscription login is never replaced without a prompt.
    log a false failure.
 5. **`docs(harness): Run Claude and Codex on OpenRouter`.** A keyed probe,
    then the recipes. Needs a funded OpenRouter key.
+6. **`feat(settings): Sign in with OpenRouter`.** OAuth PKCE in its headless
+   form, so the user pastes a one-time code instead of a key. Not needed for
+   support.
 
-## Open decisions
+## Decisions
 
-1. Should OpenRouter get a row in the Base URL picker? The recommendation is
-   yes, after follow-up 1.
-2. Should `docs/harness.md` carry OpenRouter recipes for `claude` and `codex`?
-   The recommendation is yes, after a keyed probe.
-3. Should "Sign in with OpenRouter" (OAuth PKCE) be filed for V2? It is not
-   needed for support. It only removes the step of pasting a key.
+The owner decided these on 2026-10-18.
+
+1. OpenRouter gets a row in the Base URL picker once follow-up 4 is built and
+   tested. Not before.
+2. `docs/harness.md` carries the Claude and Codex recipes once follow-up 5 has
+   run against a real key. Not before.
+3. "Sign in with OpenRouter" is wanted, but not yet. Follow-up 6 waits until
+   the work reaches it.
