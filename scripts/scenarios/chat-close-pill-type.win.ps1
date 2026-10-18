@@ -4,12 +4,12 @@
 #   already open or a window of its own, and Fidget as a standing BMO with the
 #   fixture Harness. Cleanup closes only that tab, so it never comes back in
 #   Notepad's restored session. If this run started Notepad, it also closes
-#   that one window, and only when every tab left in it was there at launch.
+#   that one window, and only when nothing but an empty Untitled tab is left.
 # Input: SendInput cursor moves, clicks, typed words, Escape, Enter, Ctrl+Home,
 #   Ctrl+S. Case 5 opens and closes a small window of the script's own.
 #   Each press is held until Fidget traces it down. A pill word is one SendInput;
 #   a Notepad word goes one character at a time, each saved and read back first.
-# Duration: about 30 s (an estimate until the first Windows run). Every wait
+# Duration: about 12.5 s (the first live Windows pass, at b92365ec). Every wait
 #   gives up 3 s after its trigger; at startup that is the first frame after
 #   the launch, the overlay's page load after that frame, and its first report
 #   after the page load. Waits wake on each line of Fidget's piped stderr, on
@@ -187,16 +187,17 @@ function Get-NotepadPlan([string[]]$Tabs, [string]$Ours, [bool]$WasRunning) {
     if ($mine -eq 0) { return "fail: no Notepad tab shows $Ours" }
     if ($mine -gt 1) { return "fail: Notepad already shows $Ours in $mine tabs" }
     if ($WasRunning) { return "close our tab only" }
-    "close our tab, then the window this run opened if it holds only tabs seen at launch"
+    "close our tab, then the window this run opened if only an empty Untitled tab is left"
 }
 # After our tab is closed, whether the window this run opened may close too:
-# only if each tab left in it was there at launch, ours aside. Names repeat
-# (two "Untitled"), so each launch name covers one tab.
+# only with no tab left but an empty "Untitled" one Notepad made itself. A tab
+# open at launch is the user's, restored by Notepad (the #1590 live run's
+# modified doc.txt), and so is any other name; either leaves the window open.
 function Get-WindowVerdict([string[]]$AtLaunch, [string[]]$Left, [string]$Ours) {
-    $pool = New-Object System.Collections.Generic.List[string]
-    foreach ($name in $AtLaunch) { if (-not $name.Contains($Ours)) { $pool.Add($name) } }
+    $theirs = @($AtLaunch | Where-Object { -not $_.Contains($Ours) })
     foreach ($name in $Left) {
-        if (-not $pool.Remove($name)) { return "leave: `"$name`" was not open at launch" }
+        if ($theirs -ccontains $name) { return "leave: `"$name`" was open at launch" }
+        if ($name -cne "Untitled") { return "leave: `"$name`" is not an empty Untitled tab" }
     }
     "close"
 }
@@ -722,8 +723,8 @@ function Close-OurNotepad {
     }
     if ($notepadWasRunning) { return "" }
     # This run opened Notepad. Win11 Notepad is one process for every window, so
-    # only our own window may go, and only while each tab left in it was there
-    # at launch (a restored session). Closed, never killed.
+    # only our own window may go, and only with nothing of the user's left in it
+    # (a restored session's tabs are the user's). Closed, never killed.
     if (-not [PillWin]::IsWindow($script:hwnd)) { return "" }
     $left = Get-TabNames $script:hwnd
     $verdict = Get-WindowVerdict $script:launchTabs $left $docName
@@ -732,7 +733,7 @@ function Close-OurNotepad {
         return ""
     }
     $null = [PillWin]::PostMessage($script:hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
-    if (-not (Wait-Ui 3 { -not [PillWin]::IsWindow($script:hwnd) })) { return "the Notepad window this run opened did not close in 3 s; it may be asking about a tab restored at launch" }
+    if (-not (Wait-Ui 3 { -not [PillWin]::IsWindow($script:hwnd) })) { return "the Notepad window this run opened did not close in 3 s" }
     ""
 }
 
