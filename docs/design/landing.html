@@ -81,7 +81,7 @@
   nav a.link { color: var(--ink-2); text-decoration: none; font-size: .95rem; }
   nav a.link:hover { color: var(--ink); }
 
-  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 2.5rem;
+  .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 2.5rem;
     align-items: center; padding: 2.5rem 0 3.5rem; }
   h1 { font-size: clamp(2rem, 4.2vw, 3.1rem); line-height: 1.1;
     letter-spacing: -0.02em; margin: 0 0 1rem; }
@@ -103,6 +103,11 @@
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 6px;
     padding: .2rem .45rem; color: var(--ink); overflow-wrap: anywhere; }
   .note { font-size: .85rem; color: var(--ink-3); margin-top: .8rem; max-width: 34rem; }
+  /* The command and its Copy button wrap as one unit; on a narrow screen the
+     command scrolls inside its chip rather than splitting. */
+  .cmd { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; vertical-align: middle; }
+  .cmd code { white-space: nowrap; overflow-x: auto; min-width: 0; }
+  .cmd .copy { flex: none; }
 
   .desk { position: relative; aspect-ratio: 4 / 3; border-radius: 14px;
     background: linear-gradient(135deg, var(--desk-a), var(--desk-b));
@@ -176,7 +181,7 @@
   .how-more { margin: 1rem 0 0; }
 
   @media (max-width: 760px) {
-    .hero { grid-template-columns: 1fr; padding-top: 1rem; }
+    .hero { grid-template-columns: minmax(0, 1fr); padding-top: 1rem; }
     nav a.link.opt { display: none; }
     .get { grid-template-columns: 1fr; }
     .cast { grid-template-columns: repeat(4, 1fr); }

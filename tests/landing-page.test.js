@@ -229,9 +229,9 @@ test("the static download group keeps three equal buttons and three hidden insta
   assert.deepEqual(rows, ["macos", "windows", "linux"], "the lead script cannot find its rows in order");
   assert.ok(!page.includes('class="btn primary"') && !page.includes('class="btn quiet"'),
     "a static page led with a row before any OS was known");
-  assert.ok(page.includes('<p class="note" data-os-note="macos" hidden>Or install with Homebrew: '
+  assert.ok(page.includes('<p class="note" data-os-note="macos" hidden>Homebrew: <span class="cmd">'
     + "<code>brew install --cask omesser/fidget/fidget</code> "
-    + '<button type="button" class="copy" data-copy="brew install --cask omesser/fidget/fidget">Copy</button></p>'),
+    + '<button type="button" class="copy" data-copy="brew install --cask omesser/fidget/fidget">Copy</button></span></p>'),
     "the macOS brew note lost its command or its Copy button");
   assert.ok(page.includes('<p class="note" data-os-note="linux" hidden>Prefer a .deb? '
     + '<a href="https://github.com/omesser/fidget/releases">Get it from Releases</a>.</p>'),
@@ -259,7 +259,7 @@ test("a README that stops advertising Homebrew empties the install line", () => 
   const page = readFileSync(join(out, PAGE), "utf8");
   assert.ok(page.includes('<p class="note" data-os-note="macos" hidden></p>'),
     "the empty Homebrew note did not stay empty and hidden");
-  assert.ok(!page.includes("Or install with Homebrew"),
+  assert.ok(!page.includes("Homebrew:"),
     "the page claimed a Homebrew line the README does not make");
 });
 

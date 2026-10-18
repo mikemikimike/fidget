@@ -405,8 +405,8 @@ def render(readme_text, characters_root, rust_source, shell, release=None):
         "lede": inline(words["lede"]),
         "notes": " ".join(inline(n) for n in words["notes"]),
         "install_brew": (
-            f'Or install with Homebrew: <code>{html.escape(words["brew"])}</code> '
-            f'<button type="button" class="copy" data-copy="{html.escape(words["brew"])}">Copy</button>'
+            f'Homebrew: <span class="cmd"><code>{html.escape(words["brew"])}</code> '
+            f'<button type="button" class="copy" data-copy="{html.escape(words["brew"])}">Copy</button></span>'
         ) if words["brew"] else "",
         "features": "\n".join(f"<div><b>{inline(t)}</b><p>{inline(b)}</p></div>" for t, b in words["features"]),
         "harnesses": "".join(f"<li>{html.escape(h)}</li>" for h in words["harnesses"]),
@@ -568,7 +568,7 @@ def self_check():
                        scratch, rust, shell, release)
         assert '<p class="note" data-os-note="macos" hidden></p>' in naked, \
             "the Homebrew note did not render empty and hidden"
-        assert "Or install with Homebrew" not in naked, \
+        assert "Homebrew:" not in naked, \
             "the page claimed a Homebrew line the README does not make"
 
     assert downloads(release) == {
