@@ -1,8 +1,8 @@
 //! The user's standing choices, as a file they own.
 //!
 //! Settings is how the user reaches the Director, hide rules, Memory, and
-//! launch without finding the sprite. The document is JSON so a hand-edit is a text
-//! editor, the same deal Memory already makes. Missing keys take their
+//! launch without finding the sprite. The document is JSON so a hand-edit is a
+//! text editor, the same deal Memory already makes. Missing keys take their
 //! defaults, so an older file keeps working when a field is added.
 
 pub mod controller;
@@ -299,7 +299,7 @@ fn development_texts(settings: &Settings) -> HashMap<String, String> {
 
 /// One Completer limit as the window shows it. A value `dev_flags::seed` treats
 /// as unset (blank, junk, out of range, zero) shows blank, so the placeholder
-/// names the default.
+/// names the default, and a blur that saves the blank loses nothing.
 fn limit_in_force<T>(var: &str, file: &str) -> String
 where
     T: std::str::FromStr + fmt::Display + Default + PartialEq,
@@ -427,7 +427,7 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, S
         ),
         // Remove first: `copilot mcp add` refuses a name it holds, and the URL
         // and token change every launch. Whether a running session re-reads its
-        // config is unmeasured.
+        // config is unmeasured, so the steps ask for a new session.
         "copilot" => (
             format!(
                 "copilot mcp remove fidget 2>/dev/null\n\
@@ -850,9 +850,10 @@ pub fn write_director_key(store: &dyn SecretStore, patch: &SettingsPatch) -> Res
     }
 }
 
-/// Env, then the file, then the store. The store is a Keychain dialog on macOS,
-/// and a read error is `Err`, not Unset. Call after `harness::attach`, or a
-/// launch reads a key it never sends.
+/// Env, then the file, then the store. The store is a Keychain dialog on macOS.
+/// A store read error is `Err`, not Unset, or Retarget drops a remote Completer
+/// to Static. Call after `harness::attach`, or a Harness launch reads a key it
+/// never sends.
 pub fn director_settings(
     settings: &Settings,
     secrets: &dyn SecretStore,
@@ -1056,8 +1057,9 @@ fn completer_retargets(settings: &Settings, patch: &SettingsPatch) -> bool {
             .director_blank
             .is_some_and(|blank| blank != settings.director_blank)
         // Every source change retargets: `harness::retarget` has moved the
-        // handle before the payload is built. The wake interval travels the
-        // same way, via `model::config_from`.
+        // handle before the payload is built, and `completer_from` reads the
+        // moved one. The wake interval travels the same way, via
+        // `model::config_from`.
         || patch
             .completer
             .director_wake_secs
@@ -1067,8 +1069,9 @@ fn completer_retargets(settings: &Settings, patch: &SettingsPatch) -> bool {
 }
 
 /// Whether the Harness this process would spawn differs from the one it has, by
-/// `Target`, not the saved row. The `hermes` preset and a custom `hermes acp`
-/// are one `Launch`.
+/// `Target` (Launch plus resolved cwd), not by the saved row, which
+/// `FIDGET_HARNESS` can own. The `hermes` preset and a custom `hermes acp` are
+/// one `Launch`, so neither respawns the other.
 fn harness_retargets(settings: &Settings, patch: &SettingsPatch) -> bool {
     let source_changed = harness_source_changed(settings, patch);
     let cwd_raw_changed = patch
@@ -1089,7 +1092,9 @@ fn harness_retargets(settings: &Settings, patch: &SettingsPatch) -> bool {
 }
 
 /// Whether an open Chat surface must hear a new opening: a Director switch, a
-/// source change, or any retarget, since the header names model and host.
+/// source change, or any retarget, since the header names model and host. A key
+/// or timeout change re-pushes an identical opening, because one rule is
+/// cheaper than two.
 fn chat_surface_reloads(settings: &Settings, patch: &SettingsPatch) -> bool {
     // A new session empties the transcript the surface is showing, and the
     // opening it draws over that is one the window only asked for once.
@@ -1139,8 +1144,9 @@ impl<'a> AiDraft<'a> {
     }
 
     /// The changed AI values Apply sends, or `None` when clean. A frozen row
-    /// never applies. `set_text` refuses a blank key, so a typed key beats a
-    /// staged clear.
+    /// never applies: `model::resolve` gives the exported variable the last
+    /// word. `set_text` refuses a blank key, so a typed key beats a staged
+    /// clear.
     pub fn patch(&self, view: &SettingsView) -> Option<SettingsPatch> {
         let live = view.row_values();
         let description = self.description;

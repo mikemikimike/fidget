@@ -154,8 +154,8 @@ fn mark_at(bytes: &[u8]) -> Option<usize> {
 }
 
 /// Inherited folders before the first system one, then the shell's, then the
-/// rest, each once, empty entries dropped. A login shell puts system folders
-/// first, burying a launcher's own.
+/// rest, each once. An empty entry means the working directory, so it is
+/// dropped. A login shell puts system folders first, burying a launcher's own.
 fn merged(inherited: &OsStr, shell: &OsStr) -> OsString {
     let inherited: Vec<PathBuf> = std::env::split_paths(inherited).collect();
     let system_at = inherited

@@ -1,6 +1,7 @@
 //! Raise the Settings webview into the overlay's EWMH ABOVE band.
 //!
-//! Overlay REPLACE works at map time. A mapped Settings needs a `_NET_WM_STATE` client message.
+//! Overlay REPLACE works at map time. A mapped Settings needs a
+//! `_NET_WM_STATE` client message.
 
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{ClientMessageEvent, ConnectionExt, EventMask};
