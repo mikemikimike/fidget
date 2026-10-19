@@ -14,7 +14,7 @@ import { after, before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const PROBE_MS = 10000;
+const PROBE_MS = 13000;
 
 const helpers = `
   const errors = [];
@@ -148,7 +148,12 @@ const gestures = `
       const again = pill.classList.contains("visible");
       field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
       const sent = !pill.classList.contains("visible") && field.value === "";
-      const pillResult = { early, shown, typed, dismissed, again, sent };
+      sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
+      await wait(tuning.hoverDelayMs + 300);
+      document.execCommand("insertText", false, "never mind");
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      const escaped = !pill.classList.contains("visible") && field.value === "";
+      const pillResult = { early, shown, typed, dismissed, again, sent, escaped };
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult }));
     } catch (err) {
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
@@ -207,8 +212,8 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
   assert.deepEqual(result.errors, [], "the page threw nothing");
   assert.deepEqual(result.chat, { closedAtFirst: true, opened: true, rings: { summon: 2, poke: 0 }, moved: [-60, 30], closed: true },
     "the Summon replaced the poke ring and opened a chat that moves and closes");
-  assert.deepEqual(result.pill, { early: false, shown: true, typed: "hello there", dismissed: true, again: true, sent: true },
-    "the pill waits out the hover delay, focuses, types, and an outside click or Enter dismisses it");
+  assert.deepEqual(result.pill, { early: false, shown: true, typed: "hello there", dismissed: true, again: true, sent: true, escaped: true },
+    "the pill waits out the hover delay, focuses, types, and an outside click, Enter, or Escape dismisses it");
 });
 
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {

@@ -213,8 +213,8 @@ export function mount(section, data, cue) {
 
   // The quick-message pill, as cues.html specifies it: a mouse resting on the
   // sprite for hoverDelayMs opens it with the field focused. A click outside the
-  // sprite and the pill, a grab, or a double-click dismisses it; Enter sends,
-  // which here only clears it. Leaving the sprite does not.
+  // sprite and the pill, a grab, a double-click, or Escape dismisses it and
+  // clears the draft; Enter sends, which here only clears it. Leaving the sprite does not.
   let dwell = 0;
   let pillUp = false;
   const placePill = () => {
@@ -246,7 +246,7 @@ export function mount(section, data, cue) {
   });
   sprite.addEventListener("pointerleave", () => clearTimeout(dwell));
   field.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
+    if ((event.key === "Enter" || event.key === "Escape") && !event.isComposing) {
       event.preventDefault();
       hidePill();
     }
