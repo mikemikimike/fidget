@@ -205,6 +205,12 @@
     letter-spacing: .01em; color: var(--ink); background: linear-gradient(var(--title-a), var(--title-b));
     border-bottom: 1px solid var(--bevel-lo); box-shadow: inset 0 1px 0 rgb(255 255 255 / .35); }
   .play-panel .play-desk { border: 0; border-radius: 0 0 12px 12px; }
+  /* Gestures beside the panel once .wrap is at its full 68rem, so the desk keeps ~750px. */
+  @media (min-width: 70rem) {
+    .play-row { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: 2rem; align-items: start;
+      margin-bottom: 1.25rem; }
+    .play-gestures .play-sub { margin-top: 0; }
+  }
   .play-desk { position: relative; height: 340px; border-radius: 14px; overflow: hidden;
     background: linear-gradient(135deg, var(--desk-a), var(--desk-b)); border: 1px solid var(--line);
     user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
@@ -331,8 +337,9 @@
     <div class="cast play-tiles" id="play-tiles">
       {{play_tiles}}
     </div>
+    <div class="play-row">
     <div class="play-panel" id="play-panel">
-    <p class="play-title">Try it here in the playground</p>
+    <p class="play-title">Try it here</p>
     <div class="play-desk" id="play-desk" hidden>
       <p class="play-hint" id="play-hint">Poke it. Drag it. Throw it.</p>
       <div class="play-win dark" data-win="dark" data-at="0.5 0.28">
@@ -361,6 +368,7 @@
       <div class="cue-layer" id="play-cues"></div>
     </div>
     </div>
+    <div class="play-gestures">
     <h3 class="play-sub">Fidget gestures</h3>
     <ul class="play-how">
       <li><b>Left-click</b> to poke</li>
@@ -368,6 +376,8 @@
       <li><b>Double-click</b> to summon chat</li>
       <li><b>Hover</b> on Fidget to get the quick-message pill and type something</li>
     </ul>
+    </div>
+    </div>
     <p class="play-get"><a href="#get">Download Fidget</a> to try it for real.</p>
     <script type="application/json" id="play-data">{{play_data}}</script>
   </div>

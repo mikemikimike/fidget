@@ -173,7 +173,14 @@ const gestures = `
       pointer(lightBar, "pointermove", handle.left + 30, desk.getBoundingClientRect().top - 200);
       pointer(lightBar, "pointerup", handle.left + 30, desk.getBoundingClientRect().top - 200);
       const raisedTop = lightBar.parentElement.getBoundingClientRect().top - desk.getBoundingClientRect().top - desk.clientTop;
-      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult, raisedTop,
+      const moved = lightBar.getBoundingClientRect();
+      pointer(lightBar, "pointerdown", moved.left + 30, moved.top + 10);
+      pointer(lightBar, "pointermove", moved.left + 30 + 2000, moved.top + 10);
+      pointer(lightBar, "pointerup", moved.left + 30 + 2000, moved.top + 10);
+      const deskBox = desk.getBoundingClientRect();
+      const pushedRight = Math.round(deskBox.left + desk.clientLeft + desk.clientWidth - lightBar.parentElement.getBoundingClientRect().right);
+      const beside = document.querySelector(".play-gestures").getBoundingClientRect().left > document.getElementById("play-panel").getBoundingClientRect().right;
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult, raisedTop, pushedRight, beside,
         name: sprite.querySelector("img").alt }));
     } catch (err) {
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
@@ -239,6 +246,8 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
   assert.deepEqual(result.pill, { early: false, shown: true, typed: "hello there", dismissed: true, again: true, sent: true, escaped: true },
     "the pill waits out the hover delay, focuses, types, and an outside click, Enter, or Escape dismisses it");
   assert.equal(result.raisedTop, 0, "a window drags all the way up to the desk's top edge");
+  assert.ok(result.beside, "at 1280px the gestures sit beside the panel");
+  assert.equal(result.pushedRight, 0, "beside the gestures, a window drags right up to the narrower desk's right edge");
 });
 
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
@@ -246,7 +255,7 @@ test("the playground reads as Oded asked: its title and gestures, two windows th
   const play = page.match(/<section id="play">([\s\S]*?)<\/section>/)[1];
   assert.match(play, /<h2>Live Playground<\/h2>\s*<div class="cast play-tiles"/, "the heading is Live Playground, with no invite line under it");
   assert.ok(!play.includes('class="sub"'), "the invite is the panel's title, not a line of its own");
-  assert.match(play, /<div class="play-panel" id="play-panel">\s*<p class="play-title">Try it here in the playground<\/p>\s*<div class="play-desk" id="play-desk"/,
+  assert.match(play, /<div class="play-panel" id="play-panel">\s*<p class="play-title">Try it here<\/p>\s*<div class="play-desk" id="play-desk"/,
     "the desk sits in a panel whose title bar is the invite, with no period, outside the desk the physics bounds");
   const order = ['id="play-desk"', '<h3 class="play-sub">Fidget gestures</h3>\n    <ul class="play-how">', 'class="play-get"']
     .map((mark) => play.indexOf(mark));
