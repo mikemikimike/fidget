@@ -23,6 +23,11 @@ shows no strip — GitHub's own notes for it are commit subjects and "by @author
 file with no tag. The macOS Homebrew line is read from the Get It section fenced
 command, and claims nothing when there is none.
 
+The "Live Playground" desk plays the hero's loops, moves by constants read
+from the Engine's engine.rs and input.rs and the app's main.rs, and draws its cues with the
+overlay's own rules from src/main.css and src/cue.js. Its still tiles name
+their Characters in PLAY_TILES; a loop or constant it cannot find fails the build.
+
 Every other page in `<out>` gets the same site header, docs/design/site-nav.html,
 right after its `<body>`, so assemble-site.sh runs this script after the
 steps that publish pages.
@@ -40,6 +45,7 @@ import importlib.util
 import json
 import pathlib
 import re
+import struct
 import sys
 import tempfile
 import tomllib
@@ -92,6 +98,45 @@ HIGHLIGHTS = re.compile(r"^##[ \t]+Highlights[ \t]*$", re.M)
 # `- **Chat can be a perch now:** the detail` (docs/agents/writing.md).
 BULLET = re.compile(r"^[*-][ \t]+")
 TITLE = re.compile(r"^\*\*(?P<title>[^*]+?):\*\*")
+
+# The app sources the desk reads its numbers from, by the name PLAY_TUNING uses.
+ENGINE = {"engine.rs": ROOT / "crates" / "core" / "src" / "engine.rs",
+          "input.rs": ROOT / "crates" / "core" / "src" / "input.rs",
+          "main.rs": ROOT / "src-tauri" / "src" / "main.rs"}
+CUES = ROOT / "src" / "main.css"
+CHAT_UI = ROOT / "src" / "chat-ui.css"
+CHAT_SHARED = ROOT / "src" / "chat-shared.css"
+# The Chat UI rules the playground's chat mock wears: its empty state over the
+# log, and the composer, active and focused.
+CHAT_RULES = (".log", ".empty", ".empty > div", ".empty p", ".empty p b", ".composer", ".composer textarea",
+              ".composer textarea::placeholder", ".composer textarea:disabled", ".composer button",
+              ".composer button:disabled", ".composer textarea:focus-visible", ".composer button:focus-visible")
+# The playground desk plays these, so a Character
+# lacking one fails the build instead of freezing on the page.
+PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit")
+# The still tiles no-JavaScript and reduced-motion visitors get: the gesture,
+# the Character, and the Animation whose first frame shows it.
+PLAY_TILES = (("Poke", "bmo", "react"), ("Pick up", "timber-wolf", "hold"), ("Throw", "cat", "fall"),
+              ("Perch", "nim", "sit"), ("Summon", "buddy-bot", "talk"), ("Hide", "jotaro-kujo", "sleep"))
+# The desk moves by the app's numbers: page key -> (source, constant). The
+# double-click interval is the argument Pointer's Default passes, as input.rs
+# has no constant for it.
+PLAY_TUNING = {
+    "gravity": ("engine.rs", "GRAVITY"),
+    "walkSpeed": ("engine.rs", "WALK_SPEED"),
+    "primitiveMs": ("engine.rs", "PRIMITIVE_MS"),
+    "pokeCooldownMs": ("engine.rs", "POKE_COOLDOWN_MS"),
+    "perchedIdleAfterMs": ("engine.rs", "PERCHED_IDLE_AFTER_MS"),
+    "rideAcceleration": ("engine.rs", "RIDE_ACCELERATION"),
+    "yankWindowS": ("engine.rs", "YANK_WINDOW_S"),
+    "throwMinSpeed": ("input.rs", "THROW_MIN_SPEED"),
+    "dragThreshold": ("input.rs", "DRAG_THRESHOLD"),
+    "dragDelayMs": ("input.rs", "DRAG_DELAY_MS"),
+    "velocityWindowMs": ("input.rs", "VELOCITY_WINDOW_MS"),
+    "doubleClickMs": ("input.rs", "with_double_click_ms"),
+    "hoverDelayMs": ("main.rs", "HOVER_DELAY_MS"),
+}
+PLAY_DATA = re.compile(r'<script type="application/json" id="play-data">(.*?)</script>', re.S)
 
 _spec = importlib.util.spec_from_file_location("gallery", ROOT / "scripts" / "make-character-gallery.py")
 gallery = importlib.util.module_from_spec(_spec)
@@ -392,10 +437,17 @@ def loop(package, declared, name, default_fps):
     fps = animation.get("fps", default_fps)
     if not isinstance(fps, int) or isinstance(fps, bool) or fps < 1:
         raise Malformed(f"{package.name}: {name} fps {fps!r} is not a positive integer")
-    return {"frames": frames, "fps": fps}
+    return {"frames": frames, "fps": fps, "once": animation.get("loop") == "once"}
 
 
-def read_cast(characters_root, default_fps):
+def manifest(package):
+    try:
+        return tomllib.loads((package / "character.manifest").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as broken:
+        raise Malformed(f"{package.name}: character.manifest does not read as TOML — {broken}") from broken
+
+
+def read_cast(characters_root, defaults):
     packages = sorted(
         p for p in characters_root.iterdir()
         if (p / "character.manifest").is_file() and p.name not in gallery.WITHHELD
@@ -404,24 +456,116 @@ def read_cast(characters_root, default_fps):
         raise Malformed(f"{characters_root} holds no Character Package")
     cast, hero = [], None
     for package in packages:
-        try:
-            declared = tomllib.loads((package / "character.manifest").read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as broken:
-            raise Malformed(f"{package.name}: character.manifest does not read as TOML — {broken}") from broken
+        declared = manifest(package)
         member = {
             "name": declared.get("name") or package.name,
             "pixel": declared.get("render_mode") != "smooth",
-            "walk": loop(package, declared, "walk", default_fps),
+            "walk": loop(package, declared, "walk", defaults["fps"]),
         }
         if package.name == HERO:
-            hero = dict(member, sit=loop(package, declared, "sit", default_fps),
-                        idle=loop(package, declared, "idle", default_fps))
+            loops = {name: loop(package, declared, name, defaults["fps"]) for name in PLAY_LOOPS}
+            art = (package / declared["animations"]["idle"]["frames"][0]).read_bytes()
+            width, height = struct.unpack(">II", art[16:24])
+            scale = declared.get("scale", defaults["scale"])
+            hero = dict(member, **loops, size=[width * scale, height * scale])
             cast.insert(0, member)
         else:
             cast.append(member)
     if hero is None:
         raise Malformed(f"{characters_root} has no {HERO} package for the hero")
     return cast, hero
+
+
+def play_tiles(characters_root, default_fps):
+    figures = []
+    for title, name, animation in PLAY_TILES:
+        package = characters_root / name
+        if not (package / "character.manifest").is_file():
+            raise Malformed(f"{characters_root} has no {name} package for the {title} tile")
+        declared = manifest(package)
+        pixel = ' class="pixel"' if declared.get("render_mode") != "smooth" else ""
+        first = loop(package, declared, animation, default_fps)["frames"][0]
+        figures.append(f'<figure><div class="art"><img src="{first}" alt="{html.escape(declared.get("name") or name)}"'
+                       f'{pixel}></div><figcaption>{html.escape(title)}</figcaption></figure>')
+    return "\n".join(figures)
+
+
+# --------------------------------------------------------------------------
+# The Engine
+# --------------------------------------------------------------------------
+
+
+def read_engine(sources=ENGINE):
+    return {name: path.read_text(encoding="utf-8") for name, path in sources.items()}
+
+
+def play_tuning(engine):
+    tuning = {}
+    for key, (source, name) in PLAY_TUNING.items():
+        found = re.search(rf"^(?:pub(?:\(crate\))? )?const {name}: (?:f64|u32|u64) = ([\d_.]+);"
+                          rf"|Self::{name}\(([\d_]+)\)", engine[source], re.M)
+        if not found:
+            raise Malformed(f"{source} declares no {name}")
+        number = (found.group(1) or found.group(2)).replace("_", "")
+        tuning[key] = float(number) if "." in number else int(number)
+    return tuning
+
+
+def top_level_rules(css):
+    """Each top-level block of a stylesheet as (prelude, body), comments off the prelude."""
+    depth, start = 0, 0
+    for at, char in enumerate(css):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                block = css[start:at + 1]
+                prelude, body = block.split("{", 1)
+                yield re.sub(r"/\*.*?\*/", "", prelude, flags=re.S).strip(), body[:-1]
+                start = at + 1
+
+
+def cue_css(css):
+    """The overlay's cue rules from src/main.css, so the desk's poke ring and
+    landing puff are the app's own: `.cue*` rules, `cue-*` keyframes, and the
+    :root block that sets the cue colors."""
+    kept = []
+    for prelude, body in top_level_rules(css):
+        selectors = [part.strip() for part in prelude.split(",")]
+        if (all(part.startswith(".cue") for part in selectors) or prelude.startswith("@keyframes cue-")
+                or (prelude == ":root" and "--cue-" in body)):
+            kept.append(f"{prelude} {{{body}}}")
+    if not any(rule.startswith(".cue-ring") for rule in kept):
+        raise Malformed(f"{CUES.name} holds no .cue-ring rule for the desk's poke")
+    return "\n".join(kept) + "\n"
+
+
+def chat_css(css, shared, wanted=CHAT_RULES):
+    """The minimal Chat UI's own tokens and the `wanted` rules from
+    src/chat-ui.css, scoped to `.play-chat-ui`, so the chat mock is the app's
+    Chat as the pill is its quick message. Scoped because chat-ui.css styles a
+    whole window: its `.bar` alone would restyle every title bar on the desk."""
+    kept = [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(shared) if prelude == ":root"]
+    theme = [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(css) if prelude == ".chat-ui-minimal"]
+    if not theme:
+        # Without it every --chat-* token is unset and the mock draws transparent.
+        raise Malformed(f"{CHAT_UI.name} holds no .chat-ui-minimal block for the chat mock's colours")
+    kept += theme
+    found = set()
+    for prelude, body in top_level_rules(css):
+        selectors = [part.strip() for part in prelude.split(",") if part.strip() in wanted]
+        found.update(selectors)
+        if selectors:
+            kept.append(", ".join(f".play-chat-ui {part}" for part in selectors) + f" {{{body}}}")
+    missing = [rule for rule in wanted if rule not in found]
+    if missing:
+        raise Malformed(f"{CHAT_UI.name} holds no {', '.join(missing)} rule for the chat mock")
+    return "\n".join(kept) + "\n"
+
+
+def play_data(page):
+    return json.loads(PLAY_DATA.search(page).group(1))
 
 
 # --------------------------------------------------------------------------
@@ -521,10 +665,13 @@ def stamp_nav(out, nav):
         page.write_text(stamped, encoding="utf-8")
 
 
-def render(readme_text, characters_root, rust_source, shell, release=None):
+def render(readme_text, characters_root, rust_source, shell, release=None, engine=None):
     words = read_readme(readme_text)
     _, defaults = gallery.from_rust(rust_source)
-    cast, hero = read_cast(characters_root, defaults["fps"])
+    cast, hero = read_cast(characters_root, defaults)
+    desk = {"name": hero["name"], "pixel": hero["pixel"], "size": hero["size"],
+            "loops": {name: hero[name] for name in PLAY_LOOPS},
+            "tuning": play_tuning(engine or read_engine())}
 
     figures = "\n".join(
         f'<figure><div class="art">'
@@ -557,6 +704,15 @@ def render(readme_text, characters_root, rust_source, shell, release=None):
         "hero": sprite(hero["sit"], f'{hero["name"]}, perched on a window',
                        ' id="hero-sprite" aria-describedby="hero-say"'),
         **how_slots(words["how"], shell),
+        "cue_css": cue_css(CUES.read_text(encoding="utf-8")),
+        "chat_css": chat_css(CHAT_UI.read_text(encoding="utf-8"), CHAT_SHARED.read_text(encoding="utf-8")),
+        "play_tiles": play_tiles(characters_root, defaults["fps"]),
+        "play_name": html.escape(hero["name"]),
+        "play_sprite": (f'<img src="{hero["idle"]["frames"][0]}" alt="{html.escape(hero["name"])}" '
+                        f'width="{hero["size"][0]}" height="{hero["size"][1]}"'
+                        + (' class="pixel"' if hero["pixel"] else "") + ">"),
+        # Escaped so the JSON can never close the <script> element it sits in.
+        "play_data": json.dumps(desk).replace("<", "\\u003c"),
         # The desk stays in the page. CSS hides it behind the video, and it
         # shows again when a video that fails to load removes itself.
         "video": (
@@ -588,9 +744,9 @@ def self_check():
     shell = SHELL.read_text(encoding="utf-8")
     readme = README.read_text(encoding="utf-8")
 
-    def fails(text, characters=CHARACTERS):
+    def fails(text, characters=CHARACTERS, **extra):
         try:
-            render(text, characters, rust, shell)
+            render(text, characters, rust, shell, **extra)
         except Malformed as caught:
             return str(caught)
         return None
@@ -669,16 +825,45 @@ def self_check():
     with tempfile.TemporaryDirectory() as scratch:
         scratch = pathlib.Path(scratch)
         art = (CHARACTERS / HERO / "frames" / "idle-0.png").read_bytes()
-        package = scratch / HERO
-        (package / "frames").mkdir(parents=True)
-        (package / "frames" / "idle-0.png").write_bytes(art)
-        loops = "\n".join(f'[animations.{n}]\nframes = ["frames/idle-0.png"]' for n in ("idle", "sit"))
-        (package / "character.manifest").write_text(
-            f'name = "Solo"\n{loops}\n[animations.walk]\nframes = ["frames/walk-0.png"]\n', encoding="utf-8")
+        played = set(PLAY_LOOPS) | {animation for _, _, animation in PLAY_TILES}
+
+        def fixture(name, title, walk="frames/idle-0.png", without=()):
+            root = scratch / name
+            (root / "frames").mkdir(parents=True, exist_ok=True)
+            (root / "frames" / "idle-0.png").write_bytes(art)
+            loops = "\n".join(f'[animations.{n}]\nframes = ["frames/idle-0.png"]\nfps = 10\nloop = "once"'
+                              for n in sorted(played - {"walk"} - set(without)))
+            (root / "character.manifest").write_text(
+                f'name = "{title}"\n{loops}\n[animations.walk]\nframes = ["{walk}"]\n', encoding="utf-8")
+            return root
+
+        for _, name, _ in PLAY_TILES:
+            if name != HERO:
+                fixture(name, name.title())
+        package = fixture(HERO, "Solo", walk="frames/walk-0.png")
         assert "walk frame" in (fails(readme, scratch) or ""), "a frame the package lacks reached the page"
 
         (package / "frames" / "walk-0.png").write_bytes(art)
         page = render(readme, scratch, rust, shell)
+        engine = read_engine()
+        heavy = dict(engine)
+        heavy["engine.rs"] = re.sub(r"const GRAVITY: f64 = [\d_.]+;", "const GRAVITY: f64 = 1234.0;", engine["engine.rs"])
+        desk = play_data(render(readme, scratch, rust, shell, engine=heavy))
+        assert desk["tuning"]["gravity"] == 1234, "the desk's gravity is not the Engine's"
+        slow = dict(engine)
+        slow["input.rs"] = engine["input.rs"].replace("with_double_click_ms(400)", "with_double_click_ms(333)")
+        slow["main.rs"] = re.sub(r"const HOVER_DELAY_MS: u64 = [\d_]+;", "const HOVER_DELAY_MS: u64 = 2222;", engine["main.rs"])
+        timing = play_data(render(readme, scratch, rust, shell, engine=slow))["tuning"]
+        assert (timing["doubleClickMs"], timing["hoverDelayMs"]) == (333, 2222), \
+            "the desk's double-click or hover delay is not the app's"
+        assert desk["loops"]["land"] == {"frames": [f"characters/{HERO}/frames/idle-0.png"], "fps": 10, "once": True}, \
+            "the desk's land loop is not the manifest's"
+        unthrowable = dict(engine)
+        unthrowable["input.rs"] = re.sub(r"const THROW_MIN_SPEED:[^\n]*\n", "", engine["input.rs"])
+        assert "THROW_MIN_SPEED" in (fails(readme, scratch, engine=unthrowable) or ""), \
+            "a desk with no Throw speed to read built a page"
+        assert '<figcaption>Throw</figcaption>' in page and f'src="characters/cat/frames/idle-0.png"' in page, \
+            "the Throw tile is not the Cat's first frame"
         for name in HOW_NODES:
             assert name in page, f"{name} did not reach the page"
         for title in HOW_LANES:
@@ -694,7 +879,7 @@ def self_check():
             "the picture's labels lost the sink or the sheet kept an empty term"
         assert "A pet first. The AI is the part that makes it someone." in page
         assert not re.search(r"<script[^>]*mermaid", page) and 'class="mermaid"' not in page
-        assert "One character ships with Fidget" in page, "the cast count is not the package count"
+        assert "Six characters ship with Fidget" in page, "the cast count is not the package count"
         assert "<figcaption>Solo</figcaption>" in page
         faq = re.search(r'<section id="faq">(.*?)</section>', page, re.S)
         assert faq and faq.group(1).count("<details><summary>") == len(words["faq"]), \
@@ -725,6 +910,43 @@ def self_check():
             "the Homebrew note did not render empty and hidden"
         assert "Or install with Homebrew" not in naked, \
             "the page claimed a Homebrew line the README does not make"
+
+        fixture(HERO, "Solo", walk="frames/walk-0.png", without=("land",))
+        assert "land" in (fails(readme, scratch) or ""), "a desk Character with no land loop built a page"
+        fixture(HERO, "Solo", walk="frames/walk-0.png")
+        fixture("cat", "Cat", without=("fall",))
+        assert "cat: declares no fall" in (fails(readme, scratch) or ""), "a tile with no art built a page"
+
+    assert cue_css(":root { --cue-ink: #000; }\n.bubble { color: red; }\n.cue-ring { opacity: 1; }\n"
+                   "@keyframes cue-poke { to { opacity: 0; } }\n@media (x) { .cue { a: b; } }\n") == (
+        ":root { --cue-ink: #000; }\n.cue-ring { opacity: 1; }\n@keyframes cue-poke { to { opacity: 0; } }\n"), \
+        "the desk lifted a rule that is not a cue, or dropped one that is"
+    try:
+        cue_css(".bubble { color: red; }")
+    except Malformed:
+        pass
+    else:
+        raise AssertionError("a stylesheet with no cue rules gave the desk no cues and passed")
+
+    sample = (".chat-ui-minimal { --chat-panel: var(--shared-panel); }\n.bar { height: 9px; }\n"
+              ".composer textarea,\n.composer button { flex: 1; }\n.composer textarea:focus-visible { outline: 0; }\n")
+    assert chat_css(sample, ":root { --shared-panel: #14171e; }\n", wanted=(".composer textarea",)) == (
+        ".play-chat-ui { --shared-panel: #14171e; }\n.play-chat-ui { --chat-panel: var(--shared-panel); }\n"
+        ".play-chat-ui .composer textarea { flex: 1; }\n"), \
+        "the chat mock lifted a rule it does not use, or did not scope one it does"
+    try:
+        chat_css(sample, ":root { --shared-panel: #14171e; }\n", wanted=(".composer textarea", ".said"))
+    except Malformed as err:
+        assert ".said" in str(err)
+    else:
+        raise AssertionError("a Chat UI with no .said rule gave the chat mock no bubble and passed")
+    try:
+        chat_css(sample.replace(".chat-ui-minimal", ".chat-ui-modern"), ":root { --shared-panel: #14171e; }\n",
+                 wanted=(".composer textarea",))
+    except Malformed as err:
+        assert ".chat-ui-minimal" in str(err)
+    else:
+        raise AssertionError("a Chat UI with no .chat-ui-minimal block gave the chat mock no colours and passed")
 
     assert downloads(release) == {
         "macos": (f"{REPO}/releases/download/v9/F_9_aarch64.dmg", "v9"),
@@ -803,7 +1025,7 @@ def main():
                       rust, SHELL.read_text(encoding="utf-8"), release)
         arguments.out.mkdir(parents=True, exist_ok=True)
         (arguments.out / PAGE).write_text(page, encoding="utf-8")
-        _, hero = read_cast(CHARACTERS, gallery.from_rust(rust)[1]["fps"])
+        _, hero = read_cast(CHARACTERS, gallery.from_rust(rust)[1])
         stamp_nav(arguments.out, site_nav(hero))
     except Malformed as broken:
         sys.exit(f"landing page: {broken}")
