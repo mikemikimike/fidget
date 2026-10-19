@@ -48,10 +48,12 @@ harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-th
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
 start_ms=$(now_ms)
+# TRACE_BUBBLE is what logs `chat: <label> is open`; nothing else says a fresh
+# Chat has opened.
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=1 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 FIDGET_TRACE_BUBBLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
@@ -68,8 +70,11 @@ capture() { # <name> <glyph the first Thinking row starts with>
   echo "ok: $1: $row"
 }
 
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-wait_for_trace 2 "$trace" 'chat: chat-[^ ]+ is not minimized' || fail "Chat never opened; see $trace"
+# `chat: <label> is open` is the line a fresh Chat writes; it never writes
+# `is not minimized`, which is a deminiaturize transition (#1503).
+wait_for_trace 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is open$' || fail "Chat never logged open; see $trace"
 [ -n "$("$tools/window-id" "$pid" BMO 2> /dev/null)" ] || fail "Chat did not open for the ask"
 wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought ▾

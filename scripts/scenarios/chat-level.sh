@@ -54,25 +54,30 @@ harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-th
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
 start_ms=$(now_ms)
+# TRACE_BUBBLE is what logs `chat: <label> is open`; nothing else says a fresh
+# Chat has opened.
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=1 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_CAPTURABLE=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_BUBBLE=1 FIDGET_CAPTURABLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
 
 at_layer() { [ "$("$tools/window-layer" "$pid" BMO)" = "$1" ]; }
-logged() { [ "$(grep -cE "^chat: chat-[^ ]+ is $1\$" "$trace")" -ge "$2" ]; }
+logged() { [ "$(grep -cE "^[0-9]+ chat: chat-[^ ]+ is $1\$" "$trace")" -ge "$2" ]; }
 minimize() { "$tools/ax" minimize "$pid" BMO "$1" || fail "could not set minimized to $1"; }
 
 wait_at_layer() { # <layer> <description>
   wait_until 2 at_layer "$1" || fail "$2: Chat is at layer $("$tools/window-layer" "$pid" BMO), not $1"
 }
 
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
-wait_for_trace 2 "$trace" '^chat: chat-[^ ]+ is not minimized$' || fail "Chat never logged open state; see $trace"
+# `chat: <label> is open` is the line a fresh Chat writes; it never writes
+# `is not minimized`, which is a deminiaturize transition (#1503).
+wait_for_trace 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is open$' || fail "Chat never logged open; see $trace"
 at_layer 0 || fail "focused Chat is at layer $("$tools/window-layer" "$pid" BMO), not 0"
 echo "ok: focused Chat stays at layer 0 (a Perch under the overlay)"
 
@@ -82,25 +87,25 @@ echo "ok: unfocused Chat stays at layer 0"
 
 osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true"
 wait_at_layer 0 "refocused Chat"
-before=$(line_count "$trace" '^chat: chat-[^ ]+ is minimized$')
+before=$(line_count "$trace" '^[0-9]+ chat: chat-[^ ]+ is minimized$')
 minimize true
-wait_for_count 3 "$trace" '^chat: chat-[^ ]+ is minimized$' "$before" || fail "minimizing a focused Chat logged nothing within 3s; see $trace"
+wait_for_count 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is minimized$' "$before" || fail "minimizing a focused Chat logged nothing within 3s; see $trace"
 logged minimized 1 || fail "minimizing a focused Chat logged nothing; see $trace"
-before=$(line_count "$trace" '^chat: chat-[^ ]+ is not minimized$')
+before=$(line_count "$trace" '^[0-9]+ chat: chat-[^ ]+ is not minimized$')
 minimize false
-wait_for_count 3 "$trace" '^chat: chat-[^ ]+ is not minimized$' "$before" || fail "restoring Chat logged nothing within 3s; see $trace"
+wait_for_count 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is not minimized$' "$before" || fail "restoring Chat logged nothing within 3s; see $trace"
 logged "not minimized" 1 || fail "restoring Chat logged nothing; see $trace"
 echo "ok: a focused Chat counts as closed while minimized"
 
 open -a Finder
 wait_at_layer 0 "Chat behind Finder after minimize"
-before=$(line_count "$trace" '^chat: chat-[^ ]+ is minimized$')
+before=$(line_count "$trace" '^[0-9]+ chat: chat-[^ ]+ is minimized$')
 minimize true
-wait_for_count 3 "$trace" '^chat: chat-[^ ]+ is minimized$' "$before" || fail "minimizing an unfocused Chat logged nothing within 3s; see $trace"
+wait_for_count 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is minimized$' "$before" || fail "minimizing an unfocused Chat logged nothing within 3s; see $trace"
 logged minimized 2 || fail "minimizing an unfocused Chat logged nothing; see $trace"
-before=$(line_count "$trace" '^chat: chat-[^ ]+ is not minimized$')
+before=$(line_count "$trace" '^[0-9]+ chat: chat-[^ ]+ is not minimized$')
 minimize false
-wait_for_count 3 "$trace" '^chat: chat-[^ ]+ is not minimized$' "$before" || fail "restoring an unfocused Chat logged nothing within 3s; see $trace"
+wait_for_count 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is not minimized$' "$before" || fail "restoring an unfocused Chat logged nothing within 3s; see $trace"
 logged "not minimized" 2 || fail "restoring an unfocused Chat logged nothing; see $trace"
 echo "ok: an unfocused Chat counts as closed while minimized"
 elapsed_ms=$(($(now_ms) - start_ms))
