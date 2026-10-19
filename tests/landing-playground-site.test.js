@@ -179,7 +179,8 @@ const gestures = `
       pointer(lightBar, "pointerup", moved.left + 30 + 2000, moved.top + 10);
       const deskBox = desk.getBoundingClientRect();
       const pushedRight = Math.round(deskBox.left + desk.clientLeft + desk.clientWidth - lightBar.parentElement.getBoundingClientRect().right);
-      const beside = document.querySelector(".play-gestures").getBoundingClientRect().left > document.getElementById("play-panel").getBoundingClientRect().right;
+      const gestureBox = document.querySelector(".play-gestures").getBoundingClientRect(), panelBox = document.getElementById("play-panel").getBoundingClientRect();
+      const beside = gestureBox.right < panelBox.left && gestureBox.top === panelBox.top;
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult, raisedTop, pushedRight, beside,
         name: sprite.querySelector("img").alt }));
     } catch (err) {
@@ -246,7 +247,7 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
   assert.deepEqual(result.pill, { early: false, shown: true, typed: "hello there", dismissed: true, again: true, sent: true, escaped: true },
     "the pill waits out the hover delay, focuses, types, and an outside click, Enter, or Escape dismisses it");
   assert.equal(result.raisedTop, 0, "a window drags all the way up to the desk's top edge");
-  assert.ok(result.beside, "at 1280px the gestures sit beside the panel");
+  assert.ok(result.beside, "at 1280px the gestures sit to the left of the panel, top-aligned with it");
   assert.equal(result.pushedRight, 0, "beside the gestures, a window drags right up to the narrower desk's right edge");
 });
 
