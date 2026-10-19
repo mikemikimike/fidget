@@ -334,6 +334,46 @@ test("the How it works section is a two-lane picture from the README", () => {
   assert.match(section, /<dl class="how-sheet">[\s\S]*?<\/dl>/);
 });
 
+// The FAQ is the README's own `## FAQ`: each `### Question?` and the answer
+// under it, so the site and the README never drift (#1543).
+function readmeQuestions(readme) {
+  const faq = readme.split(/^## FAQ$/m)[1]?.split(/^## /m)[0] ?? "";
+  return [...faq.matchAll(/^### (.+)$/gm)].map((match) => match[1].trim());
+}
+
+test("the Questions section is the README FAQ as details rows just above the footer", () => {
+  const page = published(PAGE);
+  const questions = readmeQuestions(readFileSync(join(ROOT, "README.md"), "utf8"));
+  assert.ok(questions.length >= 5 && questions.length <= 10, `the README FAQ asks ${questions.length} questions`);
+
+  const section = page.match(/<section id="faq">([\s\S]*?)<\/section>/)?.[1];
+  assert.ok(section, "the page has no section with id faq");
+  assert.match(section, /<h2>Questions<\/h2>/);
+  const rows = [...section.matchAll(/<details>\s*<summary>([^<]+)<\/summary>([\s\S]*?)<\/details>/g)];
+  assert.deepEqual(rows.map((row) => row[1]), questions, "the rows are not the README questions in order");
+  assert.ok(rows.every((row) => /<p>[^<]/.test(row[2])), "a question rendered with no answer");
+  assert.ok(!section.includes("<script"), "the Questions section needs a script");
+  assert.ok(section.includes('href="https://github.com/omesser/fidget#computer-use"'),
+    "the screen answer lost its Computer Use link");
+  assert.ok(section.includes('href="https://github.com/omesser/fidget#get-it"'),
+    "the install answer lost its Get It link");
+
+  const after = page.slice(page.indexOf('<section id="faq">'));
+  assert.ok(after.indexOf("</section>") < after.indexOf("<footer>")
+    && !after.slice(after.indexOf("</section>") + 1, after.indexOf("<footer>")).includes("<section"),
+    "the Questions section is not the last one before the footer");
+});
+
+test("a README with no FAQ fails the build", () => {
+  const readme = join(scratch, "README.md");
+  const out = join(scratch, "no-faq");
+  writeFileSync(readme, readFileSync(join(ROOT, "README.md"), "utf8").replace("## FAQ", "## Asked Often"));
+  assert.throws(
+    () => execFileSync("python3", [SCRIPT, "--readme", readme, "--out", out], { cwd: ROOT, stdio: "pipe" }),
+    (error) => /FAQ/.test(error.stderr.toString()),
+  );
+});
+
 test("every published page carries the site header with a link home", () => {
   const pages = readdirSync(site).filter((name) => name.endsWith(".html"));
   assert.ok(pages.length > 1, `the site published ${pages.length} page`);

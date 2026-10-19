@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Sample a running fidget's resident set, macOS only. WKWebView helpers are
 # launchd's children, so this diffs WebKit helpers before and after launch.
-# Usage: scripts/bench-rss-macos.sh [--bin PATH] [--settle N] [--seconds N] [--interval N] [--out FILE] [--research]
+# Usage: scripts/bench-rss-macos.sh [--bin PATH] [--settle N] [--seconds N] [--interval N] [--out FILE] [--research] [--heap DIR]
+
+# --heap DIR runs fidget under MallocStackLogging=1 (lite: live allocations) and, before
+# the kill, saves its malloc_history and footprint and each WebKit helper's footprint and
+# heap -s to DIR. Logging adds Performance Tool Data, so take RSS from a plain run.
 
 # Compare runs on peak physical footprint, which only rises; RSS drops as a busy
 # machine reclaims an idle character's pages. Note roster, displays and sprite
@@ -14,6 +18,7 @@ settle=3
 seconds=10
 interval=2
 out=""
+heap=""
 bin="target/debug/fidget"
 
 while [ $# -gt 0 ]; do
@@ -24,6 +29,7 @@ while [ $# -gt 0 ]; do
     --interval) interval="$2" && shift 2 ;;
     --out) out="$2" && shift 2 ;;
     --research) settle=300 && seconds=300 && interval=5 && shift ;;
+    --heap) heap="$2" && shift 2 ;;
     *) echo "unknown argument: $1" >&2 && exit 2 ;;
   esac
 done
@@ -39,11 +45,11 @@ log="$out.app.log"
 before=$(pgrep -f com.apple.WebKit || true)
 
 # `./` on an absolute path is `.//tmp/...`, so the shell never starts it.
-if [ "${bin#/}" != "$bin" ]; then
-  "$bin" > "$log" 2>&1 &
-else
-  "./$bin" > "$log" 2>&1 &
-fi
+launch=("$bin")
+[ "${bin#/}" != "$bin" ] || launch=("./$bin")
+# `env` execs the app, so `$!` is still fidget's pid.
+[ -z "$heap" ] || launch=(env MallocStackLogging=1 "${launch[@]}")
+"${launch[@]}" > "$log" 2>&1 &
 app=$!
 trap 'kill "$app" 2>/dev/null' EXIT INT TERM
 
@@ -87,6 +93,8 @@ found=$(echo "$helpers" | grep -c .)
   echo "warning: $found WebKit helpers, expected $expected — another application's are in this set" >&2
 
 echo "displays: $displays   pids: $pids"
+[ -z "$heap" ] ||
+  echo "heap run: MallocStackLogging inflates footprint, so these RSS numbers do not compare with a plain run"
 echo "settling ${settle}s, then sampling ${seconds}s every ${interval}s -> $out"
 sleep "$settle"
 printf 'epoch\ttotal_kb\t%s\n' "$(echo "$pids" | tr ' ' '\t')" > "$out"
@@ -121,4 +129,22 @@ for pid in $pids; do
     "$(vmmap --summary "$pid" 2> /dev/null |
       sed -n 's/^Physical footprint (peak): *//p')"
   column=$((column + 1))
+done
+
+[ -n "$heap" ] || exit 0
+mkdir -p "$heap"
+malloc_history "$app" -allBySize > "$heap/malloc-history.txt" ||
+  { echo "malloc_history could not read pid $app" >&2 && exit 1; }
+footprint -p "$app" > "$heap/footprint.txt" ||
+  { echo "footprint could not read pid $app" >&2 && exit 1; }
+scripts/heap-top-allocators.sh "$heap/malloc-history.txt" fidget
+
+# A helper set of any other size holds another application's processes.
+[ "$found" -eq "$expected" ] || {
+  echo "not profiling WebKit helpers: $found found, $expected expected" >&2
+  exit 1
+}
+for pid in $helpers; do
+  footprint -p "$pid" > "$heap/footprint-$pid.txt" || echo "footprint could not read pid $pid" >&2
+  heap -s "$pid" > "$heap/heap-$pid.txt" || echo "heap could not read pid $pid" >&2
 done

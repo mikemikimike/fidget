@@ -5,8 +5,8 @@
     python3 scripts/make-landing-page.py --self-check
 
 A Generated page under ADR-0038. The headline, opening paragraph, feature list,
-How It Works labels, Harness names, install notes and opening hero video are
-read from README.md;
+How It Works labels, Harness names, install notes, FAQ and opening hero video
+are read from README.md;
 the cast, count and sprites are read from Character Manifests. The page shell
 is docs/design/landing.html, with double-brace slots this script fills. A
 source it cannot find fails the build.
@@ -240,7 +240,34 @@ def read_readme(text):
         "notes": [sentence(get_it, "not signed"), sentence(get_it, "works offline")],
         "brew": brew.group(0) if brew else "",
         "how": read_how(text, found),
+        "faq": read_faq(found),
     }
+
+
+def read_faq(found):
+    """The FAQ as [(question, [answer paragraphs])], or Malformed.
+
+    Each `### Question?` under `## FAQ` opens a row, and the paragraphs up to
+    the next one are its answer.
+    """
+    rows = []
+    for line in section(found, "FAQ"):
+        question = re.match(r"### (.+)", line)
+        if question:
+            rows.append((question.group(1).strip(), []))
+        elif rows:
+            rows[-1][1].append(line)
+        elif line.strip():
+            raise Malformed("README.md FAQ has text before its first `### Question`")
+    if not rows:
+        raise Malformed("README.md FAQ asks no `### Question`")
+    faq = []
+    for question, lines in rows:
+        answer = paragraphs(lines)
+        if not answer:
+            raise Malformed(f"README.md FAQ does not answer {question!r}")
+        faq.append((question, answer))
+    return faq
 
 
 def read_how(text, found):
@@ -618,6 +645,11 @@ def render(readme_text, characters_root, rust_source, shell, release=None, engin
         ) if words["brew"] else "",
         "features": "\n".join(f"<div><b>{inline(t)}</b><p>{inline(b)}</p></div>" for t, b in words["features"]),
         "harnesses": "".join(f"<li>{html.escape(h)}</li>" for h in words["harnesses"]),
+        "faq": "\n".join(
+            f"<details><summary>{html.escape(q, quote=False)}</summary>"
+            + "".join(f"<p>{inline(p)}</p>" for p in answer) + "</details>"
+            for q, answer in words["faq"]
+        ),
         "count": (COUNT[len(cast)] if len(cast) < len(COUNT) else str(len(cast)))
         + (" character ships" if len(cast) == 1 else " characters ship"),
         "cast": figures,
@@ -690,9 +722,14 @@ def self_check():
     assert fails(readme.replace("```mermaid", "```")), \
         "a fence-poor How It Works built a page"
     assert fails(readme.replace("<code>", "<kbd>")), "a Harness table with no names built a page"
+    assert "FAQ" in (fails(readme.replace("## FAQ", "## Asked Often")) or ""), \
+        "a README with no FAQ section built a page"
+    assert "does not answer" in (fails(readme.replace("## FAQ\n", "## FAQ\n\n### Unanswered?\n")) or ""), \
+        "a FAQ question with no answer built a page"
 
     words = read_readme(readme)
     assert "claude" in words["harnesses"] and "anything else" not in words["harnesses"]
+    assert 5 <= len(words["faq"]) <= 10, f"the README FAQ asks {len(words['faq'])} questions, not 5 to 10"
     how = words["how"]
     assert how["sub"] == "A pet first. The AI is the part that makes it someone."
     assert how["lanes"]["always"] == "Always on. No AI needed."
@@ -791,6 +828,11 @@ def self_check():
         assert not re.search(r"<script[^>]*mermaid", page) and 'class="mermaid"' not in page
         assert "Six characters ship with Fidget" in page, "the cast count is not the package count"
         assert "<figcaption>Solo</figcaption>" in page
+        faq = re.search(r'<section id="faq">(.*?)</section>', page, re.S)
+        assert faq and faq.group(1).count("<details><summary>") == len(words["faq"]), \
+            "the Questions section lost a README question"
+        assert page.index('id="faq"') > page.index('id="your-own"') \
+            and page.index('id="faq"') < page.index("<footer>"), "the Questions section is not above the footer"
         page = render(readme, scratch, rust, shell, release)
         assert '<p class="download-label" id="download-label">Download for</p>' in page, \
             "the Download for label lacks an id"
@@ -877,7 +919,8 @@ def self_check():
         else:
             raise AssertionError("a page with no <body> took no header and passed")
 
-    print(f"self-check: {len(words['features'])} features, {len(words['harnesses'])} Harnesses, checks passed")
+    print(f"self-check: {len(words['features'])} features, {len(words['harnesses'])} Harnesses, "
+          f"{len(words['faq'])} questions, checks passed")
 
 
 def main():

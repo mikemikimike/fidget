@@ -339,6 +339,40 @@ Detailed investigation: [`docs/research/platform-support-degraded-cells.md`](./d
 
 Linux support is full on normal desktops (X11 or XWayland under GNOME/KDE). Rare pure Wayland sessions without an X server fall back to screen edges only - no window Perches, Grab, Throw, or fullscreen fade. See [DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
+## FAQ
+
+### Do I need an AI account?
+
+No. Without one, your fidget still walks, naps, perches on windows and reacts when you poke or throw it. Attach the agent you already use, like Claude Code, Codex or Cursor, or a Model API key, and it starts talking. A local model you serve through Ollama or MLX works too. Use a Harness for the most powerful experience.
+
+### Does it read my screen?
+
+Fidget doesn't read pixels. It takes no screenshots and runs no OCR. With your consent, it reads only [window titles and app names](#computer-use), so it can react to what's in front of you with more context. Without your consent, it still knows where windows are, just not what they are. An agentic Harness like Claude Code or Hermes is different. Your permissions and plugin setup there decide what it can do, and that can include computer use and taking screenshots. That is powerful and dangerous, so Fidget leaves it to the Harness on purpose.
+
+### Can it control my computer?
+
+Fidget itself never clicks or types. It has no mouse or keyboard tools by design. The agent you attach can still use its own tools, most of the ones it already has in your terminal.
+
+### Will it get in my way while I work?
+
+It shouldn't. It never takes window focus unless you type in the quick-message pill or use the chat, and clicks pass through everywhere except the sprite. It fades out for fullscreen apps, and the hotkey Control-Option-Command-B hides it instantly. On macOS and Windows, a setting also keeps it out of screenshots and screen shares.
+
+### What does it cost?
+
+Fidget is free and MIT licensed. A Harness uses the subscription you already have, so you manage usage there and Fidget just uses it. A Model API bills your own key with your provider. Even with an agent attached or Model API configured, if left alone, Fidget costs very little. It only thinks and speaks now and then, and its banter spends very few tokens compared to most uses. When you actively use it by prompting and talking to it, it will incur usage costs from your AI subscription, just like any session or calls.
+
+### Does it work offline?
+
+Yes, for physical desktop presence and play. Walking, poking, throwing, sleeping, perching and every gesture run locally. Only talking needs an AI, and that can be a local model. So whether you pay, and how much, is up to you.
+
+### Which systems does it run on?
+
+macOS on Apple Silicon, Windows on x86_64 and Linux on x86_64. On Linux, it's fully supported on normal X11 or XWayland desktops. Pure Wayland sessions without an X server fall back to screen edges only.
+
+### Is it safe to install?
+
+It's open source, so you can read every line. I'm diligent with code reviews, security reviews and updates. The builds aren't signed yet, so macOS and Windows warn on first open, and the [install steps](#get-it) say what to click. If you'd rather not trust a download, build it from source. You're welcome to report any issue you find on the repository.
+
 ## Developing
 
 **Want to help?** [Open issues](https://github.com/omesser/fidget/issues) welcome bugs, ideas, and PRs. Start with [DEVELOPMENT.md](./docs/DEVELOPMENT.md) for toolchains, hooks, verification, character writing, and imports. See how Fidget compares to other desktop pets in [alternatives.md](./docs/research/alternatives.md).
