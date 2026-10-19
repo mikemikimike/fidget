@@ -603,12 +603,31 @@ pub fn refresh_settings(app: &tauri::AppHandle) {
     }
 }
 
-/// Hand a file the user owns to whatever the desktop opens it with.
+/// Hand a file the user owns to its extension's app, else the text editor.
 /// Created empty first: Memory has no file until the Director remembers, and
 /// an opener given a missing path reports it missing.
 pub fn open_path(path: &Path) -> Result<(), String> {
     ensure_file(path)?;
-    hand_over(path.as_os_str())
+    #[cfg(unix)]
+    {
+        let [mut first, mut fallback] = file_openers(path.as_os_str());
+        let mut child = first.spawn().map_err(|error| error.to_string())?;
+        // The exit status is the only "no app" signal, and a menu click runs on
+        // the main thread, so the wait happens off it.
+        let path = path.to_path_buf();
+        std::thread::spawn(move || {
+            if !child.wait().is_ok_and(|status| status.success())
+                && !fallback.status().is_ok_and(|status| status.success())
+            {
+                eprintln!("no app opened {}", path.display());
+            }
+        });
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        open_file(path.as_os_str())
+    }
 }
 
 /// The schemes a link in a reply is allowed to open. `mailto` belongs: a
@@ -636,7 +655,7 @@ pub(crate) fn openable(url: &str) -> Result<String, String> {
     Ok(parsed.into())
 }
 
-/// The one per-platform call, shared by both entry points above.
+/// The one per-platform call for `open_url`; files go through `open_path`.
 fn hand_over(target: &std::ffi::OsStr) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -676,6 +695,32 @@ fn opener(target: &std::ffi::OsStr) -> Command {
     command
 }
 
+/// The extension's app, then the text editor; the second runs only when the
+/// first exits non-zero.
+#[cfg(target_os = "macos")]
+fn file_openers(path: &std::ffi::OsStr) -> [Command; 2] {
+    let mut text_editor = Command::new("open");
+    text_editor.arg("-t").arg(path);
+    [opener(path), text_editor]
+}
+
+/// The path rides in as `$1`, so the script never holds its text.
+/// ponytail: some desktops' xdg-open exits 0 without opening anything, which
+/// skips this fallback, and `gtk-launch` ships in an optional package
+/// (`libgtk-3-bin`). Resolve the `.desktop` file ourselves if either bites.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn file_openers(path: &std::ffi::OsStr) -> [Command; 2] {
+    let mut text_editor = Command::new("sh");
+    text_editor
+        .args([
+            "-c",
+            r#"gtk-launch "$(xdg-mime query default text/plain)" "$1""#,
+            "sh",
+        ])
+        .arg(path);
+    [opener(path), text_editor]
+}
+
 /// Open with the default application via ShellExecuteW.
 /// Not `cmd /C start`: `&` and `%` are syntax there (#255). Neither `open` nor
 /// `opener` removes the `unsafe`, so a crate would not change what can go wrong.
@@ -709,6 +754,44 @@ fn opener(target: &std::ffi::OsStr) -> Result<(), String> {
             result as isize
         ))
     }
+}
+
+/// `opener`, then the `.txt` app. Any failure retries, not just
+/// `SE_ERR_NOASSOC`: each one leaves the user with nothing open.
+#[cfg(not(unix))]
+fn open_file(target: &std::ffi::OsStr) -> Result<(), String> {
+    opener(target).or_else(|why| {
+        if open_as_text(target) {
+            Ok(())
+        } else {
+            Err(why)
+        }
+    })
+}
+
+/// ShellExecuteExW with `lpClass` ".txt" opens the file with the `.txt` verb,
+/// so no editor path or command line is built here. The struct's `HKEY` field
+/// is why Cargo.toml enables `Win32_System_Registry`.
+#[cfg(not(unix))]
+fn open_as_text(target: &std::ffi::OsStr) -> bool {
+    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_CLASSNAME, SHELLEXECUTEINFOW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let file = shell_execute_file_wide(target);
+    let operation: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
+    let class: Vec<u16> = ".txt".encode_utf16().chain(Some(0)).collect();
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_CLASSNAME,
+        lpVerb: operation.as_ptr(),
+        lpFile: file.as_ptr(),
+        lpClass: class.as_ptr(),
+        nShow: SW_SHOWNORMAL,
+        ..Default::default()
+    };
+    // SAFETY: `cbSize` matches the struct, and the three wide strings are
+    // NUL-terminated and outlive the call. Unset fields are null by default.
+    unsafe { ShellExecuteExW(&mut info) != 0 }
 }
 
 /// The NUL-terminated wide path ShellExecuteW receives. Kept as its own
@@ -1528,6 +1611,38 @@ mod tests {
         assert_eq!(command.get_program(), "open");
         #[cfg(all(unix, not(target_os = "macos")))]
         assert_eq!(command.get_program(), "xdg-open");
+    }
+
+    /// No app owns `.jsonl` on a stock Mac, so the text editor is the second
+    /// try. `&`, `%` and a space stay inside the one path argument.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_falls_back_to_the_text_editor_with_the_whole_path() {
+        let path = Path::new("/tmp/a & b/100%/action-log.jsonl");
+        let [first, fallback] = file_openers(path.as_os_str());
+        let argv = |command: &Command| {
+            std::iter::once(command.get_program())
+                .chain(command.get_args())
+                .map(|arg| arg.to_str().expect("test argv is UTF-8").to_string())
+                .collect::<Vec<_>>()
+        };
+        let path = path.to_str().expect("test path is UTF-8");
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(argv(&first), ["open", path]);
+            assert_eq!(argv(&fallback), ["open", "-t", path]);
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            assert_eq!(argv(&first), ["xdg-open", path]);
+            assert_eq!(argv(&fallback)[..2], ["sh", "-c"]);
+            assert_eq!(
+                argv(&fallback)[3..],
+                ["sh", path],
+                "the path is $1, never script text"
+            );
+        }
     }
 
     /// `#255`: `&` and `%` are `cmd` metacharacters. ShellExecuteW must see
