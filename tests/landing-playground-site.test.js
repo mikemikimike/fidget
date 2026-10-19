@@ -238,8 +238,9 @@ test("the playground reads as Oded asked: its title and gestures, two windows th
   const chatBar = play.match(/data-win="chat"[^>]*>\s*<div class="bar">(.*?)<\/div>/)[1];
   assert.match(chatBar, /^<button class="close"[^>]*>&times;<\/button><i><\/i><i><\/i><span class="drag-me">drag me<\/span>$/,
     "the chat closes from its leftmost circle, with no × at the right");
-  assert.ok(play.indexOf('<a class="btn" href="#get"><b>Download Fidget</b></a>') > play.indexOf('id="play-cues"'),
-    "the Download call to action sits below the desk");
+  const cta = '<p class="play-get"><a href="#get">Download Fidget</a> to try it for real.</p>';
+  assert.equal(play.split("Download Fidget").length - 1, 1, "one Download line in the playground, and no button");
+  assert.ok(play.indexOf(cta) > play.indexOf('id="play-cues"'), "the linked Download line sits below the desk, not in the chat");
   const titles = [...page.matchAll(/<h2>(.*?)<\/h2>/g)].map((m) => m[1]);
   const at = titles.indexOf("Live Playground");
   assert.deepEqual(titles.slice(at, at + 4),
