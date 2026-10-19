@@ -107,10 +107,10 @@ CUES = ROOT / "src" / "main.css"
 CHAT_UI = ROOT / "src" / "chat-ui.css"
 CHAT_SHARED = ROOT / "src" / "chat-shared.css"
 # The Chat UI rules the playground's chat mock wears: its empty state over the
-# log, and the composer.
+# log, and the composer, active and focused.
 CHAT_RULES = (".log", ".empty", ".empty > div", ".empty p", ".empty p b", ".composer", ".composer textarea",
               ".composer textarea::placeholder", ".composer textarea:disabled", ".composer button",
-              ".composer button:disabled")
+              ".composer button:disabled", ".composer textarea:focus-visible", ".composer button:focus-visible")
 # The playground desk plays these, so a Character
 # lacking one fails the build instead of freezing on the page.
 PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit")
@@ -547,7 +547,11 @@ def chat_css(css, shared, wanted=CHAT_RULES):
     Chat as the pill is its quick message. Scoped because chat-ui.css styles a
     whole window: its `.bar` alone would restyle every title bar on the desk."""
     kept = [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(shared) if prelude == ":root"]
-    kept += [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(css) if prelude == ".chat-ui-minimal"]
+    theme = [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(css) if prelude == ".chat-ui-minimal"]
+    if not theme:
+        # Without it every --chat-* token is unset and the mock draws transparent.
+        raise Malformed(f"{CHAT_UI.name} holds no .chat-ui-minimal block for the chat mock's colours")
+    kept += theme
     found = set()
     for prelude, body in top_level_rules(css):
         selectors = [part.strip() for part in prelude.split(",") if part.strip() in wanted]
@@ -555,8 +559,8 @@ def chat_css(css, shared, wanted=CHAT_RULES):
         if selectors:
             kept.append(", ".join(f".play-chat-ui {part}" for part in selectors) + f" {{{body}}}")
     missing = [rule for rule in wanted if rule not in found]
-    if missing or len(kept) < 2:
-        raise Malformed(f"{CHAT_UI.name} holds no {', '.join(missing) or '.chat-ui-minimal'} rule for the chat mock")
+    if missing:
+        raise Malformed(f"{CHAT_UI.name} holds no {', '.join(missing)} rule for the chat mock")
     return "\n".join(kept) + "\n"
 
 
@@ -703,6 +707,7 @@ def render(readme_text, characters_root, rust_source, shell, release=None, engin
         "cue_css": cue_css(CUES.read_text(encoding="utf-8")),
         "chat_css": chat_css(CHAT_UI.read_text(encoding="utf-8"), CHAT_SHARED.read_text(encoding="utf-8")),
         "play_tiles": play_tiles(characters_root, defaults["fps"]),
+        "play_name": html.escape(hero["name"]),
         "play_sprite": (f'<img src="{hero["idle"]["frames"][0]}" alt="{html.escape(hero["name"])}" '
                         f'width="{hero["size"][0]}" height="{hero["size"][1]}"'
                         + (' class="pixel"' if hero["pixel"] else "") + ">"),
@@ -935,6 +940,13 @@ def self_check():
         assert ".said" in str(err)
     else:
         raise AssertionError("a Chat UI with no .said rule gave the chat mock no bubble and passed")
+    try:
+        chat_css(sample.replace(".chat-ui-minimal", ".chat-ui-modern"), ":root { --shared-panel: #14171e; }\n",
+                 wanted=(".composer textarea",))
+    except Malformed as err:
+        assert ".chat-ui-minimal" in str(err)
+    else:
+        raise AssertionError("a Chat UI with no .chat-ui-minimal block gave the chat mock no colours and passed")
 
     assert downloads(release) == {
         "macos": (f"{REPO}/releases/download/v9/F_9_aarch64.dmg", "v9"),

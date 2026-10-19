@@ -297,6 +297,21 @@ export function mount(section, data, cue) {
     if (pillUp && !sprite.contains(event.target) && !pill.contains(event.target)) hidePill();
   });
 
+  // The chat mock's composer takes typing and sends to nowhere: Enter or Send
+  // clears it, as the pill's Enter does, and nothing answers.
+  const line = section.querySelector("#play-chat .composer textarea");
+  const send = () => {
+    line.value = "";
+    line.focus({ preventScroll: true });
+  };
+  section.querySelector("#play-chat .composer button").addEventListener("click", send);
+  line.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      send();
+    }
+  });
+
   // The same press decoding as input.rs: a press becomes a Grab once it moves
   // dragThreshold or is held dragDelayMs, and a press released before either is a Poke.
   let press = null;

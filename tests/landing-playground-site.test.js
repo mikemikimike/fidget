@@ -123,8 +123,18 @@ const gestures = `
       const rings = { summon: layer.querySelectorAll(".cue-ring.in").length, poke: layer.querySelectorAll(".cue-ring:not(.in)").length };
       const opened = !chat.hidden;
       const composer = chat.querySelector(".composer textarea");
-      const look = { panel: getComputedStyle(chat).backgroundColor, composer: composer.disabled && composer.placeholder,
-        send: getComputedStyle(chat.querySelector(".composer button")).borderRadius };
+      const sendButton = chat.querySelector(".composer button");
+      const look = { panel: getComputedStyle(chat).backgroundColor, composer: !composer.disabled && composer.placeholder,
+        send: !sendButton.disabled && getComputedStyle(sendButton).borderRadius };
+      composer.focus();
+      document.execCommand("insertText", false, "hi there");
+      const typedInChat = composer.value;
+      composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      const afterEnter = composer.value;
+      document.execCommand("insertText", false, "again");
+      sendButton.click();
+      const talk = { typed: typedInChat, afterEnter, afterSend: composer.value, stillOpen: !chat.hidden,
+        replies: chat.querySelectorAll(".log .row").length };
       const bar = chat.querySelector(".bar").getBoundingClientRect();
       const from = chat.getBoundingClientRect();
       const grip = [bar.left + 40, bar.top + bar.height / 2];
@@ -133,7 +143,7 @@ const gestures = `
       pointer(chat.querySelector(".bar"), "pointerup", grip[0] - 60, grip[1] + 30);
       const to = chat.getBoundingClientRect();
       chat.querySelector(".close").click();
-      const chatResult = { closedAtFirst, opened, rings, moved: [to.left - from.left, to.top - from.top], closed: chat.hidden, look };
+      const chatResult = { closedAtFirst, opened, rings, moved: [to.left - from.left, to.top - from.top], closed: chat.hidden, look, talk };
 
       await wait(tuning.pokeCooldownMs);
       sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
@@ -163,7 +173,8 @@ const gestures = `
       pointer(lightBar, "pointermove", handle.left + 30, desk.getBoundingClientRect().top - 200);
       pointer(lightBar, "pointerup", handle.left + 30, desk.getBoundingClientRect().top - 200);
       const raisedTop = lightBar.parentElement.getBoundingClientRect().top - desk.getBoundingClientRect().top - desk.clientTop;
-      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult, raisedTop }));
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult, raisedTop,
+        name: sprite.querySelector("img").alt }));
     } catch (err) {
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
     }
@@ -222,8 +233,9 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
   const hex = readFileSync(join(ROOT, "src/chat-shared.css"), "utf8").match(/--shared-panel: #(\w{6});/)[1];
   const panel = `rgb(${hex.match(/../g).map((pair) => parseInt(pair, 16)).join(", ")})`;
   assert.deepEqual(result.chat, { closedAtFirst: true, opened: true, rings: { summon: 2, poke: 0 }, moved: [-60, 30], closed: true,
-    look: { panel, composer: "Nothing can answer yet", send: "10px" } },
-    "the Summon replaced the poke ring and opened a chat, in the app's Chat panel and composer, that moves and closes");
+    look: { panel, composer: `Ask ${result.name}…`, send: "10px" },
+    talk: { typed: "hi there", afterEnter: "", afterSend: "", stillOpen: true, replies: 0 } },
+    "the Summon replaced the poke ring and opened a chat in the app's Chat panel, whose active composer takes typing and sends to nowhere, and it moves and closes");
   assert.deepEqual(result.pill, { early: false, shown: true, typed: "hello there", dismissed: true, again: true, sent: true, escaped: true },
     "the pill waits out the hover delay, focuses, types, and an outside click, Enter, or Escape dismisses it");
   assert.equal(result.raisedTop, 0, "a window drags all the way up to the desk's top edge");

@@ -200,6 +200,7 @@
   .play-win.chat { width: 42%; height: 64%; display: flex; flex-direction: column; }
   .play-win.chat[hidden] { display: none; }
   /* The minimal Chat UI's panel, in the tokens lifted from src/chat-ui.css below. */
+  .play-chat-ui textarea { user-select: text; -webkit-user-select: text; }
   .play-win.play-chat-ui { background: var(--chat-panel); border-color: var(--chat-line); color: var(--chat-ink);
     font-family: var(--chat-sans); font-size: var(--shared-type-size); }
   .play-win .close { position: relative; flex: 0 0 auto; width: 10px; height: 10px; padding: 0; border: 0;
@@ -326,7 +327,7 @@
             <p>In Fidget, this is where you talk to your character, through the agent you already use.</p>
           </div></div>
         </div>
-        <div class="composer"><textarea rows="1" disabled placeholder="Nothing can answer yet" aria-label="Message (a mock)"></textarea><button type="button" disabled>Send</button></div>
+        <div class="composer"><textarea rows="1" maxlength="16000" placeholder="Ask {{play_name}}…" autocomplete="off" aria-label="Message (a mock)"></textarea><button type="button">Send</button></div>
       </div>
       <div class="play-sprite" id="play-sprite">{{play_sprite}}</div>
       <div class="play-qm" id="play-qm" aria-hidden="true">
