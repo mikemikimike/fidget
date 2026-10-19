@@ -343,27 +343,27 @@ Linux support is full on normal desktops (X11 or XWayland under GNOME/KDE). Rare
 
 ### Do I need an AI account?
 
-No. Without one, your fidget still walks, naps, perches on windows and reacts when you poke or throw it. Attach the agent you already use, like Claude Code, Codex or Cursor, or a model API key, and it starts talking. A local model through Ollama works too, with no account at all.
+No. Without one, your fidget still walks, naps, perches on windows and reacts when you poke or throw it. Attach the agent you already use, like Claude Code, Codex or Cursor, or a Model API key, and it starts talking. A local model you serve through Ollama or MLX works too. Use a Harness for the most powerful experience.
 
 ### Does it read my screen?
 
-Never the pixels. It takes no screenshots and runs no OCR. With your consent, it reads [window titles and app names](#computer-use) so it can react to what's in front. Say no and it still knows where windows are, just not what they are.
+Fidget doesn't read pixels. It takes no screenshots and runs no OCR. With your consent, it reads only [window titles and app names](#computer-use), so it can react to what's in front of you with more context. Without your consent, it still knows where windows are, just not what they are. An agentic Harness like Claude Code or Hermes is different. Your permissions and plugin setup there decide what it can do, and that can include computer use and taking screenshots. That is powerful and dangerous, so Fidget leaves it to the Harness on purpose.
 
 ### Can it control my computer?
 
 Fidget itself never clicks or types. It has no mouse or keyboard tools by design. The agent you attach can still use its own tools, most of the ones it already has in your terminal.
 
-### Will it get in my way?
+### Will it get in my way while I work?
 
-It shouldn't. It never takes focus, and clicks pass through everywhere except the sprite. It fades out for fullscreen apps, and Control-Option-Command-B hides it instantly. On macOS and Windows, a setting keeps it out of screenshots and screen shares.
+It shouldn't. It never takes window focus unless you type in the quick-message pill or use the chat, and clicks pass through everywhere except the sprite. It fades out for fullscreen apps, and the hotkey Control-Option-Command-B hides it instantly. On macOS and Windows, a setting also keeps it out of screenshots and screen shares.
 
 ### What does it cost?
 
-Fidget is free and MIT licensed. A harness uses the sign-in you already have. A model API bills your own key with your provider. It only thinks now and then, not on every frame.
+Fidget is free and MIT licensed. A Harness uses the subscription you already have, so you manage usage there and Fidget just uses it. A Model API bills your own key with your provider. Left alone, Fidget costs little. It only thinks and speaks now and then, and its banter spends very few tokens compared to most uses.
 
 ### Does it work offline?
 
-Yes, for presence and play. Walking, napping, perching and every gesture run locally. Only talking needs an AI, and that can be a local model.
+Yes, for physical desktop presence and play. Walking, poking, throwing, sleeping, perching and every gesture run locally. Only talking needs an AI, and that can be a local model. So whether you pay, and how much, is up to you.
 
 ### Which systems does it run on?
 
@@ -371,7 +371,7 @@ macOS on Apple Silicon, Windows on x86_64 and Linux on x86_64. On Linux, it's fu
 
 ### Is it safe to install?
 
-It's open source, so you can read every line. The builds aren't signed yet, so macOS and Windows warn on first open, and the [install steps](#get-it) say what to click. If you'd rather not trust a download, build it from source.
+It's open source, so you can read every line. I'm diligent with code reviews, security reviews and updates. The builds aren't signed yet, so macOS and Windows warn on first open, and the [install steps](#get-it) say what to click. If you'd rather not trust a download, build it from source. You're welcome to report any issue you find on the repository.
 
 ## Developing
 
