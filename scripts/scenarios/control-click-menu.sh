@@ -84,24 +84,87 @@ func key(_ code: CGKeyCode) {
         CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)?.post(tap: .cghidEventTap)
     }
 }
+// A synthetic mouse event with no Control key pair behind it leaves the
+// session's Control flag set, and every later synthetic click inherits it.
+// One flagless move through the HID state is what clears it (#1503).
+// ponytail: no macOS event marks a session flag change, so the read below
+// repeats every 20 ms for at most a second. It costs that second only on a
+// machine where the state never settles; drop it for a notification if one
+// ever arrives.
+func clearFlags() {
+    if let source = CGEventSource(stateID: .hidSystemState),
+        let at = CGEvent(source: nil)?.location,
+        let moved = CGEvent(
+            mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: at,
+            mouseButton: .left)
+    {
+        moved.flags = []
+        moved.post(tap: .cghidEventTap)
+    }
+    // The state settles a beat after the event, so give it one before saying.
+    let deadline = Date().addingTimeInterval(1)
+    func sessionFlags() -> CGEventFlags { CGEventSource.flagsState(.combinedSessionState) }
+    while sessionFlags().contains(.maskControl) && Date() < deadline { usleep(20_000) }
+    if sessionFlags().contains(.maskControl) {
+        FileHandle.standardError.write(
+            "input-state: session flags \(sessionFlags().rawValue) still carry Control\n"
+                .data(using: .utf8)!)
+    }
+}
 func value(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
     var out: CFTypeRef?
     return AXUIElementCopyAttributeValue(element, name as CFString, &out) == .success ? out : nil
 }
 
-// The popped-up menu is no child of the application element, so its items are
-// read by hit test down the middle of its menu-layer window.
-func menuWindow() -> CGRect? {
-    let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: AnyObject]] ?? []
-    return info.first {
-        ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && (($0[kCGWindowLayer as String] as? Int) ?? 0) >= 100
-    }.flatMap { CGRect(dictionaryRepresentation: $0[kCGWindowBounds as String] as! CFDictionary) }
+// The items and the frame of the popped-up menu. It is no child of the
+// application element, but AXMenuOpened hands it over, and its own children
+// are the rows it draws.
+func children(_ element: AXUIElement) -> [AXUIElement] {
+    (value(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []
 }
+func menuTitles(_ element: AXUIElement?) -> [String] {
+    guard let element else { return [] }
+    var titles: [String] = []
+    func walk(_ node: AXUIElement) {
+        for child in children(node) {
+            if value(child, kAXRoleAttribute) as? String == "AXMenuItem",
+                let title = value(child, kAXTitleAttribute) as? String, !title.isEmpty
+            {
+                titles.append(title)
+            }
+            walk(child)
+        }
+    }
+    walk(element)
+    return titles
+}
+// AXPosition and AXSize are the menu element's own attributes, so the
+// rectangle it draws in needs no window list.
+func elementFrame(_ element: AXUIElement?) -> CGRect? {
+    guard let element,
+        let posValue = value(element, kAXPositionAttribute),
+        let sizeValue = value(element, kAXSizeAttribute)
+    else { return nil }
+    var origin = CGPoint.zero
+    var size = CGSize.zero
+    guard AXValueGetValue(posValue as! AXValue, .cgPoint, &origin),
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size),
+        size.width > 0, size.height > 0
+    else { return nil }
+    return CGRect(origin: origin, size: size)
+}
+// AXMenuOpened carries the menu it opened, so both the frame and the items
+// come from that element and the window list is not polled (#1503).
+var opened: AXUIElement?
 // Wait on AXMenuOpened / AXMenuClosed from the app, never a sleep: the run
 // loop returns on the notification, or after the seconds given.
 var seen: Set<String> = []
 var observer: AXObserver?
-AXObserverCreate(pid, { _, _, name, _ in seen.insert(name as String) }, &observer)
+AXObserverCreate(pid, { _, element, name, _ in
+    let name = name as String
+    if name == kAXMenuOpenedNotification { opened = element }
+    seen.insert(name)
+}, &observer)
 if let observer {
     let app = AXUIElementCreateApplication(pid)
     for name in [kAXMenuOpenedNotification, kAXMenuClosedNotification] {
@@ -116,22 +179,19 @@ func waitFor(_ name: String, seconds: Double, or done: () -> Bool = { false }) {
     }
 }
 mouse(.leftMouseDown)
-waitFor(kAXMenuOpenedNotification, seconds: 3) { menuWindow() != nil }
-var items: [String] = []
-if let rect = menuWindow() {
-    let system = AXUIElementCreateSystemWide()
-    for y in stride(from: rect.minY + 4, to: rect.maxY, by: 6) {
-        var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(system, Float(rect.midX), Float(y), &hit) == .success,
-            let hit, value(hit, kAXRoleAttribute) as? String == "AXMenuItem",
-            let title = value(hit, kAXTitleAttribute) as? String, !title.isEmpty, items.last != title
-        else { continue }
-        items.append(title)
-    }
+waitFor(kAXMenuOpenedNotification, seconds: 3)
+let rect = elementFrame(opened)
+let items = menuTitles(opened)
+// The two ways the element can disappoint, named in the dump rather than left
+// to a bare exit code.
+if opened == nil {
+    FileHandle.standardError.write("no menu element 3s after the Control-click\n".data(using: .utf8)!)
+} else if items.isEmpty {
+    FileHandle.standardError.write("the menu element carries no items\n".data(using: .utf8)!)
 }
 // The menu's own bounds, never the display: evidence can end up attached to a
 // public PR, and the rest of the screen is the owner's.
-if let rect = menuWindow() {
+if let rect {
     let shot = Process()
     shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
     shot.arguments = ["-x", "-R", "\(Int(rect.minX)),\(Int(rect.minY)),\(Int(rect.width)),\(Int(rect.height))", args[4]]
@@ -140,14 +200,16 @@ if let rect = menuWindow() {
 }
 key(53)
 // Release only once the menu has closed, so the release cannot pick a row.
-waitFor(kAXMenuClosedNotification, seconds: 2) { menuWindow() == nil }
+waitFor(kAXMenuClosedNotification, seconds: 2)
 mouse(.leftMouseUp)
+clearFlags()
 items.forEach { print($0) }
 exit(items.isEmpty ? 1 : 0)
 SWIFT
 
 wait_for_trace 2 "$log" '^verbs: .*\[Menu\]' || fail "the Control-click did not land as Menu; see $log"
 echo "ok: the Control-click landed as Menu"
+! grep -q '^input-state:' "$menu_dump" || fail "the Control-click left the session's Control flag set; see $menu_dump"
 
 for item in "Chat…" "Settings…" "Quit"; do
   grep -qxF "$item" "$menu_dump" || fail "no '$item' in the menu; see $menu_dump"

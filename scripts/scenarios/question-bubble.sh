@@ -7,7 +7,7 @@
 #   when the scenario ends.
 # Input: one real click on the sprite (the Poke), then Allow on the
 #   permission ask through the Accessibility API.
-# Duration: a few seconds, 10 s at most.
+# Duration: a few seconds, 20 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
 # Asserts: no "Question for you" bubble before the Poke, and after it lands
 #   while the question waits, the bubble's text and its "chat" link button.
@@ -48,14 +48,18 @@ harness="$root/scripts/scenarios/fixture-harness.sh $test_bin script=scenario-as
 [ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
 
 start_ms=$(now_ms)
+# TRACE_BUBBLE is what logs `showAsk instance=`, so the cue can be waited for
+# as an event rather than by re-reading the Accessibility tree.
 env HOME="$out/home" \
   FIDGET_HARNESS="$harness" \
   FIDGET_DIRECTOR_WAKE_SECS=1 \
-  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 FIDGET_TRACE_FRAMES=1 \
+  FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 FIDGET_TRACE_FRAMES=1 FIDGET_TRACE_BUBBLE=1 \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
+
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 # Wait for the question to be asked and Chat to open.
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
@@ -73,6 +77,9 @@ screencapture -x -R "$rect" "$out/before-poke.png"
 # Send a Poke: one click on the sprite's center.
 "$tools/click-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" 1 > "$out/poke.txt" 2>&1 || fail "could not click the sprite; see $out/poke.txt"
 wait_for_trace 2 "$log" '^verbs: .*Poke' || fail "the click did not land as a Poke; see $log"
+# A Poke points at the question on the director's next due wake, not on the
+# click itself, so the cue is given more than the usual budget (#1503).
+wait_for_trace 5 "$log" 'showAsk instance=' || fail "the Poke did not raise the question cue; see $log"
 wait_for_ax_dump 2 "$pid" Fidget 'Question for you' || fail "the question cue never appeared; see $log"
 screencapture -x -R "$rect" "$out/after-poke.png"
 

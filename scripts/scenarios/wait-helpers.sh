@@ -73,6 +73,13 @@ wait_for_marks() { # <seconds> <marks file> <pattern>
   wait_for_line "$@"
 }
 
+# Fidget is up once it writes its `overlay:` line, which lands before it
+# attaches a Harness. A wait for a harness mark starts here, so the mark gets
+# the whole budget instead of sharing it with the app's launch (#1503).
+wait_for_up() { # <seconds> <app log>
+  wait_for_line "$1" "$2" '^overlay:'
+}
+
 # Wait for a file to exist. tail -F cannot see an empty file appear, so this
 # checks again on each new line of the app log ($log), Fidget's own clock.
 wait_for_file() { # <seconds> <file path>

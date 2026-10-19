@@ -6,10 +6,10 @@
 #   The install link is clicked. Two screenshots. Fidget quits at the end.
 # Input: one real click on the menu bar icon, AXPress on Chat…, one real click
 #   on the link; no keys. The link goes to a recording `open`, so no browser opens.
-# Duration: a few seconds, 10 s at most.
+# Duration: a few seconds, 15 s at most.
 # Grants: Screen Recording and Accessibility for the terminal that runs it.
-# Asserts: the landing draws `npx` and https://nodejs.org/ as their own
-#   elements, with no backtick left in the copy; nothing is handed to `open`
+# Asserts: the landing draws `npx` as code and https://nodejs.org/ as its own
+#   element, with no backtick left in the copy; nothing is handed to `open`
 #   before the click; the click hands exactly https://nodejs.org/ to `open`;
 #   Chat still shows the landing after it, so the webview did not navigate.
 #
@@ -61,17 +61,34 @@ dump() { "$tools/ax" dump "$pid" BMO frames > "$out/$1.ax.txt" 2>&1; }
 landing() { dump "$1" && grep -qF '|Codex needs ' "$out/$1.ax.txt"; }
 shot() { screencapture -x -o -l "$("$tools/window-id" "$pid" BMO)" "$out/$1.png"; }
 
-# The menu's Chat row exists once Fidget is up; retry the open until it does.
-"$tools/ax" open "$pid" Chat BMO > "$out/open.txt" 2>&1 || fail "the menu's Chat row did not open Chat; see $out/open.txt"
+# Fidget draws the tray icon before its click handler and its place in the menu
+# bar have settled, so an open that lands in that window is lost. The Chat
+# window appearing is what each retry waits on (#1503).
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
+chat_opened=0
+for attempt in 1 2; do
+  "$tools/ax" open "$pid" Chat BMO > "$out/open.txt" 2>&1 || true
+  if wait_for_ax 2 "$pid" "$tools/window-id" "$pid" BMO; then
+    chat_opened=1
+    break
+  fi
+  echo "open: attempt $attempt left Chat closed" >&2
+done
+[ "$chat_opened" = 1 ] || fail "the menu's Chat row did not open Chat; see $out/open.txt"
 wait_for_ax 3 "$pid" landing landing || fail "Chat shows no Codex needs npx landing; see $out/landing.ax.txt"
 shot landing
 f=$out/landing.ax.txt
 ! grep -qF '`' "$f" || fail "a backtick is left in the landing copy; see $f"
-awk -F'|' '$3 == "npx"' "$f" | grep -q . || fail "npx is not drawn as its own element; see $f"
+# The copy marks npx in backticks three times, once in the title and twice in
+# the sentence. WebKit folds an inline <code> into the sentence and draws the
+# span as an AXCodeStyleGroup, so three spans are what say all three were code.
+spans=$(grep -c 'AXCodeStyleGroup' "$f" || true)
+[ "$spans" = 3 ] || fail "the landing drew $spans code spans, not the 3 for npx; see $f"
+awk -F'|' '$3 ~ /npx is not installed/' "$f" | grep -q . || fail "npx is not in the landing copy; see $f"
 row=$(awk -F'|' -v u="$url" '$3 == u' "$f" | head -1)
 [ -n "$row" ] || fail "$url is not drawn as its own element; see $f"
 read -r x y w h <<< "$(tr , ' ' <<< "${row##*|}")"
-echo "ok: the landing draws npx and $url apart from the copy, no backtick left"
+echo "ok: the landing draws npx as code and $url apart from the copy, no backtick left"
 
 [ ! -s "$opened" ] || fail "something reached open before the click: $(cat "$opened")"
 "$tools/click-cursor" "$((x + w / 2))" "$((y + h / 2))" 1 > "$out/click.txt" 2>&1 || fail "could not click the link; see $out/click.txt"
