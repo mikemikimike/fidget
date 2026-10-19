@@ -424,6 +424,8 @@ struct InstanceState {
     spoken: Option<Spoken>,
     speech: SpeechBubble,
     drawn_last: Option<Drawn>,
+    /// Whether the cursor hovered this Instance last tick, by `AlphaMask::hovers`.
+    hovering: bool,
     /// The open quick-message draft, refreshed from the overlay's report each tick.
     qm: Option<fidget_core::quick_message::QmDraft>,
     /// This tick's verbs, decided before any Instance is ticked. Held on the
@@ -573,8 +575,8 @@ struct SpritePlacement<'a> {
     /// Whether this Instance has a Chat window that is not minimized. Sent to
     /// every overlay, because the pill that must stay down can open on any of them.
     chatting: bool,
-    /// The cursor is over this Instance's art, by the Shell's hit test: :hover
-    /// misses it once Chat has closed (#1565). Bubble owner only, like the pill.
+    /// The cursor hovers this Instance, by `AlphaMask::hovers`: :hover misses
+    /// it once Chat has closed (#1565). Bubble owner only, like the pill.
     hovered: bool,
     /// Whether this overlay draws this Instance's bubble (#178, `bubble_owner`).
     /// Still sent to the overlays that lost, which drop the bubble they were
@@ -4151,6 +4153,7 @@ fn spawn_live(
         spoken: None,
         speech: SpeechBubble::default(),
         drawn_last: None,
+        hovering: false,
         qm: None,
         traced_last: None,
         status_last: None,
@@ -4432,6 +4435,7 @@ fn spawn_instances(
             spoken: None,
             speech: SpeechBubble::default(),
             drawn_last: None,
+            hovering: false,
             qm: None,
             traced_last: None,
             status_last: None,

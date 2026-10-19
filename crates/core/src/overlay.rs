@@ -223,6 +223,24 @@ impl AlphaMask {
         self.opaque[(py * self.width + px) as usize]
     }
 
+    /// Hover starts on a drawn pixel and lasts while the cursor stays in the
+    /// sprite's box: the art animates under a still cursor, and a pixel the
+    /// next frame leaves out is not the cursor leaving.
+    pub fn hovers(
+        &self,
+        sprite: &SpriteRect,
+        cursor_x: i32,
+        cursor_y: i32,
+        mirrored: bool,
+        hovered_last_tick: bool,
+    ) -> bool {
+        let local_x = cursor_x - sprite.x;
+        let local_y = cursor_y - sprite.y;
+        let in_box = (0..self.width * sprite.scale).contains(&local_x)
+            && (0..self.height * sprite.scale).contains(&local_y);
+        self.hit(sprite, cursor_x, cursor_y, mirrored) || (hovered_last_tick && in_box)
+    }
+
     /// Rectangles, `[left, top, right, bottom]`, covering every drawn pixel
     /// with the sprite's top-left anywhere between the `trail` positions.
     /// One rectangle per horizontal run of ink, stretched over the trail's bounds.
@@ -440,6 +458,34 @@ mod tests {
             "and the ink is on the right"
         );
         assert!(!mask.hit(&sprite, 123, 200, false));
+    }
+
+    #[test]
+    fn hover_survives_a_frame_that_uncovers_a_still_cursor() {
+        let arm_up = AlphaMask::from_rows(&["####", ".##."]);
+        let arm_down = AlphaMask::from_rows(&[".##.", ".##."]);
+        let sprite = SpriteRect {
+            x: 100,
+            y: 200,
+            scale: 4,
+        };
+
+        assert!(
+            arm_up.hovers(&sprite, 101, 201, false, false),
+            "arriving on the arm"
+        );
+        assert!(
+            arm_down.hovers(&sprite, 101, 201, false, true),
+            "the arm swings away, the cursor has not moved"
+        );
+        assert!(
+            !arm_down.hovers(&sprite, 101, 201, false, false),
+            "arriving where nothing is drawn is no hover"
+        );
+        assert!(
+            !arm_down.hovers(&sprite, 116, 201, false, true),
+            "leaving the box ends it"
+        );
     }
 
     #[test]
