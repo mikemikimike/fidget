@@ -84,12 +84,17 @@ give one sentence each. The template is a floor, not a quota.
 
 ## The close keyword closes the issue
 
-A pull request that implements a tracker item carries that link in closing-keyword
-form — `Closes #123` — in its description. GitHub closes the linked issue only
-when the keyword rides in the body the squash merge keeps, so a bare
-`#123` mention leaves the item open with its acceptance boxes unchecked.
-When an agent must sweep up the slack, ticking the boxes wants the edit-unsigned,
-signed-comment rule above.
+A pull request that implements a tracker item carries the link in closing-keyword
+form — `Closes #123` — as a line of the description, which the pull request
+template already ends in. GitHub closes the linked issue when a PR whose
+description carries the keyword merges into the default branch; a bare `#123`
+mention closes nothing, so the issue stays open with its acceptance boxes
+unchecked. Under this repo's squash settings the merge commit is the PR title
+with a blank body, so the description is where the keyword must sit.
+
+When an agent sweeps up the slack anyway, ticking the boxes follows the
+edit-unsigned, signed-comment rule under "An agent signs what it writes on
+GitHub".
 
 ## A visual change shows itself
 
