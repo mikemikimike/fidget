@@ -82,19 +82,22 @@ makes them reconstruct the problem from the diff.
 A pull request small enough that all three answers are one sentence each should
 give one sentence each. The template is a floor, not a quota.
 
-## The close keyword closes the issue
+## Close the item with the keyword
 
-A pull request that implements a tracker item carries the link in closing-keyword
-form — `Closes #123` — as a line of the description, which the pull request
-template already ends in. GitHub closes the linked issue when a PR whose
-description carries the keyword merges into the default branch; a bare `#123`
-mention closes nothing, so the issue stays open with its acceptance boxes
-unchecked. Under this repo's squash settings the merge commit is the PR title
-with a blank body, so the description is where the keyword must sit.
+When you open a pull request that closes an issue, mention it with the keyword,
+not a bare link: write `Closes #123` — any close keyword works — as a line of the
+description. The pull request template already ends in `Closes #`. GitHub closes
+the linked issue when the PR merges into the default branch; this repo's squash
+settings put the PR title on the merge commit with a blank body, so the
+description is the one place the keyword reaches the merge. A bare `#123` link
+closes nothing, and the issue then sits open with its acceptance boxes unchecked.
 
-When an agent sweeps up the slack anyway, ticking the boxes follows the
-edit-unsigned, signed-comment rule under "An agent signs what it writes on
-GitHub".
+Once the pull request merges, make sure the issue it was supposed to close
+actually closed, and move that item's board status to `Done` (the board lives
+on `omesser/fidget`, project 2; `docs/agents/picking-work.md` queries it). If
+slack survives anyway — unchecked boxes in the issue body — tick them, and
+follow the edit-unsigned, signed-comment rule under "An agent signs what it
+writes on GitHub".
 
 ## A visual change shows itself
 
