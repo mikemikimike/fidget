@@ -359,7 +359,7 @@ It shouldn't. It never takes window focus unless you type in the quick-message p
 
 ### What does it cost?
 
-Fidget is free and MIT licensed. A Harness uses the subscription you already have, so you manage usage there and Fidget just uses it. A Model API bills your own key with your provider. Left alone, Fidget costs little. It only thinks and speaks now and then, and its banter spends very few tokens compared to most uses.
+Fidget is free and MIT licensed. A Harness uses the subscription you already have, so you manage usage there and Fidget just uses it. A Model API bills your own key with your provider. Even with an agent attached or Model API configured, if left alone, Fidget costs very little. It only thinks and speaks now and then, and its banter spends very few tokens compared to most uses. When you actively use it by prompting and talking to it, it will incur usage costs from your AI subscription, just like any session or calls.
 
 ### Does it work offline?
 
