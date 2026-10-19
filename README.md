@@ -30,7 +30,7 @@ Try the gestures in your browser: [Fidget Cues](https://omesser.github.io/fidget
 - **Pick a built-in character, or build your own:** Each character has its own sprites, animation loops, and personality. Edit any character's prompt or behavior using a plain-text personality file and a simple [manifest format](./docs/DEVELOPMENT.md#character-packages). Create your own characters, or [import and convert](./docs/DEVELOPMENT.md#importing-pets) one from the [Pets Codex](https://petscodex.com/) and [Shimeji Shop](https://shimejishop.com/) galleries.
 - **Personalize your Fidget's behavior:** Write your own text for any fidget's behavior through its Instance Prompt. It holds on top of its Character's personality, and changes how that fidget reacts. See [Give It an Instance Prompt](#give-it-an-instance-prompt) for examples.
 - **Pitches in:** Double-click to chat with the agent you already use (Claude Code, Codex, Cursor, or any ACP [harness](#harness-support)); it acts on your machine and answers in speech and motion.
-- **Knows what you're up to:** It can see and react to your open windows - titles only, and only with consent, for context-aware chatter. It never reads screen pixels and [never takes screenshots](#computer-use); Reading titles and application names needs your explicit consent.
+- **Knows what you're up to:** It reacts to your open windows for context-aware chatter. **It never takes screenshots or reads screen pixels**, and it reads window titles and app names only with [your consent](#computer-use).
 - **Gets out of your way when you ask it to:** Automatically fades away when in fullscreen, hides at will on hotkey, and comes back when you want it to.
 
 ## Characters
