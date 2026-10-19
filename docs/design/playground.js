@@ -259,9 +259,10 @@ export function mount(section, data, cueIo) {
 
   let playing = null;
   let since = 0;
-  let last = performance.now();
+  let last = null;
+  let pending = 0;
   const frame = (now) => {
-    apply({ type: "tick", now, dt: (now - last) / 1000, rand: Math.random() });
+    apply({ type: "tick", now, dt: last === null ? 0 : (now - last) / 1000, rand: Math.random() });
     last = now;
     const name = animationOf(state);
     if (name !== playing) {
@@ -274,7 +275,17 @@ export function mount(section, data, cueIo) {
     if (img.getAttribute("src") !== src) img.setAttribute("src", src);
     const at = feet(state, world());
     sprite.style.transform = `translate(${at.x - w / 2}px, ${at.y - h}px)${state.facing < 0 ? " scaleX(-1)" : ""}`;
-    requestAnimationFrame(frame);
+    pending = requestAnimationFrame(frame);
   };
-  requestAnimationFrame(frame);
+  // Out of view, no frames are scheduled. Back in view, the first tick has no
+  // elapsed time, so nothing jumps by the time spent away.
+  new IntersectionObserver(([entry]) => {
+    if (entry.isIntersecting && !pending) {
+      last = null;
+      pending = requestAnimationFrame(frame);
+    } else if (!entry.isIntersecting && pending) {
+      cancelAnimationFrame(pending);
+      pending = 0;
+    }
+  }).observe(desk);
 }

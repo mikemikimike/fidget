@@ -1,6 +1,7 @@
 // The published landing page, assembled the way the Pages job assembles
 // `_site/`, played with in headless Chrome: a throw lands with the hard puff,
-// a slow drop perches on the window, and reduced motion keeps the still tiles.
+// a slow drop perches on the window, the desk stops painting while scrolled out
+// of view, and reduced motion keeps the still tiles.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -12,7 +13,7 @@ import { after, before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const PROBE_MS = 4000;
+const PROBE_MS = 7000;
 
 const probe = `
 <script>
@@ -40,6 +41,8 @@ const probe = `
         console.log("__PROBE_RESULT__" + JSON.stringify({ errors, tiles: !document.getElementById("play-tiles").hidden }));
         return;
       }
+      desk.scrollIntoView({ block: "center" });
+      await frame(); await frame();
       const inner = () => { const box = desk.getBoundingClientRect(); return { x: box.left + desk.clientLeft, y: box.top + desk.clientTop }; };
       const feetY = () => sprite.getBoundingClientRect().bottom - inner().y;
       let x, y;
@@ -68,7 +71,23 @@ const probe = `
       fire("pointerup");
       await soft;
       const dropped = { feetY: feetY(), windowTop };
-      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, tiles: false, thrown, dropped }));
+
+      const repaints = async (ms) => {
+        let count = 0;
+        const observer = new MutationObserver((records) => { count += records.length; });
+        observer.observe(sprite, { attributes: true, subtree: true });
+        await new Promise((resolve) => setTimeout(resolve, ms));
+        observer.disconnect();
+        return count;
+      };
+      window.scrollTo(0, 0);
+      await frame(); await frame();
+      const before = feetY();
+      const offscreen = await repaints(1000);
+      desk.scrollIntoView({ block: "center" });
+      const back = await repaints(1000);
+      const paused = { offscreen, back, moved: Math.abs(feetY() - before) };
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, tiles: false, thrown, dropped, paused }));
     } catch (err) {
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
     }
@@ -111,10 +130,12 @@ test("every frame the desk plays is in the assembled site", () => {
   for (const frame of frames) assert.ok(existsSync(join(site, frame)), `${frame} is published`);
 });
 
-test("the desk replaces the still tiles: a throw lands with the hard puff, a slow drop perches, reduced motion keeps the tiles", { skip: chromeSkip }, async () => {
+test("the desk replaces the still tiles: a throw lands with the hard puff, a slow drop perches, offscreen pauses, reduced motion keeps the tiles", { skip: chromeSkip }, async () => {
   const result = await play();
   assert.deepEqual([result.errors, result.tiles], [[], false], "the desk mounted and the page threw nothing");
   assert.ok(Math.abs(result.thrown.feetY - result.thrown.floor) < 1, `landed on the floor: ${JSON.stringify(result.thrown)}`);
   assert.ok(Math.abs(result.dropped.feetY - result.dropped.windowTop) < 1, `perched on the window: ${JSON.stringify(result.dropped)}`);
+  assert.equal(result.paused.offscreen, 0, `scrolled out of view, the desk painted nothing: ${JSON.stringify(result.paused)}`);
+  assert.ok(result.paused.back > 0, `scrolled back, the desk animates again: ${JSON.stringify(result.paused)}`);
   assert.deepEqual(await play(["--force-prefers-reduced-motion"]), { errors: [], tiles: true });
 });
