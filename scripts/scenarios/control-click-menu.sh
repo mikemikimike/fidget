@@ -172,9 +172,9 @@ if let observer {
     }
     CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
 }
-func waitFor(_ name: String, seconds: Double, or done: () -> Bool = { false }) {
+func waitFor(_ name: String, seconds: Double) {
     let deadline = Date().addingTimeInterval(seconds)
-    while !seen.contains(name) && !done() && Date() < deadline {
+    while !seen.contains(name) && Date() < deadline {
         CFRunLoopRunInMode(.defaultMode, deadline.timeIntervalSinceNow, true)
     }
 }
