@@ -1,12 +1,13 @@
 # Sample a running fidget's resident set, Windows only. WebView2 is multi-process,
 # so every msedgewebview2.exe that appears after launch counts as the app's.
-# Usage: scripts\bench-rss-windows.ps1 [-Settle N] [-Seconds N] [-Interval N] [-Out FILE] [-Research]
+# Usage: scripts\bench-rss-windows.ps1 [-Bin PATH] [-Settle N] [-Seconds N] [-Interval N] [-Out FILE] [-Research]
 
 # WorkingSet alone does not compare two runs on a busy machine; PeakWorkingSet
 # only ever rises. Compare scenarios on it and read the WorkingSet series for
 # shape, and record the roster, display count and what the sprite was doing.
 
 param(
+    [string]$Bin = "target\debug\fidget.exe",
     [int]$Settle = 3,
     [int]$Seconds = 10,
     [int]$Interval = 2,
@@ -23,11 +24,11 @@ if ($Research) {
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
-$bin = "target\debug\fidget.exe"
-if (-not (Test-Path $bin)) {
-    Write-Error "no $bin - run: cd src-tauri; cargo build --bin fidget"
+if (-not (Test-Path -LiteralPath $Bin)) {
+    [Console]::Error.WriteLine("no $Bin - run: cd src-tauri; cargo build --bin fidget")
     exit 2
 }
+$Bin = (Resolve-Path -LiteralPath $Bin).Path
 
 if ($Out -eq "") {
     $Out = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.tsv'
@@ -35,10 +36,20 @@ if ($Out -eq "") {
 $log = "$Out.app.log"
 $errLog = "$Out.app.err.log"
 
+# Release keeps stderr in the data folder's process.log; only debug copies it
+# back to stderr (process_log::init), so both are read. The log outlives runs,
+# so only lines stamped at or after launch count.
+$dataDir = if ($env:FIDGET_DATA_DIR) { $env:FIDGET_DATA_DIR } else { Join-Path $env:APPDATA "fidget" }
+New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+$processLog = Join-Path $dataDir "process.log"
+$launchedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
 $beforeEdge = Get-Process -Name "msedgewebview2" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
 
-# The overlay line is on stderr.
-$process = Start-Process -FilePath ".\$bin" -PassThru -RedirectStandardOutput $log -RedirectStandardError $errLog -WindowStyle Hidden
+$start = @{ FilePath = $Bin; PassThru = $true; RedirectStandardOutput = $log; RedirectStandardError = $errLog }
+# Only Windows has window styles; elsewhere is the tests' fake app.
+if ([Environment]::OSVersion.Platform -eq "Win32NT") { $start.WindowStyle = "Hidden" }
+$process = Start-Process @start
 $app = $process.Id
 
 function Stop-App {
@@ -49,36 +60,54 @@ function Stop-App {
 Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { Stop-App } | Out-Null
 trap { Stop-App; break }
 
-$overlayReported = $false
-$displays = 0
-for ($i = 0; $i -lt 30; $i++) {
-    Start-Sleep -Seconds 1
-    if (Test-Path $errLog) {
-        $errContent = Get-Content $errLog -ErrorAction SilentlyContinue
-        $match = $errContent | Select-String -Pattern 'overlay: (\d+) display'
-        if ($match) {
-            $displays = [int]$match.Matches[0].Groups[1].Value
-            $overlayReported = $true
-            break
-        }
+# Tails one log with Get-Content -Wait and returns its first overlay line,
+# waiting for the file to be created first. $Since above zero also requires the
+# line's leading timestamp to be at least that.
+$tail = {
+    param([string]$Path, [long]$Since, [int]$Seconds)
+    $watcher = New-Object System.IO.FileSystemWatcher (Split-Path -Parent $Path), (Split-Path -Leaf $Path)
+    try {
+        Register-ObjectEvent $watcher Created -SourceIdentifier created | Out-Null
+        $watcher.EnableRaisingEvents = $true
+        # Checked after the watch starts, so a file made in between is not missed.
+        if (-not (Test-Path -LiteralPath $Path) -and -not (Wait-Event -SourceIdentifier created -Timeout $Seconds)) { return }
+    } finally {
+        $watcher.Dispose()
     }
-    foreach ($logFile in @($log, $errLog)) {
-        if (Test-Path $logFile) {
-            $content = Get-Content $logFile -ErrorAction SilentlyContinue
-            if ($content -match "error|failed|cannot") {
-                Write-Error "app failed to start; see $log and $errLog"
-                Get-Content $log
-                Get-Content $errLog
-                exit 1
-            }
-        }
-    }
+    Get-Content -LiteralPath $Path -Wait |
+        Where-Object { $_ -match 'overlay: \d+ display' -and ($Since -eq 0 -or ($_ -match '^(\d+) ' -and [long]$Matches[1] -ge $Since)) } |
+        Select-Object -First 1
 }
 
-if (-not $overlayReported) {
-    Write-Error "the app never reported its overlays; see $log and $errLog"
+# The first overlay line from either log wins. An app that exits first, or no
+# line within the time, fails the run.
+$waitSeconds = 30
+$waits = @(
+    Start-Job -ScriptBlock $tail -ArgumentList $processLog, $launchedAt, $waitSeconds
+    Start-Job -ScriptBlock $tail -ArgumentList $errLog, 0, $waitSeconds
+)
+$exited = Start-Job -ScriptBlock { param([int]$Id) Wait-Process -Id $Id -ErrorAction SilentlyContinue } -ArgumentList $app
+$deadline = (Get-Date).AddSeconds($waitSeconds)
+$line = $null
+$why = "never reported its overlays"
+$pending = @($waits) + $exited
+while (-not $line -and $pending.Count -gt 0) {
+    $left = [int][Math]::Ceiling(($deadline - (Get-Date)).TotalSeconds)
+    if ($left -le 0) { break }
+    $done = Wait-Job -Job $pending -Any -Timeout $left
+    if (-not $done) { break }
+    if ($done -eq $exited) { $why = "exited before reporting its overlays"; break }
+    $line = Receive-Job -Job $done | Select-Object -First 1
+    $pending = @($pending | Where-Object { $_ -ne $done })
+}
+Remove-Job -Job (@($waits) + $exited) -Force
+
+if (-not $line) {
+    Stop-App
+    [Console]::Error.WriteLine("the app $why; see $processLog, $log and $errLog")
     exit 1
 }
+$displays = [int]([regex]::Match($line, 'overlay: (\d+) display').Groups[1].Value)
 
 Start-Sleep -Seconds 2  # Give helpers time to spawn
 $afterEdge = Get-Process -Name "msedgewebview2" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id

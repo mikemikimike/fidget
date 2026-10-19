@@ -23,6 +23,8 @@ A "real hit" means a drop in the same band as Linux: ~200+ MB and 1 fewer proces
 
 These commands run on Windows PowerShell 5.1 or newer on DESKTOP-UQIE144.
 
+Measure the release build. Debug totals run higher, so only a gap between two debug runs compares. `-Bin` names the binary. Release keeps stderr in `process.log` in the data folder, and the script reads the overlay line from there (#1479).
+
 ### Baseline (anchor present)
 
 ```powershell
@@ -39,7 +41,7 @@ $env:FIDGET_TRACE_ENGINE = "1"
 $env:FIDGET_CHARACTERS = (Get-Location).Path + "\characters"
 $env:FIDGET_INSTANCES = "bmo:One"
 
-.\scripts\bench-rss-windows.ps1 -Settle 5 -Seconds 30 -Interval 2 -Out "C:\Temp\baseline.tsv"
+.\scripts\bench-rss-windows.ps1 -Bin target\release\fidget.exe -Settle 5 -Seconds 30 -Interval 2 -Out "C:\Temp\baseline.tsv"
 ```
 
 The script reports total working set (min, median, max) and per-process RSS median and peak working set. Note the process count and the median.
@@ -57,7 +59,7 @@ $env:FIDGET_CHARACTERS = (Get-Location).Path + "\characters"
 $env:FIDGET_INSTANCES = "bmo:One"
 $env:FIDGET_NO_ANCHOR = "1"
 
-.\scripts\bench-rss-windows.ps1 -Settle 5 -Seconds 30 -Interval 2 -Out "C:\Temp\control.tsv"
+.\scripts\bench-rss-windows.ps1 -Bin target\release\fidget.exe -Settle 5 -Seconds 30 -Interval 2 -Out "C:\Temp\control.tsv"
 ```
 
 The control run should print `anchor: skipped (FIDGET_NO_ANCHOR is set)` to stderr instead of the normal `anchor: 1x1 at ...` line.
