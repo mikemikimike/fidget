@@ -82,7 +82,7 @@ f=$out/landing.ax.txt
 # The copy marks npx in backticks three times, once in the title and twice in
 # the sentence. WebKit folds an inline <code> into the sentence and draws the
 # span as an AXCodeStyleGroup, so three spans are what say all three were code.
-spans=$(grep -c 'AXCodeStyleGroup' "$f")
+spans=$(grep -c 'AXCodeStyleGroup' "$f" || true)
 [ "$spans" = 3 ] || fail "the landing drew $spans code spans, not the 3 for npx; see $f"
 awk -F'|' '$3 ~ /npx is not installed/' "$f" | grep -q . || fail "npx is not in the landing copy; see $f"
 row=$(awk -F'|' -v u="$url" '$3 == u' "$f" | head -1)
