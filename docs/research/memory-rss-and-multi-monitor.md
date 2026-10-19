@@ -263,12 +263,18 @@ See #431. The other three runs agree. B reads 226 MB idle and 226 MB walking.
 
 **A single-display comparison, and three displays.** Both displays are
 permanently attached and no third exists. The per-display section says what
-stands in for that comparison.
+stands in for that comparison. The operator dropped the three-display run on
+2026-10-19, see
+[macOS release resident set](macos-release-resident-set.md#dropped-from-424),
+which also holds a one-display release run.
 
 **A heap profile with top allocators.** #424 asks for Instruments Allocations
-or `heaptrack`. Instruments needs a GUI session and a human. The allocator
-ranking is unanswered, and the 47.6 MB above is the first thing to point it
-at.
+or `heaptrack`. Instruments needs a GUI session and a human.
+`scripts/bench-rss-macos.sh --heap DIR` takes the profile without
+Instruments. A release run with one Character is in
+[macOS release resident set](macos-release-resident-set.md#heap-profile), and
+`art_urls` is the second-largest live allocator there. It did not install the
+seven unused Characters, so the 47.6 MB above stays unexplained.
 
 **A release build.** Everything in the macOS section is `target/debug`. One release run is recorded in [macOS release resident set](macos-release-resident-set.md).
 
@@ -366,6 +372,10 @@ sample measured on macOS. Measure the settling curve on Linux before treating
 300 seconds as the right wait here.
 
 ### Display count
+
+On 2026-10-19 the operator dropped Linux multi-monitor runs from #424: "linux
+multi monitor setup - unavailable at this time". Linux has one-display numbers
+only.
 
 Run `xrandr`, or read the app log line `overlay: N display`, to see how many
 displays the app detected. If WebKitGTK runs one WebContent process per
