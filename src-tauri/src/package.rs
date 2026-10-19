@@ -160,9 +160,9 @@ pub fn user_characters_dir() -> PathBuf {
     fidget_core::memory::data_dir().join("characters")
 }
 
-/// Where fidget looks for Character Packages, in order. `FIDGET_CHARACTERS` goes in
-/// front, the way `PATH` does, and earlier wins. Replacing the other directories
-/// would hide the user folder and the shipped packages.
+/// Where fidget looks for Character Packages, in order. `FIDGET_CHARACTERS`
+/// goes in front, the way `PATH` does, and earlier wins. Replacing the other
+/// directories would hide the user folder and the shipped packages.
 pub fn search_paths(bundled: Option<PathBuf>) -> Vec<PathBuf> {
     let data_dir = fidget_core::memory::data_dir();
     let extra = std::env::var_os(SEARCH_PATH_VAR);

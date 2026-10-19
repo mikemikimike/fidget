@@ -142,8 +142,9 @@ pub enum FormRow {
         label: Option<String>,
         placeholder: String,
         writes: TextField,
-        /// A hint under the field. Label and placeholder have no room for what a
-        /// value costs, such as the Completer timeout also budgeting a Harness turn.
+        /// A hint under the field. Label and placeholder have no room for what
+        /// a value costs, such as the Completer timeout also budgeting a
+        /// Harness turn.
         help: Option<String>,
         /// Read-only: the value shown is not the user's to change. True when
         /// an exported variable owns the field, since `model::resolve` gives
@@ -217,9 +218,9 @@ pub enum CompositeControl {
     },
 }
 
-/// What a composite popup fills in, and how to read a title as a value: `Custom`
-/// names no level, and the Base URL picker writes a URL. A pick stages or saves
-/// per the target row's `batched`, so shortcut and field cannot disagree.
+/// What a composite popup fills in and how to read a title as a value: `Custom`
+/// names no level, and the Base URL picker writes a URL. The target row's
+/// `batched` decides when.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct Shortcut {
     /// The id of the text row filled in, whose `writes` is the field.
@@ -242,7 +243,8 @@ impl PartialEq for Shortcut {
 impl Eq for Shortcut {}
 
 /// One tab of the settings form. The grouping is data rather than page layout,
-/// so the webview tabs cannot disagree with the form about which heading sits where.
+/// so the webview tabs cannot disagree with the form about which heading sits
+/// where.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FormTab {
     pub title: String,
@@ -280,8 +282,8 @@ impl FormDescription {
         self.tabs.iter().flat_map(|tab| &tab.sections)
     }
 
-    /// Whether the control carrying this id is the environment's rather than the
-    /// user's; false for an unknown id. A frozen row never applies, because
+    /// Whether the control carrying this id is the environment's rather than
+    /// the user's; false for an unknown id. A frozen row never applies, because
     /// `model::resolve` would discard the edit.
     pub fn frozen(&self, id: &str) -> bool {
         self.sections()
@@ -611,9 +613,9 @@ pub fn endpoint_title(base_url: &str) -> String {
         .unwrap_or_else(|| PICKER_CUSTOM.to_string())
 }
 
-/// The three reasoning-effort levels every documented host takes. Beyond them
-/// hosts disagree (xAI lacks `max`, Ollama lacks `xhigh`, llama.cpp and oMLX
-/// defer to the model), so the unvalidated field beside the picker covers the rest.
+/// The three effort levels every documented host takes. Beyond them hosts
+/// disagree (xAI lacks `max`, Ollama `xhigh`), so the free field beside the
+/// picker covers the rest.
 const EFFORT_LEVELS: [&str; 3] = ["low", "medium", "high"];
 
 /// The reasoning-effort picker's choices, Custom first, exactly as the Base
@@ -653,9 +655,9 @@ pub fn harness_options() -> Vec<String> {
     options
 }
 
-/// The popup title for a source in force, and the command line beside it. One
-/// choice spelled two ways: `FIDGET_HARNESS` puts a custom command in the value,
-/// while the file keeps `custom` plus its own field, so a preset round trip keeps it.
+/// The popup title for a source in force, and the command line beside it.
+/// `FIDGET_HARNESS` puts a custom command in the value; the file keeps `custom`
+/// plus its own field.
 pub fn harness_rows(value: &str, command: &str) -> (String, String) {
     match value.trim() {
         "" => (HARNESS_OFF.to_string(), command.to_string()),
@@ -938,9 +940,9 @@ fn pi_mcp_status(dir: &str) -> String {
     )
 }
 
-/// Which mind answers a wake, and what the attachment is doing. One variable owns
-/// both rows, since `FIDGET_HARNESS` spells the whole choice in one value. No
-/// credential row, ever: the Harness signs itself in (ADR-0018).
+/// Which mind answers a wake, and what the attachment is doing. One variable
+/// owns both rows, since `FIDGET_HARNESS` spells the whole choice in one value.
+/// No credential row, ever: the Harness signs itself in (ADR-0018).
 fn completer_source_section() -> FormSection {
     let (source_label, frozen, source_status) = harness_env_row_parts("AI source");
     FormSection {
@@ -973,7 +975,8 @@ fn completer_source_section() -> FormSection {
 }
 
 /// The rows only a Harness reads, under the picker that attaches one. Its Model
-/// row reuses the Model / API field, since that section is off while a Harness is picked.
+/// row reuses the Model / API field, since that section is off while a Harness
+/// is picked.
 fn harness_section(pi_mcp_dir: &str) -> FormSection {
     let (_, frozen, _) = harness_env_row_parts("AI source");
     let (model_label, model_frozen, model_status) = env_row_parts("Model", model::MODEL);
@@ -1021,9 +1024,9 @@ fn harness_section(pi_mcp_dir: &str) -> FormSection {
     }
 }
 
-/// How to point a Harness the user starts at this app's MCP server. Port and token
-/// change every run (ADR-0026), so only the running app can print the command. The
-/// token shows in plain text: a Settings row is no log, trace or shared file.
+/// How to point a user-run Harness at this app's MCP server. Port and token
+/// change every run (ADR-0026). The token shows in plain text: a Settings row
+/// is no log or file.
 fn byo_section() -> FormSection {
     FormSection {
         heading: BYO_HEADING.to_string(),
@@ -1673,9 +1676,9 @@ pub struct Live {
     pub attach_cwd: String,
     /// The directory Apply would write `.mcp.json` into, for the Pi warning.
     pub pi_mcp_dir: String,
-    /// What the API key row's empty field says about the store. `current()`
-    /// leaves it blank, since it is a store read and `settings_event` builds a
-    /// description per gesture; `settings_snapshot` fills it from its cached view.
+    /// What the API key row's empty field says about the store. Only
+    /// `settings_snapshot` fills it, from its cached view: `current()` runs per
+    /// gesture and skips the store.
     pub api_key_placeholder: String,
     /// The Character Packages the two Character popups offer, by name. Like
     /// `api_key_placeholder`, only `settings_snapshot` fills it.
@@ -1771,9 +1774,9 @@ pub(crate) mod tests {
     const FIXTURE_CHARACTERS_DIR: &str =
         "/Users/buddy/Library/Application Support/fidget/characters";
 
-    /// The fixtures hold the macOS form. Linux builds Presence with capturable
-    /// frozen and Privacy with no consent rows; Windows builds Privacy one row
-    /// smaller. Each tab pins where it builds the same; the other three pin everywhere.
+    /// The fixtures hold the macOS form. Linux freezes capturable and drops the
+    /// consent rows, and Windows drops one. Each tab pins where it builds the
+    /// same.
     #[cfg(target_os = "linux")]
     const UNPINNED_TABS: &[&str] = &["Presence", "Privacy"];
     /// Windows builds Privacy without the Input Monitoring row: the grant is
@@ -1999,9 +2002,9 @@ pub(crate) mod tests {
             let every = value_row_ids(&description, &[]);
             let mut pinned = value_row_ids(&description, UNPINNED_TABS);
             pinned.retain(|id| !OS_SPECIFIC_VALUES.contains(&id.as_str()));
-            // Where the fixture is this platform's whole form, compare it whole,
-            // so a key the view stopped producing fails here. Elsewhere only the
-            // shared rows are pinned, and the file keeps keys this build does not draw.
+            // Where the fixture is this platform's whole form, compare it
+            // whole, so a key the view dropped fails. Elsewhere only the shared
+            // rows are pinned.
             let whole = pinned == every;
             let keep = |value: serde_json::Value| -> serde_json::Value {
                 let object = value.as_object().expect("the fixture is an object").clone();
@@ -2261,7 +2264,8 @@ pub(crate) mod tests {
     ];
 
     /// `model::resolve` gives the env the last word, so a field the env owns
-    /// cannot be offered as editable. Described here so both windows inherit it.
+    /// cannot be offered as editable. Described here so both windows inherit
+    /// it.
     #[test]
     fn an_env_owned_endpoint_row_is_read_only_and_names_its_variable() {
         crate::model::tests::with_env(
@@ -3091,7 +3095,8 @@ pub(crate) mod tests {
     }
 
     /// The local runtimes are the point of the list: someone running one has a
-    /// Completer sitting there already, and should never have to look its port up.
+    /// Completer sitting there already, and should never have to look its port
+    /// up.
     #[test]
     fn the_base_url_picker_names_the_local_runtimes_and_their_ports() {
         let (_, options, _) = base_url_picker(&describe());
@@ -3365,9 +3370,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// A shortcut picker writes no field or title of its own (Custom names no
-    /// level, the Base URL picker writes a URL), so both readings travel with the
-    /// declaration or the handler every lane shares resolves a pick to nothing.
+    /// A shortcut picker writes no field or title of its own, so both readings
+    /// travel with the declaration, or the shared handler resolves a pick to
+    /// nothing.
     #[test]
     fn every_shortcut_picker_names_a_row_that_writes_and_a_reading_for_its_titles() {
         crate::model::tests::with_env(None, None, None, || {
@@ -3584,9 +3589,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// The env-owned freeze, for the one variable that owns two rows: `FIDGET_HARNESS`
-    /// spells the preset and the command line in one value, so an edit to
-    /// either would be discarded at launch.
+    /// The env-owned freeze, for the one variable that owns two rows:
+    /// `FIDGET_HARNESS` spells the preset and the command line in one value, so
+    /// an edit to either would be discarded at launch.
     #[test]
     fn an_exported_harness_freezes_both_source_rows_and_names_its_variable() {
         for exported in ["hermes", "opencode acp"] {
@@ -3635,7 +3640,8 @@ pub(crate) mod tests {
         });
     }
 
-    /// `harness::retarget` makes every pick live, so copy asking for a restart is wrong.
+    /// `harness::retarget` makes every pick live, so copy asking for a restart
+    /// is wrong.
     #[test]
     fn no_completer_source_copy_promises_a_relaunch() {
         crate::model::tests::with_harness(None, || {
@@ -3712,9 +3718,9 @@ pub(crate) mod tests {
         });
     }
 
-    /// The Advanced rows, in the order a user reads them: pick the Harness, copy
-    /// what the box holds, do what the words under it say. Always 6 rows: the
-    /// token field and its Copy stay, hidden by the platform refresh when empty.
+    /// The Advanced rows in reading order: pick the Harness, copy the box,
+    /// follow the words. Always 6: the token field and its Copy hide when
+    /// empty.
     #[test]
     fn the_byo_section_picks_a_harness_then_shows_the_snippet() {
         let description = describe();
@@ -3793,8 +3799,9 @@ pub(crate) mod tests {
         assert_eq!(new_character, character);
     }
 
-    /// `byo_section` does not read the settings document, so asserting these rows
-    /// must not write one either: a stray save would wipe the user's real Harness.
+    /// `byo_section` does not read the settings document, so asserting these
+    /// rows must not write one either: a stray save would wipe the user's real
+    /// Harness.
     #[test]
     fn describing_the_form_does_not_rewrite_the_user_settings_file() {
         let path = crate::settings::settings_path(&fidget_core::memory::data_dir());

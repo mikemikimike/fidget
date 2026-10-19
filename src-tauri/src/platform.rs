@@ -718,9 +718,9 @@ fn file_openers(path: &std::ffi::OsStr) -> [Command; 2] {
     [opener(path), text_editor]
 }
 
-/// Open with the default application via ShellExecuteW.
-/// Not `cmd /C start`: `&` and `%` are syntax there. Neither `open` nor
-/// `opener` removes the `unsafe`, so a crate would not change what can go wrong.
+/// Open with the default application via ShellExecuteW. Not `cmd /C start`: `&`
+/// and `%` are syntax there. Neither `open` nor `opener` removes the `unsafe`,
+/// so a crate would not change what can go wrong.
 #[cfg(not(unix))]
 fn opener(target: &std::ffi::OsStr) -> Result<(), String> {
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
@@ -880,9 +880,9 @@ pub fn toggle_click_through_only(
     windows::toggle_click_through_only(window, click_through)
 }
 
-/// Whether this lane honours the off-art rectangles the renderer reports.
-/// macOS hit-tests via boolean click-through; X11 and Windows union them into
-/// the input region, so a control above the head takes clicks on every platform.
+/// Whether this lane honours the off-art rectangles the renderer reports. macOS
+/// hit-tests via boolean click-through; X11 and Windows union them into the
+/// input region, so a control above the head takes clicks on every platform.
 #[cfg(target_os = "macos")]
 pub fn hotspots_hit_tested() -> bool {
     true
@@ -1638,8 +1638,8 @@ mod tests {
         }
     }
 
-    /// `&` and `%` are `cmd` metacharacters. ShellExecuteW must see
-    /// the literal path — including a space — as one wide string, not shell text.
+    /// `&` and `%` are `cmd` metacharacters. ShellExecuteW must see the literal
+    /// path — including a space — as one wide string, not shell text.
     #[cfg(not(unix))]
     #[test]
     fn windows_opener_keeps_ampersand_percent_and_space() {

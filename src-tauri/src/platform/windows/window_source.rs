@@ -183,7 +183,8 @@ fn read_window_title(hwnd: HWND) -> Option<String> {
     let mut buffer = [0u16; MAX_TITLE_LENGTH];
 
     // SAFETY: hwnd is valid from EnumWindows, and GetWindowTextW writes at most
-    // `buffer.len()` units, null included, into a buffer that outlives the call.
+    // `buffer.len()` units, null included, into a buffer that outlives the
+    // call.
     let len = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
 
     if len <= 0 {

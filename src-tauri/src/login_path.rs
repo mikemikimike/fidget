@@ -84,9 +84,9 @@ fn login_shell() -> PathBuf {
     }
 }
 
-/// `-l` reads `.zprofile` or bash's profile, which sources `.bashrc` on Debian, Ubuntu and
-/// Fedora; `-i` adds zsh's `.zshrc`. `setsid` keeps the shell off any terminal. Reading stops
-/// at the second mark, since a job the rc files leave running keeps the pipe open.
+/// `-l` reads `.zprofile` or bash's profile (which sources `.bashrc` on Debian,
+/// Ubuntu, Fedora); `-i` adds `.zshrc`. `setsid` keeps it off a terminal. Stop
+/// at the second mark: an rc job holds the pipe open.
 fn login_shell_path(
     shell: &Path,
     home: &Path,
@@ -153,9 +153,9 @@ fn mark_at(bytes: &[u8]) -> Option<usize> {
         .position(|window| window == MARK.as_bytes())
 }
 
-/// Inherited folders before the first system folder, then the shell's, then the
-/// rest, each once, minus empty (working directory) entries. A login shell puts
-/// system folders first (`/etc/profile`, `path_helper`), burying a launcher's own.
+/// Inherited folders before the first system one, then the shell's, then the
+/// rest, each once, empty entries dropped. A login shell puts system folders
+/// first, burying a launcher's own.
 fn merged(inherited: &OsStr, shell: &OsStr) -> OsString {
     let inherited: Vec<PathBuf> = std::env::split_paths(inherited).collect();
     let system_at = inherited

@@ -210,8 +210,9 @@ mod tests {
         }
     }
 
-    /// Linux Secret Service tests. They need gnome-keyring under dbus-run-session,
-    /// as Ubuntu CI runs it, and restore any existing `director-api-key`.
+    /// Linux Secret Service tests. They need gnome-keyring under
+    /// dbus-run-session, as Ubuntu CI runs it, and restore any existing
+    /// `director-api-key`.
     #[cfg(target_os = "linux")]
     mod linux_secret_service {
         use super::*;

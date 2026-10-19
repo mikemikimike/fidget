@@ -220,8 +220,8 @@ mod tests {
     use objc2_core_graphics::CGMouseButton;
     use std::sync::Mutex;
 
-    /// Serializes the tests that write the wanted flag, one process-wide atomic.
-    /// On a Mac that holds the grant, a race starts a real tap.
+    /// Serializes the tests that write the wanted flag, one process-wide
+    /// atomic. On a Mac that holds the grant, a race starts a real tap.
     static INTENT: Mutex<()> = Mutex::new(());
 
     /// Run `check` with the setting at `on`, alone, and put back whatever the

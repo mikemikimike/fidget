@@ -177,9 +177,9 @@ pub struct SettingsView {
     /// The raw token for Hermes interactive paste. Empty when snippet already
     /// embeds the token (Claude, Codex, Grok, OpenCode, Pi).
     pub byo_token: String,
-    /// The Development rows, by form row id: the value in force, which is the
-    /// exported variable's where it owns the row and the file's otherwise. Keyed,
-    /// so a new row needs no new field here and no new binding in each window.
+    /// The Development rows by form row id: the exported variable's value where
+    /// it owns the row, else the file's. Keyed, so a new row needs no new field
+    /// or binding.
     pub development_switches: HashMap<String, bool>,
     pub development_texts: HashMap<String, String>,
     /// Live OS grants, not a file field. The window rereads them on become-key.
@@ -207,7 +207,8 @@ pub enum RowValue {
 }
 
 /// The Development switches, by row id, as the window must draw them. Through
-/// `dev_flags`, the one place that decides what an exported variable does to a switch.
+/// `dev_flags`, the one place that decides what an exported variable does to a
+/// switch.
 fn development_switches(settings: &Settings) -> HashMap<String, bool> {
     HashMap::from([
         (
@@ -296,9 +297,9 @@ fn development_texts(settings: &Settings) -> HashMap<String, String> {
     ])
 }
 
-/// One Completer limit as the window must show it, in the type the read site parses it
-/// as. A value `dev_flags::seed` treats as unset (blank, non-numeric, out of range, zero)
-/// shows blank, so the placeholder names the default in force; a blur saving it loses nothing.
+/// One Completer limit as the window shows it. A value `dev_flags::seed` treats
+/// as unset (blank, junk, out of range, zero) shows blank, so the placeholder
+/// names the default.
 fn limit_in_force<T>(var: &str, file: &str) -> String
 where
     T: std::str::FromStr + fmt::Display + Default + PartialEq,
@@ -309,9 +310,9 @@ where
     }
 }
 
-/// The Completer source rows as the window must draw them: the popup title in force and
-/// the command line beside it. `FIDGET_HARNESS` outranks the file, as it does in
-/// `harness::from_settings`, and carries any custom command line in its own value.
+/// The Completer source rows as drawn: the popup title in force and the command
+/// line beside it. `FIDGET_HARNESS` outranks the file, as in
+/// `harness::from_settings`.
 fn harness_in_force(settings: &Settings) -> (String, String) {
     // `std::env::var` rather than `model::env_override`: exported-and-empty is
     // Off here, not a fall-through, and the window has to print what
@@ -322,9 +323,9 @@ fn harness_in_force(settings: &Settings) -> (String, String) {
     }
 }
 
-/// What the Completer source row says about the attachment. Not signed in names the
-/// login command for the user's own terminal: fidget holds no credential (ADR-0018),
-/// asks for none, and runs no login.
+/// What the Completer source row says about the attachment. Not signed in names
+/// the login command for the user's own terminal: fidget holds no credential
+/// (ADR-0018), asks for none, and runs no login.
 fn harness_state(harness: Option<&crate::harness::HarnessInspect>) -> String {
     match harness {
         None => "Not attached. The HTTP endpoint below is the AI brain.".to_string(),
@@ -334,9 +335,9 @@ fn harness_state(harness: Option<&crate::harness::HarnessInspect>) -> String {
                  Fidget never asks for it.",
                 attached.name
             ),
-            // Configured and not answering must not read as attached: `completer_from` keeps
-            // the handle while the Director runs on Static, and the HTTP rows below are live
-            // because of it (ADR-0008). A missing CLI waits for an install; an errno won't say so.
+            // Configured and not answering is not attached: `completer_from`
+            // keeps the handle while the Director runs on Static (ADR-0008). A
+            // missing CLI waits for an install.
             None if !attached.alive => match &attached.missing {
                 Some(command) => format!(
                     "`{command}` is not installed, so {} is not running and the fidget runs on \
@@ -347,8 +348,9 @@ fn harness_state(harness: Option<&crate::harness::HarnessInspect>) -> String {
                         .map(|(_, url)| format!(" from {url}"))
                         .unwrap_or_default(),
                 ),
-                // Apply starts the attach itself and the handshake takes a second or two.
-                // "Set but not running" over that wait reads as a Harness that never will be.
+                // Apply starts the attach itself and the handshake takes a
+                // second or two. "Set but not running" over that wait reads as
+                // a Harness that never will be.
                 None if attached.initializing => format!(
                     "{} is starting. Chat waits until it answers, and the AI runs on static \
                      weights meanwhile.",
@@ -387,14 +389,14 @@ fn harness_state(harness: Option<&crate::harness::HarnessInspect>) -> String {
     }
 }
 
-/// What to paste to point a Harness the user runs themselves at this app's MCP
-/// server, as (snippet, instructions, raw_token); raw_token is set only for Hermes's
-/// interactive paste. The token goes in raw: the templates add `Bearer ` themselves.
+/// What to paste to point a user-run Harness at this app's MCP server:
+/// (snippet, instructions, raw_token), the token only for Hermes. Templates add
+/// `Bearer ` themselves.
 fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, String) {
     match harness {
-        // Remove first: Claude Code answers a re-add by keeping the old URL and token and
-        // exiting 0, and both change every launch. No `-s project`: it writes a checked-in
-        // `.mcp.json`, which would commit the token.
+        // Remove first: Claude Code answers a re-add by keeping the old URL and
+        // token and exiting 0, and both change every launch. No `-s project`:
+        // it writes a checked-in `.mcp.json`, which would commit the token.
         "claude" => (
             format!(
                 "claude mcp remove fidget 2>/dev/null\n\
@@ -423,9 +425,9 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, S
                 .to_string(),
             String::new(),
         ),
-        // Remove first: `copilot mcp add` refuses a name it already holds (exit 1), and
-        // the URL and token change every launch. Whether a running session re-reads
-        // `mcp-config.json` is unmeasured, so the steps ask for a new one.
+        // Remove first: `copilot mcp add` refuses a name it holds, and the URL
+        // and token change every launch. Whether a running session re-reads its
+        // config is unmeasured.
         "copilot" => (
             format!(
                 "copilot mcp remove fidget 2>/dev/null\n\
@@ -505,9 +507,9 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, S
             ),
             token.to_string(),
         ),
-        // Restart, not `/reload`: OpenCode reads its configuration once at start, so a
-        // running session never sees the new server. `/reload` (sst/opencode#6719) is an
-        // open feature request, not a shipped command.
+        // Restart, not `/reload`: OpenCode reads its config once at start, and
+        // `/reload` (sst/opencode#6719) is an open feature request, not a
+        // shipped command.
         "opencode" => (
             format!(
                 "opencode mcp add fidget --url '{url}' --header \"Authorization=Bearer {token}\""
@@ -542,8 +544,9 @@ pub fn byo_harness_in_force(settings: &Settings) -> String {
     }
 }
 
-/// The registration box's snippet, instructions and raw token for `harness`. Empty when
-/// the loopback server did not bind this run, the only way there is nothing to show.
+/// The registration box's snippet, instructions and raw token for `harness`.
+/// Empty when the loopback server did not bind this run, the only way there is
+/// nothing to show.
 pub fn byo_rows(harness: &str) -> (String, String, String) {
     match crate::mcp_http::endpoint() {
         Some(endpoint) => {
@@ -616,8 +619,9 @@ impl SettingsView {
         }
     }
 
-    /// Every value the page draws, by the form row id it asks for. The one place row ids
-    /// and file field names meet; `form.rs`'s fixture test pins the key set to `describe()`.
+    /// Every value the page draws, by the form row id it asks for. The one
+    /// place row ids and file field names meet; `form.rs`'s fixture test pins
+    /// the key set to `describe()`.
     pub fn row_values(&self) -> BTreeMap<String, RowValue> {
         let text = |value: &str| RowValue::Text(value.to_string());
         let popup = |id: &str| RowValue::Text(self.popup_value(id).unwrap_or_default());
@@ -754,9 +758,9 @@ impl SettingsView {
         }
     }
 
-    /// What the popup with this id shows right now, or `None` for one the form does not
-    /// hold. A pick already showing this value is a no-op, so a restated Custom command line
-    /// does not collapse to `custom`. Shortcut pickers rest on the title for the field below.
+    /// What the popup with this id shows now, or `None` for an id the form
+    /// lacks. A pick already showing is a no-op, so a restated Custom command
+    /// line stays as typed.
     pub fn popup_value(&self, id: &str) -> Option<String> {
         match id {
             form::CHARACTER_ID => Some(self.character.clone()),
@@ -774,8 +778,9 @@ impl SettingsView {
         }
     }
 
-    /// The Instance a Dismiss press names, or `None` once the roster no longer carries it:
-    /// the page draws from a snapshot, and a fidget can go while that list is on screen.
+    /// The Instance a Dismiss press names, or `None` once the roster no longer
+    /// carries it: the page draws from a snapshot, and a fidget can go while
+    /// that list is on screen.
     pub fn instance(&self, id: &str) -> Option<&InstanceRow> {
         self.instances.iter().find(|row| row.id == id)
     }
@@ -812,8 +817,9 @@ pub enum SettingsOp {
     /// surfaces must re-run `attached()` from a full opening. Not a second
     /// session (ADR-0008).
     ReloadChat,
-    /// Throw every live Instance's conversation away and open a fresh one. Not a
-    /// Retarget: the Completer is rebuilt from the settings the loop already holds.
+    /// Throw every live Instance's conversation away and open a fresh one. Not
+    /// a Retarget: the Completer is rebuilt from the settings the loop already
+    /// holds.
     NewSession,
     /// Chat UI selection changed: swap the root class on every chat surface.
     ChatUIChanged {
@@ -824,15 +830,16 @@ pub enum SettingsOp {
     },
 }
 
-/// Whether what a secure field holds is a key somebody typed. Both windows leave the
-/// field blank on refresh, and empty reaching `write_director_key` deletes the stored
-/// key, so a blur over an untouched field is not an edit.
+/// Whether what a secure field holds is a key somebody typed. Both windows
+/// leave the field blank on refresh, and empty reaching `write_director_key`
+/// deletes the stored key, so a blur over an untouched field is not an edit.
 fn key_was_typed(text: &str) -> bool {
     model::trim_key(text).is_some()
 }
 
-/// Write the Director API key to the secret store, never to the settings file. Empty
-/// after the env-key trim is delete, so a quoted blank never becomes a Bearer of quotes.
+/// Write the Director API key to the secret store, never to the settings file.
+/// Empty after the env-key trim is delete, so a quoted blank never becomes a
+/// Bearer of quotes.
 pub fn write_director_key(store: &dyn SecretStore, patch: &SettingsPatch) -> Result<(), String> {
     match patch.completer.director_api_key.as_deref() {
         None => Ok(()),
@@ -843,9 +850,9 @@ pub fn write_director_key(store: &dyn SecretStore, patch: &SettingsPatch) -> Res
     }
 }
 
-/// Env, then the file, then the store, a Keychain dialog on macOS read only when no export
-/// or attached Harness answers. A store error is `Err`, or Retarget drops a remote Completer
-/// to Static. Call after `harness::attach`, or a Harness launch reads a key it never sends.
+/// Env, then the file, then the store. The store is a Keychain dialog on macOS,
+/// and a read error is `Err`, not Unset. Call after `harness::attach`, or a
+/// launch reads a key it never sends.
 pub fn director_settings(
     settings: &Settings,
     secrets: &dyn SecretStore,
@@ -873,9 +880,9 @@ fn resolve_director(
     ))
 }
 
-/// Fold a patch into `settings` and reseed the live development flags. A switch is live
-/// state as well as a file field; both `apply` paths go through here, so the test seam
-/// cannot pass while the seeding is gone.
+/// Fold a patch into `settings` and reseed the live development flags. A switch
+/// is live state as well as a file field; both `apply` paths go through here,
+/// so the test seam cannot pass while the seeding is gone.
 fn apply_and_seed(settings: &mut Settings, patch: SettingsPatch) {
     settings.apply(patch);
     dev_flags::seed(settings);
@@ -1041,16 +1048,16 @@ fn completer_retargets(settings: &Settings, patch: &SettingsPatch) -> bool {
             .director_reasoning_effort
             .as_ref()
             .is_some_and(|effort| effort != &settings.director_reasoning_effort)
-        // Blank-AI mode decides the opening turn, and a session cannot get a second opening,
-        // so the toggle rebuilds the Director. Otherwise half a session is shaped by a
-        // Character and half not, with no way to tell which reply was which.
+        // Blank-AI mode decides the opening turn, which a session gets once, so
+        // the toggle rebuilds the Director rather than leave half a session
+        // shaped by a Character.
         || patch
             .completer
             .director_blank
             .is_some_and(|blank| blank != settings.director_blank)
-        // Every Completer source change retargets: `harness::retarget` has moved the handle
-        // by the time the payload is built, and `completer_from` reads it. The wake interval
-        // reaches a running Director the same way, through `model::config_from`.
+        // Every source change retargets: `harness::retarget` has moved the
+        // handle before the payload is built. The wake interval travels the
+        // same way, via `model::config_from`.
         || patch
             .completer
             .director_wake_secs
@@ -1059,9 +1066,9 @@ fn completer_retargets(settings: &Settings, patch: &SettingsPatch) -> bool {
         || harness_retargets(settings, patch)
 }
 
-/// Whether the Harness this process would spawn is not the one it has, by `Target`
-/// (Launch plus resolved cwd), not by the saved row, which `FIDGET_HARNESS` can own. The
-/// `hermes` preset and a custom `hermes acp` join to one `Launch`, so must not respawn.
+/// Whether the Harness this process would spawn differs from the one it has, by
+/// `Target`, not the saved row. The `hermes` preset and a custom `hermes acp`
+/// are one `Launch`.
 fn harness_retargets(settings: &Settings, patch: &SettingsPatch) -> bool {
     let source_changed = harness_source_changed(settings, patch);
     let cwd_raw_changed = patch
@@ -1081,9 +1088,8 @@ fn harness_retargets(settings: &Settings, patch: &SettingsPatch) -> bool {
         )
 }
 
-/// Whether an already-open Chat surface must hear a new opening: a Director switch, a
-/// Completer source change, or any `completer_retargets`, since the header names model
-/// and host. A key or timeout change re-pushes an identical opening; one rule is cheaper.
+/// Whether an open Chat surface must hear a new opening: a Director switch, a
+/// source change, or any retarget, since the header names model and host.
 fn chat_surface_reloads(settings: &Settings, patch: &SettingsPatch) -> bool {
     // A new session empties the transcript the surface is showing, and the
     // opening it draws over that is one the window only asked for once.
@@ -1132,9 +1138,9 @@ impl<'a> AiDraft<'a> {
         }
     }
 
-    /// The changed AI values Apply sends in one patch, or `None` when clean. A frozen row
-    /// never applies: `model::resolve` gives the exported variable the last word. `set_text`
-    /// refuses a blank key, so a typed key beats a staged clear.
+    /// The changed AI values Apply sends, or `None` when clean. A frozen row
+    /// never applies. `set_text` refuses a blank key, so a typed key beats a
+    /// staged clear.
     pub fn patch(&self, view: &SettingsView) -> Option<SettingsPatch> {
         let live = view.row_values();
         let description = self.description;
@@ -1243,9 +1249,9 @@ impl SettingsSession {
             .lock()
             .map(|guard| guard.clone())
             .unwrap_or_else(|poisoned| poisoned.into_inner().clone());
-        // The attachment is re-read here, as `chat_opening` does, rather than taken from
-        // `inspect`: a login run mid-session leaves the not-authenticated state, and
-        // nothing pushes that.
+        // The attachment is re-read here, as `chat_opening` does, rather than
+        // taken from `inspect`: a login run mid-session leaves the
+        // not-authenticated state, and nothing pushes that.
         let (last_payload, harness) = match self.inspect.lock() {
             Ok(mut inspect) => {
                 inspect.harness = crate::harness::attached().map(|session| session.inspect());
@@ -1476,7 +1482,8 @@ pub struct SettingsPatch {
     pub use_window_names: Option<bool>,
     pub use_input_monitoring: Option<bool>,
     /// Throw the conversation in flight away and open a fresh one on the same
-    /// Completer. Not a file field: a session boundary is a moment, not a setting.
+    /// Completer. Not a file field: a session boundary is a moment, not a
+    /// setting.
     #[serde(default)]
     pub new_session: bool,
     pub chat_ui: Option<String>,
@@ -1525,8 +1532,9 @@ pub struct PresencePatch {
     pub excluded_applications: Option<Vec<String>>,
 }
 
-/// A boolean field of `SettingsPatch`, as the form row writing it names it. An enum
-/// rather than a `&str`, so a row cannot name a field no setter knows and write nothing.
+/// A boolean field of `SettingsPatch`, as the form row writing it names it. An
+/// enum rather than a `&str`, so a row cannot name a field no setter knows and
+/// write nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum BoolField {
     DirectorEnabled,
@@ -1543,11 +1551,12 @@ pub enum BoolField {
     DirectorBlank,
     /// Apply writes the project `.mcp.json` when Pi is the Harness. Default on.
     PiProjectMcp,
-    /// Capture exclusion, through platform APIs on macOS and Windows. Linux has no
-    /// exclusion API (ADR-0024), but the row is present and the patch field is ungated.
+    /// Capture exclusion, through platform APIs on macOS and Windows. Linux has
+    /// no exclusion API (ADR-0024), but the row is present and the patch field
+    /// is ungated.
     Capturable,
-    // The consent rows. All three platforms offer WindowNames; Accessibility
-    // is macOS and Windows. The patch fields are not gated; the file carries them.
+    // The consent rows. All three platforms offer WindowNames; Accessibility is
+    // macOS and Windows. The patch fields are not gated; the file carries them.
     #[cfg(not(target_os = "linux"))]
     UseAccessibility,
     UseWindowNames,
@@ -1557,8 +1566,8 @@ pub enum BoolField {
 }
 
 /// A text field of `SettingsPatch`, typed for the reason `BoolField` is. No
-/// `hide_hotkey`: its row is an `InspectBlock` that writes nothing, since a text field
-/// is not a key recorder.
+/// `hide_hotkey`: its row is an `InspectBlock` that writes nothing, since a
+/// text field is not a key recorder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum TextField {
     Character,
@@ -1588,8 +1597,9 @@ pub enum TextField {
 }
 
 impl SettingsPatch {
-    /// Write the boolean field a checkbox declares. The one place a row's field becomes a
-    /// patch; a `BoolField` this match does not cover is a compile error.
+    /// Write the boolean field a checkbox declares. The one place a row's field
+    /// becomes a patch; a `BoolField` this match does not cover is a compile
+    /// error.
     pub fn set_bool(&mut self, field: BoolField, value: bool) {
         match field {
             BoolField::DirectorEnabled => self.completer.director_enabled = Some(value),
@@ -1614,8 +1624,9 @@ impl SettingsPatch {
         }
     }
 
-    /// Write the text field a row declares, and say whether it took the value. False only
-    /// for a blank API key, which `key_was_typed` treats as an untouched field.
+    /// Write the text field a row declares, and say whether it took the value.
+    /// False only for a blank API key, which `key_was_typed` treats as an
+    /// untouched field.
     pub fn set_text(&mut self, field: TextField, value: &str) -> bool {
         match field {
             TextField::Character => self.roster.character = Some(value.to_string()),
@@ -1673,9 +1684,9 @@ impl SettingsPatch {
     }
 }
 
-/// A custom command line as a log may carry it: the program and the argument count.
-/// A flag can hold a Harness credential, which is never logged or fingerprinted; the
-/// program name is a binary, so it cannot be one.
+/// A custom command line as a log may carry it: the program and the argument
+/// count. A flag can hold a Harness credential, which is never logged or
+/// fingerprinted; the program name is a binary, so it cannot be one.
 fn command_line_debug(line: &str) -> String {
     let mut words = line.split_whitespace();
     match words.next() {
@@ -1716,8 +1727,9 @@ impl fmt::Debug for CompleterPatch {
 }
 
 impl Settings {
-    /// Whether a frame may make a sound. Do Not Disturb is quiet but not gone, so it
-    /// takes the audio cue and leaves the visual one; the webview is told, never works it out.
+    /// Whether a frame may make a sound. Do Not Disturb is quiet but not gone,
+    /// so it takes the audio cue and leaves the visual one; the webview is
+    /// told, never works it out.
     pub fn sound_allowed(&self) -> bool {
         self.sound && !self.do_not_disturb
     }
@@ -1775,9 +1787,9 @@ impl Settings {
             self.director_wake_secs = value;
         }
         if let Some(value) = patch.completer.harness {
-            // A command line in the source field is drawn in the command-line row, which writes
-            // the *other* field. Move it before the pick lands, so choosing the Custom entry
-            // already on screen is not a silent Off.
+            // A command line in the source field is drawn in the command-line
+            // row, which writes the other field. Move it first, so picking the
+            // Custom entry is not a silent Off.
             if let Some(line) = form::harness_command_line(&self.harness) {
                 if self.harness_command.trim().is_empty() {
                     self.harness_command = line.to_string();
@@ -1849,9 +1861,9 @@ impl Settings {
         // secret store, never in the JSON document.
     }
 
-    /// What `harness::from_settings` reads out of the two source rows, in the
-    /// `FIDGET_HARNESS` grammar: the command line under `custom`, the preset name otherwise,
-    /// and `None` for Off or for a blank command line under `custom`.
+    /// What `harness::from_settings` reads from the two source rows, in
+    /// `FIDGET_HARNESS` grammar: the command line under `custom`, else the
+    /// preset; `None` for Off or blank.
     pub fn harness_source(&self) -> Option<String> {
         match self.harness.trim() {
             "" => None,
@@ -1873,9 +1885,9 @@ impl Settings {
     }
 }
 
-/// The hide hotkey shipped until the user binds another. Three modifiers, because a
-/// global shortcut is taken from every application and B alone belongs to most of them.
-/// One canonical spelling `parse_hotkey` reads on every OS; users read `display_hotkey`.
+/// The default hide hotkey. Three modifiers, because a global shortcut is taken
+/// from every app and B alone belongs to most. Stored in the spelling
+/// `parse_hotkey` reads everywhere.
 pub const DEFAULT_HIDE_HOTKEY: &str = "Control-Option-Command-B";
 
 fn default_pi_project_mcp() -> bool {
@@ -1910,10 +1922,9 @@ pub struct Settings {
     pub hidden: bool,
     /// Fade away when a fullscreen application is frontmost.
     pub hide_in_fullscreen: bool,
-    /// One canonical spec, in any platform's words, read with `parse_hotkey` and shown
-    /// with `display_hotkey`, never raw. A string rather than `Hotkey`: `load` turns any parse
-    /// failure into whole-file defaults, so a struct meeting an installed string would reset
-    /// every other setting. Persist the struct only behind a deserializer that takes both.
+    /// Read with `parse_hotkey`, shown with `display_hotkey`. A string, not
+    /// `Hotkey`: a parse failure resets the whole file, so the struct needs a
+    /// two-shape deserializer first.
     pub hide_hotkey: String,
     pub launch_at_login: bool,
     pub excluded_applications: Vec<String>,
@@ -1937,24 +1948,23 @@ pub struct Settings {
     /// `Pace::FIRST`. The Character's `model_base` and `model_power` grow the
     /// wait from here; this is only where it starts.
     pub director_wake_secs: String,
-    /// Which Harness is the Completer, in the values `FIDGET_HARNESS` takes: empty for
-    /// none, a preset name, or `custom`, which defers to `harness_command`. The variable
-    /// outranks it, and either way `harness::retarget` reaches the attachment now.
+    /// Which Harness is the Completer, in `FIDGET_HARNESS` values: empty, a
+    /// preset, or `custom` (see `harness_command`). The variable outranks it.
     pub harness: String,
     /// The command line `custom` runs, split on whitespace as the variable's
     /// own value is. Kept when a preset is picked, so coming back to Custom
     /// does not lose what was typed.
     pub harness_command: String,
-    /// How long an unauthenticated Harness is left alone before `session/new` is tried
-    /// again, in seconds. Empty leaves the 60 in `harness::AUTH_RETRY`. Read when a
-    /// Session is built, so a change lands on the next attach.
+    /// Seconds an unauthenticated Harness waits before `session/new` is
+    /// retried. Empty keeps `harness::AUTH_RETRY`. Read when a Session is
+    /// built, so it lands on the next attach.
     pub harness_auth_retry_secs: String,
     /// How long a Harness `session/prompt` may run, in seconds. Empty means
     /// unset, and leaves `harness::TURN_TIMEOUT`. Not the Model API field.
     pub harness_turn_timeout_secs: String,
-    /// Which Harness the AI tab's registration box is written for. A view preference
-    /// kept across launches; blank rests on the first `form::HARNESS_PRESETS` name, and
-    /// nothing else reads it.
+    /// Which Harness the AI tab's registration box is written for. A view
+    /// preference kept across launches; blank rests on the first
+    /// `form::HARNESS_PRESETS` name, and nothing else reads it.
     pub byo_harness: String,
     /// Where the stdio MCP server binary is. Empty means beside the app, then
     /// the app binary's own `--mcp-stdio`. For power users and CI,
@@ -1986,9 +1996,9 @@ pub struct Settings {
     pub capturable: bool,
     /// Use Accessibility where the OS has granted it. Off does not revoke TCC.
     pub use_accessibility: bool,
-    /// Use the window-names consent (titles and owning application, ADR-0032) where the
-    /// OS granted it: TCC Screen Recording on macOS, xdg-desktop-portal ScreenCast on
-    /// Wayland. Off does not revoke the grant. The aliases carry over older names' grants.
+    /// Use the window-names consent (ADR-0032) where the OS granted it: Screen
+    /// Recording on macOS, ScreenCast portal on Wayland. Off does not revoke
+    /// the grant.
     #[serde(
         default,
         alias = "use_screen_recording",
@@ -2064,8 +2074,8 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Read the document at `path`. A missing or unparsable file is first-run defaults,
-    /// so a typo in a hand-edit never costs the fidget its launch.
+    /// Read the document at `path`. A missing or unparsable file is first-run
+    /// defaults, so a typo in a hand-edit never costs the fidget its launch.
     pub fn load(path: &Path) -> Self {
         match fs::read_to_string(path) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Self::default(),
@@ -2101,8 +2111,9 @@ pub fn settings_path(data_dir: &Path) -> PathBuf {
     data_dir.join("settings.json")
 }
 
-/// The modifiers and key a hide-hotkey string names. Parsed here, not by the shortcut
-/// plugin, so a bad binding is a settings problem and the default can take over.
+/// The modifiers and key a hide-hotkey string names. Parsed here, not by the
+/// shortcut plugin, so a bad binding is a settings problem and the default can
+/// take over.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hotkey {
     pub control: bool,
@@ -2112,9 +2123,9 @@ pub struct Hotkey {
     pub key: char,
 }
 
-/// Read `Control-Option-Command-B` into parts; an unknown token refuses the whole
-/// string. Each alias set is one key under every OS's name, `Win` included, so
-/// everything `Hotkey::display` prints reads back.
+/// Read `Control-Option-Command-B` into parts; an unknown token refuses the
+/// whole string. Each alias set is one key under every OS's name, `Win`
+/// included, so everything `Hotkey::display` prints reads back.
 pub fn parse_hotkey(spec: &str) -> Option<Hotkey> {
     let mut hotkey = Hotkey {
         control: false,
@@ -2151,9 +2162,9 @@ pub fn parse_hotkey(spec: &str) -> Option<Hotkey> {
     Some(hotkey)
 }
 
-/// How the keyboard in front of a user names the modifier keys: a spelling, not a
-/// second hotkey, since the plugin registers one binding. An argument, so a Mac test
-/// can assert what Linux would read.
+/// How the keyboard in front of a user names the modifier keys: a spelling, not
+/// a second hotkey, since the plugin registers one binding. An argument, so a
+/// Mac test can assert what Linux would read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModifierWords {
     Mac,
@@ -2185,9 +2196,9 @@ impl ModifierWords {
 }
 
 impl Hotkey {
-    /// Print the chord in `words`, e.g. `Control-Option-Command-B` on a Mac and
-    /// `Ctrl-Alt-Super-B` on Linux. Every spelling is one `parse_hotkey` reads back,
-    /// because the hotkey field shows this string and takes it again on rebind.
+    /// Print the chord in `words`, e.g. `Control-Option-Command-B` or
+    /// `Ctrl-Alt-Super-B`. `parse_hotkey` reads every spelling back, since the
+    /// field shows and retakes it.
     pub fn display(&self, words: ModifierWords) -> String {
         let (control, option, command) = words.names();
         let mut parts = Vec::with_capacity(5);
@@ -2209,8 +2220,9 @@ impl Hotkey {
     }
 }
 
-/// The hotkey `spec` names, in this OS's words. A stored string may use any platform's
-/// words, so it is parsed rather than printed; an unreadable one shows the default.
+/// The hotkey `spec` names, in this OS's words. A stored string may use any
+/// platform's words, so it is parsed rather than printed; an unreadable one
+/// shows the default.
 pub fn display_hotkey(spec: &str) -> String {
     parse_hotkey(spec)
         .or_else(|| parse_hotkey(DEFAULT_HIDE_HOTKEY))
@@ -2225,8 +2237,8 @@ pub fn toggle_away(rules: &mut HideRules, settings: &mut Settings) {
     settings.hidden = rules.is_away();
 }
 
-/// The shortcut plugin's `Code` name for a letter, e.g. `KeyH`. Letters only, so a
-/// name the plugin cannot parse never silently becomes `KeyB`.
+/// The shortcut plugin's `Code` name for a letter, e.g. `KeyH`. Letters only,
+/// so a name the plugin cannot parse never silently becomes `KeyB`.
 pub fn key_code_name(key: char) -> Option<String> {
     if key.is_ascii_alphabetic() {
         Some(format!("Key{}", key.to_ascii_uppercase()))
@@ -2354,8 +2366,8 @@ mod tests {
         assert!(settings.sound);
     }
 
-    /// The alias carries a grant over from the field's old name: reading the old
-    /// document as a default would revoke it without telling the user.
+    /// The alias carries a grant over from the field's old name: reading the
+    /// old document as a default would revoke it without telling the user.
     /// `use_screen_recording` is the name before that.
     #[test]
     fn a_grant_stored_under_an_older_field_name_is_still_a_grant() {
@@ -2804,9 +2816,9 @@ mod tests {
         }
     }
 
-    /// The field the Input Monitoring checkbox writes; `SettingsSession::apply` and launch seed
-    /// `consent::wanted` from it, and `a_cleared_setting_starts_no_tap` is the spawn-side
-    /// half. Off is shipped: `DESIGN.md` decision 9 does not let a first run ask.
+    /// The field the Input Monitoring checkbox writes, which seeds
+    /// `consent::wanted`. Off ships: `DESIGN.md` decision 9 does not let a
+    /// first run ask.
     #[test]
     #[cfg(target_os = "macos")]
     fn unchecking_input_monitoring_clears_store_intent() {
@@ -3175,8 +3187,9 @@ mod tests {
         });
     }
 
-    /// A blank export (`$XAI_API_KEY` that expanded to nothing) is a mistake the launch
-    /// warning names. A stored key must not answer in its place, quietly or with a prompt.
+    /// A blank export (`$XAI_API_KEY` that expanded to nothing) is a mistake
+    /// the launch warning names. A stored key must not answer in its place,
+    /// quietly or with a prompt.
     #[test]
     fn a_blank_exported_key_leaves_the_store_unread_and_still_warns() {
         let settings = endpoint_settings();
@@ -3377,7 +3390,8 @@ mod tests {
         )
     }
 
-    /// One patch for the whole tab, so three edits cost one rebuild instead of three.
+    /// One patch for the whole tab, so three edits cost one rebuild instead of
+    /// three.
     #[test]
     fn one_apply_retargets_once_for_a_new_url_and_model() {
         model::tests::with_env(None, None, None, || {
@@ -3402,9 +3416,9 @@ mod tests {
         });
     }
 
-    /// The window shows what the variable imposes, so a frozen field's text differs from
-    /// the file and must not read as dirty. The variable is exported for real, so the rule
-    /// is tested through the description both windows build from.
+    /// A frozen field shows what the variable imposes, so its text differs from
+    /// the file and must not read as dirty. Tested through the description both
+    /// windows build from.
     #[test]
     fn a_frozen_row_never_applies_even_when_its_text_differs() {
         model::tests::with_env(None, Some("https://env.example"), None, || {
@@ -3637,9 +3651,9 @@ mod tests {
         });
     }
 
-    /// A freshly built window's fields are empty, so a staging-aware redraw reads the
-    /// whole tab as staged and Apply wipes the saved endpoint. Construction draws with the
-    /// reset instead; a blank field can still be applied, or a default Base URL is inexpressible.
+    /// A new window's fields are empty, so a staging-aware redraw would stage
+    /// the whole tab and Apply would wipe the endpoint. Construction draws with
+    /// the reset instead.
     #[test]
     fn empty_fields_read_back_as_an_edit_that_wipes_the_endpoint() {
         model::tests::with_env(None, None, None, || {
@@ -3679,8 +3693,8 @@ mod tests {
         );
     }
 
-    /// The level is baked into the `Endpoint`, so without a clause here an Apply
-    /// changes the file and never reaches the running Director.
+    /// The level is baked into the `Endpoint`, so without a clause here an
+    /// Apply changes the file and never reaches the running Director.
     #[test]
     fn a_changed_reasoning_effort_retargets() {
         let settings = Settings {
@@ -3735,9 +3749,9 @@ mod tests {
         assert!(completer_retargets(&settings, &model));
     }
 
-    /// The mode decides the opening turn and `opened` has no way back, so a toggle
-    /// rebuilds the Director; otherwise the current session answers out of a Character
-    /// Prompt it claims not to have.
+    /// The mode decides the opening turn and `opened` has no way back, so a
+    /// toggle rebuilds the Director; otherwise the current session answers out
+    /// of a Character Prompt it claims not to have.
     #[test]
     fn toggling_blank_ai_retargets_and_leaving_it_alone_does_not() {
         let settings = endpoint_settings();
@@ -3903,9 +3917,9 @@ mod tests {
         });
     }
 
-    /// Every Development control the window draws finds its value in the view. A missing
-    /// id renders off while the switch is on, and the first click sends `Some(true)`: a
-    /// no-op the user reads as a dead checkbox.
+    /// Every Development control the window draws finds its value in the view.
+    /// A missing id renders off while the switch is on, and the first click
+    /// sends `Some(true)`: a no-op the user reads as a dead checkbox.
     #[test]
     fn every_development_row_has_a_value_in_the_view() {
         model::tests::with_env(None, None, None, || {
@@ -3972,8 +3986,9 @@ mod tests {
         });
     }
 
-    /// A limit no read site can use reads as unset, not as a number: `dev_flags::seed`
-    /// calls `=abc` and `=0` unset, so `model::timeout_for` stays on its default.
+    /// A limit no read site can use reads as unset, not as a number:
+    /// `dev_flags::seed` calls `=abc` and `=0` unset, so `model::timeout_for`
+    /// stays on its default.
     #[test]
     fn an_unusable_limit_shows_as_blank_so_the_placeholder_names_the_default() {
         model::tests::with_env(None, None, None, || {
@@ -4000,9 +4015,8 @@ mod tests {
         });
     }
 
-    /// The settings window's hop, end to end, for each endpoint field: the patch a
-    /// committed field carries, the retarget decision, the payload resolved off the frame
-    /// thread, and the rebuild the frame loop does with it.
+    /// The settings hop end to end, per endpoint field: the patch, the retarget
+    /// decision, the payload resolved off the frame thread, and the rebuild.
     #[test]
     fn a_committed_endpoint_field_rebuilds_the_completer_for_the_new_host() {
         let edits = [
@@ -4106,8 +4120,9 @@ mod tests {
         });
     }
 
-    /// The two limits ride the rebuild because `model::endpoint_from` bakes them into
-    /// the Endpoint at construction, so nothing else carries a change to the Director.
+    /// The two limits ride the rebuild because `model::endpoint_from` bakes
+    /// them into the Endpoint at construction, so nothing else carries a change
+    /// to the Director.
     #[test]
     fn an_edited_limit_reaches_the_running_director() {
         let settings = Settings {
@@ -4743,9 +4758,9 @@ mod tests {
         );
     }
 
-    /// Production change that would fail this: a different Harness left to the next
-    /// launch. `retarget` has swapped the handle by the time the payload is built, so a
-    /// Retarget that does not follow leaves the Director on the Session it shut down.
+    /// Fails if a new Harness waits for the next launch: `retarget` has swapped
+    /// the handle before the payload is built, so the Director would sit on a
+    /// closed Session.
     #[test]
     fn a_different_harness_retargets_the_running_director() {
         crate::model::tests::with_harness(None, || {
@@ -4818,9 +4833,8 @@ mod tests {
         });
     }
 
-    /// Production change that would fail this: Off leaves `attached()` in place, so
-    /// `completer_from` keeps handing the Director a Harness the row no longer names, and
-    /// the HTTP Completer the user chose never sees a wake (ADR-0008).
+    /// Fails if Off leaves `attached()` in place: `completer_from` would keep
+    /// handing the Director a Harness the row no longer names (ADR-0008).
     #[test]
     fn turning_the_harness_off_retargets_to_the_http_completer() {
         crate::model::tests::with_harness(None, || {
@@ -4946,9 +4960,9 @@ mod tests {
         assert!(!chat_surface_reloads(&Settings::default(), &patch));
     }
 
-    /// The Chat header names the model and the host, so an endpoint edit reaches an
-    /// open window. Production change that would fail this: a `chat_surface_reloads`
-    /// that watches only the switch and the Harness source.
+    /// The Chat header names the model and host, so an endpoint edit reaches an
+    /// open window. Fails if `chat_surface_reloads` watches only the switch and
+    /// the source.
     #[test]
     fn a_new_endpoint_reloads_chat() {
         let settings = Settings::default();
@@ -5012,8 +5026,9 @@ mod tests {
         );
     }
 
-    /// Apply attaches on the spot and the ACP handshake takes a second or two. The
-    /// line shown meanwhile must not be the one for a Harness that is never coming up.
+    /// Apply attaches on the spot and the ACP handshake takes a second or two.
+    /// The line shown meanwhile must not be the one for a Harness that is never
+    /// coming up.
     #[test]
     fn a_harness_mid_handshake_says_it_is_starting() {
         let starting = crate::harness::HarnessInspect {
@@ -5052,9 +5067,9 @@ mod tests {
         assert!(!line.contains("is starting"), "got {line:?}");
     }
 
-    /// A missing CLI is not a child that stopped answering. The line says so in words
-    /// a user can act on, not an errno, and names the binary looked for, since fidget
-    /// bundles no Harness (ADR-0018).
+    /// A missing CLI is not a child that stopped answering. The line says so in
+    /// words a user can act on, not an errno, and names the binary looked for,
+    /// since fidget bundles no Harness (ADR-0018).
     #[test]
     fn a_harness_this_machine_has_not_got_names_the_command_not_an_errno() {
         let missing = crate::harness::HarnessInspect {
@@ -5160,9 +5175,9 @@ mod tests {
         );
     }
 
-    /// The handle stays authoritative while set, so the live HTTP rows are a way back,
-    /// not a live switch (ADR-0008 refuses a second mind). A pick ends the wait, not a
-    /// relaunch, so the line names Model API in AI source and never a launch.
+    /// The handle stays authoritative while set, so the live HTTP rows are a
+    /// way back, not a second mind (ADR-0008). The line names Model API, never
+    /// a relaunch.
     #[test]
     fn a_dead_harness_names_model_api_as_the_way_back() {
         let dead = crate::harness::HarnessInspect {
@@ -5301,9 +5316,9 @@ mod tests {
         assert_eq!(command_line_debug("   "), "");
     }
 
-    /// Every registration shape carries the URL, and Claude Code's carries the remove: a
-    /// re-add of an existing name keeps the old URL and token and exits 0. Codex exports
-    /// the raw token; Hermes shows it in the steps only, for interactive paste.
+    /// Every snippet carries the URL, and Claude Code's the remove, since a
+    /// re-add keeps the old URL and exits 0. Codex exports the raw token;
+    /// Hermes shows it for pasting.
     #[test]
     fn every_byo_snippet_carries_the_url_and_the_raw_token() {
         for harness in form::HARNESS_PRESETS {
@@ -5531,8 +5546,8 @@ mod tests {
         }
     }
 
-    /// OpenCode does not re-read MCP mid-session and `/reload` is not shipped, so
-    /// the after-steps say restart OpenCode, not run `/reload`.
+    /// OpenCode does not re-read MCP mid-session and `/reload` is not shipped,
+    /// so the after-steps say restart OpenCode, not run `/reload`.
     #[test]
     fn opencode_byo_after_steps_say_restart_not_reload() {
         let (_, steps, _) = byo_registration("opencode", "http://127.0.0.1:5051/mcp", "beef");
