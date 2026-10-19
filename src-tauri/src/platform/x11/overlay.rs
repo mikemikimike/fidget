@@ -171,6 +171,13 @@ fn mask_rects(shape: &MaskShape) -> Vec<xproto::Rectangle> {
     rects
 }
 
+/// Rectangles per `PolyFillRectangle` within the core request length, in 4-byte
+/// units (at least 4096 by protocol): 12 bytes of header, 8 per rectangle. x11rb
+/// errors past it rather than splitting, and BIG-REQUESTS costs a round trip.
+fn rects_per_fill(max_units: u16) -> usize {
+    (usize::from(max_units.max(4096)) * 4 - 12) / 8
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_input_mask(
     conn: &RustConnection,
@@ -247,9 +254,11 @@ fn apply_input_mask(
         xproto::change_gc(conn, gc, &xproto::ChangeGCAux::new().foreground(1))
             .map_err(|e| format!("Failed to set GC foreground: {e}"))?;
 
-        for rect in mask_rects(&current_shape) {
-            xproto::poly_fill_rectangle(conn, pixmap, gc, &[rect])
-                .map_err(|e| format!("Failed to draw rectangle: {e}"))?;
+        let rects = mask_rects(&current_shape);
+        let per_fill = rects_per_fill(conn.setup().maximum_request_length);
+        for batch in rects.chunks(per_fill) {
+            xproto::poly_fill_rectangle(conn, pixmap, gc, batch)
+                .map_err(|e| format!("Failed to draw rectangles: {e}"))?;
         }
 
         cache.insert(
@@ -450,6 +459,14 @@ mod tests {
         };
         assert_eq!(at(false), [(0, 0)], "as authored, ink stays on the left");
         assert_eq!(at(true), [(4, 0)], "mirrored, ink moves to the right");
+    }
+
+    #[test]
+    fn a_fill_request_stays_within_the_core_request_length() {
+        // Units of 4 bytes, from Setup. 65535 is the core ceiling, 4096 the floor
+        // the protocol guarantees.
+        assert_eq!(rects_per_fill(65535), 32766);
+        assert_eq!(rects_per_fill(4096), 2046);
     }
 
     #[test]
