@@ -1,7 +1,8 @@
 // The published landing page, assembled the way the Pages job assembles
 // `_site/`, played with in headless Chrome: a throw lands with the hard puff,
 // a slow drop perches on the window, the desk stops painting while scrolled out
-// of view, and reduced motion keeps the still tiles.
+// of view, reduced motion keeps the still tiles, a double-click opens the chat
+// mock, and hovering opens the quick-message pill.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -13,10 +14,9 @@ import { after, before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const PROBE_MS = 7000;
+const PROBE_MS = 10000;
 
-const probe = `
-<script>
+const helpers = `
   const errors = [];
   window.addEventListener("error", (e) => errors.push(e.message));
   const frame = () => new Promise(requestAnimationFrame);
@@ -30,6 +30,14 @@ const probe = `
       resolve(cue);
     }).observe(layer, { childList: true, subtree: true });
   });
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const pointer = (target, type, x, y) => target.dispatchEvent(new PointerEvent(type, {
+    bubbles: true, button: 0, pointerId: 1, pointerType: "mouse", isPrimary: true, clientX: x, clientY: y,
+  }));
+`;
+
+const probe = `
+<script>${helpers}
   window.addEventListener("load", async () => {
     console.log("__PROBE_READY__");
     try {
@@ -46,20 +54,18 @@ const probe = `
       const inner = () => { const box = desk.getBoundingClientRect(); return { x: box.left + desk.clientLeft, y: box.top + desk.clientTop }; };
       const feetY = () => sprite.getBoundingClientRect().bottom - inner().y;
       let x, y;
-      const fire = (type) => sprite.dispatchEvent(new PointerEvent(type, {
-        bubbles: true, button: 0, pointerId: 1, pointerType: "mouse", isPrimary: true, clientX: x, clientY: y,
-      }));
+      const fire = (type) => pointer(sprite, type, x, y);
       const press = () => { const box = sprite.getBoundingClientRect(); x = box.left + box.width / 2; y = box.top + box.height / 2; fire("pointerdown"); };
 
       press();
-      for (const [dx, dy] of [[0, -10], [0, -40], [40, -40], [40, -40], [40, -40]]) { await frame(); x += dx; y += dy; fire("pointermove"); }
+      for (const [dx, dy] of [[-10, 0], [-40, 0], [-40, 0], [-40, 0]]) { await frame(); x += dx; y += dy; fire("pointermove"); }
       const hard = cueIn(layer, ".cue-puff.hard");
       fire("pointerup");
       await hard;
       const thrown = { feetY: feetY(), floor: desk.clientHeight };
 
       await new Promise((resolve) => setTimeout(resolve, 700));
-      const win = document.getElementById("play-win").getBoundingClientRect();
+      const win = document.querySelector('[data-win="light"]').getBoundingClientRect();
       const windowTop = win.top - inner().y;
       press();
       const box = sprite.getBoundingClientRect();
@@ -94,6 +100,62 @@ const probe = `
   });
 </script>`;
 
+const gestures = `
+<script>${helpers}
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const desk = document.getElementById("play-desk");
+      const sprite = document.getElementById("play-sprite");
+      const layer = document.getElementById("play-cues");
+      const chat = document.getElementById("play-chat");
+      const pill = document.getElementById("play-qm");
+      const field = pill.querySelector("input");
+      const tuning = JSON.parse(document.getElementById("play-data").textContent).tuning;
+      desk.scrollIntoView({ block: "center" });
+      await frame(); await frame();
+      const center = () => { const box = sprite.getBoundingClientRect(); return [box.left + box.width / 2, box.top + box.height / 2]; };
+
+      const closedAtFirst = chat.hidden;
+      const summon = cueIn(layer, ".cue-ring.in");
+      for (let i = 0; i < 2; i++) { pointer(sprite, "pointerdown", ...center()); pointer(sprite, "pointerup", ...center()); }
+      await summon;
+      const rings = { summon: layer.querySelectorAll(".cue-ring.in").length, poke: layer.querySelectorAll(".cue-ring:not(.in)").length };
+      const opened = !chat.hidden;
+      const bar = chat.querySelector(".bar").getBoundingClientRect();
+      const from = chat.getBoundingClientRect();
+      const grip = [bar.left + 40, bar.top + bar.height / 2];
+      pointer(chat.querySelector(".bar"), "pointerdown", ...grip);
+      pointer(chat.querySelector(".bar"), "pointermove", grip[0] - 60, grip[1] + 30);
+      pointer(chat.querySelector(".bar"), "pointerup", grip[0] - 60, grip[1] + 30);
+      const to = chat.getBoundingClientRect();
+      chat.querySelector(".close").click();
+      const chatResult = { closedAtFirst, opened, rings, moved: [to.left - from.left, to.top - from.top], closed: chat.hidden };
+
+      await wait(tuning.pokeCooldownMs);
+      sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
+      await wait(tuning.hoverDelayMs - 300);
+      const early = pill.classList.contains("visible");
+      await wait(600);
+      const shown = pill.classList.contains("visible") && document.activeElement === field;
+      document.execCommand("insertText", false, "hello there");
+      const typed = field.value;
+      const box = desk.getBoundingClientRect();
+      pointer(desk, "pointerdown", box.right - 10, box.bottom - 10);
+      const dismissed = !pill.classList.contains("visible");
+      sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
+      await wait(tuning.hoverDelayMs + 300);
+      const again = pill.classList.contains("visible");
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      const sent = !pill.classList.contains("visible") && field.value === "";
+      const pillResult = { early, shown, typed, dismissed, again, sent };
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult }));
+    } catch (err) {
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
+    }
+  });
+</script>`;
+
 let dir;
 let site;
 
@@ -106,12 +168,12 @@ before(() => {
 
 after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
 
-async function play(flags = []) {
+async function play(flags = [], script = probe) {
   const page = join(site, "probe.html");
-  writeFileSync(page, readFileSync(join(site, "index.html"), "utf8").replace("<head>", `<head>${probe}`));
+  writeFileSync(page, readFileSync(join(site, "index.html"), "utf8").replace("<head>", `<head>${script}`));
   const cdp = launchWithPipe(chromePath, [
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--mute-audio",
-    `--user-data-dir=${join(dir, `profile-${flags.length}`)}`, "--allow-file-access-from-files", "--window-size=1280,900",
+    `--user-data-dir=${mkdtempSync(join(dir, "profile-"))}`, "--allow-file-access-from-files", "--window-size=1280,900",
     ...flags,
   ]);
   try {
@@ -138,4 +200,32 @@ test("the desk replaces the still tiles: a throw lands with the hard puff, a slo
   assert.equal(result.paused.offscreen, 0, `scrolled out of view, the desk painted nothing: ${JSON.stringify(result.paused)}`);
   assert.ok(result.paused.back > 0, `scrolled back, the desk animates again: ${JSON.stringify(result.paused)}`);
   assert.deepEqual(await play(["--force-prefers-reduced-motion"]), { errors: [], tiles: true });
+});
+
+test("a double-click opens the chat mock, which moves by its bar and closes; a hover opens the pill, which takes typing", { skip: chromeSkip }, async () => {
+  const result = await play([], gestures);
+  assert.deepEqual(result.errors, [], "the page threw nothing");
+  assert.deepEqual(result.chat, { closedAtFirst: true, opened: true, rings: { summon: 2, poke: 0 }, moved: [-60, 30], closed: true },
+    "the Summon replaced the poke ring and opened a chat that moves and closes");
+  assert.deepEqual(result.pill, { early: false, shown: true, typed: "hello there", dismissed: true, again: true, sent: true },
+    "the pill waits out the hover delay, focuses, types, and an outside click or Enter dismisses it");
+});
+
+test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
+  const page = readFileSync(join(site, "index.html"), "utf8");
+  const play = page.match(/<section id="play">([\s\S]*?)<\/section>/)[1];
+  assert.match(play, /<h2>Live playground: fidget gestures<\/h2>/);
+  assert.ok(!play.includes("cues.html"), "the playground no longer links Fidget Cues");
+  const gestures = [...play.matchAll(/<li>(.*?)<\/li>/g)].map((m) => m[1].replace(/<\/?b>/g, ""));
+  assert.deepEqual(gestures, ["Left-click to poke", "Click and hold to drag it around and drop it",
+    "Double-click to summon chat", "Hover on Fidget to get the quick-message pill and type something"]);
+  const windows = [...play.matchAll(/data-win="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(windows, ["dark", "light", "chat"]);
+  assert.equal(play.match(/<span class="drag-me">drag me<\/span>/g).length, 3, "every window's bar says drag me");
+  assert.ok(play.indexOf('<a class="btn" href="#get"><b>Download Fidget</b></a>') > play.indexOf('id="play-cues"'),
+    "the Download call to action sits below the desk");
+  const titles = [...page.matchAll(/<h2>(.*?)<\/h2>/g)].map((m) => m[1]);
+  const at = titles.indexOf("Live playground: fidget gestures");
+  assert.deepEqual(titles.slice(at, at + 4),
+    ["Live playground: fidget gestures", "Packaged Fidgets", "Talks to the agent you already use", "How it works"]);
 });

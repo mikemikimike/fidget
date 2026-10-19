@@ -1,4 +1,4 @@
-// The desk under "Things you can do to it" on the landing page. step() is the
+// The playground desk on the landing page. step() is the
 // whole behavior, so these drive it the way the page's pointer handlers do.
 
 import assert from "node:assert/strict";
@@ -7,9 +7,10 @@ import { animationOf, step } from "../docs/design/playground.js";
 
 const TUNING = {
   gravity: 3600, walkSpeed: 120, primitiveMs: 600, pokeCooldownMs: 2500, perchedIdleAfterMs: 4000,
-  rideAcceleration: 10000, yankWindowS: 0.1, throwMinSpeed: 80, velocityWindowMs: 60,
+  rideAcceleration: 10000, yankWindowS: 0.1, throwMinSpeed: 80, velocityWindowMs: 60, doubleClickMs: 400,
 };
-const WORLD = { width: 600, height: 300, sprite: { w: 90, h: 90 }, window: { x0: 100, x1: 400, y: 150 } };
+const LIGHT = { id: "light", x0: 100, x1: 400, y: 150 };
+const WORLD = { width: 600, height: 300, sprite: { w: 90, h: 90 }, windows: [LIGHT] };
 
 function run(state, events, world = WORLD) {
   const cues = [];
@@ -70,13 +71,13 @@ test("a slow release over the window drops onto its top edge and sits", () => {
   ]);
   const dropped = run(held.state, [{ type: "release", now: 500 }, ...ticks(500, 30)]);
   assert.deepEqual(dropped.cues, ["drop"]);
-  assert.deepEqual([dropped.state.on, dropped.state.x, animationOf(dropped.state)], ["window", 250, "land"]);
+  assert.deepEqual([dropped.state.on, dropped.state.x, animationOf(dropped.state)], ["light", 250, "land"]);
   const settled = run(dropped.state, [{ type: "tick", now: 2000, dt: 0.016, rand: 0 }]);
   assert.equal(animationOf(settled.state), "sit");
 });
 
 test("walking off the end of the window falls to the floor with no cue", () => {
-  const off = run(standing("window", 398, "walk", Infinity, 1), [{ type: "tick", now: 1, dt: 0.05, rand: 0 }]);
+  const off = run(standing("light", 398, "walk", Infinity, 1), [{ type: "tick", now: 1, dt: 0.05, rand: 0 }]);
   assert.equal(animationOf(off.state), "fall");
   const down = run(off.state, ticks(1, 40));
   assert.deepEqual(down.cues, []);
@@ -84,10 +85,41 @@ test("walking off the end of the window falls to the floor with no cue", () => {
 });
 
 test("moving the window slowly carries a perched character, and a yank drops it", () => {
-  const moved = { ...WORLD, window: { x0: 105, x1: 405, y: 150 } };
-  const carried = run(standing("window", 250, "sit"), [{ type: "carry", dx: 5, dy: 0, vx: 300, vy: 0, now: 1000 }], moved);
+  const moved = { ...WORLD, windows: [{ ...LIGHT, x0: 105, x1: 405 }] };
+  const carried = run(standing("light", 250, "sit"), [{ type: "carry", id: "light", dx: 5, dy: 0, vx: 300, vy: 0, now: 1000 }], moved);
   assert.deepEqual([carried.state.mode, carried.state.x], ["standing", 255]);
-  const yanked = { ...WORLD, window: { x0: 135, x1: 435, y: 150 } };
-  const dropped = run(carried.state, [{ type: "carry", dx: 30, dy: 0, vx: 1800, vy: 0, now: 1016 }], yanked);
+  const yanked = { ...WORLD, windows: [{ ...LIGHT, x0: 135, x1: 435 }] };
+  const dropped = run(carried.state, [{ type: "carry", id: "light", dx: 30, dy: 0, vx: 1800, vy: 0, now: 1016 }], yanked);
   assert.deepEqual([dropped.state.mode, dropped.state.x, dropped.state.y], ["falling", 255, 150]);
+});
+
+test("moving another window leaves a perched character where it is", () => {
+  const carried = run(standing("light", 250, "sit"), [{ type: "carry", id: "dark", dx: 40, dy: 0, vx: 300, vy: 0, now: 1000 }]);
+  assert.deepEqual([carried.state.mode, carried.state.on, carried.state.x], ["standing", "light", 250]);
+});
+
+test("a drop over two overlapping windows perches on the higher top edge", () => {
+  const world = { ...WORLD, windows: [LIGHT, { id: "dark", x0: 200, x1: 500, y: 120 }] };
+  const held = run(standing("floor", 300), [{ type: "grab", now: 0 }, { type: "drag", x: 300, y: 60, now: 100 }], world);
+  const dropped = run(held.state, [{ type: "release", now: 500 }, ...ticks(500, 30)], world);
+  assert.deepEqual([dropped.state.on, dropped.cues], ["dark", ["drop"]]);
+});
+
+test("closing the window it sits on drops it to the floor", () => {
+  const closed = run(standing("light", 250, "sit"), [{ type: "close", id: "light", y: 150, now: 1000 }], { ...WORLD, windows: [] });
+  const down = run(closed.state, ticks(1000, 40), { ...WORLD, windows: [] });
+  assert.deepEqual([down.state.on, down.cues], ["floor", ["drop"]]);
+});
+
+test("a second click within the double-click time summons instead of poking, once per pair", () => {
+  const clicks = (...times) => run(standing("floor", 300), times.map((now) => ({ type: "poke", now }))).cues;
+  assert.deepEqual(clicks(1000, 1300), ["poke", "summon"]);
+  assert.deepEqual(clicks(1000, 1300, 1500), ["poke", "summon", "poke"]);
+  assert.deepEqual(clicks(1000, 1500), ["poke", "poke"]);
+});
+
+test("a held tick keeps a walking character in place while the quick-message pill is up", () => {
+  const walking = standing("floor", 300, "walk");
+  assert.equal(run(walking, [{ type: "tick", now: 1, dt: 0.05, rand: 0, hold: true }]).state.x, 300);
+  assert.equal(run(walking, [{ type: "tick", now: 1, dt: 0.05, rand: 0 }]).state.x, 306);
 });

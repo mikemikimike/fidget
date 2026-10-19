@@ -1,4 +1,4 @@
-// The desk under "Things you can do to it": one Character and one window to
+// The landing page's live playground: one Character and the windows it can
 // perch on. step() is the whole behavior and touches no DOM, so node tests it.
 
 // How long an untouched Character idles, then walks, in ms. The page's own
@@ -19,7 +19,7 @@ function wander(state, now, rand) {
 
 function timeUp(state, now, rand, tuning) {
   if (state.act === "react") return { ...state, act: "idle", until: now + tuning.pokeCooldownMs - tuning.primitiveMs };
-  if (state.act === "land" && state.on === "window") return { ...state, act: "sit", until: now + tuning.perchedIdleAfterMs };
+  if (state.act === "land" && state.on !== "floor") return { ...state, act: "sit", until: now + tuning.perchedIdleAfterMs };
   return wander(state, now, rand);
 }
 
@@ -28,30 +28,31 @@ function clampX(x, world) {
   return Math.min(world.width - half, Math.max(half, x));
 }
 
+const windowOf = (world, id) => world.windows.find((win) => win.id === id);
+
 function walk(state, dt, world, tuning) {
   const vx = state.facing * tuning.walkSpeed;
   const x = state.x + vx * dt;
-  const edge = world.window;
-  if (state.on === "window" && (x < edge.x0 || x > edge.x1)) {
+  const edge = windowOf(world, state.on);
+  if (edge && (x < edge.x0 || x > edge.x1)) {
     return { mode: "falling", x, y: edge.y, vx, vy: 0, facing: state.facing, landing: null };
   }
   const clamped = clampX(x, world);
   return { ...state, x: clamped, facing: clamped === x ? state.facing : -state.facing };
 }
 
-function ledgeY(world, on) {
-  return on === "window" ? world.window.y : world.height;
-}
-
 function feet(state, world) {
-  return state.mode === "standing" ? { x: state.x, y: ledgeY(world, state.on) } : { x: state.x, y: state.y };
+  if (state.mode !== "standing") return { x: state.x, y: state.y };
+  return { x: state.x, y: state.on === "floor" ? world.height : windowOf(world, state.on).y };
 }
 
-// The ledge the feet crossed going from fromY down to toY: the window's top
-// edge only when the feet started above it.
+// The highest top edge the feet crossed going from fromY down to toY, else
+// the floor once they reach it.
 function ledgeCrossed(world, x, fromY, toY) {
-  const edge = world.window;
-  if (x >= edge.x0 && x <= edge.x1 && fromY <= edge.y && toY >= edge.y) return "window";
+  const crossed = world.windows
+    .filter((edge) => x >= edge.x0 && x <= edge.x1 && fromY <= edge.y && toY >= edge.y)
+    .sort((a, b) => a.y - b.y)[0];
+  if (crossed) return crossed.id;
   return toY >= world.height ? "floor" : null;
 }
 
@@ -84,6 +85,8 @@ function fall(state, event, world, tuning) {
   return { state: { ...state, x, y, vx, vy }, cue: null };
 }
 
+const letGo = (state, y) => ({ mode: "falling", x: state.x, y, vx: 0, vy: 0, facing: state.facing, landing: "drop" });
+
 // The engine's yank gate: a change in the window's speed larger than
 // rideAcceleration * yankWindowS, against its speed about yankWindowS ago, drops the sprite.
 function carry(state, event, world, tuning) {
@@ -91,10 +94,17 @@ function carry(state, event, world, tuning) {
   const ride = (state.ride ?? []).filter((sample) => sample.t >= event.now - windowMs);
   const reference = ride[0] ?? { vx: 0, vy: 0 };
   if (Math.hypot(event.vx - reference.vx, event.vy - reference.vy) > tuning.rideAcceleration * tuning.yankWindowS) {
-    const y = world.window.y - event.dy;
-    return { mode: "falling", x: state.x, y, vx: 0, vy: 0, facing: state.facing, landing: "drop" };
+    return letGo(state, windowOf(world, event.id).y - event.dy);
   }
   return { ...state, x: clampX(state.x + event.dx, world), ride: [...ride, { t: event.now, vx: event.vx, vy: event.vy }] };
+}
+
+// A second click within doubleClickMs is a Summon in place of its Poke, and a
+// third starts a new pair, as input.rs decodes them. Both play react.
+function poke(state, now, tuning) {
+  const summon = now - (state.pokedAt ?? -Infinity) <= tuning.doubleClickMs && !state.summoned;
+  const reacting = { ...state, act: "react", until: now + tuning.primitiveMs, pokedAt: now, summoned: summon };
+  return { state: reacting, cue: summon ? "summon" : "poke" };
 }
 
 function start(world, now) {
@@ -111,7 +121,7 @@ export function step(state, event, world, tuning) {
   const unchanged = { state, cue: null };
   if (event.type === "poke") {
     if (state.mode !== "standing") return unchanged;
-    return { state: { ...state, act: "react", until: event.now + tuning.primitiveMs }, cue: "poke" };
+    return poke(state, event.now, tuning);
   }
   if (event.type === "grab") {
     const at = feet(state, world);
@@ -132,28 +142,30 @@ export function step(state, event, world, tuning) {
       facing, landing: thrown ? "throw" : "drop" };
     return { state: falling, cue: null };
   }
+  const perchedOn = (id) => state.mode === "standing" && state.on === id;
   if (event.type === "carry") {
-    if (state.mode !== "standing" || state.on !== "window") return unchanged;
-    return { state: carry(state, event, world, tuning), cue: null };
+    return perchedOn(event.id) ? { state: carry(state, event, world, tuning), cue: null } : unchanged;
+  }
+  if (event.type === "close") {
+    return perchedOn(event.id) ? { state: letGo(state, event.y), cue: null } : unchanged;
   }
   if (event.type === "tick" && state.mode === "falling") return fall(state, event, world, tuning);
-  if (event.type === "tick" && state.mode === "standing") {
+  if (event.type === "tick" && state.mode === "standing" && !event.hold) {
     if (event.now >= state.until) return { state: timeUp(state, event.now, event.rand, tuning), cue: null };
     if (state.act === "walk") return { state: walk(state, Math.min(event.dt, MAX_DT), world, tuning), cue: null };
-    return unchanged;
   }
   return unchanged;
 }
 
-// The page half: pointer events in, frames and cues out. `cueIo` is the app's
+// The page half: pointer events in, frames and cues out. `cue` is the app's
 // own src/cue.js, which the site publishes beside this file.
-export function mount(section, data, cueIo) {
+export function mount(section, data, cue) {
   const desk = section.querySelector("#play-desk");
-  const win = section.querySelector("#play-win");
-  const bar = section.querySelector("#play-bar");
   const sprite = section.querySelector("#play-sprite");
   const img = sprite.querySelector("img");
   const hint = section.querySelector("#play-hint");
+  const pill = section.querySelector("#play-qm");
+  const field = pill.querySelector("input");
   const { loops, tuning } = data;
   const [w, h] = data.size;
   section.querySelector("#play-tiles").hidden = true;
@@ -162,28 +174,87 @@ export function mount(section, data, cueIo) {
   sprite.style.height = `${h}px`;
   Object.values(loops).flatMap((loop) => loop.frames).forEach((src) => { new Image().src = src; });
 
-  // The window's top-left corner, as a share of the desk, so a resize keeps it in view.
-  let corner = { x: 0.1, y: 0.42 };
-  const world = () => {
-    const x0 = corner.x * desk.clientWidth;
-    return { width: desk.clientWidth, height: desk.clientHeight, sprite: { w, h },
-      window: { x0, x1: x0 + win.offsetWidth, y: corner.y * desk.clientHeight } };
+  // Each window keeps its top-left corner as a share of the desk, so a resize
+  // keeps it in view.
+  const wins = [...desk.querySelectorAll("[data-win]")].map((el) => {
+    const [x, y] = el.dataset.at.split(" ").map(Number);
+    return { id: el.dataset.win, el, bar: el.querySelector(".bar"), corner: { x, y } };
+  });
+  const edgeOf = (win) => {
+    const x0 = Math.min(win.corner.x * desk.clientWidth, desk.clientWidth - win.el.offsetWidth);
+    return { id: win.id, x0, x1: x0 + win.el.offsetWidth, y: win.corner.y * desk.clientHeight };
   };
+  const world = () => ({ width: desk.clientWidth, height: desk.clientHeight, sprite: { w, h },
+    windows: wins.filter((win) => !win.el.hidden).map(edgeOf) });
+  // A closing window drops whoever sits on it before it hides, so state.on
+  // always names an open window or the floor.
+  const feetNow = () => feet(state, world());
   const anchor = () => {
-    const at = feet(state, world());
+    const at = feetNow();
     return { x: at.x, y: at.y - h / 2, feetX: at.x, feetY: at.y };
   };
-  const cues = cueIo(section.querySelector("#play-cues"), anchor);
+  const io = cue.cueIo(section.querySelector("#play-cues"), anchor);
+  // Visual only: the playground plays no sound. The machine lets a Summon cut the Poke ring.
+  const cues = cue.createCueMachine({ draw: io.draw, sound: () => () => {} });
   let state = start(world(), performance.now());
   const apply = (event) => {
     const out = step(state, event, world(), tuning);
     state = out.state;
-    if (out.cue) cues.draw(out.cue);
+    if (out.cue) cues.event({ cue: out.cue, visible: true, sound: false });
+    if (out.cue === "summon") {
+      hidePill();
+      openChat();
+    }
   };
   const local = (event) => {
     const box = desk.getBoundingClientRect();
     return { x: event.clientX - box.left - desk.clientLeft, y: event.clientY - box.top - desk.clientTop };
   };
+
+  // The quick-message pill, as cues.html specifies it: a mouse resting on the
+  // sprite for hoverDelayMs opens it with the field focused. A click outside the
+  // sprite and the pill, a grab, or a double-click dismisses it; Enter sends,
+  // which here only clears it. Leaving the sprite does not.
+  let dwell = 0;
+  let pillUp = false;
+  const placePill = () => {
+    const at = feetNow();
+    const left = Math.min(desk.clientWidth - pill.offsetWidth - 4, Math.max(4, at.x - pill.offsetWidth / 2));
+    pill.style.transform = `translate(${left}px, ${Math.max(4, at.y - h - pill.offsetHeight - 6)}px)`;
+  };
+  const showPill = () => {
+    if (state.mode !== "standing") return;
+    pillUp = true;
+    pill.classList.add("visible");
+    pill.setAttribute("aria-hidden", "false");
+    placePill();
+    field.focus({ preventScroll: true });
+  };
+  function hidePill() {
+    clearTimeout(dwell);
+    if (!pillUp) return;
+    pillUp = false;
+    pill.classList.remove("visible");
+    pill.setAttribute("aria-hidden", "true");
+    field.value = "";
+    field.blur();
+  }
+  sprite.addEventListener("pointerenter", (event) => {
+    if (event.pointerType !== "mouse" || pillUp || press) return;
+    clearTimeout(dwell);
+    dwell = setTimeout(showPill, tuning.hoverDelayMs);
+  });
+  sprite.addEventListener("pointerleave", () => clearTimeout(dwell));
+  field.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      hidePill();
+    }
+  });
+  pill.querySelector("button").addEventListener("click", hidePill);
+  document.addEventListener("pointerdown", (event) => {
+    if (pillUp && !sprite.contains(event.target) && !pill.contains(event.target)) hidePill();
+  });
 
   // The same press decoding as input.rs: a press becomes a Grab once it moves
   // dragThreshold or is held dragDelayMs, and a press released before either is a Poke.
@@ -191,7 +262,8 @@ export function mount(section, data, cueIo) {
   const grab = () => {
     if (!press || press.held) return;
     clearTimeout(press.timer);
-    const at = feet(state, world());
+    hidePill();
+    const at = feetNow();
     press = { ...press, held: true, dx: at.x - press.last.x, dy: at.y - press.last.y };
     apply({ type: "grab", now: performance.now() });
     hint.classList.add("tried");
@@ -199,6 +271,7 @@ export function mount(section, data, cueIo) {
   sprite.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    clearTimeout(dwell);
     sprite.setPointerCapture(event.pointerId);
     const at = local(event);
     press = { from: at, last: at, held: false, timer: setTimeout(grab, tuning.dragDelayMs) };
@@ -223,46 +296,71 @@ export function mount(section, data, cueIo) {
   sprite.addEventListener("pointercancel", () => letGo(false));
   sprite.addEventListener("contextmenu", (event) => event.preventDefault());
 
-  let moving = null;
-  const placeWindow = () => {
-    win.style.left = `${corner.x * 100}%`;
-    win.style.top = `${corner.y * 100}%`;
+  const placeWindow = (win) => {
+    win.el.style.left = `${edgeOf(win).x0}px`;
+    win.el.style.top = `${win.corner.y * 100}%`;
   };
-  bar.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    bar.setPointerCapture(event.pointerId);
-    const at = local(event);
-    const before = world();
-    moving = { dx: before.window.x0 - at.x, dy: before.window.y - at.y, t: performance.now() };
-  });
-  bar.addEventListener("pointermove", (event) => {
-    if (!moving) return;
-    const at = local(event);
-    const before = world();
-    const room = before.width - win.offsetWidth;
-    corner = {
-      x: Math.min(room, Math.max(0, at.x + moving.dx)) / before.width,
-      y: Math.min(before.height - 40, Math.max(h, at.y + moving.dy)) / before.height,
-    };
-    placeWindow();
-    const after = world();
-    const dx = after.window.x0 - before.window.x0;
-    const dy = after.window.y - before.window.y;
-    const now = performance.now();
-    const seconds = Math.max(now - moving.t, 1) / 1000;
-    moving.t = now;
-    if (dx || dy) apply({ type: "carry", dx, dy, vx: dx / seconds, vy: dy / seconds, now });
-  });
-  bar.addEventListener("pointerup", () => { moving = null; });
-  bar.addEventListener("pointercancel", () => { moving = null; });
-  placeWindow();
+  // A pressed window comes to the front, under the sprite, as on a desktop. By
+  // z-index, as moving the node mid-press would swallow the click on its close.
+  const stack = [...wins];
+  const raise = (win) => {
+    stack.splice(stack.indexOf(win), 1);
+    stack.push(win);
+    stack.forEach((one, i) => { one.el.style.zIndex = i + 1; });
+  };
+  function openChat() {
+    const win = wins.find((one) => one.id === "chat");
+    if (!win.el.hidden) return;
+    win.el.hidden = false;
+    raise(win);
+    placeWindow(win);
+  }
+  for (const win of wins) {
+    let moving = null;
+    win.el.addEventListener("pointerdown", () => raise(win));
+    win.bar.addEventListener("pointerdown", (event) => {
+      if (event.target.closest(".close")) return;
+      event.preventDefault();
+      raise(win);
+      win.bar.setPointerCapture(event.pointerId);
+      const at = local(event);
+      const before = edgeOf(win);
+      moving = { dx: before.x0 - at.x, dy: before.y - at.y, t: performance.now() };
+    });
+    win.bar.addEventListener("pointermove", (event) => {
+      if (!moving) return;
+      const at = local(event);
+      const before = edgeOf(win);
+      const room = desk.clientWidth - win.el.offsetWidth;
+      win.corner = {
+        x: Math.min(room, Math.max(0, at.x + moving.dx)) / desk.clientWidth,
+        y: Math.min(desk.clientHeight - 40, Math.max(h, at.y + moving.dy)) / desk.clientHeight,
+      };
+      placeWindow(win);
+      const after = edgeOf(win);
+      const dx = after.x0 - before.x0;
+      const dy = after.y - before.y;
+      const now = performance.now();
+      const seconds = Math.max(now - moving.t, 1) / 1000;
+      moving.t = now;
+      if (dx || dy) apply({ type: "carry", id: win.id, dx, dy, vx: dx / seconds, vy: dy / seconds, now });
+    });
+    win.bar.addEventListener("pointerup", () => { moving = null; });
+    win.bar.addEventListener("pointercancel", () => { moving = null; });
+    win.el.querySelector(".close")?.addEventListener("click", () => {
+      apply({ type: "close", id: win.id, y: edgeOf(win).y, now: performance.now() });
+      win.el.hidden = true;
+    });
+    placeWindow(win);
+  }
 
   let playing = null;
   let since = 0;
   let last = null;
   let pending = 0;
   const frame = (now) => {
-    apply({ type: "tick", now, dt: last === null ? 0 : (now - last) / 1000, rand: Math.random() });
+    const hold = pillUp && document.activeElement === field;
+    apply({ type: "tick", now, dt: last === null ? 0 : (now - last) / 1000, rand: Math.random(), hold });
     last = now;
     const name = animationOf(state);
     if (name !== playing) {
@@ -273,8 +371,9 @@ export function mount(section, data, cueIo) {
     const index = Math.floor(((now - since) * loop.fps) / 1000);
     const src = loop.frames[loop.once ? Math.min(index, loop.frames.length - 1) : index % loop.frames.length];
     if (img.getAttribute("src") !== src) img.setAttribute("src", src);
-    const at = feet(state, world());
+    const at = feetNow();
     sprite.style.transform = `translate(${at.x - w / 2}px, ${at.y - h}px)${state.facing < 0 ? " scaleX(-1)" : ""}`;
+    if (pillUp) placePill();
     pending = requestAnimationFrame(frame);
   };
   // Out of view, no frames are scheduled. Back in view, the first tick has no

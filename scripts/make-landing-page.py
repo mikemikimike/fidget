@@ -23,8 +23,8 @@ shows no strip — GitHub's own notes for it are commit subjects and "by @author
 file with no tag. The macOS Homebrew line is read from the Get It section fenced
 command, and claims nothing when there is none.
 
-The "Things you can do to it" desk plays the hero's loops, moves by constants
-read from the Engine's engine.rs and input.rs, and draws its cues with the
+The "Live playground" desk plays the hero's loops, moves by constants read
+from the Engine's engine.rs and input.rs and the app's main.rs, and draws its cues with the
 overlay's own rules from src/main.css and src/cue.js. Its still tiles name
 their Characters in PLAY_TILES; a loop or constant it cannot find fails the build.
 
@@ -99,16 +99,21 @@ HIGHLIGHTS = re.compile(r"^##[ \t]+Highlights[ \t]*$", re.M)
 BULLET = re.compile(r"^[*-][ \t]+")
 TITLE = re.compile(r"^\*\*(?P<title>[^*]+?):\*\*")
 
-ENGINE = ROOT / "crates" / "core" / "src"
+# The app sources the desk reads its numbers from, by the name PLAY_TUNING uses.
+ENGINE = {"engine.rs": ROOT / "crates" / "core" / "src" / "engine.rs",
+          "input.rs": ROOT / "crates" / "core" / "src" / "input.rs",
+          "main.rs": ROOT / "src-tauri" / "src" / "main.rs"}
 CUES = ROOT / "src" / "main.css"
-# The desk under "Things you can do to it" plays these, so a Character
+# The playground desk plays these, so a Character
 # lacking one fails the build instead of freezing on the page.
 PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit")
 # The still tiles no-JavaScript and reduced-motion visitors get: the gesture,
 # the Character, and the Animation whose first frame shows it.
 PLAY_TILES = (("Poke", "bmo", "react"), ("Pick up", "timber-wolf", "hold"), ("Throw", "cat", "fall"),
               ("Perch", "nim", "sit"), ("Summon", "buddy-bot", "talk"), ("Hide", "jotaro-kujo", "sleep"))
-# The desk moves by the Engine's numbers: page key -> (source, constant).
+# The desk moves by the app's numbers: page key -> (source, constant). The
+# double-click interval is the argument Pointer's Default passes, as input.rs
+# has no constant for it.
 PLAY_TUNING = {
     "gravity": ("engine.rs", "GRAVITY"),
     "walkSpeed": ("engine.rs", "WALK_SPEED"),
@@ -121,6 +126,8 @@ PLAY_TUNING = {
     "dragThreshold": ("input.rs", "DRAG_THRESHOLD"),
     "dragDelayMs": ("input.rs", "DRAG_DELAY_MS"),
     "velocityWindowMs": ("input.rs", "VELOCITY_WINDOW_MS"),
+    "doubleClickMs": ("input.rs", "with_double_click_ms"),
+    "hoverDelayMs": ("main.rs", "HOVER_DELAY_MS"),
 }
 PLAY_DATA = re.compile(r'<script type="application/json" id="play-data">(.*?)</script>', re.S)
 
@@ -481,18 +488,19 @@ def play_tiles(characters_root, default_fps):
 # --------------------------------------------------------------------------
 
 
-def read_engine(root=ENGINE):
-    return {name: (root / name).read_text(encoding="utf-8") for name in ("engine.rs", "input.rs")}
+def read_engine(sources=ENGINE):
+    return {name: path.read_text(encoding="utf-8") for name, path in sources.items()}
 
 
 def play_tuning(engine):
     tuning = {}
     for key, (source, name) in PLAY_TUNING.items():
-        found = re.search(rf"^(?:pub(?:\(crate\))? )?const {name}: (f64|u32) = ([\d_.]+);", engine[source], re.M)
+        found = re.search(rf"^(?:pub(?:\(crate\))? )?const {name}: (?:f64|u32|u64) = ([\d_.]+);"
+                          rf"|Self::{name}\(([\d_]+)\)", engine[source], re.M)
         if not found:
             raise Malformed(f"{source} declares no {name}")
-        number = found.group(2).replace("_", "")
-        tuning[key] = float(number) if found.group(1) == "f64" else int(number)
+        number = (found.group(1) or found.group(2)).replace("_", "")
+        tuning[key] = float(number) if "." in number else int(number)
     return tuning
 
 
@@ -803,6 +811,12 @@ def self_check():
         heavy["engine.rs"] = re.sub(r"const GRAVITY: f64 = [\d_.]+;", "const GRAVITY: f64 = 1234.0;", engine["engine.rs"])
         desk = play_data(render(readme, scratch, rust, shell, engine=heavy))
         assert desk["tuning"]["gravity"] == 1234, "the desk's gravity is not the Engine's"
+        slow = dict(engine)
+        slow["input.rs"] = engine["input.rs"].replace("with_double_click_ms(400)", "with_double_click_ms(333)")
+        slow["main.rs"] = re.sub(r"const HOVER_DELAY_MS: u64 = [\d_]+;", "const HOVER_DELAY_MS: u64 = 2222;", engine["main.rs"])
+        timing = play_data(render(readme, scratch, rust, shell, engine=slow))["tuning"]
+        assert (timing["doubleClickMs"], timing["hoverDelayMs"]) == (333, 2222), \
+            "the desk's double-click or hover delay is not the app's"
         assert desk["loops"]["land"] == {"frames": [f"characters/{HERO}/frames/idle-0.png"], "fps": 10, "once": True}, \
             "the desk's land loop is not the manifest's"
         unthrowable = dict(engine)
