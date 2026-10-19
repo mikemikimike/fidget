@@ -199,18 +199,14 @@
   .play-win.dark .lines div { background: #2a2f3b; }
   .play-win.chat { width: 42%; height: 64%; display: flex; flex-direction: column; }
   .play-win.chat[hidden] { display: none; }
+  /* The minimal Chat UI's panel, in the tokens lifted from src/chat-ui.css below. */
+  .play-win.play-chat-ui { background: var(--chat-panel); border-color: var(--chat-line); color: var(--chat-ink);
+    font-family: var(--chat-sans); font-size: var(--shared-type-size); }
   .play-win .close { position: relative; flex: 0 0 auto; width: 10px; height: 10px; padding: 0; border: 0;
     border-radius: 50%; background: #ff5f57; color: #4d0000; font: inherit; font-size: 9px; line-height: 10px;
     text-align: center; cursor: pointer; touch-action: manipulation; }
   /* A finger-sized hit area around the 10px circle. */
   .play-win .close::after { content: ""; position: absolute; inset: -8px; }
-  .chat-body { flex: 1; display: flex; flex-direction: column; gap: .6rem; padding: 12px 14px; font-size: .8rem;
-    color: var(--ink-2); }
-  .chat-body p { margin: 0; }
-  .chat-composer { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px;
-    border: 1px solid var(--line); border-radius: 10px; color: var(--ink-3); }
-  .chat-composer span { flex: 1; }
-  .chat-composer i { width: 22px; height: 22px; border-radius: 50%; background: var(--line); }
   .play-qm { position: absolute; left: 0; top: 0; z-index: 11; display: flex; align-items: center; gap: 8px; width: 220px;
     padding: 6px 6px 6px 12px; border: 2px solid #e8ebf2; border-radius: 12px; background: #14171e; color: #e8ebf2;
     box-shadow: 0 4px 16px rgb(0 0 0 / .55); font-size: .85rem; opacity: 0; pointer-events: none;
@@ -223,9 +219,9 @@
   .play-qm button { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 26px;
     height: 26px; padding: 0; border: 0; border-radius: 50%; background: #5cc9b5; cursor: pointer; }
   .play-qm svg { width: 12px; height: 12px; margin-left: 1px; }
-  .play-sub { margin: 0 0 .4rem; font-size: 1rem; }
-  .play-how { margin: 0 0 1.2rem; padding-left: 1.2rem; color: var(--ink-2); display: grid; gap: .2rem; }
-  .play-get { margin: 1rem 0 0; }
+  .play-sub { margin: 1.5rem 0 .4rem; font-size: 1rem; }
+  .play-how { margin: 0 0 1rem; padding-left: 1.2rem; color: var(--ink-2); display: grid; gap: .2rem; }
+  .play-get { margin: 0; }
   .play-win .lines { padding: 14px 16px; display: grid; gap: 9px; }
   .play-win .lines div { height: 8px; border-radius: 4px; background: var(--paper-2); }
   .play-sprite { position: absolute; left: 0; top: 0; z-index: 10; cursor: grab; touch-action: none; }
@@ -235,6 +231,7 @@
     transition: opacity .6s; pointer-events: none; }
   .play-hint.tried { opacity: 0; }
 {{cue_css}}
+{{chat_css}}
   @media (max-width: 760px) {
     .play-tiles { grid-template-columns: repeat(3, 1fr); }
     .play-win { width: 62%; }
@@ -307,13 +304,7 @@
 <section id="play">
   <div class="wrap">
     <h2>Live Playground</h2>
-    <h3 class="play-sub">Fidget gestures</h3>
-    <ul class="play-how">
-      <li><b>Left-click</b> to poke</li>
-      <li><b>Click and hold</b> to drag it around and drop it</li>
-      <li><b>Double-click</b> to summon chat</li>
-      <li><b>Hover</b> on Fidget to get the quick-message pill and type something</li>
-    </ul>
+    <p class="sub">Try it here in the playground.</p>
     <div class="cast play-tiles" id="play-tiles">
       {{play_tiles}}
     </div>
@@ -327,13 +318,15 @@
         <div class="bar"><i></i><i></i><i></i><span class="drag-me">drag me</span></div>
         <div class="lines"><div style="width:72%"></div><div style="width:54%"></div><div style="width:81%"></div><div style="width:38%"></div></div>
       </div>
-      <div class="play-win chat" data-win="chat" data-at="0.54 0.3" id="play-chat" hidden>
+      <div class="play-win dark chat play-chat-ui" data-win="chat" data-at="0.54 0.3" id="play-chat" hidden>
         <div class="bar"><button class="close" type="button" aria-label="Close chat">&times;</button><i></i><i></i><span class="drag-me">drag me</span></div>
-        <div class="chat-body">
-          <p><b>Chat</b> &middot; a mock</p>
-          <p>In Fidget, this is where you talk to your character, through the agent you already use.</p>
-          <div class="chat-composer" aria-hidden="true"><span>Message</span><i></i></div>
+        <div class="log">
+          <div class="empty"><div>
+            <p><b>Chat</b> &middot; a mock</p>
+            <p>In Fidget, this is where you talk to your character, through the agent you already use.</p>
+          </div></div>
         </div>
+        <div class="composer"><textarea rows="1" disabled placeholder="Nothing can answer yet" aria-label="Message (a mock)"></textarea><button type="button" disabled>Send</button></div>
       </div>
       <div class="play-sprite" id="play-sprite">{{play_sprite}}</div>
       <div class="play-qm" id="play-qm" aria-hidden="true">
@@ -342,6 +335,13 @@
       </div>
       <div class="cue-layer" id="play-cues"></div>
     </div>
+    <h3 class="play-sub">Fidget gestures</h3>
+    <ul class="play-how">
+      <li><b>Left-click</b> to poke</li>
+      <li><b>Click and hold</b> to drag it around and drop it</li>
+      <li><b>Double-click</b> to summon chat</li>
+      <li><b>Hover</b> on Fidget to get the quick-message pill and type something</li>
+    </ul>
     <p class="play-get"><a href="#get">Download Fidget</a> to try it for real.</p>
     <script type="application/json" id="play-data">{{play_data}}</script>
   </div>

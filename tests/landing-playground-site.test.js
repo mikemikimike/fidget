@@ -122,6 +122,9 @@ const gestures = `
       await summon;
       const rings = { summon: layer.querySelectorAll(".cue-ring.in").length, poke: layer.querySelectorAll(".cue-ring:not(.in)").length };
       const opened = !chat.hidden;
+      const composer = chat.querySelector(".composer textarea");
+      const look = { panel: getComputedStyle(chat).backgroundColor, composer: composer.disabled && composer.placeholder,
+        send: getComputedStyle(chat.querySelector(".composer button")).borderRadius };
       const bar = chat.querySelector(".bar").getBoundingClientRect();
       const from = chat.getBoundingClientRect();
       const grip = [bar.left + 40, bar.top + bar.height / 2];
@@ -130,7 +133,7 @@ const gestures = `
       pointer(chat.querySelector(".bar"), "pointerup", grip[0] - 60, grip[1] + 30);
       const to = chat.getBoundingClientRect();
       chat.querySelector(".close").click();
-      const chatResult = { closedAtFirst, opened, rings, moved: [to.left - from.left, to.top - from.top], closed: chat.hidden };
+      const chatResult = { closedAtFirst, opened, rings, moved: [to.left - from.left, to.top - from.top], closed: chat.hidden, look };
 
       await wait(tuning.pokeCooldownMs);
       sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
@@ -216,8 +219,11 @@ test("the desk replaces the still tiles: a throw lands with the hard puff, a slo
 test("a double-click opens the chat mock, which moves by its bar and closes; a hover opens the pill, which takes typing; a window drags to the desk top", { skip: chromeSkip }, async () => {
   const result = await play([], gestures);
   assert.deepEqual(result.errors, [], "the page threw nothing");
-  assert.deepEqual(result.chat, { closedAtFirst: true, opened: true, rings: { summon: 2, poke: 0 }, moved: [-60, 30], closed: true },
-    "the Summon replaced the poke ring and opened a chat that moves and closes");
+  const hex = readFileSync(join(ROOT, "src/chat-shared.css"), "utf8").match(/--shared-panel: #(\w{6});/)[1];
+  const panel = `rgb(${hex.match(/../g).map((pair) => parseInt(pair, 16)).join(", ")})`;
+  assert.deepEqual(result.chat, { closedAtFirst: true, opened: true, rings: { summon: 2, poke: 0 }, moved: [-60, 30], closed: true,
+    look: { panel, composer: "Nothing can answer yet", send: "10px" } },
+    "the Summon replaced the poke ring and opened a chat, in the app's Chat panel and composer, that moves and closes");
   assert.deepEqual(result.pill, { early: false, shown: true, typed: "hello there", dismissed: true, again: true, sent: true, escaped: true },
     "the pill waits out the hover delay, focuses, types, and an outside click, Enter, or Escape dismisses it");
   assert.equal(result.raisedTop, 0, "a window drags all the way up to the desk's top edge");
@@ -226,8 +232,12 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
   const page = readFileSync(join(site, "index.html"), "utf8");
   const play = page.match(/<section id="play">([\s\S]*?)<\/section>/)[1];
-  assert.match(play, /<h2>Live Playground<\/h2>\s*<h3 class="play-sub">Fidget gestures<\/h3>\s*<ul class="play-how">/,
-    "the heading is Live Playground, with Fidget gestures over the bullets");
+  assert.match(play, /<h2>Live Playground<\/h2>\s*<p class="sub">Try it here in the playground\.<\/p>/,
+    "the heading is Live Playground, with the invite under it");
+  const order = ['id="play-desk"', '<h3 class="play-sub">Fidget gestures</h3>\n    <ul class="play-how">', 'class="play-get"']
+    .map((mark) => play.indexOf(mark));
+  assert.ok(order.every((at, i) => at > (order[i - 1] ?? play.indexOf("Try it here"))),
+    `invite, desk, Fidget gestures over the bullets, then the Download line: ${order}`);
   assert.ok(!play.includes("cues.html"), "the playground no longer links Fidget Cues");
   const gestures = [...play.matchAll(/<li>(.*?)<\/li>/g)].map((m) => m[1].replace(/<\/?b>/g, ""));
   assert.deepEqual(gestures, ["Left-click to poke", "Click and hold to drag it around and drop it",

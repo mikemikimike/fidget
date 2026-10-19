@@ -104,6 +104,13 @@ ENGINE = {"engine.rs": ROOT / "crates" / "core" / "src" / "engine.rs",
           "input.rs": ROOT / "crates" / "core" / "src" / "input.rs",
           "main.rs": ROOT / "src-tauri" / "src" / "main.rs"}
 CUES = ROOT / "src" / "main.css"
+CHAT_UI = ROOT / "src" / "chat-ui.css"
+CHAT_SHARED = ROOT / "src" / "chat-shared.css"
+# The Chat UI rules the playground's chat mock wears: its empty state over the
+# log, and the composer.
+CHAT_RULES = (".log", ".empty", ".empty > div", ".empty p", ".empty p b", ".composer", ".composer textarea",
+              ".composer textarea::placeholder", ".composer textarea:disabled", ".composer button",
+              ".composer button:disabled")
 # The playground desk plays these, so a Character
 # lacking one fails the build instead of freezing on the page.
 PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit")
@@ -504,26 +511,52 @@ def play_tuning(engine):
     return tuning
 
 
-def cue_css(css):
-    """The overlay's cue rules from src/main.css, so the desk's poke ring and
-    landing puff are the app's own: `.cue*` rules, `cue-*` keyframes, and the
-    :root block that sets the cue colors."""
-    kept, depth, start = [], 0, 0
+def top_level_rules(css):
+    """Each top-level block of a stylesheet as (prelude, body), comments off the prelude."""
+    depth, start = 0, 0
     for at, char in enumerate(css):
         if char == "{":
             depth += 1
         elif char == "}":
             depth -= 1
             if depth == 0:
-                block = css[start:at + 1].strip()
-                prelude = re.sub(r"/\*.*?\*/", "", block.split("{", 1)[0], flags=re.S).strip()
-                selectors = [part.strip() for part in prelude.split(",")]
-                if (all(part.startswith(".cue") for part in selectors) or prelude.startswith("@keyframes cue-")
-                        or (prelude == ":root" and "--cue-" in block)):
-                    kept.append(re.sub(r"^/\*.*?\*/\s*", "", block, flags=re.S))
+                block = css[start:at + 1]
+                prelude, body = block.split("{", 1)
+                yield re.sub(r"/\*.*?\*/", "", prelude, flags=re.S).strip(), body[:-1]
                 start = at + 1
+
+
+def cue_css(css):
+    """The overlay's cue rules from src/main.css, so the desk's poke ring and
+    landing puff are the app's own: `.cue*` rules, `cue-*` keyframes, and the
+    :root block that sets the cue colors."""
+    kept = []
+    for prelude, body in top_level_rules(css):
+        selectors = [part.strip() for part in prelude.split(",")]
+        if (all(part.startswith(".cue") for part in selectors) or prelude.startswith("@keyframes cue-")
+                or (prelude == ":root" and "--cue-" in body)):
+            kept.append(f"{prelude} {{{body}}}")
     if not any(rule.startswith(".cue-ring") for rule in kept):
         raise Malformed(f"{CUES.name} holds no .cue-ring rule for the desk's poke")
+    return "\n".join(kept) + "\n"
+
+
+def chat_css(css, shared, wanted=CHAT_RULES):
+    """The minimal Chat UI's own tokens and the `wanted` rules from
+    src/chat-ui.css, scoped to `.play-chat-ui`, so the chat mock is the app's
+    Chat as the pill is its quick message. Scoped because chat-ui.css styles a
+    whole window: its `.bar` alone would restyle every title bar on the desk."""
+    kept = [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(shared) if prelude == ":root"]
+    kept += [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(css) if prelude == ".chat-ui-minimal"]
+    found = set()
+    for prelude, body in top_level_rules(css):
+        selectors = [part.strip() for part in prelude.split(",") if part.strip() in wanted]
+        found.update(selectors)
+        if selectors:
+            kept.append(", ".join(f".play-chat-ui {part}" for part in selectors) + f" {{{body}}}")
+    missing = [rule for rule in wanted if rule not in found]
+    if missing or len(kept) < 2:
+        raise Malformed(f"{CHAT_UI.name} holds no {', '.join(missing) or '.chat-ui-minimal'} rule for the chat mock")
     return "\n".join(kept) + "\n"
 
 
@@ -668,6 +701,7 @@ def render(readme_text, characters_root, rust_source, shell, release=None, engin
                        ' id="hero-sprite" aria-describedby="hero-say"'),
         **how_slots(words["how"], shell),
         "cue_css": cue_css(CUES.read_text(encoding="utf-8")),
+        "chat_css": chat_css(CHAT_UI.read_text(encoding="utf-8"), CHAT_SHARED.read_text(encoding="utf-8")),
         "play_tiles": play_tiles(characters_root, defaults["fps"]),
         "play_sprite": (f'<img src="{hero["idle"]["frames"][0]}" alt="{html.escape(hero["name"])}" '
                         f'width="{hero["size"][0]}" height="{hero["size"][1]}"'
@@ -888,6 +922,19 @@ def self_check():
         pass
     else:
         raise AssertionError("a stylesheet with no cue rules gave the desk no cues and passed")
+
+    sample = (".chat-ui-minimal { --chat-panel: var(--shared-panel); }\n.bar { height: 9px; }\n"
+              ".composer textarea,\n.composer button { flex: 1; }\n.composer textarea:focus-visible { outline: 0; }\n")
+    assert chat_css(sample, ":root { --shared-panel: #14171e; }\n", wanted=(".composer textarea",)) == (
+        ".play-chat-ui { --shared-panel: #14171e; }\n.play-chat-ui { --chat-panel: var(--shared-panel); }\n"
+        ".play-chat-ui .composer textarea { flex: 1; }\n"), \
+        "the chat mock lifted a rule it does not use, or did not scope one it does"
+    try:
+        chat_css(sample, ":root { --shared-panel: #14171e; }\n", wanted=(".composer textarea", ".said"))
+    except Malformed as err:
+        assert ".said" in str(err)
+    else:
+        raise AssertionError("a Chat UI with no .said rule gave the chat mock no bubble and passed")
 
     assert downloads(release) == {
         "macos": (f"{REPO}/releases/download/v9/F_9_aarch64.dmg", "v9"),
