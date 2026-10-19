@@ -2804,7 +2804,7 @@ mod tests {
         }
     }
 
-    /// The field the native checkbox writes; `SettingsSession::apply` and launch seed
+    /// The field the Input Monitoring checkbox writes; `SettingsSession::apply` and launch seed
     /// `consent::wanted` from it, and `a_cleared_setting_starts_no_tap` is the spawn-side
     /// half. Off is shipped: `DESIGN.md` decision 9 does not let a first run ask.
     #[test]
