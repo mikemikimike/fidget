@@ -82,6 +82,16 @@ makes them reconstruct the problem from the diff.
 A pull request small enough that all three answers are one sentence each should
 give one sentence each. The template is a floor, not a quota.
 
+## Close the item with the keyword
+
+When you issue a PR that should close an issue or bug, mention it with a close
+keyword — `Closes #123`, as the PR template already ends in — not a bare `#123`
+link: a bare mention closes nothing at merge. GitHub closes the linked issue
+when a PR whose description carries the keyword merges into the default branch.
+Once the PR merges, make sure the issue actually closed and move its board
+status to `Done`. Tick any leftover acceptance boxes per the edit-unsigned,
+signed-comment rule under "An agent signs what it writes on GitHub".
+
 ## A visual change shows itself
 
 When a pull request changes what the product looks like, the description
