@@ -153,6 +153,11 @@
   .harnesses li { border: 1px solid var(--line); border-radius: 999px; padding: .3rem .8rem;
     font-size: .9rem; background: var(--win); }
 
+  .faq details { border-bottom: 1px solid var(--line); padding: .85rem 0; }
+  .faq details:first-of-type { border-top: 1px solid var(--line); }
+  .faq summary { cursor: pointer; font-weight: 600; }
+  .faq p { margin: .5rem 0 0; color: var(--ink-2); max-width: 44rem; }
+
   footer { border-top: 1px solid var(--line); padding: 2rem 0 3rem; color: var(--ink-3);
     font-size: .9rem; display: flex; flex-wrap: wrap; gap: 1.25rem; }
   footer a { color: inherit; }
@@ -342,6 +347,13 @@
       <div><b>Draw your own</b><p>Add frames and describe the loops in a short <a href="https://github.com/omesser/fidget/blob/main/docs/DEVELOPMENT.md#character-packages">manifest</a>.</p></div>
       <div><b>Import a pet</b><p><a href="https://github.com/omesser/fidget/blob/main/docs/DEVELOPMENT.md#importing-pets">Convert one</a> from the <a href="https://petscodex.com/">Pets Codex</a> or <a href="https://shimejishop.com/">Shimeji Shop</a> galleries.</p></div>
     </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap faq">
+    <h2>Questions</h2>
+    {{faq}}
   </div>
 </section>
 
