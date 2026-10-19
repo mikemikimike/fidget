@@ -9,7 +9,7 @@ const TUNING = {
   gravity: 3600, walkSpeed: 120, primitiveMs: 600, pokeCooldownMs: 2500, perchedIdleAfterMs: 4000,
   rideAcceleration: 10000, yankWindowS: 0.1, throwMinSpeed: 80, velocityWindowMs: 60, doubleClickMs: 400,
 };
-const LIGHT = { id: "light", x0: 100, x1: 400, y: 150 };
+const LIGHT = { id: "light", x0: 100, x1: 400, y: 150, y1: 300 };
 const WORLD = { width: 600, height: 300, sprite: { w: 90, h: 90 }, windows: [LIGHT] };
 
 function run(state, events, world = WORLD) {
@@ -99,7 +99,7 @@ test("moving another window leaves a perched character where it is", () => {
 });
 
 test("a drop over two overlapping windows perches on the higher top edge", () => {
-  const world = { ...WORLD, windows: [LIGHT, { id: "dark", x0: 200, x1: 500, y: 120 }] };
+  const world = { ...WORLD, windows: [LIGHT, { id: "dark", x0: 200, x1: 500, y: 120, y1: 300 }] };
   const held = run(standing("floor", 300), [{ type: "grab", now: 0 }, { type: "drag", x: 300, y: 60, now: 100 }], world);
   const dropped = run(held.state, [{ type: "release", now: 500 }, ...ticks(500, 30)], world);
   assert.deepEqual([dropped.state.on, dropped.cues], ["dark", ["drop"]]);
@@ -122,4 +122,47 @@ test("a held tick keeps a walking character in place while the quick-message pil
   const walking = standing("floor", 300, "walk");
   assert.equal(run(walking, [{ type: "tick", now: 1, dt: 0.05, rand: 0, hold: true }]).state.x, 300);
   assert.equal(run(walking, [{ type: "tick", now: 1, dt: 0.05, rand: 0 }]).state.x, 306);
+});
+
+// Windows are listed frontmost first, as the Engine's snapshot is. Here the
+// chat sits in front of the light window and covers its top edge from x 300 on.
+const CHAT = { id: "chat", x0: 300, x1: 550, y: 100, y1: 260 };
+const STACKED = { ...WORLD, windows: [CHAT, LIGHT] };
+
+test("a slow drop above the chat window perches on its top edge and sits", () => {
+  const held = run(standing("floor", 450), [{ type: "grab", now: 0 }, { type: "drag", x: 450, y: 95, now: 100 }], STACKED);
+  const dropped = run(held.state, [{ type: "release", now: 500 }, ...ticks(500, 10)], STACKED);
+  const sat = run(dropped.state, ticks(1200, 1), STACKED);
+  assert.deepEqual([dropped.state.on, dropped.cues, animationOf(sat.state)], ["chat", ["drop"], "sit"]);
+});
+
+test("a drop inside the front window does not land on an edge hidden behind it", () => {
+  const held = run(standing("floor", 350), [{ type: "grab", now: 0 }, { type: "drag", x: 350, y: 130, now: 100 }], STACKED);
+  const dropped = run(held.state, [{ type: "release", now: 500 }, ...ticks(500, 40)], STACKED);
+  assert.equal(dropped.state.on, "floor");
+});
+
+test("walking along a window into one stacked in front climbs onto the front one, not through it", () => {
+  const walked = run(standing("light", 290, "walk"), ticks(0, 10, 0.05), STACKED);
+  assert.deepEqual([walked.state.mode, walked.state.on], ["standing", "chat"]);
+  const behind = run(standing("light", 290, "walk"), ticks(0, 10, 0.05), { ...WORLD, windows: [LIGHT, CHAT] });
+  assert.deepEqual([behind.state.on, behind.state.x], ["light", 350], "a chat behind the light window is no obstacle");
+});
+
+test("a perch whose edge a window in front now covers drops the character", () => {
+  const covered = run(standing("light", 350, "sit"), ticks(0, 1), STACKED);
+  assert.equal(covered.state.mode, "falling");
+});
+
+test("dragging a window up under a perched character's feet takes it onto that window", () => {
+  // The chat came up 40px, from a top edge at 180, below the feet, to one at 140.
+  const raised = { ...WORLD, windows: [{ ...CHAT, y: 140, y1: 300 }, LIGHT] };
+  const moved = run(standing("light", 350, "sit"), [{ type: "carry", id: "chat", dx: 0, dy: -40, vx: 0, vy: -200, now: 1000 }], raised);
+  assert.deepEqual([moved.state.mode, moved.state.on], ["standing", "chat"]);
+});
+
+test("a window dragged up too close to the desk top to stand on drops the character", () => {
+  const high = { ...WORLD, windows: [{ ...LIGHT, y: 60 }] };
+  const moved = run(standing("light", 250, "sit"), [{ type: "carry", id: "light", dx: 0, dy: -90, vx: 0, vy: -300, now: 1000 }], high);
+  assert.equal(moved.state.mode, "falling");
 });

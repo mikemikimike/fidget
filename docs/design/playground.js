@@ -38,7 +38,8 @@ function walk(state, dt, world, tuning) {
     return { mode: "falling", x, y: edge.y, vx, vy: 0, facing: state.facing, landing: null };
   }
   const clamped = clampX(x, world);
-  return { ...state, x: clamped, facing: clamped === x ? state.facing : -state.facing };
+  const walked = { ...state, x: clamped, facing: clamped === x ? state.facing : -state.facing };
+  return edge ? settle(walked, { x: state.x, y: edge.y }, world) : walked;
 }
 
 function feet(state, world) {
@@ -46,14 +47,40 @@ function feet(state, world) {
   return { x: state.x, y: state.on === "floor" ? world.height : windowOf(world, state.on).y };
 }
 
-// The highest top edge the feet crossed going from fromY down to toY, else
-// the floor once they reach it.
+// world.windows is frontmost first, as the Engine's snapshot is, and these
+// follow its geometry.rs: a top edge is somewhere to stand only where no
+// window in front covers it and the character has room above it.
+const spans = (win, x) => x >= win.x0 && x <= win.x1;
+const contains = (win, at) => spans(win, at.x) && win.y < at.y && at.y < win.y1;
+function edgeVisible(world, index, x) {
+  const win = world.windows[index];
+  return spans(win, x) && win.y >= world.sprite.h && !world.windows.slice(0, index).some((front) =>
+    spans(front, x) && win.y >= front.y && win.y <= front.y1);
+}
+
+// The nearest visible top edge the feet crossed going from fromY down to toY,
+// else the floor once they reach it.
 function ledgeCrossed(world, x, fromY, toY) {
   const crossed = world.windows
-    .filter((edge) => x >= edge.x0 && x <= edge.x1 && fromY <= edge.y && toY >= edge.y)
+    .filter((edge, index) => edgeVisible(world, index, x) && fromY <= edge.y && toY >= edge.y)
     .sort((a, b) => a.y - b.y)[0];
   if (crossed) return crossed.id;
   return toY >= world.height ? "floor" : null;
+}
+
+// Where a perched character stands after it or a window moved: onto a window
+// in front that has come to contain its feet (from the point it was at, against
+// that window as it was), else on its own edge while that stays visible, else
+// it falls. The floor is in front of every window, so it is exempt.
+function settle(state, from, world, before = (win) => win) {
+  const index = world.windows.findIndex((win) => win.id === state.on);
+  if (index < 0) return state;
+  const at = { x: state.x, y: world.windows[index].y };
+  const lifted = world.windows.slice(0, index)
+    .filter((win, front) => contains(win, at) && !contains(before(win), from) && edgeVisible(world, front, at.x))
+    .sort((a, b) => a.y - b.y)[0];
+  if (lifted) return { ...state, on: lifted.id };
+  return edgeVisible(world, index, at.x) ? state : letGo(state, at.y);
 }
 
 // Velocity over the last velocityWindowMs of the drag, as input.rs measures a Throw.
@@ -96,7 +123,8 @@ function carry(state, event, world, tuning) {
   if (Math.hypot(event.vx - reference.vx, event.vy - reference.vy) > tuning.rideAcceleration * tuning.yankWindowS) {
     return letGo(state, windowOf(world, event.id).y - event.dy);
   }
-  return { ...state, x: clampX(state.x + event.dx, world), ride: [...ride, { t: event.now, vx: event.vx, vy: event.vy }] };
+  const carried = { ...state, x: clampX(state.x + event.dx, world), ride: [...ride, { t: event.now, vx: event.vx, vy: event.vy }] };
+  return settle(carried, { x: state.x, y: windowOf(world, event.id).y - event.dy }, world);
 }
 
 // A second click within doubleClickMs is a Summon in place of its Poke, and a
@@ -144,13 +172,23 @@ export function step(state, event, world, tuning) {
   }
   const perchedOn = (id) => state.mode === "standing" && state.on === id;
   if (event.type === "carry") {
-    return perchedOn(event.id) ? { state: carry(state, event, world, tuning), cue: null } : unchanged;
+    if (perchedOn(event.id)) return { state: carry(state, event, world, tuning), cue: null };
+    if (state.mode !== "standing" || state.on === "floor") return unchanged;
+    // Another window moved: it may have come up under the feet or over them.
+    const moved = (win) => (win.id === event.id ? { ...win, x0: win.x0 - event.dx, x1: win.x1 - event.dx,
+      y: win.y - event.dy, y1: win.y1 - event.dy } : win);
+    return { state: settle(state, feet(state, world), world, moved), cue: null };
   }
   if (event.type === "close") {
     return perchedOn(event.id) ? { state: letGo(state, event.y), cue: null } : unchanged;
   }
   if (event.type === "tick" && state.mode === "falling") return fall(state, event, world, tuning);
   if (event.type === "tick" && state.mode === "standing" && !event.hold) {
+    // A window raised over the perch hides its edge.
+    if (state.on !== "floor") {
+      const settled = settle(state, feet(state, world), world);
+      if (settled !== state) return { state: settled, cue: null };
+    }
     if (event.now >= state.until) return { state: timeUp(state, event.now, event.rand, tuning), cue: null };
     if (state.act === "walk") return { state: walk(state, Math.min(event.dt, MAX_DT), world, tuning), cue: null };
   }
@@ -182,10 +220,13 @@ export function mount(section, data, cue) {
   });
   const edgeOf = (win) => {
     const x0 = Math.min(win.corner.x * desk.clientWidth, desk.clientWidth - win.el.offsetWidth);
-    return { id: win.id, x0, x1: x0 + win.el.offsetWidth, y: win.corner.y * desk.clientHeight };
+    const y = win.corner.y * desk.clientHeight;
+    return { id: win.id, x0, x1: x0 + win.el.offsetWidth, y, y1: y + win.el.offsetHeight };
   };
+  // Back to front, as the desk paints them; the model takes them frontmost first.
+  const stack = [...wins];
   const world = () => ({ width: desk.clientWidth, height: desk.clientHeight, sprite: { w, h },
-    windows: wins.filter((win) => !win.el.hidden).map(edgeOf) });
+    windows: stack.filter((win) => !win.el.hidden).map(edgeOf).reverse() });
   // A closing window drops whoever sits on it before it hides, so state.on
   // always names an open window or the floor.
   const feetNow = () => feet(state, world());
@@ -302,7 +343,6 @@ export function mount(section, data, cue) {
   };
   // A pressed window comes to the front, under the sprite, as on a desktop. By
   // z-index, as moving the node mid-press would swallow the click on its close.
-  const stack = [...wins];
   const raise = (win) => {
     stack.splice(stack.indexOf(win), 1);
     stack.push(win);
@@ -334,7 +374,7 @@ export function mount(section, data, cue) {
       const room = desk.clientWidth - win.el.offsetWidth;
       win.corner = {
         x: Math.min(room, Math.max(0, at.x + moving.dx)) / desk.clientWidth,
-        y: Math.min(desk.clientHeight - 40, Math.max(h, at.y + moving.dy)) / desk.clientHeight,
+        y: Math.min(desk.clientHeight - 40, Math.max(0, at.y + moving.dy)) / desk.clientHeight,
       };
       placeWindow(win);
       const after = edgeOf(win);

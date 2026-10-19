@@ -154,7 +154,13 @@ const gestures = `
       field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       const escaped = !pill.classList.contains("visible") && field.value === "";
       const pillResult = { early, shown, typed, dismissed, again, sent, escaped };
-      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult }));
+      const lightBar = document.querySelector('[data-win="light"] .bar');
+      const handle = lightBar.getBoundingClientRect();
+      pointer(lightBar, "pointerdown", handle.left + 30, handle.top + 10);
+      pointer(lightBar, "pointermove", handle.left + 30, desk.getBoundingClientRect().top - 200);
+      pointer(lightBar, "pointerup", handle.left + 30, desk.getBoundingClientRect().top - 200);
+      const raisedTop = lightBar.parentElement.getBoundingClientRect().top - desk.getBoundingClientRect().top - desk.clientTop;
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, chat: chatResult, pill: pillResult, raisedTop }));
     } catch (err) {
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
     }
@@ -207,13 +213,14 @@ test("the desk replaces the still tiles: a throw lands with the hard puff, a slo
   assert.deepEqual(await play(["--force-prefers-reduced-motion"]), { errors: [], tiles: true });
 });
 
-test("a double-click opens the chat mock, which moves by its bar and closes; a hover opens the pill, which takes typing", { skip: chromeSkip }, async () => {
+test("a double-click opens the chat mock, which moves by its bar and closes; a hover opens the pill, which takes typing; a window drags to the desk top", { skip: chromeSkip }, async () => {
   const result = await play([], gestures);
   assert.deepEqual(result.errors, [], "the page threw nothing");
   assert.deepEqual(result.chat, { closedAtFirst: true, opened: true, rings: { summon: 2, poke: 0 }, moved: [-60, 30], closed: true },
     "the Summon replaced the poke ring and opened a chat that moves and closes");
   assert.deepEqual(result.pill, { early: false, shown: true, typed: "hello there", dismissed: true, again: true, sent: true, escaped: true },
     "the pill waits out the hover delay, focuses, types, and an outside click, Enter, or Escape dismisses it");
+  assert.equal(result.raisedTop, 0, "a window drags all the way up to the desk's top edge");
 });
 
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
