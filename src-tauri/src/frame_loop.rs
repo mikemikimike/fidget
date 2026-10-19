@@ -59,11 +59,11 @@ fn cursor_near_sprite(cursor: Option<(f64, f64)>, sprites: &[(i32, i32, i32, i32
     false
 }
 
-/// One overlay's last applied shape: mask, x, y, facing, scale, and hotspot
+/// One overlay's last applied shape: mask, x, y, mirrored, scale, and hotspot
 /// rectangles. Named because clippy's `type_complexity` rejects the tuple
 /// inline. Only X11 keeps one: XShape must not rebuild every tick.
 #[cfg(any(test, all(unix, not(target_os = "macos"))))]
-type MaskParams = (Option<Vec<bool>>, i32, i32, i32, i32, Vec<[i32; 4]>);
+type MaskParams = (Option<Vec<bool>>, i32, i32, bool, i32, Vec<[i32; 4]>);
 
 /// One Windows overlay's last applied region: the sprite's swept ink and the
 /// rects the renderer draws outside it. The region is what gets compared, so a
@@ -258,7 +258,7 @@ pub(crate) fn run_frame_loop(
         #[cfg(all(unix, not(target_os = "macos")))]
         let last_mask: Arc<Mutex<Vec<MaskParams>>> =
             Arc::new(Mutex::new(vec![
-                (None, 0, 0, 1, 1, Vec::new());
+                (None, 0, 0, false, 1, Vec::new());
                 covered.len()
             ]));
         #[cfg(not(unix))]
@@ -568,7 +568,7 @@ pub(crate) fn run_frame_loop(
             last_mask
                 .lock()
                 .unwrap()
-                .resize(displays.frames.len(), (None, 0, 0, 1, 1, Vec::new()));
+                .resize(displays.frames.len(), (None, 0, 0, false, 1, Vec::new()));
             #[cfg(not(unix))]
             last_mask
                 .lock()
@@ -2331,7 +2331,7 @@ pub(crate) fn run_frame_loop(
                                 Some(opaque.to_vec()),
                                 local.x,
                                 local.y,
-                                i32::from(instance.mirror),
+                                instance.mirror < 0,
                                 instance.sprite.scale,
                                 hotspots,
                             );
@@ -2353,7 +2353,7 @@ pub(crate) fn run_frame_loop(
                                 let mask_clone = instance.mask.clone();
                                 let sprite_x = local.x;
                                 let sprite_y = local.y;
-                                let sprite_mirror = i32::from(instance.mirror);
+                                let sprite_mirrored = mask_params.3;
                                 let sprite_scale = instance.sprite.scale;
                                 let hotspots_clone = mask_params.5.clone();
                                 let mask_applied_clone = Arc::clone(&mask_applied);
@@ -2371,7 +2371,7 @@ pub(crate) fn run_frame_loop(
                                             Some(&mask_clone),
                                             sprite_x,
                                             sprite_y,
-                                            sprite_mirror,
+                                            sprite_mirrored,
                                             sprite_scale,
                                             &hotspots_clone,
                                             false,
@@ -2415,7 +2415,7 @@ pub(crate) fn run_frame_loop(
                                 }
                             }
                         } else {
-                            let mask_params = (None, 0, 0, 1, 1, Vec::new());
+                            let mask_params = (None, 0, 0, false, 1, Vec::new());
 
                             if last_mask.lock().unwrap().get(index) != Some(&mask_params) {
                                 let handle = app.clone();
@@ -2431,7 +2431,7 @@ pub(crate) fn run_frame_loop(
                                             None,
                                             0,
                                             0,
-                                            1,
+                                            false,
                                             1,
                                             &[],
                                             true,
@@ -2453,7 +2453,7 @@ pub(crate) fn run_frame_loop(
                             }
                         }
                     } else {
-                        let mask_params = (None, 0, 0, 1, 1, Vec::new());
+                        let mask_params = (None, 0, 0, false, 1, Vec::new());
 
                         if last_mask.lock().unwrap().get(index) != Some(&mask_params) {
                             let handle = app.clone();
@@ -2469,7 +2469,7 @@ pub(crate) fn run_frame_loop(
                                         None,
                                         0,
                                         0,
-                                        1,
+                                        false,
                                         1,
                                         &[],
                                         true,
@@ -3191,8 +3191,8 @@ mod tests {
 
     #[test]
     fn test_decide_overlay_action_apply_mask() {
-        let old_mask: MaskParams = (Some(vec![true]), 10, 10, 1, 1, Vec::new());
-        let new_mask = (Some(vec![false]), 20, 20, 1, 1, Vec::new());
+        let old_mask: MaskParams = (Some(vec![true]), 10, 10, false, 1, Vec::new());
+        let new_mask = (Some(vec![false]), 20, 20, false, 1, Vec::new());
 
         assert_eq!(
             decide_overlay_action(Some(&old_mask), &new_mask, false, false, Some(false), false),
@@ -3202,7 +3202,7 @@ mod tests {
 
     #[test]
     fn test_decide_overlay_action_toggle_only() {
-        let mask: MaskParams = (Some(vec![true]), 10, 10, 1, 1, Vec::new());
+        let mask: MaskParams = (Some(vec![true]), 10, 10, false, 1, Vec::new());
 
         assert_eq!(
             decide_overlay_action(Some(&mask), &mask, false, false, Some(false), true),
@@ -3212,8 +3212,8 @@ mod tests {
 
     #[test]
     fn test_decide_overlay_action_nothing_when_mask_in_flight() {
-        let old_mask: MaskParams = (Some(vec![true]), 10, 10, 1, 1, Vec::new());
-        let new_mask = (Some(vec![false]), 20, 20, 1, 1, Vec::new());
+        let old_mask: MaskParams = (Some(vec![true]), 10, 10, false, 1, Vec::new());
+        let new_mask = (Some(vec![false]), 20, 20, false, 1, Vec::new());
 
         assert_eq!(
             decide_overlay_action(Some(&old_mask), &new_mask, true, false, Some(false), false),
@@ -3223,7 +3223,7 @@ mod tests {
 
     #[test]
     fn test_decide_overlay_action_nothing_when_toggle_in_flight() {
-        let mask: MaskParams = (Some(vec![true]), 10, 10, 1, 1, Vec::new());
+        let mask: MaskParams = (Some(vec![true]), 10, 10, false, 1, Vec::new());
 
         assert_eq!(
             decide_overlay_action(Some(&mask), &mask, false, true, Some(false), true),
@@ -3233,7 +3233,7 @@ mod tests {
 
     #[test]
     fn test_decide_overlay_action_nothing_when_all_match() {
-        let mask: MaskParams = (Some(vec![true]), 10, 10, 1, 1, Vec::new());
+        let mask: MaskParams = (Some(vec![true]), 10, 10, false, 1, Vec::new());
 
         assert_eq!(
             decide_overlay_action(Some(&mask), &mask, false, false, Some(false), false),
@@ -3243,7 +3243,7 @@ mod tests {
 
     #[test]
     fn test_decide_overlay_action_retry_after_failed_toggle() {
-        let mask: MaskParams = (Some(vec![true]), 10, 10, 1, 1, Vec::new());
+        let mask: MaskParams = (Some(vec![true]), 10, 10, false, 1, Vec::new());
 
         assert_eq!(
             decide_overlay_action(Some(&mask), &mask, false, false, Some(false), true),
@@ -3258,8 +3258,8 @@ mod tests {
 
     #[test]
     fn test_decide_overlay_action_in_flight_with_stale_click_through() {
-        let old_mask: MaskParams = (Some(vec![true]), 10, 10, 1, 1, Vec::new());
-        let new_mask = (Some(vec![false]), 20, 20, 1, 1, Vec::new());
+        let old_mask: MaskParams = (Some(vec![true]), 10, 10, false, 1, Vec::new());
+        let new_mask = (Some(vec![false]), 20, 20, false, 1, Vec::new());
 
         assert_eq!(
             decide_overlay_action(Some(&old_mask), &new_mask, true, false, Some(false), true),
