@@ -23,7 +23,7 @@ shows no strip — GitHub's own notes for it are commit subjects and "by @author
 file with no tag. The macOS Homebrew line is read from the Get It section fenced
 command, and claims nothing when there is none.
 
-The "Live playground" desk plays the hero's loops, moves by constants read
+The "Live Playground" desk plays the hero's loops, moves by constants read
 from the Engine's engine.rs and input.rs and the app's main.rs, and draws its cues with the
 overlay's own rules from src/main.css and src/cue.js. Its still tiles name
 their Characters in PLAY_TILES; a loop or constant it cannot find fails the build.

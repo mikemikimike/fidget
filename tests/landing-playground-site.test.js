@@ -226,7 +226,8 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
   const page = readFileSync(join(site, "index.html"), "utf8");
   const play = page.match(/<section id="play">([\s\S]*?)<\/section>/)[1];
-  assert.match(play, /<h2>Live playground: fidget gestures<\/h2>/);
+  assert.match(play, /<h2>Live Playground<\/h2>\s*<h3 class="play-sub">Fidget gestures<\/h3>\s*<ul class="play-how">/,
+    "the heading is Live Playground, with Fidget gestures over the bullets");
   assert.ok(!play.includes("cues.html"), "the playground no longer links Fidget Cues");
   const gestures = [...play.matchAll(/<li>(.*?)<\/li>/g)].map((m) => m[1].replace(/<\/?b>/g, ""));
   assert.deepEqual(gestures, ["Left-click to poke", "Click and hold to drag it around and drop it",
@@ -234,10 +235,13 @@ test("the playground reads as Oded asked: its title and gestures, two windows th
   const windows = [...play.matchAll(/data-win="(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual(windows, ["dark", "light", "chat"]);
   assert.equal(play.match(/<span class="drag-me">drag me<\/span>/g).length, 3, "every window's bar says drag me");
+  const chatBar = play.match(/data-win="chat"[^>]*>\s*<div class="bar">(.*?)<\/div>/)[1];
+  assert.match(chatBar, /^<button class="close"[^>]*>&times;<\/button><i><\/i><i><\/i><span class="drag-me">drag me<\/span>$/,
+    "the chat closes from its leftmost circle, with no × at the right");
   assert.ok(play.indexOf('<a class="btn" href="#get"><b>Download Fidget</b></a>') > play.indexOf('id="play-cues"'),
     "the Download call to action sits below the desk");
   const titles = [...page.matchAll(/<h2>(.*?)<\/h2>/g)].map((m) => m[1]);
-  const at = titles.indexOf("Live playground: fidget gestures");
+  const at = titles.indexOf("Live Playground");
   assert.deepEqual(titles.slice(at, at + 4),
-    ["Live playground: fidget gestures", "Packaged Fidgets", "Talks to the agent you already use", "How it works"]);
+    ["Live Playground", "Packaged Fidgets", "Talks to the agent you already use", "How it works"]);
 });
