@@ -843,9 +843,9 @@ pub fn write_director_key(store: &dyn SecretStore, patch: &SettingsPatch) -> Res
     }
 }
 
-/// Env, then the file, then the store. A store read error is `Err`, not Unset, or Retarget
-/// drops a remote Completer to Static. The store is a Keychain dialog on macOS, so it is
-/// read only when no export or attached Harness answers first. Call after `harness::attach`.
+/// Env, then the file, then the store, a Keychain dialog on macOS read only when no export
+/// or attached Harness answers. A store error is `Err`, or Retarget drops a remote Completer
+/// to Static. Call after `harness::attach`, or a Harness launch reads a key it never sends.
 pub fn director_settings(
     settings: &Settings,
     secrets: &dyn SecretStore,

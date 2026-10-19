@@ -47,8 +47,7 @@ const MAX_PACKAGE_FILES: usize = 4096;
 /// walked.
 const MAX_PACKAGE_DEPTH: usize = 8;
 
-/// Directories added in front of the user directory and the shipped packages.
-///
+/// Directories added in front of the user directory and the shipped packages,
 /// `:`-separated on macOS and Linux, `;`-separated on Windows. For development
 /// and the verification script; a user never needs it.
 pub const SEARCH_PATH_VAR: &str = "FIDGET_CHARACTERS";
@@ -161,10 +160,9 @@ pub fn user_characters_dir() -> PathBuf {
     fidget_core::memory::data_dir().join("characters")
 }
 
-/// Where fidget looks for Character Packages, in the order it looks.
-///
-/// `FIDGET_CHARACTERS` is added in front, the way `PATH` is. Earlier wins.
-/// Replacing the other directories hides the user folder and the shipped packages.
+/// Where fidget looks for Character Packages, in order. `FIDGET_CHARACTERS` goes in
+/// front, the way `PATH` does, and earlier wins. Replacing the other directories
+/// would hide the user folder and the shipped packages.
 pub fn search_paths(bundled: Option<PathBuf>) -> Vec<PathBuf> {
     let data_dir = fidget_core::memory::data_dir();
     let extra = std::env::var_os(SEARCH_PATH_VAR);

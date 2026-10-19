@@ -84,10 +84,9 @@ fn login_shell() -> PathBuf {
     }
 }
 
-/// `-l -i` reads `.zprofile` and `.zshrc`, or bash's profile, which sources
-/// `.bashrc` on Debian, Ubuntu and Fedora. `setsid` keeps the interactive shell
-/// off any terminal. Reading stops at the second mark, since a job the rc files
-/// leave running keeps the pipe open.
+/// `-l` reads `.zprofile` or bash's profile, which sources `.bashrc` on Debian, Ubuntu and
+/// Fedora; `-i` adds zsh's `.zshrc`. `setsid` keeps the shell off any terminal. Reading stops
+/// at the second mark, since a job the rc files leave running keeps the pipe open.
 fn login_shell_path(
     shell: &Path,
     home: &Path,
