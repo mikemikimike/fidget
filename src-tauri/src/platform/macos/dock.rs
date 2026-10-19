@@ -37,8 +37,8 @@
 //! reserved strip (top at the work area's floor, down to the display's
 //! bottom edge), AX reports the drawn island, a few points shorter at both
 //! ends. Physics stands on the rectangle's top either way, and the strip's
-//! top is the line #39 chose by hand, so the preferred rung is also the one
-//! that keeps that line.
+//! top is the line physics was tuned against, so the preferred rung is also
+//! the one that keeps that line.
 
 use std::ffi::c_void;
 
@@ -227,17 +227,9 @@ fn copy_attribute(element: *const c_void, name: &str) -> Option<Copied> {
 mod tests {
     use super::*;
 
-    /// Hand verification, like `window_source`'s live test: it needs a real
-    /// Dock, and which rung answers depends on the OS and on an
-    /// Accessibility decision, none of which `cargo test` may depend on. It
-    /// prints the rectangle and the rung that produced it — `CoreDock` on
-    /// any macOS still shipping the SPI, `Accessibility` from a trusted
-    /// process after that, `None` last — and, critically, no permission
-    /// dialog appears in any case.
-    ///
-    /// ```text
-    /// cargo test dock -- --ignored --nocapture
-    /// ```
+    /// Prints the rectangle and the rung that produced it. Which rung answers
+    /// depends on the OS and an Accessibility decision, so it runs by hand.
+    /// The check no assert can make: no permission dialog appears.
     #[test]
     #[ignore = "needs a real Dock; run by hand"]
     fn live_dock_bounds_report_the_bar_and_their_source() {

@@ -2,8 +2,8 @@
 //!
 //! Interning is a synchronous round trip, and an atom is stable for the life of
 //! a server connection — which is the process here (`connection.rs`). Interning
-//! per read cost the window walk seven round trips a window, at `ENGINE_TICK`,
-//! for answers already in hand (#268).
+//! per read would cost the window walk seven round trips a window, every
+//! `ENGINE_TICK`, for answers already in hand.
 //!
 //! Resolution can fail because the connection can. `atoms` then returns None
 //! and each caller bails the way it already bailed on a failed intern: a window
@@ -58,9 +58,8 @@ fn intern_all() -> Option<Atoms> {
     })
 }
 
-/// `only_if_exists` is false, as every call site here always passed: a name no
-/// window manager has used yet is created rather than refused, so the only way
-/// this returns None is the connection failing.
+/// `only_if_exists` is false: a name no window manager has used yet is created
+/// rather than refused, so this returns None only when the connection fails.
 fn intern(conn: &RustConnection, name: &str) -> Option<Atom> {
     xproto::intern_atom(conn, false, name.as_bytes())
         .ok()?

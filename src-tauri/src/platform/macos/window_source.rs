@@ -63,7 +63,7 @@ impl WindowSource for MacosWindowSource {
 
 /// Visible windows, frontmost first — ours among them.
 /// The overlay is a layer-3 panel `snapshot` already drops. Excluding our
-/// process took Chat (#362) and Settings with it.
+/// whole process would drop Chat and Settings too.
 fn visible_windows(can_read_names: bool) -> Vec<WindowRect> {
     walk_visible(|e| window(e, can_read_names))
 }
@@ -124,7 +124,7 @@ fn window(entry: &NSDictionary<NSString, AnyObject>, can_read_names: bool) -> Op
     Some(WindowRect {
         // The window server's id, same call, no permission. `CGWindowID` is
         // 32-bit and `WindowId` is 64-bit, so `from` rather than `as` cannot
-        // truncate. #85.
+        // truncate.
         id: u64::from(number(entry, ns_string!("kCGWindowNumber"))?.as_u32()),
         bounds: rect(cg_rect),
         owner: if can_read_names {
@@ -230,19 +230,9 @@ mod tests {
         )
     }
 
-    /// Hand verification, deliberately not part of the suite: it needs a real
-    /// window server and it reads a clock, both of which `docs/SPEC.md` rules
-    /// out for `cargo test`. `#[ignore]` keeps the suite pure and fast.
-    ///
-    /// ```text
-    /// cargo test \
-    ///     window_source -- --ignored --nocapture
-    /// ```
-    ///
-    /// It prints the desktop as this module sees it, once per poll, whenever
-    /// the geometry changes — so move, resize, open and close windows while it
-    /// runs and watch the numbers follow. What no assertion can check is the
-    /// thing the issue cares about most: that no permission dialog appeared.
+    /// Prints the desktop whenever its geometry changes, so moving windows
+    /// moves the numbers. Needs a real window server and clock. The check no
+    /// assert can make: no permission dialog appears.
     #[test]
     #[ignore = "needs a real desktop; run by hand"]
     fn live_desktop_geometry_follows_the_real_windows() {

@@ -189,8 +189,6 @@ mod tests {
         assert_eq!((buttons.primary, buttons.secondary), (true, false));
     }
 
-    /// Our AppKit reader must round NSEvent::doubleClickInterval the same way
-    /// as production (seconds → ms).
     #[test]
     fn double_click_interval_ms_matches_nsevent() {
         let seconds = NSEvent::doubleClickInterval();

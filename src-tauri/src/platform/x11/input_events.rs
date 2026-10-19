@@ -1,6 +1,6 @@
 //! XI2 raw input events for event-driven pointer input on X11.
 //! Permission-free raw events on the root window, so the frame loop can
-//! block on `recv()` instead of waking at 16ms while idle. #183.
+//! block on `recv()` instead of waking at 16ms while idle.
 
 use std::sync::mpsc;
 use std::thread;

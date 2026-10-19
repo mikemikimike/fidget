@@ -144,8 +144,6 @@ mod tests {
         assert_eq!(*item.0.lock().expect("login item"), None);
     }
 
-    /// No plugin means there is nothing to enable. The call returns rather than
-    /// treating the absence as a login item.
     #[test]
     fn a_missing_plugin_does_not_register_a_login_item() {
         apply(true, true, None::<&Recorded>);

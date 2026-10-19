@@ -1,5 +1,5 @@
 //! Keyboard hand-back on Windows when an overlay's last quick message pill
-//! closes (#1577): back to the window in front at pill-open, or a step aside.
+//! closes: back to the window in front at pill-open, or a step aside.
 
 use std::sync::atomic::{AtomicIsize, Ordering};
 

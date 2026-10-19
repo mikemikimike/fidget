@@ -210,9 +210,8 @@ mod tests {
         }
     }
 
-    /// Linux Secret Service tests. Ubuntu CI runs gnome-keyring under
-    /// dbus-run-session; a local desktop without Secret Service uses the same recipe.
-    /// Tests save and restore any pre-existing `director-api-key` credential.
+    /// Linux Secret Service tests. They need gnome-keyring under dbus-run-session,
+    /// as Ubuntu CI runs it, and restore any existing `director-api-key`.
     #[cfg(target_os = "linux")]
     mod linux_secret_service {
         use super::*;

@@ -1,14 +1,10 @@
 fn main() {
-    // The shipped Characters are a bundle resource that tauri-build copies
-    // next to the binary, and cargo reruns build scripts only for changes
-    // it is told to watch. Without this line a freshly imported package
-    // sits in ../characters while the app keeps searching a stale copy in
-    // target/debug/characters. Cargo scans a named directory recursively.
+    // tauri-build copies the shipped Characters next to the binary, but cargo
+    // reruns this script only for watched paths. Without this, a new package in
+    // ../characters never reaches target/debug/characters.
     println!("cargo:rerun-if-changed=../characters");
-    // icons/icon.ico is a build input, not a bundle asset: targeting Windows,
-    // tauri-build always compiles a Windows Resource file, errors out with no
-    // .ico to compile, and offers no opt-out. scripts/make-app-icon.py writes
-    // it alongside icons/icon.png from the same art, so a redraw that goes
-    // through the script leaves neither stale. #247.
+    // Targeting Windows, tauri-build always compiles a resource file and fails
+    // without icons/icon.ico, with no opt-out. scripts/make-app-icon.py writes
+    // it beside icons/icon.png from the same art.
     tauri_build::build()
 }

@@ -1,4 +1,4 @@
-//! Give the keyboard back after a quick message pill closes (#1565): to the
+//! Give the keyboard back after a quick message pill closes: to the
 //! window `_NET_ACTIVE_WINDOW` named before, or the topmost other client, sent
 //! as a pager request (source 2) so focus-stealing prevention lets it through.
 
