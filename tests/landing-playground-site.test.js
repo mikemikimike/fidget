@@ -244,12 +244,14 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
   const page = readFileSync(join(site, "index.html"), "utf8");
   const play = page.match(/<section id="play">([\s\S]*?)<\/section>/)[1];
-  assert.match(play, /<h2>Live Playground<\/h2>\s*<p class="sub">Try it here in the playground\.<\/p>/,
-    "the heading is Live Playground, with the invite under it");
+  assert.match(play, /<h2>Live Playground<\/h2>\s*<div class="cast play-tiles"/, "the heading is Live Playground, with no invite line under it");
+  assert.ok(!play.includes('class="sub"'), "the invite is the panel's title, not a line of its own");
+  assert.match(play, /<div class="play-panel" id="play-panel">\s*<p class="play-title">Try it here in the playground<\/p>\s*<div class="play-desk" id="play-desk"/,
+    "the desk sits in a panel whose title bar is the invite, with no period, outside the desk the physics bounds");
   const order = ['id="play-desk"', '<h3 class="play-sub">Fidget gestures</h3>\n    <ul class="play-how">', 'class="play-get"']
     .map((mark) => play.indexOf(mark));
-  assert.ok(order.every((at, i) => at > (order[i - 1] ?? play.indexOf("Try it here"))),
-    `invite, desk, Fidget gestures over the bullets, then the Download line: ${order}`);
+  assert.ok(order.every((at, i) => at > (order[i - 1] ?? play.indexOf('class="play-title"'))),
+    `the titled panel, desk, Fidget gestures over the bullets, then the Download line: ${order}`);
   assert.ok(!play.includes("cues.html"), "the playground no longer links Fidget Cues");
   const gestures = [...play.matchAll(/<li>(.*?)<\/li>/g)].map((m) => m[1].replace(/<\/?b>/g, ""));
   assert.deepEqual(gestures, ["Left-click to poke", "Click and hold to drag it around and drop it",

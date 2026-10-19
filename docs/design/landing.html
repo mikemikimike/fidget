@@ -29,6 +29,10 @@
     --win: #FBFCFE;
     --desk-a: #CFE3EC;
     --desk-b: #E8D9EC;
+    --bevel-hi: #FFFFFF;
+    --bevel-lo: #BCC2CF;
+    --title-a: #FFFFFF;
+    --title-b: #E4E7EE;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
@@ -44,6 +48,10 @@
       --win: #232835;
       --desk-a: #1F3440;
       --desk-b: #34283D;
+      --bevel-hi: #E8EBF2;
+      --bevel-lo: #7B8294;
+      --title-a: #343B4B;
+      --title-b: #262B37;
       color-scheme: dark;
     }
   }
@@ -59,6 +67,10 @@
     --win: #232835;
     --desk-a: #1F3440;
     --desk-b: #34283D;
+    --bevel-hi: #E8EBF2;
+    --bevel-lo: #7B8294;
+    --title-a: #343B4B;
+    --title-b: #262B37;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
@@ -182,6 +194,17 @@
   .how-more { margin: 1rem 0 0; }
 
   .play-tiles[hidden] { display: none; }
+  /* The desk sits in a window of its own: a white bevel, and the invite as its title bar.
+     The bar is outside #play-desk, so the physics' bounds stay the desk. */
+  .play-panel { border: 3px solid; border-color: var(--bevel-hi) var(--bevel-lo) var(--bevel-lo) var(--bevel-hi);
+    border-radius: 16px; overflow: hidden; background: var(--bevel-hi);
+    box-shadow: inset 1px 1px 0 rgb(255 255 255 / .6), inset -1px -1px 0 rgb(0 0 0 / .12),
+      0 1px 0 rgb(0 0 0 / .08), 0 14px 34px rgb(0 0 0 / .22); }
+  .play-panel:has(> .play-desk[hidden]) { display: none; }
+  .play-title { margin: 0; padding: .55rem 1rem; text-align: center; font-size: 1.05rem; font-weight: 700;
+    letter-spacing: .01em; color: var(--ink); background: linear-gradient(var(--title-a), var(--title-b));
+    border-bottom: 1px solid var(--bevel-lo); box-shadow: inset 0 1px 0 rgb(255 255 255 / .35); }
+  .play-panel .play-desk { border: 0; border-radius: 0 0 12px 12px; }
   .play-desk { position: relative; height: 340px; border-radius: 14px; overflow: hidden;
     background: linear-gradient(135deg, var(--desk-a), var(--desk-b)); border: 1px solid var(--line);
     user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
@@ -305,10 +328,11 @@
 <section id="play">
   <div class="wrap">
     <h2>Live Playground</h2>
-    <p class="sub">Try it here in the playground.</p>
     <div class="cast play-tiles" id="play-tiles">
       {{play_tiles}}
     </div>
+    <div class="play-panel" id="play-panel">
+    <p class="play-title">Try it here in the playground</p>
     <div class="play-desk" id="play-desk" hidden>
       <p class="play-hint" id="play-hint">Poke it. Drag it. Throw it.</p>
       <div class="play-win dark" data-win="dark" data-at="0.5 0.28">
@@ -335,6 +359,7 @@
         <button type="button" aria-label="Send"><svg viewBox="0 0 12 12" aria-hidden="true"><path fill="#14171e" d="M2.2 1.4 L10.2 6 L2.2 10.6 L2.2 7.1 L6.5 6 L2.2 4.9 Z"/></svg></button>
       </div>
       <div class="cue-layer" id="play-cues"></div>
+    </div>
     </div>
     <h3 class="play-sub">Fidget gestures</h3>
     <ul class="play-how">
