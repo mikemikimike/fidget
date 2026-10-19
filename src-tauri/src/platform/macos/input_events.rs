@@ -1,20 +1,17 @@
 //! A mouse-only, listen-only `CGEventTap`, so an idle frame loop is woken by
-//! the mouse rather than by its own timer. #183 Stage 2a, #721.
+//! the mouse rather than by its own timer.
 //!
-//! What it buys is reaction time, not wakeups: #718 already backs the idle poll
-//! off to the sense interval, and that tick still runs. Without the tap a poke
-//! or the cursor arriving over the art waits for it — up to a second.
+//! What it buys is reaction time, not wakeups: the idle poll already backs off
+//! to the sense interval, and that tick still runs. Without the tap a poke or
+//! the cursor arriving over the art waits for it — up to a second.
 //!
 //! macOS gates this tap behind Input Monitoring, which DESIGN.md decision 9
 //! forbids asking for at launch. So nothing here starts until the user checks
-//! the Input Monitoring row in settings and macOS grants it: without the grant
-//! the loop keeps the Stage 2b back-off, and `spawn_listener` answers `None`
-//! unless the setting is on and the grant is present.
+//! the Input Monitoring row in settings and macOS grants it.
 //!
-//! The mask carries the six mouse types #183 Stage 1 names and nothing else.
-//! There is no key event in it, and a listen-only tap "receives events but
-//! cannot modify or divert them" — the character hears that the mouse moved, never
-//! what was typed.
+//! The mask carries six mouse types and no key event, and a listen-only tap
+//! "receives events but cannot modify or divert them" — the character hears
+//! that the mouse moved, never what was typed.
 
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -49,9 +46,8 @@ const SETUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// macOS can disable under load and only the callback hears about.
 struct Tap {
     wake: SyncSender<()>,
-    /// `None` for as long as it takes `tap_create` to return the port it is
-    /// about to deliver events through. Filled on the tap thread, and read on
-    /// the tap thread, which is the whole of the synchronization this needs.
+    /// `None` until `tap_create` returns. Written and read only on the tap
+    /// thread, so it needs no lock.
     port: Option<CFRetained<CFMachPort>>,
 }
 
@@ -88,10 +84,9 @@ struct StopHandle(CFRetained<CFRunLoop>);
 // Foundation documents as safe from any thread. Nothing here calls `run`.
 unsafe impl Send for StopHandle {}
 
-/// Start listening, or answer `None` when the setting is off, the grant is
-/// missing, or the tap will not start. The receiver is the frame loop's idle
-/// clock: one wake per event, coalesced, because the loop reads the cursor
-/// itself and only needs to know that something moved.
+/// Start listening, or `None` when the setting is off, the grant is missing, or
+/// the tap will not start. One coalesced wake per event: the loop reads the
+/// cursor itself and only needs to know that something moved.
 pub fn spawn_listener() -> Option<EventTap> {
     // The setting is this session's intent. The OS grant can remain after
     // uncheck, and a leftover grant must not start a tap on launch.
@@ -99,9 +94,8 @@ pub fn spawn_listener() -> Option<EventTap> {
         return None;
     }
     // Asked rather than assumed from a successful create: an ungranted tap can
-    // come back as a port that never delivers, and the frame loop would then
-    // block for the whole deadline hearing nothing. The consent probe is the
-    // one place that reads the grant, so settings and the tap cannot disagree.
+    // come back as a port that never delivers. The consent probe is the one
+    // place that reads the grant, so settings and the tap cannot disagree.
     if !consent::live().granted(consent::CapabilityId::InputMonitoring) {
         return None;
     }
@@ -117,13 +111,9 @@ pub fn spawn_listener() -> Option<EventTap> {
         .spawn(move || listen(wake, &ready))
         .ok()?;
 
-    // The thread reports whether the tap took. A tap that failed would leave a
-    // channel that is closed rather than quiet, and `recv_timeout` on a closed
-    // channel returns at once — a spin, not a sleep.
-    //
-    // Bounded because the frame loop is the caller: a setup that hangs must
-    // cost a late tap, never a frozen sprite. A send after the timeout sees
-    // the receiver gone and returns without parking in the run loop.
+    // A failed tap must report, not leave a closed channel: `recv_timeout` on
+    // one returns at once, a spin. Bounded because the frame loop is the
+    // caller, so a hung setup costs a late tap, never a frozen sprite.
     let stop = started.recv_timeout(SETUP_TIMEOUT).ok()??;
     Some(EventTap {
         events: woken,
@@ -131,10 +121,9 @@ pub fn spawn_listener() -> Option<EventTap> {
     })
 }
 
-/// Create the tap, put it on this thread's run loop, and stay here.
-///
-/// The frame loop's `EventTap` Drop stops this run loop. The callback still
-/// stops it on `Disconnected` so a hang-up without Drop also ends the thread.
+/// Create the tap and park on this thread's run loop until `EventTap`'s Drop
+/// stops it. The callback also stops it on `Disconnected`, so a hang-up without
+/// Drop still ends the thread.
 fn listen(wake: SyncSender<()>, ready: &mpsc::Sender<Option<StopHandle>>) {
     let mut tap = Box::new(Tap { wake, port: None });
     let context: *mut c_void = std::ptr::from_mut(tap.as_mut()).cast();
@@ -194,10 +183,8 @@ unsafe extern "C-unwind" fn heard(
     event: NonNull<CGEvent>,
     context: *mut c_void,
 ) -> *mut CGEvent {
-    // SAFETY: `context` is the `Tap` handed to `tap_create` on the thread
-    // still parked in `CFRunLoop::run` below it, and the callback is the only
-    // reader. A null context cannot reach here: `tap_create` carries the
-    // pointer through unchanged.
+    // SAFETY: `context` is the non-null `Tap` handed to `tap_create`, owned by
+    // the thread still parked in `CFRunLoop::run`, and this is its only reader.
     let tap = unsafe { &*context.cast::<Tap>() };
 
     // macOS disables a tap that was too slow, and disables every tap while the
@@ -233,12 +220,8 @@ mod tests {
     use objc2_core_graphics::CGMouseButton;
     use std::sync::Mutex;
 
-    /// Serializes the tests that write the wanted flag.
-    ///
-    /// That flag is one atomic for the whole process and cargo runs these on
-    /// threads of a single binary, so without this one test's `true` lands
-    /// inside another's `false`. On a Mac that holds the grant that is not a
-    /// wrong assert, it is a real tap started by the test that asked for none.
+    /// Serializes the tests that write the wanted flag, one process-wide
+    /// atomic. On a Mac that holds the grant, a race starts a real tap.
     static INTENT: Mutex<()> = Mutex::new(());
 
     /// Run `check` with the setting at `on`, alone, and put back whatever the
@@ -287,9 +270,8 @@ mod tests {
         }
     }
 
-    /// Without the grant there is no tap and no thread: the frame loop reads
-    /// `None` as "keep backing off" (#183 Stage 2b). The setting has to be on
-    /// or the wanted gate answers `None` first and this would not see the grant.
+    /// The setting is on so the wanted gate does not answer `None` before the
+    /// grant check this test is about.
     #[test]
     fn an_ungranted_mac_starts_no_tap() {
         with_setting(true, || {
@@ -300,9 +282,6 @@ mod tests {
         });
     }
 
-    /// Unchecked is the shipped state. A leftover TCC grant must not start a
-    /// tap; the frame loop used to spawn from `granted` alone and listen until
-    /// the first tick dropped the receiver.
     #[test]
     fn a_cleared_setting_starts_no_tap() {
         with_setting(false, || {
@@ -319,15 +298,9 @@ mod tests {
         assert_send::<EventTap>();
     }
 
-    /// The whole pipe, end to end: tap to channel. Needs the grant, and posts
-    /// one mouse-moved event at the position the cursor is already at — the tap
-    /// hears it, the desk does not move. Outside the suite because a machine
-    /// without the grant cannot run it and a CI runner has no session to post
-    /// to.
-    ///
-    /// ```text
-    /// cargo test -p fidget wakes_the_loop -- --ignored --nocapture
-    /// ```
+    /// Tap to channel, end to end. Posts one mouse-moved event at the cursor's
+    /// own position, so the desk does not move. Ignored because it needs the
+    /// grant and a session to post to.
     #[test]
     #[ignore = "needs the Input Monitoring grant; run by hand"]
     fn a_mouse_event_wakes_the_loop() {

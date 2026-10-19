@@ -24,7 +24,7 @@ pub enum Event {
     },
     /// A shortcut list, which writes the field of the row it sits in rather
     /// than one of its own. `current` is what that field holds now, which only
-    /// the surface can read (#670).
+    /// the surface can read.
     Shortcut {
         id: String,
         value: String,
@@ -47,12 +47,12 @@ pub enum Outcome {
     Apply(SettingsPatch),
     /// Apply's two halves: write the patch if there is one, and only then take
     /// the AI tab back to live state. A locked Keychain fails the write,
-    /// and resetting anyway would discard an edit nothing saved (#279).
+    /// and resetting anyway would discard an edit nothing saved.
     Commit(Option<SettingsPatch>),
     /// Back to live state, writing nothing.
     Reset,
     /// Stage the key delete: blank the key field and arm Apply, without
-    /// touching the store (#279).
+    /// touching the store.
     ClearKey,
     /// Put `value` in row `id`, then apply `patch` — or, when there is none,
     /// let the row sit staged until Apply.
@@ -88,7 +88,7 @@ pub fn handle(event: &Event, draft: &AiDraft<'_>, view: &SettingsView) -> Outcom
         }
         Event::SetText { id, value } => {
             // A batched row lives in the widgets until Apply. Writing here
-            // would kill a Harness child the Cancel button still offers (#663).
+            // would kill a Harness child the Cancel button still offers.
             if description.batched(id) {
                 return Outcome::Nothing;
             }
@@ -97,7 +97,7 @@ pub fn handle(event: &Event, draft: &AiDraft<'_>, view: &SettingsView) -> Outcom
         Event::Pick { id, value } => {
             // A list sends its action for a click on the item already
             // selected. Writing that back is a save and a redraw for nothing,
-            // and on the source list it is lossy (#452).
+            // and on the source list it is lossy.
             if view.popup_value(id).as_deref() == Some(value.as_str()) {
                 return Outcome::Nothing;
             }
@@ -112,8 +112,7 @@ pub fn handle(event: &Event, draft: &AiDraft<'_>, view: &SettingsView) -> Outcom
             Some(RowOperation::Cancel) => Outcome::Reset,
             Some(RowOperation::ClearKey) => Outcome::ClearKey,
             // Carries no row, so a staged edit beside it is neither written
-            // nor thrown away: this button is a session boundary and nothing
-            // else (#679).
+            // nor thrown away.
             Some(RowOperation::NewSession) => Outcome::Apply(SettingsPatch {
                 new_session: true,
                 ..SettingsPatch::default()
@@ -139,9 +138,8 @@ fn shortcut(description: &FormDescription, id: &str, value: &str, current: &str)
     Outcome::Fill {
         id: shortcut.row,
         value,
-        // A batched row stages until Apply, which saves the AI switches, wake
-        // interval, registration Harness, endpoint, and source together. An
-        // unbatched row has no Apply and saves here. #279.
+        // A batched row stages until Apply saves the batch together. An
+        // unbatched row has no Apply and saves here.
         patch: if description.batched(shortcut.row) {
             None
         } else {
@@ -229,7 +227,7 @@ mod tests {
     }
 
     /// One typed row does not drag the other into the patch, which is what
-    /// keeps an Apply from writing back stale text beside the edit (#279).
+    /// keeps an Apply from writing back stale text beside the edit.
     #[test]
     fn apply_carries_only_the_row_that_changed() {
         model::tests::with_env(None, None, None, || {
@@ -250,7 +248,7 @@ mod tests {
         });
     }
 
-    /// #1427: the Harness section's Model row is the Model / API row's field
+    /// The Harness section's Model row is the Model / API row's field
     /// under a second id, so a model typed there is the model Apply saves.
     #[test]
     fn the_harness_model_row_applies_the_model() {
@@ -284,7 +282,7 @@ mod tests {
         });
     }
 
-    /// #272: an exported variable owns the row, and `model::resolve` would
+    /// An exported variable owns the row, and `model::resolve` would
     /// give it the last word anyway — so the edit is refused here rather than
     /// written and then ignored.
     #[test]
@@ -307,7 +305,6 @@ mod tests {
         });
     }
 
-    /// A frozen checkbox refuses writes, just like a frozen text row.
     #[test]
     #[cfg(target_os = "linux")]
     fn a_frozen_checkbox_refuses_writes() {
@@ -329,7 +326,7 @@ mod tests {
         });
     }
 
-    /// #452: re-picking what the list already shows is a save and a redraw for
+    /// Re-picking what the list already shows is a save and a redraw for
     /// nothing, and on the source list it loses the current value.
     #[test]
     fn picking_the_value_already_shown_writes_nothing() {
@@ -352,7 +349,7 @@ mod tests {
 
     /// A shortcut over a batched row fills the row and stops. Apply is what
     /// reaches the file, so a patch here would write half the tab behind the
-    /// other half. #279.
+    /// other half.
     #[test]
     fn a_shortcut_over_a_batched_row_stages_rather_than_saves() {
         model::tests::with_env(None, None, None, || {
@@ -421,7 +418,7 @@ mod tests {
     }
 
     /// A checkbox is an immediate row: the tick is a write, not a draft. The
-    /// wire answer for that write is pinned in `main.rs` (#995); this is the
+    /// wire answer for that write is pinned in `main.rs`; this is the
     /// decision it answers for.
     #[test]
     fn a_checkbox_tick_is_an_apply() {
@@ -439,7 +436,6 @@ mod tests {
         });
     }
 
-    /// Marking a row batched in the form is all Apply needs to commit it.
     #[test]
     fn a_row_marked_batched_in_the_form_reaches_the_applied_patch() {
         model::tests::with_env(None, None, None, || {
@@ -475,8 +471,6 @@ mod tests {
         });
     }
 
-    /// A batched switch saves nothing on the tick. Cancel writes nothing and
-    /// Apply commits the staged value.
     #[test]
     fn a_batched_checkbox_waits_for_apply() {
         model::tests::with_env(None, None, None, || {
@@ -518,7 +512,7 @@ mod tests {
     }
 
     /// New session carries no row, so a half-typed endpoint beside it survives
-    /// the click (#679).
+    /// the click.
     #[test]
     fn a_new_session_touches_no_row_of_the_form() {
         model::tests::with_env(None, None, None, || {
@@ -536,7 +530,7 @@ mod tests {
         });
     }
 
-    /// #663: a source pick stages. Apply is what reaches the file, so a
+    /// A source pick stages. Apply is what reaches the file, so a
     /// patch here would kill the child Cancel is supposed to keep.
     #[test]
     fn picking_the_completer_source_stages_rather_than_saves() {

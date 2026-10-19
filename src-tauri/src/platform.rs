@@ -26,7 +26,7 @@ use tauri::{Emitter, Manager};
 
 /// One button as the overlay webview witnesses it. `CGEventSource` misses
 /// clicks on our window. Two bits: a click can begin and end between polls,
-/// and the edge keeps it until a read consumes it (#182).
+/// and the edge keeps it until a read consumes it.
 struct Witness {
     /// What the webview last reported: true from pointerdown to pointerup.
     down: AtomicBool,
@@ -104,7 +104,7 @@ pub fn qm_draft(instance: &str) -> Option<QmDraft> {
 }
 
 /// Which mouse buttons one tick found down. One type so X11 pays one
-/// XQueryPointer instead of two (#268), and so both consuming witness reads
+/// XQueryPointer instead of two, and so both consuming witness reads
 /// live in one place.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ButtonsDown {
@@ -125,11 +125,9 @@ pub fn set_overlay_primary(down: bool) {
 /// because `Vec::new` is const.
 static OVERLAY_RECTS: Mutex<Vec<(String, OverlayRect)>> = Mutex::new(Vec::new());
 
-/// Where the window manager really put each overlay: `(label, (x, y))`, in
-/// points. Filled on X11 only, from the overlay's move events, because only
-/// there may the window manager refuse the position asked for: xfwm4 keeps an
-/// ordinary window out of a desktop panel's reserved strip. Empty elsewhere, so
-/// every overlay is drawn from the frame it was asked to cover.
+/// Where the window manager really put each overlay, in points. X11 only, from
+/// move events: xfwm4 keeps an ordinary window out of a panel's reserved strip.
+/// Empty elsewhere, so every overlay is drawn from the frame it asked for.
 static OVERLAY_ORIGINS: Mutex<Vec<(String, (f64, f64))>> = Mutex::new(Vec::new());
 
 /// The window manager reported where `label`'s overlay now is.
@@ -279,8 +277,7 @@ impl DisplayCache {
 const USABLE_FRAME_REFRESH: Duration = Duration::from_millis(500);
 
 /// Whether enough time has passed to re-read the displays, marking them read
-/// if so. Every platform waits the same interval; what differs is the refresh
-/// each one then runs, which stays at its call site: macOS posts to the main
+/// if so. The refresh itself stays at each call site: macOS posts to the main
 /// thread, X11 and Windows read where they stand.
 fn due(refreshed: &Mutex<Instant>) -> bool {
     let Ok(mut refreshed) = refreshed.lock() else {
@@ -341,7 +338,7 @@ impl Drop for SpawnedCtrlC {
 
 /// Whether an X server answers this process — a real X11 session, or XWayland
 /// proxying for a Wayland one. `WAYLAND_DISPLAY` is set even for XWayland
-/// clients; under XWayland the EWMH/XShape path works (#266).
+/// clients; under XWayland the EWMH/XShape path works.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn x11_answers() -> bool {
     x11::connection().is_some()
@@ -506,7 +503,7 @@ pub fn tune_tray_icon(tray: &tauri::tray::TrayIcon) -> Result<(), tauri::Error> 
 
 /// Raise `window` above the overlay, and give it the keyboard. Main thread only.
 ///
-/// The overlay is `_NET_WM_STATE_ABOVE`. keep_above shares that band (#799).
+/// The overlay is `_NET_WM_STATE_ABOVE`. keep_above shares that band.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     use gtk::prelude::*;
@@ -636,7 +633,7 @@ pub fn open_path(path: &Path) -> Result<(), String> {
 const OPENABLE: [&str; 3] = ["http", "https", "mailto"];
 
 /// Hand a URL from a reply to whatever the desktop opens it with.
-/// Last-edge gate (#371): parse, don't prefix-match (`&#106;avascript:`). Open
+/// Last-edge gate: parse, don't prefix-match (`&#106;avascript:`). Open
 /// the parsed form, never the caller's string; a refused scheme is an error.
 pub fn open_url(url: &str) -> Result<(), String> {
     // A parsed URL always starts with its scheme, so it can never be read as an
@@ -721,9 +718,9 @@ fn file_openers(path: &std::ffi::OsStr) -> [Command; 2] {
     [opener(path), text_editor]
 }
 
-/// Open with the default application via ShellExecuteW.
-/// Not `cmd /C start`: `&` and `%` are syntax there (#255). Neither `open` nor
-/// `opener` removes the `unsafe`, so a crate would not change what can go wrong.
+/// Open with the default application via ShellExecuteW. Not `cmd /C start`: `&`
+/// and `%` are syntax there. Neither `open` nor `opener` removes the `unsafe`,
+/// so a crate would not change what can go wrong.
 #[cfg(not(unix))]
 fn opener(target: &std::ffi::OsStr) -> Result<(), String> {
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
@@ -834,10 +831,9 @@ pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
     x11::cleanup_overlay_window(window)
 }
 
-/// Update the input region for the overlay window based on the sprite's alpha mask.
-/// X11 and Windows then union hotspot rects so a control drawn outside the
-/// art still receives clicks. macOS uses `set_ignore_cursor_events`.
-/// `click_through` (Windows-only) controls whether the sprite region is hit-testable.
+/// Set the input region from the sprite's alpha mask plus hotspot rects, so a
+/// control drawn outside the art still receives clicks. macOS uses
+/// `set_ignore_cursor_events`; `click_through` matters only on Windows.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[allow(clippy::too_many_arguments)]
 pub fn update_input_region(
@@ -884,9 +880,9 @@ pub fn toggle_click_through_only(
     windows::toggle_click_through_only(window, click_through)
 }
 
-/// Whether this lane honours the off-art rectangles the renderer reports (#547).
-/// macOS hit-tests via boolean click-through; X11 and Windows union them into
-/// the input region, so a control above the head takes clicks on every platform.
+/// Whether this lane honours the off-art rectangles the renderer reports. macOS
+/// hit-tests via boolean click-through; X11 and Windows union them into the
+/// input region, so a control above the head takes clicks on every platform.
 #[cfg(target_os = "macos")]
 pub fn hotspots_hit_tested() -> bool {
     true
@@ -908,9 +904,8 @@ const FALLBACK_DOUBLE_CLICK_MS: u32 = 400;
 const MIN_DOUBLE_CLICK_MS: u32 = 100;
 const MAX_DOUBLE_CLICK_MS: u32 = 2000;
 
-/// Resolve and clamp the double-click interval, with fallback.
-///
-/// Pure helper for testing; the public `double_click_interval_ms` caches this.
+/// Clamp the double-click interval, or fall back. Split from the cached
+/// `double_click_interval_ms` so tests can call it.
 fn resolve_double_click_interval(raw: Option<u32>) -> u32 {
     match raw {
         Some(value) if value > 0 => value.clamp(MIN_DOUBLE_CLICK_MS, MAX_DOUBLE_CLICK_MS),
@@ -961,10 +956,9 @@ fn os_double_click_interval_ms() -> Option<u32> {
     windows::double_click_interval_ms()
 }
 
-/// Which mouse buttons are down, or were pressed since the last call.
-/// Session poll OR overlay witness, with a Control-click as secondary.
-/// Consuming: the frame loop asks once per tick, which is what makes "since
-/// the last call" mean "since the last tick".
+/// Which mouse buttons are down, or were pressed since the last call: session
+/// poll OR overlay witness, a Control-click as secondary. The frame loop asks
+/// once per tick, so "since the last call" means "since the last tick".
 #[cfg(target_os = "macos")]
 pub fn buttons_down() -> ButtonsDown {
     macos::control_click(ButtonsDown {
@@ -1022,7 +1016,7 @@ pub enum LinuxActivitySource {
 }
 
 /// Spawn an XI2 input event listener thread on X11. Returns `None` on other
-/// platforms or when XI2 is unavailable. #183.
+/// platforms or when XI2 is unavailable.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn spawn_xi2_listener() -> Option<std::sync::mpsc::Receiver<x11::InputEvent>> {
     x11::spawn_listener()
@@ -1040,10 +1034,9 @@ pub(crate) fn sleep_precisely(duration: std::time::Duration) {
     std::thread::sleep(duration);
 }
 
-/// Spawn the macOS mouse event tap. `None` until the Input Monitoring row is
-/// checked and macOS has granted it. The frame loop asks again on later idle
-/// waits, so a grant that lands mid-run is picked up. Dropping the value stops
-/// the tap thread from the frame thread. #721.
+/// Spawn the macOS mouse event tap, or `None` until the Input Monitoring row is
+/// checked and granted. The frame loop asks again on later idle waits, so a
+/// mid-run grant is picked up. Dropping the value stops the tap thread.
 #[cfg(target_os = "macos")]
 pub fn spawn_event_tap() -> Option<EventTap> {
     macos::spawn_event_tap()
@@ -1530,7 +1523,7 @@ mod tests {
     }
 
     /// A click can begin and end between two polls. The level alone reads
-    /// false at both; the edge keeps the down until it has been read once (#182).
+    /// false at both; the edge keeps the down until it has been read once.
     #[test]
     fn a_click_shorter_than_one_tick_is_still_seen_once() {
         let button = Witness::new();
@@ -1645,8 +1638,8 @@ mod tests {
         }
     }
 
-    /// `#255`: `&` and `%` are `cmd` metacharacters. ShellExecuteW must see
-    /// the literal path — including a space — as one wide string, not shell text.
+    /// `&` and `%` are `cmd` metacharacters. ShellExecuteW must see the literal
+    /// path — including a space — as one wide string, not shell text.
     #[cfg(not(unix))]
     #[test]
     fn windows_opener_keeps_ampersand_percent_and_space() {

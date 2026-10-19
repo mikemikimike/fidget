@@ -152,8 +152,8 @@ fn window_rect(hwnd: HWND, can_read_names: bool, overlays: &[u64]) -> Option<Win
         return None;
     }
 
-    // No title fallback when the process cannot be named: the title was the
-    // bug. "Unknown" matches no exclusion, so the Engine still gets a Perch
+    // No title fallback when the process cannot be named: a title is not an
+    // owner. "Unknown" matches no exclusion, so the Engine still gets a Perch
     // rectangle and leaks that word, never a title.
     let owner = can_read_names.then(|| window_owner(hwnd).unwrap_or_else(|| "Unknown".to_string()));
 
@@ -182,10 +182,9 @@ fn read_window_title(hwnd: HWND) -> Option<String> {
     const MAX_TITLE_LENGTH: usize = 512;
     let mut buffer = [0u16; MAX_TITLE_LENGTH];
 
-    // SAFETY: GetWindowTextW reads the window title into buffer. hwnd is
-    // valid from EnumWindows. buffer is properly sized and lives until the
-    // function returns. GetWindowTextW includes the null terminator in the
-    // count, so the written slice never exceeds buffer.len().
+    // SAFETY: hwnd is valid from EnumWindows, and GetWindowTextW writes at most
+    // `buffer.len()` units, null included, into a buffer that outlives the
+    // call.
     let len = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
 
     if len <= 0 {

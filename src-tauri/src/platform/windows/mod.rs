@@ -1,8 +1,7 @@
 //! Windows Win32 implementation for functional parity.
 //!
 //! Fills the same seams as `platform::macos` and `platform::x11`: pointer state,
-//! overlay configuration, window geometry, activity sensing. Windows specific:
-//! uses Win32 APIs instead of stubs where possible to match macOS/X11 behavior.
+//! overlay configuration, window geometry, activity sensing.
 
 #![cfg(not(unix))]
 

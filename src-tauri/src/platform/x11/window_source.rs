@@ -34,8 +34,8 @@ impl X11WindowSource {
 
 impl WindowSource for X11WindowSource {
     /// `window_geometry` stays true under XWayland, where the list is partial.
-    /// The rectangles are real; a missing client costs one Perch. Declaring
-    /// false, or reading `WAYLAND_DISPLAY` again, is the test #266 removed.
+    /// The rectangles are real; a missing client costs one Perch, so neither
+    /// declare false nor sniff `WAYLAND_DISPLAY`.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             window_geometry: true,
@@ -238,8 +238,8 @@ fn window_rect(conn: &RustConnection, window: Window, can_read_names: bool) -> O
 }
 
 /// Whether the window manager keeps this window above ordinary ones.
-/// `_NET_WM_STATE_ABOVE` is written on the overlay itself. WM_CLASS exclusion
-/// covered every GTK window, Chat (#362) and Settings included.
+/// `_NET_WM_STATE_ABOVE` is written on the overlay itself. Excluding by
+/// WM_CLASS would drop every GTK window, Chat and Settings included.
 fn is_above(conn: &RustConnection, window: Window) -> bool {
     let Some(atoms) = super::atoms::atoms() else {
         return false;

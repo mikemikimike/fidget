@@ -69,9 +69,8 @@ unsafe extern "C" {
     fn CGDisplayIsAsleep(display: u32) -> u32;
 }
 
-/// Turn the window server's reading into a duration.
-/// Negative, infinite and NaN are unusable; Zero says the user is here,
-/// where a wrong large value would put the Character to sleep at a live desk.
+/// Negative, infinite and NaN read as zero, the user being here: a wrong
+/// large value would put the Character to sleep at a live desk.
 fn idle_from_seconds(seconds: f64) -> Duration {
     Duration::try_from_secs_f64(seconds).unwrap_or(Duration::ZERO)
 }
@@ -81,22 +80,9 @@ mod tests {
     use super::*;
     use fidget_core::sensing::{DesktopSense, SystemClock};
 
-    /// Hand verification, deliberately not part of the suite: it needs a real
-    /// window server, it reads the real clock and it sleeps, all of which
-    /// `docs/SPEC.md` rules out for `cargo test`. `#[ignore]` keeps the suite
-    /// pure and fast.
-    ///
-    /// ```text
-    /// cargo test \
-    ///     sensing -- --ignored --nocapture
-    /// ```
-    ///
-    /// It prints a desktop sense read once a second for ten seconds. Switch
-    /// application while it runs and watch the name follow and `switched`
-    /// appear on exactly that read; then take your hands off the keyboard and
-    /// watch idle climb, and touch it again to watch idle drop back. What no
-    /// assertion can check is the thing the issue cares about most: that no
-    /// permission dialog appeared.
+    /// Prints a sense read once a second for ten seconds: switch apps to see
+    /// `switched`, stop typing to see idle climb. Needs a real window server
+    /// and clock. The check no assert can make: no permission dialog appears.
     #[test]
     #[ignore = "needs a real desktop; run by hand"]
     fn the_live_desktop_sense_follows_the_real_machine() {

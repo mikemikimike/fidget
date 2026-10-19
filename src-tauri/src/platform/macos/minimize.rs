@@ -67,7 +67,6 @@ fn observe(
     MinimizeObserver([on(gone, true), on(back, false)])
 }
 
-/// The miniaturize and deminiaturize notification names.
 fn names() -> (&'static NSNotificationName, &'static NSNotificationName) {
     // SAFETY: AppKit defines both names for the life of the process.
     unsafe {

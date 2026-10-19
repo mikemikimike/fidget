@@ -1,5 +1,5 @@
 //! The `PATH` a Harness and its `npx` need when launchd or a desktop file
-//! started Fidget with the system's short one (#1436).
+//! started Fidget with the system's short one.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -84,12 +84,9 @@ fn login_shell() -> PathBuf {
     }
 }
 
-/// `-l` reads `.zprofile`, or bash's `.bash_profile` or `.profile`, and `-i`
-/// adds zsh's `.zshrc`. Bash reads `.bashrc` only when one of those sources
-/// it, as the Debian, Ubuntu and Fedora defaults do. A session of its own, so
-/// an interactive shell never takes a terminal. Done at the second mark rather
-/// than at end of output, because a job the rc files leave running keeps the
-/// pipe open.
+/// `-l` reads `.zprofile` or bash's profile (which sources `.bashrc` on Debian,
+/// Ubuntu, Fedora); `-i` adds `.zshrc`. `setsid` keeps it off a terminal. Stop
+/// at the second mark: an rc job holds the pipe open.
 fn login_shell_path(
     shell: &Path,
     home: &Path,
@@ -156,11 +153,9 @@ fn mark_at(bytes: &[u8]) -> Option<usize> {
         .position(|window| window == MARK.as_bytes())
 }
 
-/// The inherited folders before its first system folder, then the shell's,
-/// then the rest of the inherited ones, each once. A login shell rebuilds
-/// `PATH` system first (Debian's `/etc/profile`, macOS `path_helper`), so
-/// without the split a launcher's own folder would lose to `/usr/bin`. An
-/// empty entry, which would mean the working directory, is dropped.
+/// Inherited folders before the first system one, then the shell's, then the
+/// rest, each once. An empty entry means the working directory, so it is
+/// dropped. A login shell puts system folders first, burying a launcher's own.
 fn merged(inherited: &OsStr, shell: &OsStr) -> OsString {
     let inherited: Vec<PathBuf> = std::env::split_paths(inherited).collect();
     let system_at = inherited

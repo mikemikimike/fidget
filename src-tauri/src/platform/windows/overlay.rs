@@ -10,7 +10,7 @@
 //!
 //! DwmExtendFrameIntoClientArea extends the window frame into the entire client
 //! area, compositing the frame with the client area's glass sheet so the overlay
-//! has no opaque window background (#1327).
+//! has no opaque window background.
 
 use std::sync::Mutex;
 use std::time::Instant;
@@ -30,10 +30,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SWP_NOSIZE, SWP_NOZORDER, WDA_EXCLUDEFROMCAPTURE, WS_EX_TRANSPARENT,
 };
 
-/// Float above other windows, non-activating. Capturable unless Presence or
-/// `FIDGET_CAPTURABLE=0` excludes it from shares. Extends DWM frame into the
-/// entire client area to composite the frame with the client area's glass sheet.
-/// Returns Err when the handle is not realized yet, so the caller can retry.
+/// Float above other windows, non-activating, with no opaque background, and
+/// capturable unless Presence or `FIDGET_CAPTURABLE=0` excludes it. Returns Err
+/// when the handle is not realized yet, so the caller can retry.
 pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
     let hwnd = overlay_hwnd(window)?;
     set_window_styles(hwnd)?;
@@ -291,13 +290,9 @@ fn extend_dwm_frame(hwnd: HWND) -> Result<(), String> {
     Ok(())
 }
 
-/// `art` is `[left, top, right, bottom]` from `AlphaMask::swept_rects`. The
-/// region also clips drawing, which is why `art` is swept over every position
-/// the renderer may draw the sprite at, and why drawn-only rects are in it too.
-///
-/// bRedraw=1: With bRedraw=0, the region update could race sprite placement
-/// from an earlier SetWindowPos, leaving the wrong region visible until the
-/// next frame forced a redraw.
+/// `art` is `[left, top, right, bottom]` from `AlphaMask::swept_rects`, swept
+/// over every draw position with drawn-only rects in it, since the region also
+/// clips drawing. bRedraw=1: with 0 it races an earlier SetWindowPos.
 fn apply_input_mask(
     window: &tauri::WebviewWindow,
     hwnd: HWND,

@@ -1,9 +1,7 @@
 //! Settings form description: sections, rows, labels, and what they write.
 //!
-//! Split the same way the menu is: the form as data crosses the platform
-//! boundary, and the AppKit window builds from that description. Linux and
-//! Windows consume the same description when they ship, so labels cannot
-//! drift.
+//! The form as data crosses the platform boundary and each window builds
+//! from it, so labels cannot drift.
 
 use std::collections::HashMap;
 
@@ -30,17 +28,12 @@ pub enum RowOperation {
     /// Redraw the AI tab from live state, writing nothing.
     Cancel,
     /// Throw the conversation in flight away and open a fresh one, leaving
-    /// every row of the form where it is (#679).
+    /// every row of the form where it is.
     NewSession,
 }
 
 impl RowOperation {
-    /// Stable wire representation for crossing the Rust/JS boundary.
-    ///
-    /// Step 5's `settings_event` command serializes `Outcome::Run` by calling
-    /// this rather than exposing Debug text. The string matches the enum name
-    /// in snake_case, which is what serde would derive, but explicit is cheaper
-    /// than a serde derive on an enum the page does not need to round-trip.
+    /// Stable wire name for the Rust/JS boundary, the variant in snake_case.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Spawn => "spawn",
@@ -72,11 +65,9 @@ pub struct FormSection {
     pub status: Option<String>,
 }
 
-/// Which mind answers a wake, as the AI source picker names it.
-///
-/// The page disables a section that serves the source the picker does not
-/// name, and follows the picker before Apply, so the two halves of the AI
-/// tab cannot both look live (#1427).
+/// Which mind answers a wake, as the AI source picker names it. The page
+/// disables a section serving the other source, and follows the picker before
+/// Apply, so the two halves of the AI tab cannot both look live.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AiSource {
@@ -84,11 +75,9 @@ pub enum AiSource {
     ModelApi,
 }
 
-/// One row of the settings form, as data.
-///
-/// A row that writes carries the field it writes, so its kind and its field
-/// have to agree: a `Checkbox` can only name a bool. That is what makes a
-/// control writing nothing unrepresentable rather than merely tested (#287).
+/// One row of the settings form, as data. A writing row carries its field, so
+/// kind and field must agree (a `Checkbox` names a bool), which makes a control
+/// that writes nothing unrepresentable rather than merely tested.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "type")]
 pub enum FormRow {
@@ -129,9 +118,8 @@ pub enum FormRow {
         options: Vec<String>,
         /// Read-only, for the same reason as `TextField::frozen`.
         frozen: bool,
-        /// Committed by Apply rather than on pick, for the same reason as
-        /// `TextField::batched`. The Completer source is the case that earned
-        /// it: a pick must not kill a child before Cancel could put it back.
+        /// Committed by Apply rather than on pick: a Completer source pick must
+        /// not kill a child before Cancel could put it back.
         batched: bool,
         /// Extended explanation behind progressive disclosure.
         disclosure: Option<String>,
@@ -154,16 +142,13 @@ pub enum FormRow {
         label: Option<String>,
         placeholder: String,
         writes: TextField,
-        /// A hint under the field, in the words every other row's `help` uses.
-        ///
-        /// A label says what the row is and a placeholder says what blank
-        /// means; neither has room for what a value costs. The Completer
-        /// timeout is the case that earned it: it budgets a Harness turn as
-        /// well as an HTTP call, and nothing on screen said so (#447).
+        /// A hint under the field. Label and placeholder have no room for what
+        /// a value costs, such as the Completer timeout also budgeting a
+        /// Harness turn.
         help: Option<String>,
         /// Read-only: the value shown is not the user's to change. True when
         /// an exported variable owns the field, since `model::resolve` gives
-        /// it the last word and would discard an edit made here (#272).
+        /// it the last word and would discard an edit made here.
         frozen: bool,
         /// Committed by Apply. A partial endpoint or source edit would retarget
         /// the Completer and drop session history.
@@ -173,22 +158,15 @@ pub enum FormRow {
         /// Status info shown in a muted strip.
         status: Option<String>,
     },
-    /// A secure text field for passwords/keys.
-    ///
-    /// Always batched, so it carries no flag of its own. A secret cannot be
-    /// compared to the file, so a secure field committed on blur retargets
-    /// every single time — which is the cost `TextField::batched` exists to
-    /// avoid, and there is no value of it that makes a blur-committed key
-    /// correct (#279).
+    /// A secure text field for passwords/keys. Always batched, with no flag: a
+    /// secret cannot be compared to the file, so committing on blur would
+    /// retarget the Completer every time.
     SecureField {
         id: String,
         label: Option<String>,
         /// What the empty field says about the store: whether a key is set, or
-        /// which variable overrides it. On the row rather than in `values`,
-        /// the way `TextField` carries its own. The field's value stays empty,
-        /// because the secret never leaves the store and a
-        /// fingerprint sitting in it would be committed as a key on the next
-        /// blur. #875.
+        /// which variable overrides it. The value stays empty, since the secret
+        /// never leaves the store and a fingerprint in it would commit on blur.
         placeholder: String,
         writes: TextField,
         /// Read-only, for the same reason as `TextField::frozen`.
@@ -240,24 +218,15 @@ pub enum CompositeControl {
     },
 }
 
-/// What a composite popup fills in, and how to read a title as a value.
-///
-/// A shortcut picker does not write its own title: `Custom` names no level,
-/// and the Base URL picker writes a URL rather than a label. So a field alone
-/// cannot serve it and the reading travels with the row it fills.
-///
-/// Whether a pick stages or saves is not declared here — it is the target
-/// row's `batched`, so the shortcut and the field it fills cannot disagree
-/// about when the file is reached (#279).
+/// What a composite popup fills in and how to read a title as a value: `Custom`
+/// names no level, and the Base URL picker writes a URL. The target row's
+/// `batched` decides when.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct Shortcut {
     /// The id of the text row filled in, whose `writes` is the field.
     pub row: &'static str,
-    /// The value a picked title means, or `None` for Custom and for a title
-    /// off the list — neither of which is a value to write over what the
-    /// field holds.
-    /// A function pointer is not data, so the shortcut crosses to
-    /// JavaScript as the row it fills and nothing else.
+    /// The value a picked title means, or `None` for Custom and for a title off
+    /// the list. A function pointer is not data, so only `row` crosses to JS.
     #[serde(skip)]
     pub value: fn(&str) -> Option<&'static str>,
 }
@@ -273,9 +242,7 @@ impl PartialEq for Shortcut {
 
 impl Eq for Shortcut {}
 
-/// One tab of the settings form, holding the sections that belong together.
-///
-/// The grouping is data here rather than a layout decision in the page,
+/// One tab of the settings form. The grouping is data rather than page layout,
 /// so the webview tabs cannot disagree with the form about which heading sits
 /// where.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -285,10 +252,8 @@ pub struct FormTab {
 }
 
 /// The whole settings form as data: tabs, sections, rows, and what they write.
-///
-/// Everything here is owned, so this crosses a thread boundary. That is the
-/// point of it: the description is built where the state lives, and the
-/// platform window builds from it.
+/// Owned throughout, so it is built where the state lives and crosses a thread
+/// to the platform window.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FormDescription {
     pub tabs: Vec<FormTab>,
@@ -318,12 +283,8 @@ impl FormDescription {
     }
 
     /// Whether the control carrying this id is the environment's rather than
-    /// the user's. False for an id no control with a `frozen` field carries.
-    ///
-    /// Both windows ask this before they read a batched field: a frozen row is
-    /// never dirty and never applies, because `model::resolve` would discard
-    /// the edit (#272). Asked of the description rather than remembered beside
-    /// the widget, so the two answers cannot drift.
+    /// the user's; false for an unknown id. A frozen row never applies, because
+    /// `model::resolve` would discard the edit.
     pub fn frozen(&self, id: &str) -> bool {
         self.sections()
             .flat_map(|section| &section.rows)
@@ -469,8 +430,7 @@ pub const NEW_CHARACTER_ID: &str = "new_character";
 pub const SPAWN_ID: &str = "spawn";
 pub const MEMORY_OPEN_ID: &str = "memory_open";
 pub const MEMORY_WIPE_ID: &str = "memory_wipe";
-/// The consent rows. Gated because Linux offers none, so the ids exist
-/// only where the rows do. #250. Input Monitoring is macOS alone (#721).
+/// The consent rows, gated so each id exists only where its row does.
 #[cfg(not(target_os = "linux"))]
 pub const CONSENT_ACCESSIBILITY_ID: &str = "consent_accessibility";
 #[cfg(not(target_os = "linux"))]
@@ -479,9 +439,8 @@ pub const CONSENT_SCREEN_RECORDING_ID: &str = "consent_screen_recording";
 pub const CONSENT_INPUT_MONITORING_ID: &str = "consent_input_monitoring";
 #[cfg(target_os = "linux")]
 pub const CONSENT_PORTAL_SCREENCAST_ID: &str = "consent_screen_cast";
-/// The string is a stored key rather than copy. Settings maps a saved value by
-/// row id (#888), so #975 renamed the capability and the label and left this
-/// where it was.
+/// A stored key, not copy: Settings maps a saved value by row id, so the
+/// string keeps the name it was saved under.
 #[cfg(target_os = "windows")]
 pub const CONSENT_WINDOW_NAMES_ID: &str = "consent_window_titles";
 pub const LAUNCH_ID: &str = "launch";
@@ -501,22 +460,22 @@ pub const HARNESS_COMMAND_ID: &str = "harness_command";
 pub const HARNESS_STATE_ID: &str = "harness_state";
 /// The Harness section's Model row. It writes `TextField::DirectorModel`,
 /// the field the Model / API row writes, because a Harness runs on the same
-/// model setting (#1427).
+/// model setting.
 pub const HARNESS_MODEL_ID: &str = "harness_model";
 /// The row's id plus this suffix is the key of the notice under the row. The key
 /// exists only while the Harness has not taken the value.
 pub const NOTICE_SUFFIX: &str = "_notice";
 pub const HARNESS_HEADING: &str = "Harness";
 pub const PI_PROJECT_MCP_ID: &str = "pi_project_mcp";
-/// The registration box's rows. #577.
+/// The registration box's rows.
 pub const BYO_HARNESS_ID: &str = "byo_harness";
 pub const BYO_SNIPPET_ID: &str = "byo_snippet";
 pub const BYO_STEPS_ID: &str = "byo_steps";
 pub const BYO_COPY_ID: &str = "byo_copy";
 pub const BYO_TOKEN_ID: &str = "byo_token";
 pub const BYO_COPY_TOKEN_ID: &str = "byo_copy_token";
-/// The heading the three sit under, spelled once so the tests and the section
-/// cannot disagree about it.
+/// The heading the registration rows sit under, spelled once so the tests and
+/// the section cannot disagree about it.
 pub const BYO_HEADING: &str = "BYO - Point existing Harness at Fidget";
 pub const HARNESS_AUTH_RETRY_SECS_ID: &str = "harness_auth_retry_secs";
 pub const HARNESS_TURN_TIMEOUT_SECS_ID: &str = "harness_turn_timeout_secs";
@@ -598,16 +557,9 @@ pub const HARNESS_PRESETS: [&str; 10] = [
     "antigravity",
 ];
 
-/// The endpoints the Base URL picker names, as (group, name, base URL).
-///
-/// Every port was read off that project's own current documentation rather
-/// than recalled (#465). Each entry is the host alone because
-/// `model::completions_url` adds `/v1` and the path.
-///
-/// Two local servers `docs/harness.md` lists are deliberately absent: vLLM
-/// answers on oMLX's 8000 and `mlx_lm.server` on llama.cpp's 8080, so a row for
-/// either would offer a second name for a URL already on the list. The field
-/// beside the picker takes both.
+/// The endpoints the Base URL picker names, as (group, name, host). vLLM and
+/// `mlx_lm.server` get no row: they answer on oMLX's 8000 and llama.cpp's 8080,
+/// so a row would be a second name for a URL already listed.
 const ENDPOINTS: &[(&str, &str, &str)] = &[
     ("Local", "Ollama", "http://localhost:11434"),
     ("Local", "LM Studio", "http://localhost:1234"),
@@ -627,13 +579,9 @@ fn endpoint_title_of(_group: &str, name: &str, url: &str) -> String {
     format!("{name} ({url})")
 }
 
-/// The Base URL picker's choices, Custom first.
-///
-/// No header rows: a header is an item that picks nothing, and GTK draws these
-/// choices as a radio group, where an inert radio is a click that silently
-/// does nothing. The group is carried by the order instead — the local servers
-/// first, the hosted ones after — because `localhost` in the URL beside the
-/// name already says which is which.
+/// The Base URL picker's choices, Custom first. No header rows: GTK draws these
+/// as a radio group, where an inert header is a click that silently does
+/// nothing. Order carries the grouping instead, local servers first.
 pub fn endpoint_options() -> Vec<String> {
     let mut options = vec![PICKER_CUSTOM.to_string()];
     options.extend(
@@ -665,14 +613,9 @@ pub fn endpoint_title(base_url: &str) -> String {
         .unwrap_or_else(|| PICKER_CUSTOM.to_string())
 }
 
-/// The three reasoning-effort levels every documented host takes.
-///
-/// Only three because only three are portable. OpenAI adds `none`,
-/// `minimal`, `xhigh` and `max`; xAI has `xhigh` but no `max`; Ollama has
-/// `max` but no `xhigh`; and llama.cpp and oMLX hand the string to the
-/// model's chat template, where the valid set belongs to the model file
-/// rather than to any spec. The field beside the picker is what covers all of
-/// that, and nothing validates what is typed there (#638).
+/// The three effort levels every documented host takes. Beyond them hosts
+/// disagree (xAI lacks `max`, Ollama `xhigh`), so the free field beside the
+/// picker covers the rest.
 const EFFORT_LEVELS: [&str; 3] = ["low", "medium", "high"];
 
 /// The reasoning-effort picker's choices, Custom first, exactly as the Base
@@ -712,13 +655,9 @@ pub fn harness_options() -> Vec<String> {
     options
 }
 
-/// The popup title for a source in force, and the command line that belongs
-/// beside it.
-///
-/// One function because the two rows are one choice spelled two ways:
-/// `FIDGET_HARNESS` puts a custom command line in the value itself, while
-/// the file keeps `custom` plus a field of its own, so picking a preset and
-/// coming back does not lose what was typed (#436).
+/// The popup title for a source in force, and the command line beside it.
+/// `FIDGET_HARNESS` puts a custom command in the value; the file keeps `custom`
+/// plus its own field.
 pub fn harness_rows(value: &str, command: &str) -> (String, String) {
     match value.trim() {
         "" => (HARNESS_OFF.to_string(), command.to_string()),
@@ -730,11 +669,9 @@ pub fn harness_rows(value: &str, command: &str) -> (String, String) {
     }
 }
 
-/// The command line a source value carries in the value itself, if it does.
-///
-/// The catch-all of `harness_rows`: `FIDGET_HARNESS` spells a custom Harness
-/// as its command line, and a hand-edit of the file may too. `Settings::apply`
-/// moves it to the row that owns it (#452).
+/// The command line a source value carries in the value itself, as
+/// `FIDGET_HARNESS` or a hand-edited file may. `Settings::apply` moves it to
+/// the row that owns it.
 pub fn harness_command_line(value: &str) -> Option<&str> {
     match value.trim() {
         "" | HARNESS_CUSTOM_VALUE => None,
@@ -774,12 +711,8 @@ pub fn chat_ui_title(value: &str) -> String {
     }
 }
 
-/// The label of a row an environment variable can own, whether it owns it, and
-/// status information for rendering.
-///
-/// A frozen row says it is overridden in a status strip, not inline in the
-/// label. The ownership question for a row holding text: the Director endpoint
-/// and the Completer limits, which take any value the process exports.
+/// (label, frozen, status) for a text row an environment variable can own: the
+/// Director endpoint and the Completer limits, which take any exported value.
 fn env_row_parts(label: &str, var: &str) -> (String, bool, Option<String>) {
     owned_row_parts(label, var, model::env_override(var).is_some())
 }
@@ -803,23 +736,17 @@ fn owned_row_parts(label: &str, var: &str, owned: bool) -> (String, bool, Option
     }
 }
 
-/// The Completer source rows' ownership question, returning (label, frozen, status).
-///
-/// Exported at all owns them, empty included, because
-/// `harness::from_settings` reads an empty value as Off rather than falling
-/// through to the file — so a row left editable there would take an edit the
-/// launch discards (#452). `env_row`'s emptiness rule belongs to the endpoint
-/// rows and does not carry over.
+/// (label, frozen, status) for the Completer source rows. Any export owns them,
+/// empty included: `harness::from_settings` reads empty as Off, so an editable
+/// row would take an edit the launch discards.
 fn harness_env_row_parts(label: &str) -> (String, bool, Option<String>) {
     let var = crate::harness::VAR;
     let owned = std::env::var_os(var).is_some();
     owned_row_parts(label, var, owned)
 }
 
-/// A checkbox for one development switch.
-///
-/// Frozen when the exported value is one `model::env_switch` reads: that
-/// value is the switch, so the click would change nothing.
+/// A checkbox for one development switch, frozen when `model::env_switch`
+/// reads the exported value, since that value is the switch.
 fn flag_row(
     id: &str,
     flag: &dev_flags::Flag,
@@ -1007,33 +934,21 @@ fn director_sections(live: &Live) -> Vec<FormSection> {
     ]
 }
 
-/// Which mind answers a wake, and what the current attachment is doing.
-///
-/// One variable owns both rows because `FIDGET_HARNESS` spells the whole
-/// choice in one value, a preset name or a command line (ADR-0022), so
-/// freezing them apart would offer an edit the launch throws away (#272).
-///
-/// No credential row of any kind, now or later. The Harness signs itself in
-/// and fidget holds nothing for it (ADR-0018). The login command the state
-/// line names is text, and nothing here runs it.
-///
-/// The page draws these rows and commits them on Apply, the same batch as
-/// the HTTP endpoint (#663).
 fn pi_mcp_status(dir: &str) -> String {
     format!(
         "Apply creates {dir}/.mcp.json, or updates only its Fidget entry. The entry names FIDGET_MCP_URL and FIDGET_MCP_TOKEN. The port and the token stay out of the file, and a later Apply leaves a correct file alone. Pi still needs pi-mcp-adapter, or the file does nothing."
     )
 }
 
+/// Which mind answers a wake, and what the attachment is doing. One variable
+/// owns both rows, since `FIDGET_HARNESS` spells the whole choice in one value.
+/// No credential row, ever: the Harness signs itself in (ADR-0018).
 fn completer_source_section() -> FormSection {
     let (source_label, frozen, source_status) = harness_env_row_parts("AI source");
     FormSection {
         heading: "AI source".to_string(),
         serves: None,
         comment: Some("Choose which \"AI brain\" answers: Model API or an attached Harness.".to_string()),
-        // The preset list is read from `HARNESS_PRESETS` rather than spelled
-        // again: the hand-kept copy this replaces had been missing `pi` since
-        // it was added.
         disclosure: Some(format!("Model API uses the HTTP endpoint below (base URL, model, and key). A Harness ({}, or Custom) attaches a child process and makes it the AI brain, and the HTTP rows stop driving. Standalone binaries (copilot, cursor-agent, goose, grok, hermes, opencode) need only their CLI on PATH. antigravity needs Google's agy_acp_server on PATH. Registry adapters (claude, codex, pi) require Node.js and npx. Apply is the one moment the attachment changes: Cancel restores both rows and leaves the running child alone.", HARNESS_PRESETS.join(", "))),
         status: None,
         rows: vec![
@@ -1059,11 +974,9 @@ fn completer_source_section() -> FormSection {
     }
 }
 
-/// The rows only a Harness reads, under the picker that attaches one.
-///
-/// The Model row is the Model / API row's field under its own id. A Harness
-/// runs on the same model setting, and the Model / API section is off while
-/// a Harness is picked, so without this row the model is out of reach (#1427).
+/// The rows only a Harness reads, under the picker that attaches one. Its Model
+/// row reuses the Model / API field, since that section is off while a Harness
+/// is picked.
 fn harness_section(pi_mcp_dir: &str) -> FormSection {
     let (_, frozen, _) = harness_env_row_parts("AI source");
     let (model_label, model_frozen, model_status) = env_row_parts("Model", model::MODEL);
@@ -1111,21 +1024,9 @@ fn harness_section(pi_mcp_dir: &str) -> FormSection {
     }
 }
 
-/// How to point a Harness the user starts themselves at this app's MCP server.
-///
-/// Neither half of that registration can be written down ahead of time: the
-/// port is the OS's and the token is 32 fresh bytes per run (ADR-0026), so the
-/// only place the command can come from is the running app. That is the whole
-/// reason this section exists rather than a README section (#166, #577).
-///
-/// The URL and the token are shown in plain text. @omesser decided that on
-/// #577: the token authorises loopback access to an app already on the user's
-/// screen, and a credential must not reach a log, a trace, or a file another
-/// local user can read - none of which a Settings row is.
-///
-/// Separate from the "AI source" picker above, which chooses the mind that
-/// answers a wake. This one changes nothing about the app: a BYO user has no
-/// Harness attached at all, and the endpoint is served either way.
+/// How to point a user-run Harness at this app's MCP server. Port and token
+/// change every run (ADR-0026). The token shows in plain text: a Settings row
+/// is no log or file.
 fn byo_section() -> FormSection {
     FormSection {
         heading: BYO_HEADING.to_string(),
@@ -1763,33 +1664,24 @@ fn development_sections(live: &Live) -> Vec<FormSection> {
     ]
 }
 
-/// Describe the settings form. The AppKit and Linux GTK windows build from this.
-/// What the description reads from the running process rather than the file.
-///
-/// A value rather than calls inside the builders, because none of these can
-/// be pinned otherwise: the consent intro names the process Privacy will
-/// list, which is the responsible parent and so differs per machine, and the
-/// attach directory differs per machine again. A fixture compared byte for
-/// byte needs them chosen (#706).
+/// What the description reads from the running process rather than the file. A
+/// value rather than calls in the builders, so a byte-for-byte fixture can pin
+/// what differs per machine: the consent intro and the attach directory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Live {
     /// The whole intro rather than the process name, because Linux has no
-    /// consent system and says something else entirely (#250).
+    /// consent system and says something else entirely.
     pub consent_intro: String,
-    /// Where a blank Working directory row runs, for its placeholder (#913).
+    /// Where a blank Working directory row runs, for its placeholder.
     pub attach_cwd: String,
     /// The directory Apply would write `.mcp.json` into, for the Pi warning.
     pub pi_mcp_dir: String,
-    /// What the API key row's empty field says about the store.
-    ///
-    /// `current()` leaves it blank: the status is a store read, and
-    /// `settings_event` builds a description on every gesture. Only
-    /// `settings_snapshot` fills it, from the view that has it cached.
+    /// What the API key row's empty field says about the store. Only
+    /// `settings_snapshot` fills it, from its cached view: `current()` runs per
+    /// gesture and skips the store.
     pub api_key_placeholder: String,
-    /// The Character Packages the two Character popups offer, by name.
-    ///
-    /// Filled the way `api_key_placeholder` is: only `settings_snapshot`
-    /// has the view that lists them, so `current()` leaves it empty (#921).
+    /// The Character Packages the two Character popups offer, by name. Like
+    /// `api_key_placeholder`, only `settings_snapshot` fills it.
     pub installed: Vec<String>,
     /// The user directory the Character picker reads.
     pub characters_dir: String,
@@ -1815,6 +1707,7 @@ impl Live {
     }
 }
 
+/// Describe the settings form from the running process.
 pub fn describe() -> FormDescription {
     describe_with(&Live::current())
 }
@@ -1867,9 +1760,8 @@ pub(crate) mod tests {
     use super::*;
 
     /// The intro a packaged macOS build writes. A literal, because
-    /// `consent::process_listed_as` answers with the responsible parent — a
-    /// terminal here, a CI runner's shell there — and a fixture cannot hold a
-    /// string that changes with who launched the test.
+    /// `consent::process_listed_as` names the responsible parent, which changes
+    /// with whoever launched the test.
     const FIXTURE_CONSENT_INTRO: &str =
         "Checking a box asks macOS for the permission. macOS lists this app as Fidget, under Privacy & Security.";
 
@@ -1882,17 +1774,13 @@ pub(crate) mod tests {
     const FIXTURE_CHARACTERS_DIR: &str =
         "/Users/buddy/Library/Application Support/fidget/characters";
 
-    /// The fixtures hold the macOS form. Linux builds Presence with the capturable
-    /// checkbox disabled (frozen) and help text explaining there is no portable
-    /// capture-exclusion API on Linux (#1338); Privacy has no consent rows because
-    /// there is nothing there to grant (#250). Windows builds Privacy one row
-    /// smaller for the same reason (#721). Each tab
-    /// is pinned on the platforms that build it the same way, and the three that
-    /// never differ pin everywhere.
+    /// The fixtures hold the macOS form. Linux freezes capturable and drops the
+    /// consent rows, and Windows drops one. Each tab pins where it builds the
+    /// same.
     #[cfg(target_os = "linux")]
     const UNPINNED_TABS: &[&str] = &["Presence", "Privacy"];
     /// Windows builds Privacy without the Input Monitoring row: the grant is
-    /// macOS's (#721).
+    /// macOS's.
     #[cfg(target_os = "windows")]
     const UNPINNED_TABS: &[&str] = &["Privacy"];
     #[cfg(target_os = "macos")]
@@ -1923,10 +1811,9 @@ pub(crate) mod tests {
         value
     }
 
-    /// The page in #706 renders these two files, so they are the interface
-    /// between the Rust description and the JavaScript that draws it. Compared
-    /// and never written: a `form.rs` edit nobody meant to make has to reach
-    /// CI as a fixture diff rather than as a quietly refreshed file.
+    /// The page renders these two files, so they are the interface between the
+    /// Rust description and the JavaScript. Compared, never written: an unmeant
+    /// `form.rs` edit has to reach CI as a fixture diff.
     #[test]
     fn both_ai_sources_serialize_to_the_committed_fixtures() {
         const FIXTURES: [(&str, &str, bool); 2] = [
@@ -2011,10 +1898,9 @@ pub(crate) mod tests {
         ids
     }
 
-    /// A row whose value is this machine's rather than the file's. The hotkey
-    /// reads in the words the OS gives the keys, so a fixture taken on macOS
-    /// cannot hold what a Windows build prints (#194). The key set is still
-    /// pinned everywhere; only the text is not.
+    /// A row whose value is this machine's rather than the file's: the hotkey
+    /// reads in the OS's key names, so a macOS fixture cannot hold a Windows
+    /// build's text. The key set is still pinned everywhere.
     #[cfg(target_os = "macos")]
     const OS_SPECIFIC_VALUES: &[&str] = &[];
     #[cfg(not(target_os = "macos"))]
@@ -2095,9 +1981,8 @@ pub(crate) mod tests {
     }
 
     /// The other half of the interface: `tests/settings.test.js` renders the
-    /// description above against these, so a row the view has no value for
-    /// draws blank on the live page and green in the tests. Generated from
-    /// the view rather than written by hand (#875).
+    /// description against these, so a row the view has no value for would draw
+    /// blank live and green in tests. Generated from the view, not by hand.
     #[test]
     fn both_ai_sources_produce_the_committed_values_fixtures() {
         const FIXTURES: [(&str, &str, bool); 2] = [
@@ -2118,9 +2003,8 @@ pub(crate) mod tests {
             let mut pinned = value_row_ids(&description, UNPINNED_TABS);
             pinned.retain(|id| !OS_SPECIFIC_VALUES.contains(&id.as_str()));
             // Where the fixture is this platform's whole form, compare it
-            // whole: a key the view stopped producing has to fail here rather
-            // than be filtered away. Elsewhere only the shared rows are
-            // pinned, and the file keeps keys this build does not draw.
+            // whole, so a key the view dropped fails. Elsewhere only the shared
+            // rows are pinned.
             let whole = pinned == every;
             let keep = |value: serde_json::Value| -> serde_json::Value {
                 let object = value.as_object().expect("the fixture is an object").clone();
@@ -2173,8 +2057,6 @@ pub(crate) mod tests {
         assert!(moved.join().expect("thread panicked") > 0);
     }
 
-    /// A heading that lost its tab, or landed in two, is the failure this
-    /// catches.
     #[test]
     fn every_section_is_on_exactly_one_tab() {
         let description = describe();
@@ -2286,10 +2168,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// Under the env lock, which clears every Development variable: a shell
-    /// that exported one freezes its row, and excluding those rows instead
-    /// would leave the one test that can catch a stray `frozen: true` blind
-    /// to the whole tab.
+    /// Under the env lock, which clears every Development variable: an exported
+    /// one freezes its row, and excluding those rows would blind the one test
+    /// that can catch a stray `frozen: true`.
     #[test]
     fn no_other_frozen_checkboxes() {
         crate::model::tests::with_env(None, None, None, || {
@@ -2315,7 +2196,7 @@ pub(crate) mod tests {
         });
     }
 
-    /// #272's rule for a row the env owns: no edit, and name the variable.
+    /// A row the env owns takes no edit and names the variable.
     /// Either direction owns it — on is as much the variable's word as off.
     #[test]
     fn an_env_owned_director_row_is_read_only_and_names_its_variable() {
@@ -2382,9 +2263,9 @@ pub(crate) mod tests {
         (DIRECTOR_API_KEY_ID, crate::model::API_KEY),
     ];
 
-    /// #272: `model::resolve` gives the env the last word, so a field the env
-    /// owns cannot be offered as editable — the window took the edit and the
-    /// Director ignored it. Described here so both windows inherit it.
+    /// `model::resolve` gives the env the last word, so a field the env owns
+    /// cannot be offered as editable. Described here so both windows inherit
+    /// it.
     #[test]
     fn an_env_owned_endpoint_row_is_read_only_and_names_its_variable() {
         crate::model::tests::with_env(
@@ -2460,7 +2341,7 @@ pub(crate) mod tests {
             FormRow::TextField { ref id, .. } if id == DIRECTOR_WAKE_SECS_ID
         ));
         // Last, because it is the one control on the tab that changes no
-        // setting: it ends the conversation the rows above shape (#679).
+        // setting: it ends the conversation the rows above shape.
         assert!(matches!(
             director.rows[3],
             FormRow::Composite { ref id, .. } if id == "session_actions"
@@ -2477,7 +2358,7 @@ pub(crate) mod tests {
 
         assert_eq!(http_section.rows.len(), 6);
         // The picker stands above the field it fills, so the shortcut is read
-        // before the typing starts (#465).
+        // before the typing starts.
         assert!(matches!(
             http_section.rows[0],
             FormRow::Composite { ref id, .. } if id == "base_url_pick"
@@ -2504,7 +2385,7 @@ pub(crate) mod tests {
         ));
     }
 
-    /// #1427: a Harness runs on the model too, so the model has a row under
+    /// A Harness runs on the model too, so the model has a row under
     /// the source picker as well, writing the field the Model / API row writes.
     #[test]
     fn the_harness_section_puts_a_model_row_over_the_command_line() {
@@ -2555,7 +2436,7 @@ pub(crate) mod tests {
         assert!(picker.is_some(), "the aim names the AI source popup");
     }
 
-    /// #1427: the page disables the section whose source the AI source picker
+    /// The page disables the section whose source the AI source picker
     /// does not name, so a source section says which source it serves. BYO
     /// serves neither and sits below both.
     #[test]
@@ -2629,7 +2510,7 @@ pub(crate) mod tests {
     }
 
     /// Mute sits under Do Not Disturb because that is the heading a user
-    /// reads as "quieter", and DND takes the sound with it (#277).
+    /// reads as "quieter", and DND takes the sound with it.
     #[test]
     fn do_not_disturb_section_has_dnd_then_sound() {
         let description = describe();
@@ -2721,9 +2602,6 @@ pub(crate) mod tests {
     }
 
     /// Every row on the Character tab says what it does.
-    ///
-    /// `Popup`, `List` and `Composite` were the three kinds with nowhere to
-    /// put a help line, so this tab shipped without one.
     #[test]
     fn every_character_tab_row_has_help() {
         let description = describe();
@@ -2843,9 +2721,8 @@ pub(crate) mod tests {
         }
     }
 
-    /// #679: the control is a button of its own on the AI tab. Reaching it
-    /// through Blank AI or through an Instance Prompt save is what the issue
-    /// rules out, and a button on another tab is not the one it asks for.
+    /// New session is a button of its own on the AI tab, not reached through
+    /// Blank AI, an Instance Prompt save, or a button on another tab.
     #[test]
     fn the_ai_tab_starts_a_new_session_on_its_own_button() {
         let description = describe();
@@ -2873,9 +2750,6 @@ pub(crate) mod tests {
         assert!(on_the_tab, "Start new session is not on Settings -> AI");
     }
 
-    /// The native macOS window fills these checkboxes by zipping them against
-    /// `consent::rows` by position, so a row added to one list and not the
-    /// other, or added in another order, shows the wrong grant's state.
     #[test]
     fn the_consent_rows_are_in_catalog_order() {
         let description = describe();
@@ -3094,9 +2968,8 @@ pub(crate) mod tests {
         }
     }
 
-    /// Every section, not the first one: acceptance box 3 asks for a warning
-    /// on the tab, and a reader who scrolls to a later heading has left the
-    /// first section's comment behind (#273).
+    /// Every section, not the first one: a reader who scrolls to a later
+    /// heading has left the first section's comment behind.
     #[test]
     fn the_development_tab_warns_on_every_section() {
         let description = describe();
@@ -3118,12 +2991,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// A switch the env owns names the variable it answers to, so the export
-    /// to drop is on screen, and takes no click.
-    ///
-    /// A value the vocabulary reads freezes the row, `0` included. One it
-    /// cannot read owns nothing, so that row stays the user's — freezing it
-    /// would claim an export the switch never obeyed.
+    /// A switch the env owns names its variable and takes no click. A value the
+    /// vocabulary reads freezes the row, `0` included; one it cannot read owns
+    /// nothing, since freezing would claim an export the switch never obeyed.
     #[test]
     fn an_env_owned_flag_row_is_frozen_and_names_its_variable() {
         crate::model::tests::with_env(None, None, None, || {
@@ -3226,7 +3096,7 @@ pub(crate) mod tests {
 
     /// The local runtimes are the point of the list: someone running one has a
     /// Completer sitting there already, and should never have to look its port
-    /// up. The ports are `ENDPOINTS`' — each read off its project's own docs.
+    /// up.
     #[test]
     fn the_base_url_picker_names_the_local_runtimes_and_their_ports() {
         let (_, options, _) = base_url_picker(&describe());
@@ -3249,7 +3119,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// #690: Model API blank is one number. The Harness budget is the other row.
+    /// Model API blank is one number. The Harness budget is the other row.
     #[test]
     fn a_blank_model_api_timeout_is_thirty_seconds() {
         let description = describe();
@@ -3300,7 +3170,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// #690: Harness turn timeout is its own Development row.
+    /// Harness turn timeout is its own Development row.
     #[test]
     fn the_harness_turn_timeout_row_names_session_prompt() {
         let description = describe();
@@ -3406,7 +3276,7 @@ pub(crate) mod tests {
         });
     }
 
-    /// #447: both knobs are for testing, so they sit on Development rather
+    /// Both knobs are for testing, so they sit on Development rather
     /// than beside the Completer source a user picks.
     #[test]
     fn the_harness_knobs_are_development_rows() {
@@ -3436,7 +3306,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// #638: nobody picks a thinking budget for a two-line Behavior pick, so
+    /// Nobody picks a thinking budget for a two-line Behavior pick, so
     /// the row sits on Development beside the HTTP limits rather than on AI.
     #[test]
     fn the_reasoning_effort_row_is_a_development_row_beside_the_http_limits() {
@@ -3500,11 +3370,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// #670: a shortcut picker writes no field of its own, and does not write
-    /// its own title either — Custom names no level, and the Base URL picker
-    /// writes a URL rather than a label. Both readings travel with the
-    /// declaration, or the generic handler every lane shares resolves a pick
-    /// to nothing, which is what Windows did.
+    /// A shortcut picker writes no field or title of its own, so both readings
+    /// travel with the declaration, or the shared handler resolves a pick to
+    /// nothing.
     #[test]
     fn every_shortcut_picker_names_a_row_that_writes_and_a_reading_for_its_titles() {
         crate::model::tests::with_env(None, None, None, || {
@@ -3560,7 +3428,7 @@ pub(crate) mod tests {
         });
     }
 
-    /// #272's rule, for the row and the shortcut above it alike.
+    /// An env-owned row is frozen, and so is the shortcut above it.
     #[test]
     fn an_exported_effort_freezes_the_row_and_its_picker() {
         crate::model::tests::with_env(None, None, None, || {
@@ -3601,7 +3469,7 @@ pub(crate) mod tests {
 
     /// A picker that looks live while a variable owns the value invites a
     /// click that does nothing, which is worse than the frozen field this
-    /// shortcut sits above (#465).
+    /// shortcut sits above.
     #[test]
     fn an_exported_base_url_freezes_the_picker_and_says_so() {
         crate::model::tests::with_env(None, Some("http://localhost:11434"), None, || {
@@ -3706,11 +3574,9 @@ pub(crate) mod tests {
         });
     }
 
-    /// A picker commits the title it drew, and then has to find that title
-    /// again to draw the pick. AppKit calls `selectItemWithTitle` and GTK
-    /// selects the radio whose label matches, so an option that stored as
-    /// something the file spells another way would leave the picker with
-    /// nothing selected (#467).
+    /// A picker commits the title it drew, then must find it again to draw the
+    /// pick (AppKit `selectItemWithTitle`, GTK's matching radio), so an option
+    /// stored under another spelling would leave nothing selected.
     #[test]
     fn every_source_title_comes_back_as_the_title_that_was_picked() {
         for title in harness_options() {
@@ -3723,9 +3589,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// #272's rule, for the one variable that owns two rows: `FIDGET_HARNESS`
-    /// spells the preset and the command line in one value, so an edit to
-    /// either would be discarded at launch.
+    /// The env-owned freeze, for the one variable that owns two rows:
+    /// `FIDGET_HARNESS` spells the preset and the command line in one value, so
+    /// an edit to either would be discarded at launch.
     #[test]
     fn an_exported_harness_freezes_both_source_rows_and_names_its_variable() {
         for exported in ["hermes", "opencode acp"] {
@@ -3774,10 +3640,8 @@ pub(crate) mod tests {
         });
     }
 
-    /// Production change that would fail this: source copy still promising a
-    /// relaunch after `harness::retarget` made every pick live. A row that
-    /// tells the user to restart is how #452's limit was survivable and is now
-    /// just wrong (#500).
+    /// `harness::retarget` makes every pick live, so copy asking for a restart
+    /// is wrong.
     #[test]
     fn no_completer_source_copy_promises_a_relaunch() {
         crate::model::tests::with_harness(None, || {
@@ -3797,7 +3661,7 @@ pub(crate) mod tests {
         });
     }
 
-    /// #663: pick and blur do not retarget. The disclosure has to name Apply
+    /// Pick and blur do not retarget. The disclosure has to name Apply
     /// so the row and the button cannot disagree about when the child dies.
     #[test]
     fn the_source_rows_say_apply_commits() {
@@ -3854,10 +3718,9 @@ pub(crate) mod tests {
         });
     }
 
-    /// The Advanced rows, in the order a user reads them: pick the Harness,
-    /// copy what the box holds, do what the words under it say. After gate 5
-    /// fix, always emits 6 rows (token field + Copy always present, hidden
-    /// via platform refresh when empty). #577.
+    /// The Advanced rows in reading order: pick the Harness, copy the box,
+    /// follow the words. Always 6: the token field and its Copy hide when
+    /// empty.
     #[test]
     fn the_byo_section_picks_a_harness_then_shows_the_snippet() {
         let description = describe();
@@ -3866,7 +3729,6 @@ pub(crate) mod tests {
             .find(|s| s.heading == BYO_HEADING)
             .expect("the Harness registration section");
 
-        // Gate 5 fix: always 6 rows for all harnesses
         assert_eq!(
             section.rows.len(),
             6,
@@ -3909,8 +3771,7 @@ pub(crate) mod tests {
     }
 
     /// Both Character popups offer every installed package, not only the one
-    /// in force. The native renderers used to read the list off the view;
-    /// the webview only sees the description (#921).
+    /// in force, because the webview only sees the description.
     #[test]
     fn both_character_popups_offer_the_installed_packages() {
         let description = describe_with(&fixture_live(false));
@@ -3938,10 +3799,9 @@ pub(crate) mod tests {
         assert_eq!(new_character, character);
     }
 
-    /// #902: `byo_section` does not read the settings document, so asserting
-    /// these rows must not write one either. A leftover `Settings::save` of
-    /// defaults onto `memory::data_dir()` was wiping the configured Harness
-    /// whenever this module's tests ran.
+    /// `byo_section` does not read the settings document, so asserting these
+    /// rows must not write one either: a stray save would wipe the user's real
+    /// Harness.
     #[test]
     fn describing_the_form_does_not_rewrite_the_user_settings_file() {
         let path = crate::settings::settings_path(&fidget_core::memory::data_dir());
@@ -3976,7 +3836,7 @@ pub(crate) mod tests {
     }
 
     /// The one thing a user cannot work out from the box: yesterday's paste
-    /// stopped working because both halves of it are new every launch (#577).
+    /// stopped working because both halves of it are new every launch.
     #[test]
     fn the_byo_box_says_the_token_changes_every_launch() {
         let description = describe();

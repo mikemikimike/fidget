@@ -1,6 +1,7 @@
 //! Raise a window into the overlay's HWND_TOPMOST band.
 //!
-//! Overlay is HWND_TOPMOST. BringWindowToTop on a normal window cannot beat that band (#799).
+//! Overlay is HWND_TOPMOST. BringWindowToTop on a normal window cannot beat
+//! that band.
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::HWND;

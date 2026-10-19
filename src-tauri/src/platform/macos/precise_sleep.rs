@@ -4,7 +4,7 @@
 //! 4 ms late. A one-shot kqueue timer with `NOTE_CRITICAL` fires on time and
 //! leaves the thread as it was. `THREAD_TIME_CONSTRAINT_POLICY` also fires on
 //! time, but `THREAD_STANDARD_POLICY` never gives the thread its slack back,
-//! so every still tick after the first move runs fast and breaks #183.
+//! so every still tick after the first move runs fast instead of coalesced.
 
 use std::time::Duration;
 
@@ -142,8 +142,7 @@ mod tests {
         assert_eq!(status, 0);
     }
 
-    /// The comparison behind `sleep_precisely`. Run with
-    /// `cargo test -p fidget --bin fidget probe_moving_waits -- --ignored --nocapture`.
+    /// The comparison behind `sleep_precisely`.
     #[test]
     #[ignore = "a timing probe that prints numbers, not a pass/fail check"]
     fn probe_moving_waits() {

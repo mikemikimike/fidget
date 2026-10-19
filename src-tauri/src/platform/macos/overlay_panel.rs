@@ -12,7 +12,7 @@ use objc2_app_kit::{
 
 /// An `NSPanel` subclass that never becomes main and becomes key only while
 /// tao's `focusable` is set, so a sprite click leaves the keyboard where it was
-/// but the quick message pill can take it (#1565).
+/// but the quick message pill can take it.
 fn overlay_panel_class() -> &'static AnyClass {
     static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
 
@@ -100,9 +100,9 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
             ns_window,
             setStyleMask: style | NSWindowStyleMask::NonactivatingPanel
         ];
-        // The style alone still lets a sprite click activate Fidget. The public
-        // way, configuring before the first show, failed live (run 022305 at
-        // 3171fa9b), so this private setter stays, guarded.
+        // The style alone still lets a sprite click activate Fidget, and the
+        // public way, configuring before the first show, does not stop it. So
+        // this private setter stays, guarded.
         let prevents = sel!(_setPreventsActivation:);
         let responds: bool = msg_send![ns_window, respondsToSelector: prevents];
         if responds {
@@ -273,7 +273,7 @@ mod tests {
         fn object_dispose(object: *mut AnyObject) -> *mut AnyObject;
     }
 
-    /// #1565: the pill takes the keyboard by making the overlay key, so
+    /// The pill takes the keyboard by making the overlay key, so
     /// `canBecomeKeyWindow` must follow tao's ivar. Main stays refused.
     #[test]
     fn the_panel_becomes_key_only_while_focusable() {
