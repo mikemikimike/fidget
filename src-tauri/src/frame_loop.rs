@@ -223,10 +223,7 @@ pub(crate) fn run_frame_loop(
         // decision so the first tick always applies.
         let mut ignoring: Vec<Option<bool>> = vec![None; covered.len()];
         #[cfg(all(unix, not(target_os = "macos")))]
-        let mut bounding: Vec<fidget_core::overlay_region::BoundingShape> =
-            std::iter::repeat_with(Default::default)
-                .take(covered.len())
-                .collect();
+        let mut bounding = fidget_core::overlay_region::BoundingShapes::default();
 
         // Confirmed click-through per overlay, set on main thread when
         // toggle or mask apply succeeds. Frame thread checks to decide
@@ -541,6 +538,8 @@ pub(crate) fn run_frame_loop(
             last_cursor = Some((cursor_points.x, cursor_points.y));
 
             ignoring.resize(displays.frames.len(), None);
+            #[cfg(all(unix, not(target_os = "macos")))]
+            bounding.fit(displays.frames.len());
             last_frame.resize(displays.frames.len(), None);
             configured
                 .lock()

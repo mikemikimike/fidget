@@ -142,7 +142,9 @@ pub struct BoundingShapes(Vec<BoundingShape>);
 impl BoundingShapes {
     /// One shape per overlay. A display added after launch starts unshaped,
     /// and a removed one's shape is dropped with it.
-    pub fn fit(&mut self, _overlays: usize) {}
+    pub fn fit(&mut self, overlays: usize) {
+        self.0.resize_with(overlays, Default::default);
+    }
 }
 
 impl std::ops::Index<usize> for BoundingShapes {
