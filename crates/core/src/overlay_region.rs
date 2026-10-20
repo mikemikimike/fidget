@@ -122,8 +122,14 @@ impl BoundingShape {
         composited: bool,
         drawn: impl FnOnce() -> Vec<RegionRect>,
     ) -> Option<ShapeChange<'_>> {
-        let _ = (composited, drawn, &self.clipped);
-        None
+        if composited {
+            return self.clipped.take().map(|_| ShapeChange::Unclip);
+        }
+        let drawn = drawn();
+        if self.clipped.as_ref() == Some(&drawn) {
+            return None;
+        }
+        Some(ShapeChange::Clip(self.clipped.insert(drawn)))
     }
 }
 

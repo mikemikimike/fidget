@@ -831,6 +831,22 @@ pub fn cleanup_overlay_window(window: &tauri::WebviewWindow) {
     x11::cleanup_overlay_window(window)
 }
 
+/// Whether a compositor blends the overlays' transparent pixels. Without one
+/// X11 fills them with black, so the overlays are clipped to what they draw.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn overlays_composited() -> bool {
+    x11::composited()
+}
+
+/// Send `label`'s bounding shape change; false when its window is not set up yet.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn change_bounding_shape(
+    label: &str,
+    change: fidget_core::overlay_region::ShapeChange<'_>,
+) -> bool {
+    x11::change_bounding_shape(label, change)
+}
+
 /// Set the input region from the sprite's alpha mask plus hotspot rects, so a
 /// control drawn outside the art still receives clicks. macOS uses
 /// `set_ignore_cursor_events`; `click_through` matters only on Windows.
