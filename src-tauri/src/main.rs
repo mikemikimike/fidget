@@ -2078,9 +2078,10 @@ fn overlay_report_qm_draft(
         let Some(overlay) = window.app_handle().get_webview_window(&label) else {
             continue;
         };
-        #[cfg(target_os = "macos")]
-        if let Err(why) = overlay.set_focusable(open) {
-            eprintln!("overlay: {label} could not set its key state: {why}");
+        if platform::overlay_focus_follows_pill() {
+            if let Err(why) = overlay.set_focusable(open) {
+                eprintln!("overlay: {label} could not set its key state: {why}");
+            }
         }
         if !open {
             let handed = overlay.clone();
@@ -2302,15 +2303,16 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        // macOS: the overlay refuses key until now. Making it key is what
-        // routes keys to the pill once the app is already active (#1565).
-        #[cfg(target_os = "macos")]
-        {
+        // macOS and X11: the overlay refuses focus until now. On macOS, making
+        // it key is what routes keys to the pill once the app is already
+        // active (#1565); on X11 the window manager skips it otherwise (#1699).
+        if platform::overlay_focus_follows_pill() {
             window.set_focusable(true).map_err(|e| e.to_string())?;
-            window
-                .run_on_main_thread(platform::remember_front_app)
-                .map_err(|e| e.to_string())?;
         }
+        #[cfg(target_os = "macos")]
+        window
+            .run_on_main_thread(platform::remember_front_app)
+            .map_err(|e| e.to_string())?;
         #[cfg(all(unix, not(target_os = "macos")))]
         platform::remember_foreground(&window);
         window.set_focus().map_err(|e| e.to_string())
@@ -2329,6 +2331,14 @@ fn cover_display(window: &tauri::WebviewWindow, display: Rect) -> Result<(), tau
 /// and its first draft report. `about:blank` finishes first and is skipped.
 fn overlay_page_loaded_line(label: &str, finished: bool, url: &str) -> Option<String> {
     (finished && !url.starts_with("about:")).then(|| format!("overlay: {label} page loaded"))
+}
+
+/// X11: the overlay is built refusing focus, or the window manager hands it
+/// focus at startup. `focused(false)` alone does not stick: tao gives
+/// accept-focus back after the first draw. macOS refuses key in its panel
+/// setup instead, so it builds focusable as before.
+fn refuses_focus_at_start() -> bool {
+    cfg!(all(unix, not(target_os = "macos"))) && platform::overlay_focus_follows_pill()
 }
 
 /// Build one overlay, configure it, and put it over its display. The only
@@ -2351,6 +2361,7 @@ fn build_overlay(
         .visible_on_all_workspaces(true)
         .accept_first_mouse(true)
         .focused(false)
+        .focusable(!refuses_focus_at_start())
         .resizable(false)
         .skip_taskbar(true)
         .visible(false)

@@ -391,6 +391,32 @@ fn x11_window(window: &impl raw_window_handle::HasWindowHandle) -> Option<u32> {
     }
 }
 
+/// The overlay refuses focus until a pill opens and again once the last one
+/// closes: macOS keeps the panel from becoming key, X11 clears accept-focus
+/// (#1699). Windows hands the foreground over itself; Wayland keeps GTK's
+/// default, since its compositor decides focus.
+#[cfg(target_os = "macos")]
+pub fn overlay_focus_follows_pill() -> bool {
+    true
+}
+
+/// See the macOS doc. True on an X11 display, read once.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn overlay_focus_follows_pill() -> bool {
+    use gtk::prelude::*;
+    static ON_X11: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON_X11.get_or_init(|| {
+        gtk::gdk::Display::default()
+            .is_some_and(|display| display.type_().name() == "GdkX11Display")
+    })
+}
+
+/// See the macOS doc.
+#[cfg(windows)]
+pub fn overlay_focus_follows_pill() -> bool {
+    false
+}
+
 /// Remember the active window before a pill takes the keyboard.
 /// Wayland: nothing to remember, see `hand_back_keyboard`.
 #[cfg(all(unix, not(target_os = "macos")))]
