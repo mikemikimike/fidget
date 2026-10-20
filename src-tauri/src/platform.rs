@@ -864,6 +864,19 @@ pub fn overlays_composited() -> bool {
     x11::composited()
 }
 
+/// Whether a compositor blends a see-through window. Only X11 can lack one.
+/// Main thread: the first call reads GDK's answer.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn see_through_blends() -> bool {
+    x11::composited_now()
+}
+
+/// Windows and macOS always composite.
+#[cfg(any(target_os = "macos", not(unix)))]
+pub fn see_through_blends() -> bool {
+    true
+}
+
 /// Send `label`'s bounding shape change; false when its window is not set up yet.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn change_bounding_shape(

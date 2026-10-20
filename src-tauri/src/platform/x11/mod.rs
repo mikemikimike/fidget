@@ -18,7 +18,7 @@ mod window_source;
 
 pub use input_events::{spawn_listener, InputEvent};
 pub use overlay::{
-    change_bounding_shape, cleanup_overlay_window, composited, configure_overlay,
+    change_bounding_shape, cleanup_overlay_window, composited, composited_now, configure_overlay,
     update_input_region,
 };
 pub use pointer::{buttons_down, double_click_interval_ms};
