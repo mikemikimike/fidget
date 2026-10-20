@@ -13,6 +13,9 @@
 #   launch with no source opens no Chat.
 #
 # Usage: first-run-chat.x11.sh --go <fidget binary> <fidget test binary> [appimage.github.io checkout]
+# The binary may be an extracted AppImage's AppRun with this build as its
+#   usr/bin/fidget. As of 2026-10, Debian 13's WebKitGTK 2.54 draws Chat
+#   black with no compositor, so a bare build there fails.
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
 set -euo pipefail
 
@@ -105,15 +108,16 @@ start_icewm() {
 frame='^[0-9]+ frame: '
 closed='^[0-9]+ overlay: draft .* closed$'
 landing='chat: first launch with no AI source'
-served='chat: chat-[^ ]+ opening served'
+served='^[0-9]+ chat-[^ ]+: opening served'
 # <run name> <HOME> [env...]: start Fidget and wait until its overlay is ready.
 # Setup posts the first-run Chat before the overlay's page can load.
 launch() {
   local name=$1 home=$2
+  run=$name
   shift 2
   mkdir -p "$home/.local/share/fidget"
   log="$home/.local/share/fidget/process.log"
-  : >> "$log"
+  : > "$log"
   lock="$out/$name.lock"
   exec 9> "$lock"
   flock -n 9 || fail "$name: another run holds $lock"
@@ -132,12 +136,13 @@ stop_app() {
   kill "${tree[@]}" 2> /dev/null || true
   wait_for_exit 3 "$pid" "$lock" || fail "Fidget did not exit in 3 s"
   pid=
+  cp "$log" "$out/$run.process.log"
 }
-# A mapped top-level window that is not one of Fidget's "Fidget" windows
-# (overlay, client leader, taskbar anchor).
+# A mapped window of Fidget's that is not one of its "Fidget" windows
+# (overlay, client leader, taskbar anchor). icewm's frames have no class.
 chat_window() {
   local w
-  for w in $(xdotool search --onlyvisible --name '.' 2> /dev/null); do
+  for w in $(xdotool search --onlyvisible --classname '^fidget$' 2> /dev/null); do
     [ "$(xdotool getwindowname "$w" 2> /dev/null)" = Fidget ] && continue
     eval "$(xdotool getwindowgeometry --shell "$w")"
     # shellcheck disable=SC2153 # WIDTH comes from the eval above
@@ -146,7 +151,7 @@ chat_window() {
   return 1
 }
 no_chat() { # <run name>
-  ! grep -qE "$landing|$served" "$log" || fail "$1: Chat opened; see $log"
+  ! grep -qE "$landing|$served| is open$" "$log" || fail "$1: Chat opened; see $log"
   ! chat_window > /dev/null || fail "$1: a Chat window is mapped"
 }
 
@@ -154,19 +159,26 @@ no_chat() { # <run name>
 # window manager, as in worker.sh, which waits 10 s rather than for an event.
 first="$out/first-home"
 launch first "$first" env -u FIDGET_HARNESS -u FIDGET_DIRECTOR_API_KEY
-wait_for_trace 3 "$log" "$served" || echo "first: Chat's landing was not served in 3 s" | tee -a "$results"
-chat=$(chat_window) || chat=
-start_icewm
-active_is() { xprop -root _NET_ACTIVE_WINDOW | grep -qi "# $(printf '0x%x' "$1")\$"; }
-[ -z "$chat" ] || wait_until 3 active_is "$chat" || echo "first: icewm did not activate Chat in 3 s" | tee -a "$results"
-# worker.sh's fit_main_window only moves the overlay, already at 0,0, to 0,0.
-(cd "$catalog" && bash code/take-screenshot.sh "$out/screenshot.png") 2>&1 | tee -a "$results"
-check=0
-(cd "$catalog" && bash code/check-screenshot.sh "$out/screenshot.png") > "$out/check.txt" 2>&1 || check=$?
-tee -a "$results" < "$out/check.txt"
-[ "$check" -eq 0 ] || fail "first: the catalog's check-screenshot.sh failed"
-[ -n "$chat" ] || fail "first: no Chat window is mapped"
+wait_for_trace 3 "$log" "$served" || fail "first: Chat's landing was not served in 3 s; see $log"
+chat_window > /dev/null || fail "first: no Chat window is mapped"
 grep -qE "$landing" "$log" || fail "first: no first-run line in $log"
+start_icewm
+# Nothing gets focus here, so take-screenshot.sh crops to the largest window,
+# the overlay, which is the whole screen. worker.sh's fit_main_window moves it
+# to 0,0, where it already is.
+check=$out/check.txt
+catalog_passes() {
+  (cd "$catalog" && bash code/take-screenshot.sh "$out/screenshot.png") > "$out/take.txt" 2>&1 || return 1
+  (cd "$catalog" && bash code/check-screenshot.sh "$out/screenshot.png") > "$check" 2>&1 || return 1
+  # A pass at 90% or more one colour is a mostly empty capture, not Chat.
+  ! grep -q 'mostly empty' "$check"
+}
+# Chat repaints once icewm has framed it; worker.sh sleeps 2 s for that.
+passed=0
+wait_until 3 catalog_passes && passed=1
+tee -a "$results" < "$out/take.txt"
+tee -a "$results" < "$check"
+[ "$passed" -eq 1 ] || fail "first: the catalog's check-screenshot.sh failed on $out/screenshot.png"
 ok "first: Chat's landing is a mapped window and the catalog check passes"
 stop_app
 

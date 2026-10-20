@@ -3012,7 +3012,11 @@ fn behavior_names_of(
 /// command rather than an event: Tauri buffers nothing for a listener that
 /// is not there yet. Same `DirectorInspect` the Settings window renders.
 #[tauri::command]
-fn chat_opening(instance: String, state: tauri::State<'_, SettingsState>) -> ChatOpening {
+fn chat_opening(
+    instance: String,
+    webview: tauri::Webview,
+    state: tauri::State<'_, SettingsState>,
+) -> ChatOpening {
     let (name, character, instance_prompt) = state
         .instances
         .lock()
@@ -3027,6 +3031,10 @@ fn chat_opening(instance: String, state: tauri::State<'_, SettingsState>) -> Cha
     // Harness out of the not-authenticated state, and nothing else pushes it.
     if let Ok(mut inspect) = state.inspect.lock() {
         inspect.harness = harness::attached().map(|session| session.inspect());
+    }
+    if dev_flags::TRACE_BUBBLE.is_on() {
+        // The overlay's pill asks too; the label says which page this is.
+        eprintln!("{}: opening served", webview.label());
     }
     let inspect = state.inspect.lock().ok();
     let blank = model::blank();
@@ -4242,6 +4250,12 @@ fn describe_menu(
     })
 }
 
+/// Chat's landing opens by itself on a first launch with no AI source, so a
+/// new user is pointed at connecting one (#1730). Every OS: it is onboarding.
+fn opens_first_run_chat(first_launch: bool, source_configured: bool) -> bool {
+    first_launch && !source_configured
+}
+
 /// The environment variable naming the Instances to run. An env var rather
 /// than a flag because that is how fidget is already configured, and a
 /// second mechanism for the same kind of answer is a second place to look it up.
@@ -4926,6 +4940,8 @@ fn main() {
             // returned as a setup error: Tauri turns that into a panic the
             // event loop cannot unwind, burying the one line under a backtrace.
             let settings_file = settings::settings_path(&memory::data_dir());
+            // Read before the save below writes the file on every launch.
+            let first_launch = !settings_file.exists();
             let mut settings = Settings::load(&settings_file);
             // Before anything reads a development switch: the frame loop and
             // the overlay panel load them from `dev_flags`, not the env.
@@ -5285,9 +5301,13 @@ fn main() {
             if model::env_switch("FIDGET_OPEN_SETTINGS").unwrap_or(false) {
                 present_settings(app.handle().clone());
             }
+            let first_run_chat = opens_first_run_chat(first_launch, config.configured);
+            if first_run_chat {
+                fidget::eprintln_and_log!("chat: first launch with no AI source; opening Chat");
+            }
             // Same hook for Chat. Summon is macOS-only in fidget-verify; X11
             // scripts open Chat this way and assert it stays perch-eligible.
-            if model::env_switch("FIDGET_OPEN_CHAT").unwrap_or(false) {
+            if first_run_chat || model::env_switch("FIDGET_OPEN_CHAT").unwrap_or(false) {
                 if let Some(live) = lives.first() {
                     let title = roster
                         .get(&live.id)
@@ -5494,6 +5514,16 @@ mod tests {
     }
 
     use super::*;
+
+    /// #1730: Chat's landing opens once, on the launch that finds no settings
+    /// file, and only when nothing can answer.
+    #[test]
+    fn first_run_chat_opens_on_a_first_launch_with_no_source_only() {
+        assert!(opens_first_run_chat(true, false));
+        assert!(!opens_first_run_chat(true, true), "a source is set");
+        assert!(!opens_first_run_chat(false, false), "a second launch");
+        assert!(!opens_first_run_chat(false, true));
+    }
 
     fn link(request: &str, waits: bool) -> harness::ElicitationForm {
         harness::ElicitationForm {

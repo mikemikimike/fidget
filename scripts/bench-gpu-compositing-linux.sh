@@ -467,6 +467,8 @@ launch_app() {
   # followed from there into $log.
   mkdir -p "$SCRATCH_HOME/data/fidget"
   : > "$SCRATCH_HOME/data/fidget/process.log"
+  # A settings file makes this a later launch, which opens no Chat (#1730).
+  echo '{}' > "$SCRATCH_HOME/data/fidget/settings.json"
   tail -n +1 -F "$SCRATCH_HOME/data/fidget/process.log" >> "$log" 2> /dev/null &
   TAIL_PID=$!
   XDG_DATA_HOME="$SCRATCH_HOME/data" \
