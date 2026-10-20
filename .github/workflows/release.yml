@@ -61,7 +61,9 @@ jobs:
           entries=()
           wanted() { [ "$RELEASE" = true ] || [ "$1" = true ]; }
           wanted "$MACOS"   && entries+=('{"os":"macos-latest","bundles":"dmg","key":"macos"}')
-          wanted "$LINUX"   && entries+=('{"os":"ubuntu-latest","bundles":"appimage,deb","key":"linux"}')
+          # 22.04, not latest (as of 2026-10): the AppImage needs the build host's glibc,
+          # and the AppImage catalog tests on 22.04. webkit2gtk-4.1 rules out older.
+          wanted "$LINUX"   && entries+=('{"os":"ubuntu-22.04","bundles":"appimage,deb","key":"linux"}')
           wanted "$WINDOWS" && entries+=('{"os":"windows-latest","bundles":"nsis","key":"windows"}')
           if [ ${#entries[@]} -eq 0 ]; then
             echo "::error::no platform selected: tick at least one of linux, macos, windows"
