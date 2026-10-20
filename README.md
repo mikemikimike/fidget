@@ -60,6 +60,10 @@ Characters are packages of art, personality, and tuning. See [DEVELOPMENT.md](./
 
 ## Get It
 
+Fidget runs on macOS (Apple Silicon), Linux (x86_64) and Windows (x86_64). Every build is on the [latest Release](https://github.com/omesser/fidget/releases/latest). The builds are not signed yet, so the first open warns.
+
+### macOS
+
 On macOS (Apple Silicon) with [Homebrew](https://brew.sh):
 
 ```sh
@@ -68,7 +72,7 @@ brew install --cask omesser/fidget/fidget
 
 That taps [omesser/homebrew-fidget](https://github.com/omesser/homebrew-fidget) and installs Fidget.app. Later Releases arrive with `brew update` and `brew upgrade --cask fidget`.
 
-Or download a build from [GitHub Releases](https://github.com/omesser/fidget/releases): a `.dmg` for macOS (Apple Silicon), an AppImage and a `.deb` for Linux (x86_64), or an NSIS installer for Windows (x86_64). The builds are not signed yet, so the first open warns. On macOS, open Fidget.app from the disk image, dismiss the Gatekeeper dialog, then System Settings → Privacy & Security → Open Anyway. On Windows, choose More info → Run anyway in SmartScreen.
+Or download `Fidget_<version>_aarch64.dmg` from the [latest Release](https://github.com/omesser/fidget/releases/latest), drag Fidget.app from the disk image into Applications and open it. Dismiss the Gatekeeper dialog, then System Settings → Privacy & Security → Open Anyway.
 
 macOS may block `/Applications/Fidget.app` after a Homebrew or download install. Removing its quarantine attribute bypasses a macOS security check. Run the command at your own risk. Never run it on an app you do not trust. Fidget is open source, so you can inspect its code, but that alone does not verify the downloaded app. To remove the quarantine attribute, run:
 
@@ -76,13 +80,45 @@ macOS may block `/Applications/Fidget.app` after a Homebrew or download install.
 xattr -d com.apple.quarantine /Applications/Fidget.app
 ```
 
-Or clone and run from the repo root (macOS, Linux, Windows):
+### Linux
+
+Download `Fidget_<version>_amd64.AppImage` or `Fidget_<version>_amd64.deb` from the [latest Release](https://github.com/omesser/fidget/releases/latest), then run the commands from the folder you saved it in.
+
+The AppImage runs without installing and carries its own WebKitGTK. It mounts itself with FUSE, which desktop installs usually have (`fuse3` on Debian and Ubuntu):
+
+```sh
+chmod +x Fidget_*_amd64.AppImage
+./Fidget_*_amd64.AppImage
+```
+
+Without FUSE, run it as `./Fidget_*_amd64.AppImage --appimage-extract-and-run`.
+
+The `.deb` is for Debian and Ubuntu, and needs no FUSE. apt installs the WebKitGTK and tray libraries it depends on:
+
+```sh
+sudo apt install ./Fidget_*_amd64.deb
+fidget
+```
+
+After that, Fidget is in your app menu. `sudo apt remove fidget` uninstalls it.
+
+Full support for window Perches and edges via X11/XWayland (the normal Linux desktop path). Pure Wayland sessions without an X server fall back to screen edges only. Linux packages and the AppImage's FUSE dependency are in [DEVELOPMENT.md](./docs/DEVELOPMENT.md#linux-dependencies).
+
+### Windows
+
+Download `Fidget_<version>_x64-setup.exe` from the [latest Release](https://github.com/omesser/fidget/releases/latest) and run it. SmartScreen warns about the unsigned installer: choose More info → Run anyway. It needs no admin rights. It installs Fidget for your user in `%LOCALAPPDATA%\Fidget`, adds it to the Start menu, and fetches WebView2 if Windows lacks it. Uninstall it from Settings → Apps.
+
+### From Source
+
+Clone and run from the repo root (macOS, Linux, Windows):
 
 ```sh
 git clone https://github.com/omesser/fidget.git fidget
 cd fidget
 cargo run -p fidget
 ```
+
+### First Run
 
 It works offline with no key. With nothing configured, Static weights pick idle Behaviors from the Character.
 
@@ -103,7 +139,7 @@ FIDGET_HARNESS=claude cargo run -p fidget
 FIDGET_CHARACTER=nim cargo run -p fidget
 ```
 
-The full variable list, including `FIDGET_DIRECTOR_*`, is in [harness.md](./docs/harness.md#director-environment). Character packages are in [DEVELOPMENT.md](./docs/DEVELOPMENT.md#character-packages). Keychain dialogs an unsigned build costs are in [harness.md](./docs/harness.md#settings-and-keyring). Full support for window Perches and edges via X11/XWayland (the normal Linux desktop path). Pure Wayland sessions without an X server fall back to screen edges only. Linux packages and the AppImage's FUSE dependency are in [DEVELOPMENT.md](./docs/DEVELOPMENT.md#linux-dependencies).
+The full variable list, including `FIDGET_DIRECTOR_*`, is in [harness.md](./docs/harness.md#director-environment). Character packages are in [DEVELOPMENT.md](./docs/DEVELOPMENT.md#character-packages). Keychain dialogs an unsigned build costs are in [harness.md](./docs/harness.md#settings-and-keyring).
 
 ## Interact
 

@@ -468,7 +468,7 @@ sudo apt install libayatana-appindicator3-dev
 
 The AppImage bundles `libgstreamer` but not the plugin pack (`bundleMediaFramework` stays off; it would add tens of megabytes). Cue audio then needs the host's `gstreamer1.0-plugins-good` (plus `gstreamer1.0-alsa` without Pulse/PipeWire) and a running sink. If those are installed and the AppImage is still mute, GStreamer is looking for plugins inside the image.
 
-**AppImage on Ubuntu** needs `libfuse2` (22.04) or `libfuse2t64` (24.04+).
+**AppImage FUSE.** The AppImage uses the static type-2 runtime, so it needs no `libfuse2`, only a `fusermount` or `fusermount3` binary on `PATH` (the `fuse3` package on Debian and Ubuntu). Without FUSE, `--appimage-extract-and-run` unpacks it to a temp dir and runs it there.
 
 ### Linux X11/Wayland
 
