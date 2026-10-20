@@ -198,15 +198,6 @@ server for the overlay's bounding shape: shaped with no compositor and after
 picom stops, unshaped under picom. `no-compositor-clip.py` paints the root through a pixmap, because picom
 draws `_XROOTPMAP_ID` and not a solid root colour.
 
-`first-run-chat` is X11 only and takes both binaries, plus an optional
-appimage.github.io checkout (without one it fetches the two scripts at a pinned
-commit). On an 800x600 Xvfb display with icewm and no compositor, a first
-launch with no AI source must open Chat's landing and pass the catalog's own
-`take-screenshot.sh` and `check-screenshot.sh` (#1730). A second launch, and a
-first launch with a Harness set, must open no Chat. Pass an extracted
-AppImage's `AppRun` with this build as `usr/bin/fidget`: as of 2026-10, Debian
-13's WebKitGTK 2.54 draws Chat black with no compositor.
-
 `chat-close-pill-type` also has an `.x11.sh` leaf. It starts
 its own Xvfb display with xfwm4 and mousepad, so it leaves your display alone,
 and skips when one of those, `xdotool`, `xprop` or `inotifywait` is missing.

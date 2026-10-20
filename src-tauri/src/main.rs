@@ -3012,11 +3012,7 @@ fn behavior_names_of(
 /// command rather than an event: Tauri buffers nothing for a listener that
 /// is not there yet. Same `DirectorInspect` the Settings window renders.
 #[tauri::command]
-fn chat_opening(
-    instance: String,
-    webview: tauri::Webview,
-    state: tauri::State<'_, SettingsState>,
-) -> ChatOpening {
+fn chat_opening(instance: String, state: tauri::State<'_, SettingsState>) -> ChatOpening {
     let (name, character, instance_prompt) = state
         .instances
         .lock()
@@ -3031,10 +3027,6 @@ fn chat_opening(
     // Harness out of the not-authenticated state, and nothing else pushes it.
     if let Ok(mut inspect) = state.inspect.lock() {
         inspect.harness = harness::attached().map(|session| session.inspect());
-    }
-    if dev_flags::TRACE_BUBBLE.is_on() {
-        // The overlay's pill asks too; the label says which page this is.
-        eprintln!("{}: opening served", webview.label());
     }
     let inspect = state.inspect.lock().ok();
     let blank = model::blank();
@@ -4256,6 +4248,11 @@ fn opens_first_run_chat(first_launch: bool, source_configured: bool) -> bool {
     first_launch && !source_configured
 }
 
+/// No settings file yet. Read before setup's save, which writes it every launch.
+fn is_first_launch(settings_file: &Path) -> bool {
+    !settings_file.exists()
+}
+
 /// The environment variable naming the Instances to run. An env var rather
 /// than a flag because that is how fidget is already configured, and a
 /// second mechanism for the same kind of answer is a second place to look it up.
@@ -4940,8 +4937,7 @@ fn main() {
             // returned as a setup error: Tauri turns that into a panic the
             // event loop cannot unwind, burying the one line under a backtrace.
             let settings_file = settings::settings_path(&memory::data_dir());
-            // Read before the save below writes the file on every launch.
-            let first_launch = !settings_file.exists();
+            let first_launch = is_first_launch(&settings_file);
             let mut settings = Settings::load(&settings_file);
             // Before anything reads a development switch: the frame loop and
             // the overlay panel load them from `dev_flags`, not the env.
@@ -5515,14 +5511,30 @@ mod tests {
 
     use super::*;
 
-    /// #1730: Chat's landing opens once, on the launch that finds no settings
-    /// file, and only when nothing can answer.
+    /// #1730: a first launch with no AI source opens Chat's landing.
     #[test]
-    fn first_run_chat_opens_on_a_first_launch_with_no_source_only() {
-        assert!(opens_first_run_chat(true, false));
-        assert!(!opens_first_run_chat(true, true), "a source is set");
-        assert!(!opens_first_run_chat(false, false), "a second launch");
-        assert!(!opens_first_run_chat(false, true));
+    fn a_first_launch_with_no_source_opens_chat() {
+        let file = std::env::temp_dir().join(format!("fidget-1730-{}-a.json", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        assert!(opens_first_run_chat(is_first_launch(&file), false));
+    }
+
+    /// A Harness (or any source) already set means Chat stays shut.
+    #[test]
+    fn a_first_launch_with_a_source_opens_no_chat() {
+        let file = std::env::temp_dir().join(format!("fidget-1730-{}-b.json", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        assert!(!opens_first_run_chat(is_first_launch(&file), true));
+    }
+
+    /// The first launch's save makes the next one a later launch.
+    #[test]
+    fn a_second_launch_opens_no_chat() {
+        let file = std::env::temp_dir().join(format!("fidget-1730-{}-c.json", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        settings::write_settings_file(&Settings::default(), &file).expect("first launch saves");
+        assert!(!opens_first_run_chat(is_first_launch(&file), false));
+        let _ = std::fs::remove_file(&file);
     }
 
     fn link(request: &str, waits: bool) -> harness::ElicitationForm {
