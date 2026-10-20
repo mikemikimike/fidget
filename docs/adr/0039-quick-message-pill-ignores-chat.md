@@ -28,7 +28,8 @@ used the pill is over, so the pill gets out of the way.
 
 Hovering the Character while Chat is open opens the pill, so the user can choose
 either composer. Two fields can be up with a draft in each; this decision does
-not resolve that.
+not resolve that. Closing a pill opened over Chat returns the keyboard to Chat:
+the hand-back remembers the window that was in front, not just the app.
 
 The dismissal latch now clears only on pointer leave. The reset that ran when
 Chat closed existed for a macOS case where a Summon left the hover stuck with no

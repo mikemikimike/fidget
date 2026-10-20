@@ -17,7 +17,7 @@ func die(_ message: String) -> Never {
 
 guard args.count >= 2, let pid = pid_t(args[1]) else {
     die(
-        "usage: ax-settings <open|tab|pick|dump|frame|popup-frame|open-popup|type-select|move|size|key|type|value|focused|focus-window|menus|press-button> <pid> [args]"
+        "usage: ax-settings <open|tab|pick|dump|frame|popup-frame|open-popup|type-select|move|size|key|type|value|role|focused|focus-window|menus|press-button> <pid> [args]"
     )
 }
 
@@ -469,6 +469,20 @@ case "key":
 case "type":
     guard args.count >= 3 else { die("usage: ax-settings type <pid> <text>") }
     typeText(args[2])
+
+case "role":
+    // The focused element's role in any app. TextEdit only takes typing when
+    // its AXTextArea, not its window, is focused.
+    var roleRef: CFTypeRef?
+    let roleErr = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &roleRef)
+    guard roleErr == .success, let roleElement = roleRef, CFGetTypeID(roleElement) == AXUIElementGetTypeID()
+    else {
+        die("no focused element")
+    }
+    guard let role = string(roleElement as! AXUIElement, kAXRoleAttribute) else {
+        die("the focused element has no role")
+    }
+    print(role)
 
 case "value":
     // The focused element's text in any app, read through Accessibility: no
