@@ -2451,8 +2451,9 @@ fn build_chat(
         .title(title)
         .inner_size(CHAT_SIZE.0, CHAT_SIZE.1)
         .min_inner_size(320.0, 320.0)
-        // An opaque window paints black under the Glass panel.
-        .transparent(true)
+        // See-through only where a compositor blends it. Uncomposited, as of 2026-10
+        // WebKitGTK 2.54's non-DMABuf renderer repaints a see-through page black.
+        .transparent(platform::see_through_blends())
         .focused(true);
     if let Some((x, y)) = at {
         builder = builder.position(x, y);
@@ -2536,7 +2537,7 @@ fn build_settings(
         .inner_size(600.0, 520.0)
         .min_inner_size(480.0, 400.0)
         // Settings wears the Chat UI, whose rules assume Chat's see-through window.
-        .transparent(true)
+        .transparent(platform::see_through_blends())
         .focused(true)
         .on_page_load(move |_window, payload| {
             if payload.event() != tauri::webview::PageLoadEvent::Finished {

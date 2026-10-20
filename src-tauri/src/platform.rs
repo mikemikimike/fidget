@@ -864,6 +864,19 @@ pub fn overlays_composited() -> bool {
     x11::composited()
 }
 
+/// Whether a compositor blends a see-through window. Only X11 can lack one.
+/// Main thread: the first call reads GDK's answer.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn see_through_blends() -> bool {
+    x11::composited_now()
+}
+
+/// Windows and macOS always composite.
+#[cfg(any(target_os = "macos", not(unix)))]
+pub fn see_through_blends() -> bool {
+    true
+}
+
 /// Send `label`'s bounding shape change; false when its window is not set up yet.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn change_bounding_shape(
@@ -1400,6 +1413,24 @@ fn exact_dock() -> Option<(Rect, DockSource)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Production change that would fail this: Chat or Settings built
+    /// see-through with no X11 compositor, so Chat shows black (#1732).
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn chat_and_settings_are_see_through_only_where_a_compositor_blends() {
+        x11::set_composited_for_test(false);
+        assert!(!see_through_blends(), "no compositor builds them opaque");
+        x11::set_composited_for_test(true);
+        assert!(see_through_blends(), "a compositor keeps them see-through");
+    }
+
+    /// Off X11 the window manager always composites, so nothing changes there.
+    #[cfg(any(target_os = "macos", not(unix)))]
+    #[test]
+    fn windows_and_macos_always_blend_a_see_through_window() {
+        assert!(see_through_blends());
+    }
 
     /// The frame loop copies this slot into each Instance every tick, so a
     /// draft reaches only its own Instance and a cleared one is gone.

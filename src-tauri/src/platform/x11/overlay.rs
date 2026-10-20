@@ -56,9 +56,24 @@ pub fn composited() -> bool {
     COMPOSITED.load(Ordering::Relaxed)
 }
 
+/// Whether a compositor runs now, before any overlay is configured. Main thread.
+pub fn composited_now() -> bool {
+    watch_compositor();
+    composited()
+}
+
+/// Set once GDK's answer is read and followed.
+static WATCH: Once = Once::new();
+
+/// Stand in for GDK's answer: mark the watch done, then set the flag.
+#[cfg(test)]
+pub fn set_composited_for_test(composited: bool) {
+    WATCH.call_once(|| {});
+    COMPOSITED.store(composited, Ordering::Relaxed);
+}
+
 /// Read GDK's compositing state once and follow it. Runs on the GTK main thread.
 fn watch_compositor() {
-    static WATCH: Once = Once::new();
     WATCH.call_once(|| {
         let Some(screen) = gtk::gdk::Screen::default() else {
             return;
