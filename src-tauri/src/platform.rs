@@ -841,7 +841,7 @@ pub fn update_input_region(
     mask_data: Option<&fidget_core::overlay::AlphaMask>,
     sprite_x: i32,
     sprite_y: i32,
-    sprite_facing: i32,
+    mirrored: bool,
     scale: i32,
     hotspot_rects: &[[i32; 4]],
     _click_through: bool,
@@ -851,7 +851,7 @@ pub fn update_input_region(
         mask_data,
         sprite_x,
         sprite_y,
-        sprite_facing,
+        mirrored,
         scale,
         hotspot_rects,
     )

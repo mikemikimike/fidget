@@ -34,7 +34,7 @@ struct MaskShape {
     opaque: Vec<bool>,
     width: i32,
     height: i32,
-    facing: i32,
+    mirrored: bool,
     scale: i32,
 }
 
@@ -91,7 +91,7 @@ pub fn update_input_region(
     mask_data: Option<&fidget_core::overlay::AlphaMask>,
     sprite_x: i32,
     sprite_y: i32,
-    sprite_facing: i32,
+    mirrored: bool,
     scale: i32,
     hotspot_rects: &[[i32; 4]],
 ) -> Result<(), String> {
@@ -123,7 +123,7 @@ pub fn update_input_region(
             mask,
             sprite_x,
             sprite_y,
-            sprite_facing,
+            mirrored,
             scale,
             hotspot_rects,
         )?;
@@ -144,6 +144,40 @@ fn should_rebuild_mask(
         .is_none_or(|cached| &cached.shape != current_shape)
 }
 
+/// One `scale`-sized square per opaque pixel, in pixmap coordinates.
+/// `mirrored` flips the columns, matching `AlphaMask::hit` and the renderer.
+fn mask_rects(shape: &MaskShape) -> Vec<xproto::Rectangle> {
+    let MaskShape {
+        opaque,
+        width,
+        height,
+        mirrored,
+        scale,
+    } = shape;
+    let mut rects = Vec::new();
+    for y in 0..*height {
+        for x in 0..*width {
+            if opaque[(y * width + x) as usize] {
+                let column = if *mirrored { width - 1 - x } else { x };
+                rects.push(xproto::Rectangle {
+                    x: (column * scale) as i16,
+                    y: (y * scale) as i16,
+                    width: *scale as u16,
+                    height: *scale as u16,
+                });
+            }
+        }
+    }
+    rects
+}
+
+/// Rectangles per `PolyFillRectangle` within the core request length, in 4-byte
+/// units (at least 4096 by protocol): 12 bytes of header, 8 per rectangle. x11rb
+/// errors past it rather than splitting, and BIG-REQUESTS costs a round trip.
+fn rects_per_fill(max_units: u16) -> usize {
+    (usize::from(max_units.max(4096)) * 4 - 12) / 8
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_input_mask(
     conn: &RustConnection,
@@ -151,7 +185,7 @@ fn apply_input_mask(
     mask: &fidget_core::overlay::AlphaMask,
     sprite_x: i32,
     sprite_y: i32,
-    sprite_facing: i32,
+    mirrored: bool,
     scale: i32,
     hotspot_rects: &[[i32; 4]],
 ) -> Result<(), String> {
@@ -162,7 +196,7 @@ fn apply_input_mask(
         opaque: opaque.to_vec(),
         width,
         height,
-        facing: sprite_facing,
+        mirrored,
         scale,
     };
 
@@ -220,33 +254,11 @@ fn apply_input_mask(
         xproto::change_gc(conn, gc, &xproto::ChangeGCAux::new().foreground(1))
             .map_err(|e| format!("Failed to set GC foreground: {e}"))?;
 
-        // Facing < 0 mirrors the mask horizontally, matching `AlphaMask::hit` and
-        // the renderer.
-        let mirror = sprite_facing < 0;
-        for y in 0..height {
-            for x in 0..width {
-                let idx = (y * width + x) as usize;
-                if opaque[idx] {
-                    let draw_x = if mirror {
-                        (width - 1 - x) * scale
-                    } else {
-                        x * scale
-                    };
-                    let scaled_y = y * scale;
-                    xproto::poly_fill_rectangle(
-                        conn,
-                        pixmap,
-                        gc,
-                        &[xproto::Rectangle {
-                            x: draw_x as i16,
-                            y: scaled_y as i16,
-                            width: scale as u16,
-                            height: scale as u16,
-                        }],
-                    )
-                    .map_err(|e| format!("Failed to draw rectangle: {e}"))?;
-                }
-            }
+        let rects = mask_rects(&current_shape);
+        let per_fill = rects_per_fill(conn.setup().maximum_request_length);
+        for batch in rects.chunks(per_fill) {
+            xproto::poly_fill_rectangle(conn, pixmap, gc, batch)
+                .map_err(|e| format!("Failed to draw rectangles: {e}"))?;
         }
 
         cache.insert(
@@ -434,12 +446,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_mirrored_mask_draws_the_flipped_columns() {
+        let at = |mirrored| -> Vec<(i16, i16)> {
+            let shape = MaskShape {
+                opaque: vec![true, false, false],
+                width: 3,
+                height: 1,
+                mirrored,
+                scale: 2,
+            };
+            mask_rects(&shape).iter().map(|r| (r.x, r.y)).collect()
+        };
+        assert_eq!(at(false), [(0, 0)], "as authored, ink stays on the left");
+        assert_eq!(at(true), [(4, 0)], "mirrored, ink moves to the right");
+    }
+
+    #[test]
+    fn a_fill_request_stays_within_the_core_request_length() {
+        // Units of 4 bytes, from Setup. 65535 is the core ceiling, 4096 the floor
+        // the protocol guarantees.
+        assert_eq!(rects_per_fill(65535), 32766);
+        assert_eq!(rects_per_fill(4096), 2046);
+    }
+
+    #[test]
     fn mask_shape_equality() {
         let shape1 = MaskShape {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 2,
         };
 
@@ -447,7 +483,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 2,
         };
 
@@ -455,7 +491,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: -1, // Different facing
+            mirrored: true,
             scale: 2,
         };
 
@@ -472,7 +508,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 1,
         };
 
@@ -480,7 +516,7 @@ mod tests {
             opaque: vec![true, true, false],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 1,
         };
 
@@ -500,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn facing_change_triggers_rebuild() {
+    fn mirror_change_triggers_rebuild() {
         let mut cache = HashMap::new();
         let window1 = 1;
 
@@ -508,7 +544,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 1,
         };
 
@@ -516,7 +552,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: -1,
+            mirrored: true,
             scale: 1,
         };
 
@@ -531,7 +567,7 @@ mod tests {
 
         assert!(
             should_rebuild_mask(&cache, window1, &shape2),
-            "Facing change should trigger rebuild"
+            "Mirror change should trigger rebuild"
         );
     }
 
@@ -544,7 +580,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 1,
         };
 
@@ -552,7 +588,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 2,
         };
 
@@ -580,7 +616,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 1,
         };
 
@@ -607,7 +643,7 @@ mod tests {
             opaque: vec![true, false],
             width: 2,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 1,
         };
 
@@ -615,7 +651,7 @@ mod tests {
             opaque: vec![false, true],
             width: 2,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 1,
         };
 
@@ -656,7 +692,7 @@ mod tests {
             opaque: vec![true, false, true],
             width: 3,
             height: 1,
-            facing: 1,
+            mirrored: false,
             scale: 1,
         };
 
