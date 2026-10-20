@@ -10,7 +10,7 @@ use fidget_core::dispatch::{
 };
 use fidget_core::engine::{BehaviorProposal, State, Verb};
 use fidget_core::input::press_target;
-#[cfg(not(unix))]
+#[cfg(not(target_os = "macos"))]
 use fidget_core::overlay::DrawTrail;
 use fidget_core::overlay::{bubble_owner, display_index_for, drawn_frame, place_sprite};
 use fidget_core::quick_message::walk_held;
@@ -222,6 +222,8 @@ pub(crate) fn run_frame_loop(
         // One click-through flag per overlay, `None` until that overlay's first
         // decision so the first tick always applies.
         let mut ignoring: Vec<Option<bool>> = vec![None; covered.len()];
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut bounding = fidget_core::overlay_region::BoundingShapes::default();
 
         // Confirmed click-through per overlay, set on main thread when
         // toggle or mask apply succeeds. Frame thread checks to decide
@@ -264,8 +266,9 @@ pub(crate) fn run_frame_loop(
         #[cfg(not(unix))]
         let last_mask: Arc<Mutex<Vec<RegionParams>>> =
             Arc::new(Mutex::new(vec![(Vec::new(), Vec::new()); covered.len()]));
-        // Each Instance's draw trail, for a Windows region that clips drawing.
-        #[cfg(not(unix))]
+        // Each Instance's draw trail, for a region that clips drawing: Windows
+        // always, X11 only with no compositor (`composited` is false on Windows).
+        #[cfg(not(target_os = "macos"))]
         let mut trails: std::collections::HashMap<InstanceId, DrawTrail> =
             std::collections::HashMap::new();
 
@@ -535,6 +538,8 @@ pub(crate) fn run_frame_loop(
             last_cursor = Some((cursor_points.x, cursor_points.y));
 
             ignoring.resize(displays.frames.len(), None);
+            #[cfg(all(unix, not(target_os = "macos")))]
+            bounding.fit(displays.frames.len());
             last_frame.resize(displays.frames.len(), None);
             configured
                 .lock()
@@ -2188,17 +2193,21 @@ pub(crate) fn run_frame_loop(
             let ignore = !(presence.visible && (over_sprite || over_control || holding));
             let mut flipped = false;
 
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let composited = platform::overlays_composited();
             #[cfg(not(unix))]
-            {
+            let composited = false;
+            #[cfg(not(target_os = "macos"))]
+            if composited {
+                trails.clear();
+            } else {
                 let mut held = std::mem::take(&mut trails);
                 for instance in &placed {
                     let at = (instance.sprite.x, instance.sprite.y);
                     let (mask, mirrored, scale) =
                         (&instance.mask, instance.mirror < 0, instance.sprite.scale);
-                    let trail = match held.remove(&instance.id) {
-                        Some(trail) => trail.advance(at, mask, mirrored, scale),
-                        None => DrawTrail::start(at, mask, mirrored, scale),
-                    };
+                    let trail =
+                        DrawTrail::this_frame(held.remove(&instance.id), at, mask, mirrored, scale);
                     trails.insert(instance.id.clone(), trail);
                 }
             }
@@ -2299,6 +2308,38 @@ pub(crate) fn run_frame_loop(
                     };
                     moving = any_moving;
                     was_visible = presence.visible;
+                }
+
+                // Every Character, not only the first: the shape hides what it leaves out.
+                #[cfg(all(unix, not(target_os = "macos")))]
+                {
+                    let drawn = || {
+                        let instances: Vec<_> = placed
+                            .iter()
+                            .filter_map(|instance| {
+                                let local = instance.sprite.in_overlay(*display);
+                                Some(fidget_core::overlay_region::DrawnInstance {
+                                    id: &instance.id,
+                                    trail: trails.get(&instance.id)?,
+                                    offset: (
+                                        local.x - instance.sprite.x,
+                                        local.y - instance.sprite.y,
+                                    ),
+                                })
+                            })
+                            .collect();
+                        fidget_core::overlay_region::drawn_region(
+                            presence.visible,
+                            &instances,
+                            &platform::overlay_rects_for(&label),
+                        )
+                    };
+                    if !bounding[index]
+                        .change_for(composited, drawn)
+                        .is_none_or(|change| platform::change_bounding_shape(&label, change))
+                    {
+                        bounding[index] = Default::default();
+                    }
                 }
 
                 // Click-through is per-window. Every other overlay passes

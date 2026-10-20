@@ -17,7 +17,10 @@ mod settings_raise;
 mod window_source;
 
 pub use input_events::{spawn_listener, InputEvent};
-pub use overlay::{cleanup_overlay_window, configure_overlay, update_input_region};
+pub use overlay::{
+    change_bounding_shape, cleanup_overlay_window, composited, configure_overlay,
+    update_input_region,
+};
 pub use pointer::{buttons_down, double_click_interval_ms};
 pub use sensing::X11ActivitySource;
 

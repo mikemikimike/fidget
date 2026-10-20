@@ -10,8 +10,8 @@
 //! and unwired. DESIGN.md decision 3.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex, Once};
 use std::time::Instant;
 
 use x11rb::connection::Connection;
@@ -47,6 +47,29 @@ struct CachedPixmap {
 static PIXMAP_CACHE: LazyLock<Mutex<HashMap<u32, CachedPixmap>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// GDK's answer, kept current by `composited-changed`. True until the first
+/// overlay is configured, so nothing is shaped before an answer exists.
+static COMPOSITED: AtomicBool = AtomicBool::new(true);
+
+/// Whether a compositor runs on the overlays' screen.
+pub fn composited() -> bool {
+    COMPOSITED.load(Ordering::Relaxed)
+}
+
+/// Read GDK's compositing state once and follow it. Runs on the GTK main thread.
+fn watch_compositor() {
+    static WATCH: Once = Once::new();
+    WATCH.call_once(|| {
+        let Some(screen) = gtk::gdk::Screen::default() else {
+            return;
+        };
+        COMPOSITED.store(screen.is_composited(), Ordering::Relaxed);
+        screen.connect_composited_changed(|screen| {
+            COMPOSITED.store(screen.is_composited(), Ordering::Relaxed);
+        });
+    });
+}
+
 /// Float above other windows, non-activating, skip the taskbar and pager.
 /// Returns Err when the handle is not realized yet, so the caller can retry.
 pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
@@ -73,6 +96,7 @@ pub fn configure_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
         return Err("Failed to get X11 connection".to_string());
     };
 
+    watch_compositor();
     // Record X window ID for cleanup (Destroyed event fires after handle is invalid)
     WINDOW_ID_MAP
         .lock()
@@ -176,6 +200,11 @@ fn mask_rects(shape: &MaskShape) -> Vec<xproto::Rectangle> {
 /// errors past it rather than splitting, and BIG-REQUESTS costs a round trip.
 fn rects_per_fill(max_units: u16) -> usize {
     (usize::from(max_units.max(4096)) * 4 - 12) / 8
+}
+
+/// The same bound for `ShapeRectangles`, whose header is 16 bytes.
+fn rects_per_shape(max_units: u16) -> usize {
+    (usize::from(max_units.max(4096)) * 4 - 16) / 8
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -289,9 +318,7 @@ fn apply_input_mask(
         sprite_y as i16,
         pixmap,
     )
-    .map_err(|e| format!("Failed to apply input mask: {e}"))?
-    .check()
-    .map_err(|e| format!("X11 error applying input mask: {e}"))?;
+    .map_err(|e| format!("Failed to apply input mask: {e}"))?;
 
     if !hotspot_rects.is_empty() {
         let x11_rects: Vec<xproto::Rectangle> = hotspot_rects
@@ -314,9 +341,7 @@ fn apply_input_mask(
             0,
             &x11_rects,
         )
-        .map_err(|e| format!("Failed to union hotspot rectangles: {e}"))?
-        .check()
-        .map_err(|e| format!("X11 error unioning hotspot rectangles: {e}"))?;
+        .map_err(|e| format!("Failed to union hotspot rectangles: {e}"))?;
     }
 
     conn.flush()
@@ -344,6 +369,64 @@ fn apply_input_mask(
     }
 
     Ok(())
+}
+
+/// Send one overlay's bounding shape change, unchecked: an X error reaches the
+/// XI2 listener's log instead of costing a round trip.
+pub fn change_bounding_shape(
+    label: &str,
+    change: fidget_core::overlay_region::ShapeChange<'_>,
+) -> bool {
+    use fidget_core::overlay_region::ShapeChange;
+    let Some(window) = WINDOW_ID_MAP.lock().unwrap().get(label).copied() else {
+        return false;
+    };
+    let Some(conn) = super::connection::connection() else {
+        return false;
+    };
+    let sent = match change {
+        ShapeChange::Unclip => shape::mask(
+            conn,
+            shape::SO::SET,
+            SK::BOUNDING,
+            window,
+            0,
+            0,
+            x11rb::NONE,
+        )
+        .is_ok(),
+        ShapeChange::Clip(region) => {
+            let rects: Vec<xproto::Rectangle> = region
+                .iter()
+                .map(|&[left, top, right, bottom]| xproto::Rectangle {
+                    x: left as i16,
+                    y: top as i16,
+                    width: (right - left) as u16,
+                    height: (bottom - top) as u16,
+                })
+                .collect();
+            let per_request = rects_per_shape(conn.setup().maximum_request_length);
+            // SET with no rects leaves nothing shown, which is what an empty region means.
+            let mut batches = rects.chunks(per_request);
+            let first = batches.next().unwrap_or(&[]);
+            std::iter::once((shape::SO::SET, first))
+                .chain(batches.map(|batch| (shape::SO::UNION, batch)))
+                .all(|(op, batch)| {
+                    shape::rectangles(
+                        conn,
+                        op,
+                        SK::BOUNDING,
+                        xproto::ClipOrdering::UNSORTED,
+                        window,
+                        0,
+                        0,
+                        batch,
+                    )
+                    .is_ok()
+                })
+        }
+    };
+    sent && conn.flush().is_ok()
 }
 
 fn free_cached_pixmap(conn: &RustConnection, window: u32) {
@@ -467,6 +550,7 @@ mod tests {
         // the protocol guarantees.
         assert_eq!(rects_per_fill(65535), 32766);
         assert_eq!(rects_per_fill(4096), 2046);
+        assert_eq!(rects_per_shape(4096), 2046);
     }
 
     #[test]

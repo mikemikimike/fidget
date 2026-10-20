@@ -96,6 +96,11 @@ fn classify_event(
             Some(InputEvent::Button)
         }
         Event::XinputRawMotion(_) => Some(InputEvent::Motion),
+        // Unchecked requests (the overlay shapes) report their errors here.
+        Event::Error(error) => {
+            eprintln!("x11: request failed: {error:?}");
+            None
+        }
         _ => None,
     }
 }

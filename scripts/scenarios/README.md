@@ -190,6 +190,14 @@ macOS and X11 leaves share `poke-mid-climb-check.py`. Windows has the same
 check in PowerShell, with the same messages, so the one broken-fixture table
 in `crates/verify` covers all three.
 
+`no-compositor-clip` is X11 only. It starts its own 800x600 Xvfb display with
+xfwm4 compositing off and two idle BMOs, then starts and stops picom. Each
+capture must be under 1% black outside the sprites while both sprites show art
+(#1699). Under picom a stale clip looks the same as none, so it also asks the
+server for the overlay's bounding shape: shaped with no compositor and after
+picom stops, unshaped under picom. `no-compositor-clip.py` paints the root through a pixmap, because picom
+draws `_XROOTPMAP_ID` and not a solid root colour.
+
 `chat-close-pill-type` also has an `.x11.sh` leaf. It starts
 its own Xvfb display with xfwm4 and mousepad, so it leaves your display alone,
 and skips when one of those, `xdotool`, `xprop` or `inotifywait` is missing.
