@@ -2083,17 +2083,17 @@ impl Settings {
     /// Read the document at `path`. A missing or unparsable file is first-run
     /// defaults, so a typo in a hand-edit never costs the fidget its launch.
     pub fn load(path: &Path) -> Self {
-        match fs::read_to_string(path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Self::default(),
-            Err(_) => Self::default(),
-            Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
-        }
+        Self::load_launch(path).0
     }
 
     /// `load`, and whether this is a first launch: no file at `path` yet.
     /// Setup saves what this returns, so the check cannot land after that save.
     pub fn load_launch(path: &Path) -> (Self, bool) {
-        (Self::load(path), false)
+        match fs::read_to_string(path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (Self::default(), true),
+            Err(_) => (Self::default(), false),
+            Ok(text) => (serde_json::from_str(&text).unwrap_or_default(), false),
+        }
     }
 
     /// First launch may write under an app-data dir that does not exist yet.
