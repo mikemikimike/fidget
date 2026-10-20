@@ -2631,7 +2631,7 @@ mod tests {
     }
 
     /// #1730: only a missing file is a first launch. The data dir alone, a file
-    /// setup wrote, or garbage (a hand-edit) is a later one.
+    /// setup wrote, garbage (a hand-edit), or any other read error is a later one.
     #[test]
     fn only_a_missing_file_is_a_first_launch() {
         let dir = std::env::temp_dir().join(format!(
@@ -2659,6 +2659,15 @@ mod tests {
             Settings::load_launch(&path),
             (Settings::default(), false),
             "unparsable"
+        );
+
+        // A directory in the file's place fails the read, but not as NotFound.
+        fs::remove_file(&path).expect("remove");
+        fs::create_dir(&path).expect("a directory at the settings path");
+        assert_eq!(
+            Settings::load_launch(&path),
+            (Settings::default(), false),
+            "a read error other than NotFound"
         );
         let _ = fs::remove_dir_all(&dir);
     }
