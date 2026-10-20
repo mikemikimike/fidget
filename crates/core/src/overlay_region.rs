@@ -97,6 +97,36 @@ pub fn region_plan(trail: &[[i32; 4]], rects: &[OverlayRect]) -> RegionPlan {
     }
 }
 
+/// What an X11 overlay's bounding shape, which clips what it shows, needs.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ShapeChange<'a> {
+    /// Show only these `[left, top, right, bottom]` rects; none shows nothing.
+    Clip(&'a [RegionRect]),
+    /// Show the whole window: a compositor blends its transparent pixels.
+    Unclip,
+}
+
+/// One X11 overlay's bounding shape, as last sent. With no compositor the
+/// server fills transparent pixels with black, so the shape keeps only what
+/// the renderer draws.
+#[derive(Debug, Default)]
+pub struct BoundingShape {
+    clipped: Option<Vec<RegionRect>>,
+}
+
+impl BoundingShape {
+    /// The change this frame needs, if any. `drawn` is what the renderer
+    /// draws, and runs only when no compositor does.
+    pub fn next(
+        &mut self,
+        composited: bool,
+        drawn: impl FnOnce() -> Vec<RegionRect>,
+    ) -> Option<ShapeChange<'_>> {
+        let _ = (composited, drawn, &self.clipped);
+        None
+    }
+}
+
 /// The rects that take clicks, as `[x, y, width, height]`. X11's input shape
 /// gets only these: it clips clicks and not drawing, so a drawn-only rect in
 /// it would catch clicks meant for the window underneath.
@@ -315,5 +345,55 @@ mod tests {
                 assert!(got.contains(rect), "{name}: missing {rect:?} in {got:?}");
             }
         }
+    }
+    /// Frames of a walk: the sprite's ink one step further right each time.
+    fn walk() -> impl Iterator<Item = Vec<RegionRect>> {
+        (0..5).map(|step| vec![[100 + step * 4, 200, 180 + step * 4, 328]])
+    }
+
+    /// With a compositor the shape is never touched, and what is drawn is
+    /// never even worked out, however the sprite moves.
+    #[test]
+    fn a_composited_overlay_sends_no_shape_while_its_sprite_walks() {
+        let mut shape = BoundingShape::default();
+        for _ in walk() {
+            let change = shape.next(true, || panic!("drawn worked out under a compositor"));
+            assert_eq!(change, None);
+        }
+    }
+
+    /// #1699: with no compositor the overlay shows what is drawn and nothing
+    /// else, and an overlay drawing nothing shows nothing rather than black.
+    #[test]
+    fn without_a_compositor_the_shape_follows_what_is_drawn() {
+        let mut shape = BoundingShape::default();
+        for drawn in walk() {
+            let sent = drawn.clone();
+            assert_eq!(shape.next(false, || sent), Some(ShapeChange::Clip(&drawn)));
+        }
+        let last = walk().last().unwrap();
+        assert_eq!(
+            shape.next(false, || last),
+            None,
+            "a still sprite resends nothing"
+        );
+        assert_eq!(shape.next(false, Vec::new), Some(ShapeChange::Clip(&[])));
+    }
+
+    /// A compositor starting clears the clip once; stopping brings it back.
+    #[test]
+    fn the_shape_follows_the_compositor_both_ways() {
+        let drawn = vec![[100, 200, 180, 328]];
+        let mut shape = BoundingShape::default();
+        assert_eq!(
+            shape.next(false, || drawn.clone()),
+            Some(ShapeChange::Clip(&drawn))
+        );
+        assert_eq!(shape.next(true, || panic!()), Some(ShapeChange::Unclip));
+        assert_eq!(shape.next(true, || panic!()), None);
+        assert_eq!(
+            shape.next(false, || drawn.clone()),
+            Some(ShapeChange::Clip(&drawn))
+        );
     }
 }
