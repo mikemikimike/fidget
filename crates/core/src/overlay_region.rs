@@ -609,10 +609,10 @@ mod tests {
         );
     }
 
-    /// A display unplugged and plugged back in gets a new, unshaped window,
-    /// so its shape is sent again rather than taken as already there.
+    /// An unplugged display's overlay is only hidden and keeps its clip, so
+    /// a compositor that starts meanwhile must unclip it once it's back.
     #[test]
-    fn a_display_plugged_back_in_is_clipped_again() {
+    fn a_replugged_display_is_unclipped_when_a_compositor_started_meanwhile() {
         let drawn = vec![[100, 200, 180, 328]];
         let mut shapes = BoundingShapes::default();
         shapes.fit(2);
@@ -620,8 +620,21 @@ mod tests {
         shapes.fit(1);
         shapes.fit(2);
         assert_eq!(
-            shapes[1].change_for(false, || drawn.clone()),
-            Some(ShapeChange::Clip(&drawn))
+            shapes[1].change_for(true, || panic!()),
+            Some(ShapeChange::Unclip)
         );
+    }
+
+    /// The replugged overlay still has its clip, so unchanged art with no
+    /// compositor sends nothing.
+    #[test]
+    fn a_replugged_display_with_unchanged_art_sends_nothing() {
+        let drawn = vec![[100, 200, 180, 328]];
+        let mut shapes = BoundingShapes::default();
+        shapes.fit(2);
+        shapes[1].change_for(false, || drawn.clone());
+        shapes.fit(1);
+        shapes.fit(2);
+        assert_eq!(shapes[1].change_for(false, || drawn.clone()), None);
     }
 }
