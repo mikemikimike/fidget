@@ -37,7 +37,7 @@ doubled tint or a lost blur fails. `pixel-stats.swift` reads both numbers.
 
 `chat-level.sh` takes the same two binaries. It checks that Chat stays at
 layer 0 while focused (a Perch under the overlay), and that minimizing Chat,
-focused or not, logs the change that lets the quick-message pill back.
+focused or not, logs the change.
 
 `chat-perch.sh` checks all four macOS acceptance cases from #1502: focused
 Chat stays at layer 0, the Character perches on its ledge, the composer accepts

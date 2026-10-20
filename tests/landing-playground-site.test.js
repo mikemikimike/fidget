@@ -265,7 +265,7 @@ test("the playground reads as Oded asked: its title and gestures, two windows th
   assert.ok(!play.includes("cues.html"), "the playground no longer links Fidget Cues");
   const gestures = [...play.matchAll(/<li>(.*?)<\/li>/g)].map((m) => m[1].replace(/<\/?b>/g, ""));
   assert.deepEqual(gestures, ["Left-click to poke", "Click and hold to drag it around and drop it",
-    "Hover on Fidget to get the quick-message pill and type something", "Double-click to summon chat"]);
+    "Hover on Fidget to get the quick-message pill and type something, even while Chat is open", "Double-click to summon chat"]);
   const windows = [...play.matchAll(/data-win="(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual(windows, ["dark", "light", "chat"]);
   assert.equal(play.match(/<span class="drag-me">drag me<\/span>/g).length, 3, "every window's bar says drag me");

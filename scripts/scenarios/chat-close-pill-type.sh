@@ -223,7 +223,7 @@ open_pill after-chat
 echo "ok: after-chat: a single cursor move opened the pill"
 type_into_pill two after-chat
 
-# 4. TextEdit in front when the pill opens. A minimized Chat lets the pill back.
+# 4. TextEdit in front when the pill opens, with Chat minimized behind it.
 sprite_center
 wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is open$' "$tools/click-cursor" "$cx" "$cy" 2 ||
   fail "Chat did not reopen; see $log"

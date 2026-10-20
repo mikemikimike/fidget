@@ -816,7 +816,6 @@ async function start() {
         // `latest` rather than `sprite` for the two answers that belong to the
         // desktop: whether the Character is on screen, and whether it may be heard.
         view.cues.event(view.latest);
-        view.quickMachine.setChatOpen(sprite.chatting);
         // The pill goes where the bubble goes, carrying the Shell's draft.
         const owned = view.quickMachine.owner;
         view.quickMachine.setOwner(sprite.bubble, sprite.qm ?? null);

@@ -159,7 +159,7 @@ test("a Summon keeps the composer down until the pointer leaves", () => {
     qm.enterSprite();
     advance(HOVER_DELAY_MS);
   }
-  assert.equal(qm.visible, false, "Chat is up, so the pill stays down");
+  assert.equal(qm.visible, false, "the Summon holds it down while the pointer stays");
   assert.equal(qm.takeFocus(), false, "the field never claims the caret");
 
   qm.leaveSprite();
@@ -470,66 +470,25 @@ test("a send keeps the composer down until the pointer leaves the Character", ()
   assert.equal(qm.visible, true, "leaving and hovering again opens it");
 });
 
-test("no pill opens while Chat is up, and a fresh hover opens it once Chat is gone", () => {
-  const { qm, advance } = harness();
+test("a Summon from an open pill keeps it down until the pointer leaves", () => {
+  const { qm, advance } = shown();
 
-  qm.setChatOpen(true);
+  qm.summon();
+  assert.equal(qm.visible, false, "the Summon puts the pill away");
+
   for (let tick = 0; tick < 10; tick += 1) {
     qm.enterSprite();
     advance(HOVER_DELAY_MS);
   }
-  assert.equal(qm.visible, false, "a hover over the pet with Chat open is not a quick message");
-  assert.equal(qm.takeFocus(), false, "the pill never claims the caret from Chat");
+  assert.equal(qm.visible, false, "the pointer never left, so the pill stays down");
+  assert.equal(qm.takeFocus(), false, "the field does not take the caret back");
 
-  qm.setChatOpen(false);
   qm.leaveSprite();
   qm.enterSprite();
-  advance(HOVER_DELAY_MS);
-  assert.equal(qm.visible, true);
-});
-
-// Summon latches `yielded` until leaveSprite. After Chat steals focus, macOS
-// can keep :hover without pointerleave, so leave never runs. Closing Chat must
-// still let the stuck hover open the pill (#1489).
-test("closing Chat clears the Summon hold under a stuck hover", () => {
-  const { qm, advance } = harness();
-
-  qm.enterSprite();
-  advance(500);
-  qm.summon();
-  qm.setChatOpen(true);
-  for (let tick = 0; tick < 3; tick += 1) {
-    qm.enterSprite();
-    advance(HOVER_DELAY_MS);
-  }
-  assert.equal(qm.visible, false, "Chat is up, so the pill stays down");
-
-  qm.setChatOpen(false);
-  qm.enterSprite();
-  advance(HOVER_DELAY_MS);
-  assert.equal(qm.visible, true, "Chat is gone, so the stuck hover can open the pill");
-});
-
-test("a dwell under way when Chat opens does not open the pill", () => {
-  const { qm, advance } = harness();
-
-  qm.enterSprite();
-  advance(HOVER_DELAY_MS - 100);
-  qm.setChatOpen(true);
-  advance(100);
-  assert.equal(qm.visible, false);
-});
-
-test("Chat opening keeps a draft in an open pill", () => {
-  const { qm, advance } = shown();
-  qm.setText("half a thought");
-
-  qm.setChatOpen(true);
-  qm.leaveSprite();
-  qm.leavePill();
-  advance(10_000);
-  assert.equal(qm.visible, true, "typing in progress is not thrown away");
-  assert.equal(qm.text, "half a thought");
+  advance(HOVER_DELAY_MS - 1);
+  assert.equal(qm.visible, false, "a fresh hover still waits out the dwell");
+  advance(1);
+  assert.equal(qm.visible, true, "leaving and hovering again opens it");
 });
 
 test("a bubble takes an idle pill the pointer has left", () => {

@@ -106,8 +106,6 @@ export function createQuickMessage({
   // The overlay re-reports hover every frame. Summon and Send both leave the
   // pointer on the Character, and that report would open the pill again.
   let yielded = false;
-  // Chat is the composer while it is up. A level, told by every frame.
-  let chatOpen = false;
   let bubbleUp = false;
   let ready = available;
   // Whether this overlay owns the Instance's bubble, as the last placement said.
@@ -219,10 +217,10 @@ export function createQuickMessage({
       if (disposed) return;
       overSprite = true;
       cancelAutoHide();
-      if (yielded || chatOpen || visible || hoverTimer !== null) return;
+      if (yielded || visible || hoverTimer !== null) return;
       hoverTimer = schedule(() => {
         hoverTimer = null;
-        if (disposed || !overSprite || chatOpen) return;
+        if (disposed || !overSprite) return;
         show();
       }, hoverDelay());
     },
@@ -240,20 +238,6 @@ export function createQuickMessage({
     leavePill() {
       overPill = false;
       startAutoHideIfNeeded();
-    },
-    // A pill already up stays: it may hold a draft, and auto-hide takes an empty one.
-    setChatOpen(open) {
-      const next = Boolean(open);
-      if (next === chatOpen) return;
-      chatOpen = next;
-      if (chatOpen) {
-        cancelHover();
-        return;
-      }
-      // Summon/Send latch `yielded` until leaveSprite. Chat stealing focus on
-      // macOS can leave :hover stuck with no pointerleave, so that leave never
-      // runs. Drop the hold when Chat closes so the next enterSprite can arm.
-      yielded = false;
     },
     setBubble(up) {
       if (up === bubbleUp) return;

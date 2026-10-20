@@ -131,15 +131,6 @@ fn draws_in(owner: &Owner, label: &str) -> bool {
     }
 }
 
-/// Whether `id` has a Chat window the user has not minimized.
-fn chat_is_up(app: &tauri::AppHandle, id: &str) -> bool {
-    let label = chat_label(id);
-    app.get_webview_window(&label).is_some()
-        && !app
-            .try_state::<MinimizedChats>()
-            .is_some_and(|chats| chats.hides(&label))
-}
-
 /// Deliver `chat-opening` to Chat and to each open overlay, in index order.
 /// `emit_to` a Chat label does not reach the overlay, and Chat may not be
 /// open when the harness settles. The first missing overlay ends the scan.
@@ -309,8 +300,8 @@ fn route_attach_notice(
 
 struct PendingAsks(Mutex<Pending>);
 
-/// Chats the user minimized, by label. Each Chat's window events and, on macOS,
-/// its miniaturize notifications keep it, so the frame loop never asks a window.
+/// Chats the user minimized, by label. Kept so a minimize and its restore each
+/// log once, which the macOS scenario counts.
 #[derive(Default)]
 struct MinimizedChats(Mutex<HashSet<String>>);
 
@@ -348,10 +339,6 @@ impl MinimizedChats {
                 eprintln!("chat: {label} is not minimized");
             }
         }
-    }
-
-    fn hides(&self, label: &str) -> bool {
-        self.0.lock().is_ok_and(|hidden| hidden.contains(label))
     }
 }
 
@@ -572,9 +559,6 @@ struct SpritePlacement<'a> {
     /// On this tick only: a touch was dropped because a question waits on the
     /// user (ADR-0016), so the bubble points at Chat. False off the bubble owner.
     asking: bool,
-    /// Whether this Instance has a Chat window that is not minimized. Sent to
-    /// every overlay, because the pill that must stay down can open on any of them.
-    chatting: bool,
     /// The cursor hovers this Instance, by `AlphaMask::hovers`: :hover misses
     /// it once Chat has closed (#1565). Bubble owner only, like the pill.
     hovered: bool,
@@ -622,7 +606,6 @@ impl<'a> SpritePlacement<'a> {
             dialogue: instance.dialogue.as_ref().filter(|_| bubble).cloned(),
             thinking: bubble && instance.thinking,
             asking: bubble && instance.asking,
-            chatting: instance.chatting,
             hovered: bubble && instance.hovered,
             bubble,
             cue: instance.cue.filter(|_| bubble).map(Cue::name),
@@ -705,7 +688,6 @@ struct Placed {
     dialogue: Option<String>,
     thinking: bool,
     asking: bool,
-    chatting: bool,
     hovered: bool,
     cue: Option<Cue>,
     /// Where this tick's landing touched, in the space every display shares.
@@ -5606,35 +5588,6 @@ mod tests {
         );
     }
 
-    /// A minimized Chat lets the pill back. No event says "minimized": blur
-    /// carries it on macOS, a resize to nothing on Windows.
-    #[test]
-    fn a_minimized_chat_stops_hiding_the_pill_until_it_comes_back() {
-        let chats = MinimizedChats::default();
-        chats.note("chat-a", &tauri::WindowEvent::Focused(false), || true);
-        assert!(chats.hides("chat-a"));
-        assert!(!chats.hides("chat-b"), "only the minimized Chat");
-        chats.note("chat-a", &tauri::WindowEvent::Focused(true), || false);
-        assert!(!chats.hides("chat-a"), "unminimized");
-
-        let gone = tauri::WindowEvent::Resized(tauri::PhysicalSize::new(0, 0));
-        chats.note("chat-a", &gone, || true);
-        assert!(chats.hides("chat-a"));
-        chats.note("chat-a", &tauri::WindowEvent::Destroyed, || true);
-        assert!(!chats.hides("chat-a"), "a reopened Chat starts open");
-    }
-
-    /// A Chat minimized behind another app gets no window event. AppKit's
-    /// miniaturize notification sets it directly.
-    #[test]
-    fn a_chat_minimized_without_focus_lets_the_pill_back() {
-        let chats = MinimizedChats::default();
-        chats.set("chat-a", true);
-        assert!(chats.hides("chat-a"));
-        chats.set("chat-a", false);
-        assert!(!chats.hides("chat-a"), "deminiaturized");
-    }
-
     fn owners() -> (Owner, Owner) {
         (
             Owner::Instance("buddy-a".to_string()),
@@ -6865,7 +6818,6 @@ mod tests {
             dialogue: Some("Yare yare daze.".to_string()),
             thinking: true,
             asking: true,
-            chatting: true,
             hovered: true,
             cue: Some(Cue::Drop),
             contact: Some(fidget_core::engine::RippleContact {
@@ -6914,10 +6866,6 @@ mod tests {
             ),
             (None, None, None),
             "and its ripple is drawn once"
-        );
-        assert!(
-            owner.chatting && elsewhere.chatting,
-            "the pill can open on any overlay, so each one hears that Chat is up"
         );
         assert!(
             owner.hovered,
@@ -6971,7 +6919,6 @@ mod tests {
             dialogue: None,
             thinking: false,
             asking: false,
-            chatting: false,
             hovered: false,
             cue: None,
             contact: None,
