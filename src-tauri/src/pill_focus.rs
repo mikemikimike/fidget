@@ -44,6 +44,13 @@ impl OpenPills {
             .map(|(label, _)| label.clone())
             .collect()
     }
+
+    /// Whether any overlay in this process has an open pill. One remembered
+    /// app serves every overlay, so the last pill on any display is the one
+    /// that hands the keyboard back.
+    pub fn any_open(&self) -> bool {
+        self.0.values().any(|pills| !pills.is_empty())
+    }
 }
 
 /// What to do with the keyboard when an overlay's last pill closes.
@@ -197,5 +204,19 @@ mod tests {
             pills.note("overlay-1", "a", true),
             flips(&[("overlay-1", true)])
         );
+    }
+
+    #[test]
+    fn pills_stay_open_somewhere_while_a_second_display_owns_one() {
+        let mut pills = OpenPills::default();
+        assert!(!pills.any_open());
+        pills.note("overlay-0", "a", true);
+        pills.note("overlay-1", "b", true);
+        // The first display's pill closes while the other display's is open:
+        // nothing has handed the keyboard back yet.
+        pills.note("overlay-0", "a", false);
+        assert!(pills.any_open());
+        pills.note("overlay-1", "b", false);
+        assert!(!pills.any_open(), "the last close is what hands it back");
     }
 }

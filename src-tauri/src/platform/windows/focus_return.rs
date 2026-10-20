@@ -53,11 +53,23 @@ fn skipped(hwnd: HWND, own_pid: u32) -> bool {
 
 /// The overlay's last pill closed: give the keyboard back. Main thread.
 pub fn hand_back_keyboard(overlay: HWND) -> Result<(), String> {
-    let previous = FOREGROUND_BEFORE_PILL.swap(0, Ordering::Relaxed) as HWND;
     // SAFETY: Win32 queries and SetForegroundWindow on window handles;
     // IsWindow vets the remembered one first.
     let (decision, target) = unsafe {
         let holding = GetForegroundWindow() == overlay;
+        // Only the hand-back spends the remembered window. A Stay (the user
+        // moved on while the last pill closed) leaves it for the next pill to
+        // hand to; an unconditional drain stepped aside to nothing on two
+        // displays. The gate in `overlay_report_qm_draft` keeps a mid-session
+        // close from reaching here, but it only sees reports that arrived: a
+        // close that slips past its report-order re-check still lands here,
+        // and keeping the pid is what lets the eventual last close restore
+        // instead of step aside.
+        let previous = if holding {
+            FOREGROUND_BEFORE_PILL.swap(0, Ordering::Relaxed)
+        } else {
+            FOREGROUND_BEFORE_PILL.load(Ordering::Relaxed)
+        } as HWND;
         let alive = !previous.is_null() && IsWindow(previous) != 0;
         let decision = hand_back(holding, alive);
         let target = match decision {
