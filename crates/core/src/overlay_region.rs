@@ -151,8 +151,21 @@ pub fn drawn_region(
     instances: &[DrawnInstance<'_>],
     rects: &[OverlayRect],
 ) -> Vec<RegionRect> {
-    let _ = (visible, instances, rects);
-    Vec::new()
+    if !visible {
+        return Vec::new();
+    }
+    let art: Vec<[i32; 4]> = instances
+        .iter()
+        .flat_map(|instance| instance.trail.clip_rects(instance.offset))
+        .collect();
+    let rects = follow_placements(rects, |id| {
+        let instance = instances.iter().find(|instance| instance.id == id)?;
+        Some(instance.trail.placements(instance.offset).to_vec())
+    });
+    match region_plan(&art, &rects) {
+        RegionPlan::Clear => Vec::new(),
+        RegionPlan::Apply(region) => region,
+    }
 }
 
 /// The rects that take clicks, as `[x, y, width, height]`. X11's input shape

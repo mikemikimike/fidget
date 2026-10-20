@@ -316,8 +316,10 @@ impl DrawTrail {
         mirrored: bool,
         scale: i32,
     ) -> Self {
-        let _ = held;
-        Self::start(at, mask, mirrored, scale)
+        match held {
+            Some(trail) => trail.advance(at, mask, mirrored, scale),
+            None => Self::start(at, mask, mirrored, scale),
+        }
     }
 
     /// The trail one placement later.

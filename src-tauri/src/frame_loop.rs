@@ -2209,10 +2209,8 @@ pub(crate) fn run_frame_loop(
                     let at = (instance.sprite.x, instance.sprite.y);
                     let (mask, mirrored, scale) =
                         (&instance.mask, instance.mirror < 0, instance.sprite.scale);
-                    let trail = match held.remove(&instance.id) {
-                        Some(trail) => trail.advance(at, mask, mirrored, scale),
-                        None => DrawTrail::start(at, mask, mirrored, scale),
-                    };
+                    let trail =
+                        DrawTrail::next(held.remove(&instance.id), at, mask, mirrored, scale);
                     trails.insert(instance.id.clone(), trail);
                 }
             }
@@ -2319,31 +2317,25 @@ pub(crate) fn run_frame_loop(
                 #[cfg(all(unix, not(target_os = "macos")))]
                 {
                     let drawn = || {
-                        if !presence.visible {
-                            return Vec::new();
-                        }
-                        let offset = |instance: &Placed| {
-                            let local = instance.sprite.in_overlay(*display);
-                            (local.x - instance.sprite.x, local.y - instance.sprite.y)
-                        };
-                        let art: Vec<[i32; 4]> = placed
+                        let instances: Vec<_> = placed
                             .iter()
                             .filter_map(|instance| {
-                                Some(trails.get(&instance.id)?.clip_rects(offset(instance)))
+                                let local = instance.sprite.in_overlay(*display);
+                                Some(fidget_core::overlay_region::DrawnInstance {
+                                    id: &instance.id,
+                                    trail: trails.get(&instance.id)?,
+                                    offset: (
+                                        local.x - instance.sprite.x,
+                                        local.y - instance.sprite.y,
+                                    ),
+                                })
                             })
-                            .flatten()
                             .collect();
-                        let rects = fidget_core::overlay_region::follow_placements(
+                        fidget_core::overlay_region::drawn_region(
+                            presence.visible,
+                            &instances,
                             &platform::overlay_rects_for(&label),
-                            |id| {
-                                let instance = placed.iter().find(|instance| instance.id == id)?;
-                                Some(trails.get(id)?.placements(offset(instance)).to_vec())
-                            },
-                        );
-                        match fidget_core::overlay_region::region_plan(&art, &rects) {
-                            fidget_core::overlay_region::RegionPlan::Clear => Vec::new(),
-                            fidget_core::overlay_region::RegionPlan::Apply(region) => region,
-                        }
+                        )
                     };
                     let sent = match bounding[index].next(composited, drawn) {
                         Some(change) => platform::change_bounding_shape(&label, change),
