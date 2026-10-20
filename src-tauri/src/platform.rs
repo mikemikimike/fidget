@@ -1414,6 +1414,13 @@ fn exact_dock() -> Option<(Rect, DockSource)> {
 mod tests {
     use super::*;
 
+    /// Off X11 the window manager always composites, so nothing changes there.
+    #[cfg(any(target_os = "macos", not(unix)))]
+    #[test]
+    fn windows_and_macos_always_blend_a_see_through_window() {
+        assert!(see_through_blends());
+    }
+
     /// The frame loop copies this slot into each Instance every tick, so a
     /// draft reaches only its own Instance and a cleared one is gone.
     #[test]

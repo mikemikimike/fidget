@@ -2498,9 +2498,11 @@ fn build_chat(
     Ok(window)
 }
 
-/// Whether Chat and Settings are built see-through. Red stub: main's rule.
-fn see_through(_blends: bool) -> bool {
-    true
+/// Chat and Settings are see-through only when a compositor blends them. As of
+/// 2026-10, WebKitGTK 2.54's non-DMABuf renderer leaves a see-through page's
+/// undamaged area transparent on repaint, which X11 shows black uncomposited.
+fn see_through(blends: bool) -> bool {
+    blends
 }
 
 /// A new Chat window's inner size, in points.
