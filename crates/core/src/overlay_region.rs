@@ -4,6 +4,8 @@
 
 use serde::Deserialize;
 
+use crate::overlay::DrawTrail;
+
 /// Rectangle in overlay coordinates: `[left, top, right, bottom]`.
 pub type RegionRect = [i32; 4];
 
@@ -131,6 +133,26 @@ impl BoundingShape {
         }
         Some(ShapeChange::Clip(self.clipped.insert(drawn)))
     }
+}
+
+/// One Character as an overlay sees it: its draw trail, and the shift from
+/// shared space to that overlay's coordinates.
+pub struct DrawnInstance<'a> {
+    pub id: &'a str,
+    pub trail: &'a DrawTrail,
+    pub offset: (i32, i32),
+}
+
+/// What an overlay draws: every Character's swept art and every overlay rect,
+/// each following rect stretched over its sprite's placements. Nothing while
+/// the Characters are hidden.
+pub fn drawn_region(
+    visible: bool,
+    instances: &[DrawnInstance<'_>],
+    rects: &[OverlayRect],
+) -> Vec<RegionRect> {
+    let _ = (visible, instances, rects);
+    Vec::new()
 }
 
 /// The rects that take clicks, as `[x, y, width, height]`. X11's input shape
@@ -352,6 +374,129 @@ mod tests {
             }
         }
     }
+    /// A 4x4 block of ink; scale 1.
+    fn block() -> crate::overlay::AlphaMask {
+        crate::overlay::AlphaMask::from_rows(&["####", "####", "####", "####"])
+    }
+
+    /// The trail of a Character placed at each of `steps` in turn.
+    fn trail_through(steps: &[(i32, i32)]) -> DrawTrail {
+        let mut trail = None;
+        for &at in steps {
+            trail = Some(DrawTrail::next(trail, at, &block(), false, 1));
+        }
+        trail.unwrap()
+    }
+
+    fn shows(region: &[RegionRect], (x, y): (i32, i32)) -> bool {
+        region
+            .iter()
+            .any(|&[left, top, right, bottom]| x >= left && x < right && y >= top && y < bottom)
+    }
+
+    /// #1699: the shape hides whatever it leaves out, so it holds every
+    /// Character on the overlay, not only the first.
+    #[test]
+    fn every_character_on_the_overlay_is_drawn() {
+        let (one, two) = (trail_through(&[(100, 100)]), trail_through(&[(400, 100)]));
+        let instances = [
+            DrawnInstance {
+                id: "one",
+                trail: &one,
+                offset: (0, 0),
+            },
+            DrawnInstance {
+                id: "two",
+                trail: &two,
+                offset: (0, 0),
+            },
+        ];
+        let region = drawn_region(true, &instances, &[]);
+        assert!(shows(&region, (101, 101)), "first Character: {region:?}");
+        assert!(shows(&region, (401, 101)), "second Character: {region:?}");
+        assert!(
+            !shows(&region, (250, 101)),
+            "nothing between them: {region:?}"
+        );
+    }
+
+    /// A moved Character is still shown where it was: the renderer may not
+    /// have drawn the new spot yet when the shape lands.
+    #[test]
+    fn a_moved_character_is_drawn_where_it_was_too() {
+        let moved = trail_through(&[(100, 100), (200, 100)]);
+        let instances = [DrawnInstance {
+            id: "one",
+            trail: &moved,
+            offset: (0, 0),
+        }];
+        let region = drawn_region(true, &instances, &[]);
+        assert!(shows(&region, (101, 101)), "where it was: {region:?}");
+        assert!(shows(&region, (201, 101)), "where it is: {region:?}");
+    }
+
+    /// A bubble is drawn too, and rides with its sprite: measured with the
+    /// sprite at 100, it is also shown 10 px right once the sprite moves there.
+    #[test]
+    fn a_bubble_is_drawn_and_follows_its_sprite() {
+        let moved = trail_through(&[(100, 100), (110, 100)]);
+        let instances = [DrawnInstance {
+            id: "one",
+            trail: &moved,
+            offset: (0, 0),
+        }];
+        let bubble = OverlayRect {
+            rect: [100, 40, 40, 20],
+            clickable: false,
+            follows: Some(Follows {
+                instance: "one".into(),
+                at: [100, 100],
+            }),
+        };
+        let region = drawn_region(true, &instances, &[bubble]);
+        assert!(
+            shows(&region, (101, 41)),
+            "where it was measured: {region:?}"
+        );
+        assert!(
+            shows(&region, (145, 41)),
+            "where its sprite took it: {region:?}"
+        );
+    }
+
+    /// Each Character is shifted into the overlay's own coordinates.
+    #[test]
+    fn a_character_is_drawn_in_overlay_coordinates() {
+        let trail = trail_through(&[(2020, 100)]);
+        let instances = [DrawnInstance {
+            id: "one",
+            trail: &trail,
+            offset: (-1920, 0),
+        }];
+        let region = drawn_region(true, &instances, &[]);
+        assert!(shows(&region, (101, 101)), "{region:?}");
+    }
+
+    /// Hidden Characters draw nothing, bubble included.
+    #[test]
+    fn hidden_characters_draw_nothing() {
+        let trail = trail_through(&[(100, 100)]);
+        let instances = [DrawnInstance {
+            id: "one",
+            trail: &trail,
+            offset: (0, 0),
+        }];
+        let bubble = OverlayRect {
+            rect: [100, 40, 40, 20],
+            clickable: false,
+            follows: None,
+        };
+        assert_eq!(
+            drawn_region(false, &instances, &[bubble]),
+            Vec::<RegionRect>::new()
+        );
+    }
+
     /// Frames of a walk: the sprite's ink one step further right each time.
     fn walk() -> impl Iterator<Item = Vec<RegionRect>> {
         (0..5).map(|step| vec![[100 + step * 4, 200, 180 + step * 4, 328]])
