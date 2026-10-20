@@ -106,8 +106,7 @@ ENGINE = {"engine.rs": ROOT / "crates" / "core" / "src" / "engine.rs",
 CUES = ROOT / "src" / "main.css"
 CHAT_UI = ROOT / "src" / "chat-ui.css"
 CHAT_SHARED = ROOT / "src" / "chat-shared.css"
-# The Chat UI rules the playground's chat mock wears: its empty state over the
-# log, and the composer, active and focused.
+# The Chat UI rules the playground's chat mock wears.
 CHAT_RULES = (".log", ".empty", ".empty > div", ".empty p", ".empty p b", ".composer", ".composer textarea",
               ".composer textarea::placeholder", ".composer textarea:disabled", ".composer button",
               ".composer button:disabled", ".composer textarea:focus-visible", ".composer button:focus-visible")
@@ -142,11 +141,6 @@ _spec = importlib.util.spec_from_file_location("gallery", ROOT / "scripts" / "ma
 gallery = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gallery)
 Malformed = gallery.Malformed
-
-
-# --------------------------------------------------------------------------
-# README.md
-# --------------------------------------------------------------------------
 
 
 def sections(text):
@@ -419,11 +413,6 @@ def how_slots(how, shell):
     return slots
 
 
-# --------------------------------------------------------------------------
-# characters/
-# --------------------------------------------------------------------------
-
-
 def loop(package, declared, name, default_fps):
     animation = declared.get("animations", {}).get(name)
     if not isinstance(animation, dict) or not animation.get("frames"):
@@ -488,11 +477,6 @@ def play_tiles(characters_root, default_fps):
         figures.append(f'<figure><div class="art"><img src="{first}" alt="{html.escape(declared.get("name") or name)}"'
                        f'{pixel}></div><figcaption>{html.escape(title)}</figcaption></figure>')
     return "\n".join(figures)
-
-
-# --------------------------------------------------------------------------
-# The Engine
-# --------------------------------------------------------------------------
 
 
 def read_engine(sources=ENGINE):
@@ -566,11 +550,6 @@ def chat_css(css, shared, wanted=CHAT_RULES):
 
 def play_data(page):
     return json.loads(PLAY_DATA.search(page).group(1))
-
-
-# --------------------------------------------------------------------------
-# The page
-# --------------------------------------------------------------------------
 
 
 def sprite(loop_, alt, extra=""):
@@ -731,11 +710,6 @@ def render(readme_text, characters_root, rust_source, shell, release=None, engin
     if left:
         raise Malformed(f"{SHELL.name} holds {left.group(0)}, which this script does not fill")
     return page
-
-
-# --------------------------------------------------------------------------
-# The check
-# --------------------------------------------------------------------------
 
 
 def self_check():
