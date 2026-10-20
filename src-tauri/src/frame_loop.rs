@@ -2200,9 +2200,7 @@ pub(crate) fn run_frame_loop(
             let composited = false;
             #[cfg(not(target_os = "macos"))]
             if composited {
-                if !trails.is_empty() {
-                    trails.clear();
-                }
+                trails.clear();
             } else {
                 let mut held = std::mem::take(&mut trails);
                 for instance in &placed {
@@ -2337,11 +2335,10 @@ pub(crate) fn run_frame_loop(
                             &platform::overlay_rects_for(&label),
                         )
                     };
-                    let sent = match bounding[index].change_for(composited, drawn) {
-                        Some(change) => platform::change_bounding_shape(&label, change),
-                        None => true,
-                    };
-                    if !sent {
+                    if !bounding[index]
+                        .change_for(composited, drawn)
+                        .is_none_or(|change| platform::change_bounding_shape(&label, change))
+                    {
                         bounding[index] = Default::default();
                     }
                 }
