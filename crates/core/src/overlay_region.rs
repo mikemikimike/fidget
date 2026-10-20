@@ -135,6 +135,29 @@ impl BoundingShape {
     }
 }
 
+/// Every overlay's bounding shape, one per display.
+#[derive(Debug, Default)]
+pub struct BoundingShapes(Vec<BoundingShape>);
+
+impl BoundingShapes {
+    /// One shape per overlay. A display added after launch starts unshaped,
+    /// and a removed one's shape is dropped with it.
+    pub fn fit(&mut self, _overlays: usize) {}
+}
+
+impl std::ops::Index<usize> for BoundingShapes {
+    type Output = BoundingShape;
+    fn index(&self, overlay: usize) -> &BoundingShape {
+        &self.0[overlay]
+    }
+}
+
+impl std::ops::IndexMut<usize> for BoundingShapes {
+    fn index_mut(&mut self, overlay: usize) -> &mut BoundingShape {
+        &mut self.0[overlay]
+    }
+}
+
 /// One Character as an overlay sees it: its draw trail, and the shift from
 /// shared space to that overlay's coordinates.
 pub struct DrawnInstance<'a> {
@@ -566,6 +589,36 @@ mod tests {
         assert_eq!(shape.change_for(true, || panic!()), None);
         assert_eq!(
             shape.change_for(false, || drawn.clone()),
+            Some(ShapeChange::Clip(&drawn))
+        );
+    }
+
+    /// A display plugged in after launch gets an overlay, and that overlay
+    /// is clipped on its first frame.
+    #[test]
+    fn a_display_added_after_launch_is_clipped() {
+        let drawn = vec![[100, 200, 180, 328]];
+        let mut shapes = BoundingShapes::default();
+        shapes.fit(1);
+        shapes.fit(2);
+        assert_eq!(
+            shapes[1].change_for(false, || drawn.clone()),
+            Some(ShapeChange::Clip(&drawn))
+        );
+    }
+
+    /// A display unplugged and plugged back in gets a new, unshaped window,
+    /// so its shape is sent again rather than taken as already there.
+    #[test]
+    fn a_display_plugged_back_in_is_clipped_again() {
+        let drawn = vec![[100, 200, 180, 328]];
+        let mut shapes = BoundingShapes::default();
+        shapes.fit(2);
+        shapes[1].change_for(false, || drawn.clone());
+        shapes.fit(1);
+        shapes.fit(2);
+        assert_eq!(
+            shapes[1].change_for(false, || drawn.clone()),
             Some(ShapeChange::Clip(&drawn))
         );
     }
