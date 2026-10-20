@@ -140,10 +140,12 @@ impl BoundingShape {
 pub struct BoundingShapes(Vec<BoundingShape>);
 
 impl BoundingShapes {
-    /// One shape per overlay. A display added after launch starts unshaped,
-    /// and a removed one's shape is dropped with it.
+    /// Grows to cover every overlay; a new one starts unshaped. Never shrinks:
+    /// a lost display's overlay is only hidden and keeps its X shape.
     pub fn fit(&mut self, overlays: usize) {
-        self.0.resize_with(overlays, Default::default);
+        if overlays > self.0.len() {
+            self.0.resize_with(overlays, Default::default);
+        }
     }
 }
 
