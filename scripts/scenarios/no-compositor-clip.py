@@ -7,6 +7,10 @@ root RRGGBB        paint the root that colour through a pixmap named in
 window RRGGBB W H  map a plain window of that colour and size at 0,0, print
                    its id, and stay until killed.
 cm                 exit 0 when a compositor owns _NET_WM_CM_S0.
+shape shaped|unshaped
+                   print whether each viewable "Fidget" overlay window has a
+                   bounding shape (XShapeQueryExtents), then exit 0 when
+                   there is one and every one is as asked.
 shot OUT RRGGBB X,Y,W,H...
                    capture the root to OUT and print the share of black pixels
                    overall and outside the sprite boxes, and of each box that
@@ -92,6 +96,59 @@ def composited():
     return x.XGetSelectionOwner(d, x.XInternAtom(d, b"_NET_WM_CM_S0", 0)) != 0
 
 
+def shapes():
+    x, d = x11()
+    ext = ctypes.CDLL("libXext.so.6")
+    c = ctypes
+    ulong_p = c.POINTER(c.c_ulong)
+    for name, res, args in [
+        ("XDefaultRootWindow", c.c_ulong, [c.c_void_p]),
+        ("XQueryTree", c.c_int, [c.c_void_p, c.c_ulong, ulong_p, ulong_p, c.POINTER(ulong_p), c.POINTER(c.c_uint)]),
+        ("XFetchName", c.c_int, [c.c_void_p, c.c_ulong, c.POINTER(c.c_char_p)]),
+        ("XGetWindowAttributes", c.c_int, [c.c_void_p, c.c_ulong, c.POINTER(WindowAttributes)]),
+        ("XFree", c.c_int, [c.c_void_p]),
+    ]:
+        getattr(x, name).restype, getattr(x, name).argtypes = res, args
+    ext.XShapeQueryExtents.restype = c.c_int
+    # Bounding then clip: shaped, x, y, width, height.
+    ext.XShapeQueryExtents.argtypes = [c.c_void_p, c.c_ulong] + ([c.POINTER(c.c_int)] * 3 + [c.POINTER(c.c_uint)] * 2) * 2
+    attributes = WindowAttributes()
+    found = []
+    stack = [x.XDefaultRootWindow(d)]
+    while stack:
+        w = stack.pop()
+        root, parent, children, count = c.c_ulong(), c.c_ulong(), ulong_p(), c.c_uint()
+        if x.XQueryTree(d, w, c.byref(root), c.byref(parent), c.byref(children), c.byref(count)):
+            stack.extend(children[i] for i in range(count.value))
+            if children:
+                x.XFree(children)
+        name = c.c_char_p()
+        if not x.XFetchName(d, w, c.byref(name)):
+            continue
+        is_overlay = name.value == b"Fidget"
+        x.XFree(name)
+        if not is_overlay or not x.XGetWindowAttributes(d, w, c.byref(attributes)) or attributes.map_state != 2:  # IsViewable
+            continue
+        if attributes.width <= 1:  # GTK's 1x1 client leader shares the title.
+            continue
+        shaped, clip_shaped = c.c_int(), c.c_int()
+        i, u = c.c_int(), c.c_uint()
+        ext.XShapeQueryExtents(d, w, c.byref(shaped), c.byref(i), c.byref(i), c.byref(u), c.byref(u), c.byref(clip_shaped), c.byref(i), c.byref(i), c.byref(u), c.byref(u))
+        found.append((w, bool(shaped.value)))
+    return found
+
+
+class WindowAttributes(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_int) for name in ("x", "y", "width", "height", "border_width", "depth")] + [
+        ("visual", ctypes.c_void_p), ("root", ctypes.c_ulong),
+        ("class_", ctypes.c_int), ("bit_gravity", ctypes.c_int), ("win_gravity", ctypes.c_int), ("backing_store", ctypes.c_int),
+        ("backing_planes", ctypes.c_ulong), ("backing_pixel", ctypes.c_ulong), ("save_under", ctypes.c_int),
+        ("colormap", ctypes.c_ulong), ("map_installed", ctypes.c_int), ("map_state", ctypes.c_int),
+        ("all_event_masks", ctypes.c_long), ("your_event_mask", ctypes.c_long), ("do_not_propagate_mask", ctypes.c_long),
+        ("override_redirect", ctypes.c_int), ("screen", ctypes.c_void_p),
+    ]
+
+
 def shot(out, desktop, boxes):
     import os
     from PIL import ImageGrab
@@ -128,6 +185,10 @@ if __name__ == "__main__":
         window(args[0], int(args[1]), int(args[2]))
     elif command == "cm":
         sys.exit(0 if composited() else 1)
+    elif command == "shape":
+        found = shapes()
+        print(", ".join(f"{hex(w)} {'shaped' if shaped else 'unshaped'}" for w, shaped in found) or "no overlay")
+        sys.exit(0 if found and all(shaped == (args[0] == "shaped") for _, shaped in found) else 1)
     elif command == "shot":
         sys.exit(0 if shot(args[0], args[1], [tuple(map(int, box.split(","))) for box in args[2:]]) else 1)
     else:

@@ -7,8 +7,9 @@
 # Duration: about 3 s; every wait gives up 3 s after its trigger.
 # Grants: Xvfb, xfwm4, xprop, picom and python3 with Pillow.
 # Asserts: with no compositor the screen shows the desktop, not black, around
-#   both Characters, and both show (#1699); picom starting changes nothing;
-#   picom stopping brings back the clip.
+#   both Characters, and both show (#1699), and the overlay has a bounding
+#   shape; picom starting changes nothing on screen and clears the shape;
+#   picom stopping brings back the shape and the clip.
 #
 # Usage: no-compositor-clip.x11.sh --go <fidget binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -126,21 +127,32 @@ expect_clipped() { # <case>
   wait_until 3 clipped "$1" || fail "$1: $(cat "$out/$1.txt"); see $out/$1.png"
   ok "$1: $(cat "$out/$1.txt")"
 }
+# Under picom a stale shape looks the same as none, so ask the server.
+shape_is() { # <case> <shaped|unshaped>
+  python3 "$helper" shape "$2" > "$out/$1-shape.txt" 2>&1
+}
+expect_shape() { # <case> <shaped|unshaped>
+  wait_until 3 shape_is "$1" "$2" || fail "$1: overlay not $2: $(cat "$out/$1-shape.txt")"
+  ok "$1: overlay $2"
+}
 
-# 1. No compositor: the overlay shows only what it draws.
+# 1. No compositor: the overlay is shaped to show only what it draws.
 expect_clipped no-compositor
+expect_shape no-compositor shaped
 
-# 2. picom starting mid-run changes nothing on screen.
+# 2. picom starting mid-run changes nothing on screen and clears the shape.
 picom --backend xrender > "$out/picom.log" 2>&1 &
 picom_pid=$!
 started+=("$picom_pid")
 wait_until 3 python3 "$helper" cm || fail "picom did not take _NET_WM_CM_S0 in 3 s; see $out/picom.log"
 expect_clipped picom
+expect_shape picom unshaped
 
-# 3. picom stopping brings back the clip.
+# 3. picom stopping brings back the shape and the clip.
 kill "$picom_pid"
 wait "$picom_pid" 2> /dev/null || true
 wait_until 3 uncomposited || fail "_NET_WM_CM_S0 still has an owner after picom exited"
+expect_shape picom-stopped shaped
 expect_clipped picom-stopped
 
 echo "PASS: evidence in $out" | tee -a "$results"
