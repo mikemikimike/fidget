@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Scenario: no-compositor-clip (X11)
 # On screen: nothing on your display. A private 800x600 Xvfb display with
-#   xfwm4 (compositing off), a plain window and Fidget as a standing BMO;
+#   xfwm4 (compositing off), a plain window and Fidget as two standing BMOs;
 #   picom starts and stops partway through.
 # Input: none.
 # Duration: about 3 s; every wait gives up 3 s after its trigger.
-# Grants: Xvfb, xfwm4, xsetroot, xprop, picom and python3 with Pillow.
+# Grants: Xvfb, xfwm4, xprop, picom and python3 with Pillow.
 # Asserts: with no compositor the screen shows the desktop, not black, around
-#   the Character (#1699); picom starting changes nothing; picom stopping
-#   brings back the clip.
+#   both Characters, and both show (#1699); picom starting changes nothing;
+#   picom stopping brings back the clip.
 #
 # Usage: no-compositor-clip.x11.sh --go <fidget binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -19,7 +19,7 @@ if [ "${1:-}" != --go ]; then
   exit 2
 fi
 bin=${2:?usage: no-compositor-clip.x11.sh --go <fidget binary>}
-for tool in Xvfb xfwm4 xsetroot xprop picom python3 stdbuf flock; do
+for tool in Xvfb xfwm4 xprop picom python3 stdbuf flock; do
   command -v "$tool" > /dev/null 2>&1 || {
     echo "SKIP: $tool is not installed." >&2
     exit 2
@@ -82,7 +82,15 @@ started+=($!)
 root_prop_matches _NET_SUPPORTING_WM_CHECK 'window id' || fail "xfwm4 did not start in 3 s"
 ! python3 "$helper" cm || fail "a compositor owns _NET_WM_CM_S0 before the run"
 # After xfwm4, which paints the root its own colour as it starts.
-xsetroot -solid '#3a6ea5'
+desktop_colour=3a6ea5
+exec {desktop}< <(
+  python3 "$helper" root "$desktop_colour" &
+  echo "$!"
+  wait
+)
+read -r -t 3 desktop_pid <&"$desktop" || fail "the root painter did not start"
+started+=("$desktop_pid")
+read -r -t 3 _ <&"$desktop" || fail "the root was not painted"
 # Smaller than the display: a full-display window would hide the Character as full screen.
 exec {plain}< <(
   python3 "$helper" window a5703a 600 400 &
@@ -97,19 +105,22 @@ root_prop_matches _NET_CLIENT_LIST "$(printf '0x%x' "$plain_window")" || fail "x
 cp -R "$root/characters/bmo" "$out/characters/"
 sed -E '/^play = /s/"walk"/"idle"/g' "$root/characters/bmo/character.manifest" > "$out/characters/bmo/character.manifest"
 env HOME="$out/home" FIDGET_DIRECTOR_WAKE_SECS=600 FIDGET_TRACE_FRAMES=1 \
-  FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$out/characters" \
+  FIDGET_INSTANCES=bmo:One,bmo:Two FIDGET_CHARACTERS="$out/characters" \
   "$bin" > "$out/app.log" 2>&1 &
 pid=$!
 started+=("$pid")
 exec 9>&-
 
 frame='^[0-9]+ frame: '
-wait_for_trace 3 "$log" "$frame.* (Grounded|Perched) " || fail "the Character did not land in 3 s; see $log"
+# The last frame line of each Instance, one line each.
+last_frames() { grep -E "$frame" "$log" | awk '{ last[$NF] = $0 } END { for (id in last) print last[id] }'; }
+both_landed() { [ "$(last_frames | grep -cE ' (Grounded|Perched) ')" -eq 2 ]; }
+wait_until 3 both_landed || fail "the Characters did not both land in 3 s; see $log"
 read -r sw sh < <(sed -nE 's/.* overlay: .*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
-read -r sx sy < <(grep -E "$frame" "$log" | tail -1 | sed -E 's/.* sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1 \2/') || fail "no sprite position in $log"
+mapfile -t boxes < <(last_frames | sed -E "s/.* sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1,\2,$sw,$sh/")
 uncomposited() { ! python3 "$helper" cm; }
 clipped() { # <capture name>
-  python3 "$helper" shot "$out/$1.png" "$sx" "$sy" "$sw" "$sh" > "$out/$1.txt"
+  python3 "$helper" shot "$out/$1.png" "$desktop_colour" "${boxes[@]}" > "$out/$1.txt"
 }
 expect_clipped() { # <case>
   wait_until 3 clipped "$1" || fail "$1: $(cat "$out/$1.txt"); see $out/$1.png"
