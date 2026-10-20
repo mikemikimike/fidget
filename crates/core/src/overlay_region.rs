@@ -119,7 +119,7 @@ pub struct BoundingShape {
 impl BoundingShape {
     /// The change this frame needs, if any. `drawn` is what the renderer
     /// draws, and runs only when no compositor does.
-    pub fn next(
+    pub fn change_for(
         &mut self,
         composited: bool,
         drawn: impl FnOnce() -> Vec<RegionRect>,
@@ -396,7 +396,7 @@ mod tests {
     fn trail_through(steps: &[(i32, i32)]) -> DrawTrail {
         let mut trail = None;
         for &at in steps {
-            trail = Some(DrawTrail::next(trail, at, &block(), false, 1));
+            trail = Some(DrawTrail::this_frame(trail, at, &block(), false, 1));
         }
         trail.unwrap()
     }
@@ -521,7 +521,7 @@ mod tests {
     fn a_composited_overlay_sends_no_shape_while_its_sprite_walks() {
         let mut shape = BoundingShape::default();
         for _ in walk() {
-            let change = shape.next(true, || panic!("drawn worked out under a compositor"));
+            let change = shape.change_for(true, || panic!("drawn worked out under a compositor"));
             assert_eq!(change, None);
         }
     }
@@ -533,15 +533,21 @@ mod tests {
         let mut shape = BoundingShape::default();
         for drawn in walk() {
             let sent = drawn.clone();
-            assert_eq!(shape.next(false, || sent), Some(ShapeChange::Clip(&drawn)));
+            assert_eq!(
+                shape.change_for(false, || sent),
+                Some(ShapeChange::Clip(&drawn))
+            );
         }
         let last = walk().last().unwrap();
         assert_eq!(
-            shape.next(false, || last),
+            shape.change_for(false, || last),
             None,
             "a still sprite resends nothing"
         );
-        assert_eq!(shape.next(false, Vec::new), Some(ShapeChange::Clip(&[])));
+        assert_eq!(
+            shape.change_for(false, Vec::new),
+            Some(ShapeChange::Clip(&[]))
+        );
     }
 
     /// A compositor starting clears the clip once; stopping brings it back.
@@ -550,13 +556,16 @@ mod tests {
         let drawn = vec![[100, 200, 180, 328]];
         let mut shape = BoundingShape::default();
         assert_eq!(
-            shape.next(false, || drawn.clone()),
+            shape.change_for(false, || drawn.clone()),
             Some(ShapeChange::Clip(&drawn))
         );
-        assert_eq!(shape.next(true, || panic!()), Some(ShapeChange::Unclip));
-        assert_eq!(shape.next(true, || panic!()), None);
         assert_eq!(
-            shape.next(false, || drawn.clone()),
+            shape.change_for(true, || panic!()),
+            Some(ShapeChange::Unclip)
+        );
+        assert_eq!(shape.change_for(true, || panic!()), None);
+        assert_eq!(
+            shape.change_for(false, || drawn.clone()),
             Some(ShapeChange::Clip(&drawn))
         );
     }

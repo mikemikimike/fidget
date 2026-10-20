@@ -2210,7 +2210,7 @@ pub(crate) fn run_frame_loop(
                     let (mask, mirrored, scale) =
                         (&instance.mask, instance.mirror < 0, instance.sprite.scale);
                     let trail =
-                        DrawTrail::next(held.remove(&instance.id), at, mask, mirrored, scale);
+                        DrawTrail::this_frame(held.remove(&instance.id), at, mask, mirrored, scale);
                     trails.insert(instance.id.clone(), trail);
                 }
             }
@@ -2337,7 +2337,7 @@ pub(crate) fn run_frame_loop(
                             &platform::overlay_rects_for(&label),
                         )
                     };
-                    let sent = match bounding[index].next(composited, drawn) {
+                    let sent = match bounding[index].change_for(composited, drawn) {
                         Some(change) => platform::change_bounding_shape(&label, change),
                         None => true,
                     };

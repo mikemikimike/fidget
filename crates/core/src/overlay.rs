@@ -309,7 +309,7 @@ impl DrawTrail {
 
     /// This frame's trail: `held`, last frame's, one placement later, or a
     /// new trail for an Instance that had none.
-    pub fn next(
+    pub fn this_frame(
         held: Option<Self>,
         at: (i32, i32),
         mask: &AlphaMask,
@@ -317,13 +317,13 @@ impl DrawTrail {
         scale: i32,
     ) -> Self {
         match held {
-            Some(trail) => trail.advance(at, mask, mirrored, scale),
+            Some(trail) => trail.moved_to(at, mask, mirrored, scale),
             None => Self::start(at, mask, mirrored, scale),
         }
     }
 
     /// The trail one placement later.
-    pub fn advance(self, at: (i32, i32), mask: &AlphaMask, mirrored: bool, scale: i32) -> Self {
+    pub fn moved_to(self, at: (i32, i32), mask: &AlphaMask, mirrored: bool, scale: i32) -> Self {
         let [_, before, last] = self.at;
         let [_, latest] = self.art;
         Self {
@@ -560,8 +560,8 @@ mod tests {
         let stride = AlphaMask::from_rows(&["#."]);
         let next = AlphaMask::from_rows(&[".#"]);
         let trail = DrawTrail::start((0, 0), &stride, false, 1)
-            .advance((10, 0), &stride, false, 1)
-            .advance((20, 0), &next, false, 1);
+            .moved_to((10, 0), &stride, false, 1)
+            .moved_to((20, 0), &next, false, 1);
 
         assert_eq!(
             trail.clip_rects((-100, 5)),
