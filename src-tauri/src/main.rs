@@ -2451,8 +2451,9 @@ fn build_chat(
         .title(title)
         .inner_size(CHAT_SIZE.0, CHAT_SIZE.1)
         .min_inner_size(320.0, 320.0)
-        // An opaque window paints black under the Glass panel.
-        .transparent(see_through(platform::see_through_blends()))
+        // See-through only where a compositor blends it. Uncomposited, as of 2026-10
+        // WebKitGTK 2.54's non-DMABuf renderer repaints a see-through page black.
+        .transparent(platform::see_through_blends())
         .focused(true);
     if let Some((x, y)) = at {
         builder = builder.position(x, y);
@@ -2498,13 +2499,6 @@ fn build_chat(
     Ok(window)
 }
 
-/// Chat and Settings are see-through only when a compositor blends them. As of
-/// 2026-10, WebKitGTK 2.54's non-DMABuf renderer leaves a see-through page's
-/// undamaged area transparent on repaint, which X11 shows black uncomposited.
-fn see_through(blends: bool) -> bool {
-    blends
-}
-
 /// A new Chat window's inner size, in points.
 const CHAT_SIZE: (f64, f64) = (420.0, 560.0);
 
@@ -2543,7 +2537,7 @@ fn build_settings(
         .inner_size(600.0, 520.0)
         .min_inner_size(480.0, 400.0)
         // Settings wears the Chat UI, whose rules assume Chat's see-through window.
-        .transparent(see_through(platform::see_through_blends()))
+        .transparent(platform::see_through_blends())
         .focused(true)
         .on_page_load(move |_window, payload| {
             if payload.event() != tauri::webview::PageLoadEvent::Finished {
@@ -5399,20 +5393,6 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    /// Production change that would fail this: Chat or Settings built
-    /// see-through with no X11 compositor, so Chat shows black (#1732).
-    #[test]
-    fn chat_and_settings_are_opaque_only_with_nothing_to_blend_them() {
-        assert!(
-            super::see_through(true),
-            "a compositor keeps them see-through"
-        );
-        assert!(
-            !super::see_through(false),
-            "no compositor builds them opaque"
-        );
-    }
-
     /// Production change that would fail this: `chat_ready` dropping a kept
     /// turn's error, so Chat shows the typed line waiting forever (#1510).
     #[test]

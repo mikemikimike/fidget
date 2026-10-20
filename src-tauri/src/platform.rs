@@ -1414,6 +1414,17 @@ fn exact_dock() -> Option<(Rect, DockSource)> {
 mod tests {
     use super::*;
 
+    /// Production change that would fail this: Chat or Settings built
+    /// see-through with no X11 compositor, so Chat shows black (#1732).
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn chat_and_settings_are_see_through_only_where_a_compositor_blends() {
+        x11::set_composited_for_test(false);
+        assert!(!see_through_blends(), "no compositor builds them opaque");
+        x11::set_composited_for_test(true);
+        assert!(see_through_blends(), "a compositor keeps them see-through");
+    }
+
     /// Off X11 the window manager always composites, so nothing changes there.
     #[cfg(any(target_os = "macos", not(unix)))]
     #[test]

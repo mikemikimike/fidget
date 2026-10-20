@@ -17,6 +17,8 @@ mod settings_raise;
 mod window_source;
 
 pub use input_events::{spawn_listener, InputEvent};
+#[cfg(test)]
+pub use overlay::set_composited_for_test;
 pub use overlay::{
     change_bounding_shape, cleanup_overlay_window, composited, composited_now, configure_overlay,
     update_input_region,
