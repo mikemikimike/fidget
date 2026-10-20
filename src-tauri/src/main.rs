@@ -4242,6 +4242,12 @@ fn describe_menu(
     })
 }
 
+/// Chat's landing opens by itself on a first launch with no AI source, so a
+/// new user is pointed at connecting one (#1730). Every OS: it is onboarding.
+fn opens_first_run_chat(first_launch: bool, source_configured: bool) -> bool {
+    first_launch && !source_configured
+}
+
 /// The environment variable naming the Instances to run. An env var rather
 /// than a flag because that is how fidget is already configured, and a
 /// second mechanism for the same kind of answer is a second place to look it up.
@@ -4926,7 +4932,7 @@ fn main() {
             // returned as a setup error: Tauri turns that into a panic the
             // event loop cannot unwind, burying the one line under a backtrace.
             let settings_file = settings::settings_path(&memory::data_dir());
-            let mut settings = Settings::load(&settings_file);
+            let (mut settings, first_launch) = Settings::load_launch(&settings_file);
             // Before anything reads a development switch: the frame loop and
             // the overlay panel load them from `dev_flags`, not the env.
             dev_flags::seed(&settings);
@@ -5285,9 +5291,13 @@ fn main() {
             if model::env_switch("FIDGET_OPEN_SETTINGS").unwrap_or(false) {
                 present_settings(app.handle().clone());
             }
+            let first_run_chat = opens_first_run_chat(first_launch, config.configured);
+            if first_run_chat {
+                fidget::eprintln_and_log!("chat: first launch with no AI source; opening Chat");
+            }
             // Same hook for Chat. Summon is macOS-only in fidget-verify; X11
             // scripts open Chat this way and assert it stays perch-eligible.
-            if model::env_switch("FIDGET_OPEN_CHAT").unwrap_or(false) {
+            if first_run_chat || model::env_switch("FIDGET_OPEN_CHAT").unwrap_or(false) {
                 if let Some(live) = lives.first() {
                     let title = roster
                         .get(&live.id)
@@ -5494,6 +5504,38 @@ mod tests {
     }
 
     use super::*;
+
+    /// A settings file under a data dir this test owns, not yet written.
+    fn unwritten_settings(case: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("fidget-1730-{}-{case}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        settings::settings_path(&dir)
+    }
+
+    /// #1730: a first launch with no AI source opens Chat's landing.
+    #[test]
+    fn a_first_launch_with_no_source_opens_chat() {
+        let (_, first_launch) = Settings::load_launch(&unwritten_settings("a"));
+        assert!(opens_first_run_chat(first_launch, false));
+    }
+
+    /// A Harness (or any source) already set means Chat stays shut.
+    #[test]
+    fn a_first_launch_with_a_source_opens_no_chat() {
+        let (_, first_launch) = Settings::load_launch(&unwritten_settings("b"));
+        assert!(!opens_first_run_chat(first_launch, true));
+    }
+
+    /// Setup saves what it loaded, so the next launch is a later one.
+    #[test]
+    fn a_second_launch_opens_no_chat() {
+        let file = unwritten_settings("c");
+        let (loaded, _) = Settings::load_launch(&file);
+        settings::write_settings_file(&loaded, &file).expect("setup's save");
+        let (_, first_launch) = Settings::load_launch(&file);
+        assert!(!opens_first_run_chat(first_launch, false));
+        let _ = std::fs::remove_dir_all(file.parent().expect("data dir"));
+    }
 
     fn link(request: &str, waits: bool) -> harness::ElicitationForm {
         harness::ElicitationForm {

@@ -40,7 +40,9 @@ app_pid=""
 trap '[ -n "$app_pid" ] && kill "$app_pid" 2> /dev/null' EXIT
 
 home="$out/home"
-mkdir -p "$home"
+mkdir -p "$home/Library/Application Support/fidget"
+# A settings file makes this a later launch, which opens no Chat (#1730).
+echo '{}' > "$home/Library/Application Support/fidget/settings.json"
 link=""
 for link in .claude .claude.json .codex .config; do
   [ -e "$HOME/$link" ] && ln -sfn "$HOME/$link" "$home/$link"

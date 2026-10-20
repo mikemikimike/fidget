@@ -59,7 +59,9 @@ fi
 
 log_info "Starting fidget with Settings webview..."
 HOME_DIR="$OUT/home"
-mkdir -p "$HOME_DIR"
+mkdir -p "$HOME_DIR/.local/share/fidget"
+# A settings file makes this a later launch, which opens no Chat (#1730).
+echo '{}' > "$HOME_DIR/.local/share/fidget/settings.json"
 export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
 # This script asserts X11 EWMH stacking. Prefer the X11 GDK backend even when
 # WAYLAND_DISPLAY is set, so tao's handle is an X window.

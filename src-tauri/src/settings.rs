@@ -2083,10 +2083,16 @@ impl Settings {
     /// Read the document at `path`. A missing or unparsable file is first-run
     /// defaults, so a typo in a hand-edit never costs the fidget its launch.
     pub fn load(path: &Path) -> Self {
+        Self::load_launch(path).0
+    }
+
+    /// `load`, and whether this is a first launch: no file at `path` yet.
+    /// Setup saves what this returns, so the check cannot land after that save.
+    pub fn load_launch(path: &Path) -> (Self, bool) {
         match fs::read_to_string(path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Self::default(),
-            Err(_) => Self::default(),
-            Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (Self::default(), true),
+            Err(_) => (Self::default(), false),
+            Ok(text) => (serde_json::from_str(&text).unwrap_or_default(), false),
         }
     }
 
@@ -2622,6 +2628,48 @@ mod tests {
         assert!(settings.pi_project_mcp);
         assert_eq!(settings.chat_appearance, ChatAppearance::System);
         let _ = fs::remove_file(&path);
+    }
+
+    /// #1730: only a missing file is a first launch. The data dir alone, a file
+    /// setup wrote, garbage (a hand-edit), or any other read error is a later one.
+    #[test]
+    fn only_a_missing_file_is_a_first_launch() {
+        let dir = std::env::temp_dir().join(format!(
+            "fidget-first-launch-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let path = settings_path(&dir);
+        assert!(Settings::load_launch(&path).1, "no data dir and no file");
+
+        fs::create_dir_all(&dir).expect("data dir");
+        assert!(Settings::load_launch(&path).1, "a data dir with no file");
+
+        let (first, _) = Settings::load_launch(&path);
+        write_settings_file(&first, &path).expect("setup's save");
+        assert_eq!(
+            Settings::load_launch(&path),
+            (first, false),
+            "after setup's save"
+        );
+
+        fs::write(&path, "not json {").expect("write");
+        assert_eq!(
+            Settings::load_launch(&path),
+            (Settings::default(), false),
+            "unparsable"
+        );
+
+        // A directory in the file's place fails the read, but not as NotFound.
+        fs::remove_file(&path).expect("remove");
+        fs::create_dir(&path).expect("a directory at the settings path");
+        assert_eq!(
+            Settings::load_launch(&path),
+            (Settings::default(), false),
+            "a read error other than NotFound"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Garbage is first-run rather than a crash. The character staying up is the
