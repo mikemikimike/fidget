@@ -4938,7 +4938,7 @@ fn main() {
             // event loop cannot unwind, burying the one line under a backtrace.
             let settings_file = settings::settings_path(&memory::data_dir());
             let first_launch = is_first_launch(&settings_file);
-            let mut settings = Settings::load(&settings_file);
+            let (mut settings, _) = Settings::load_launch(&settings_file);
             // Before anything reads a development switch: the frame loop and
             // the overlay panel load them from `dev_flags`, not the env.
             dev_flags::seed(&settings);
