@@ -64,7 +64,7 @@ Fidget runs on macOS (Apple Silicon), Linux (x86_64) and Windows (x86_64). Every
 
 ### macOS
 
-On macOS (Apple Silicon) with [Homebrew](https://brew.sh):
+On Apple Silicon with [Homebrew](https://brew.sh):
 
 ```sh
 brew install --cask omesser/fidget/fidget
@@ -118,16 +118,6 @@ cd fidget
 cargo run -p fidget
 ```
 
-### First Run
-
-It works offline with no key. With nothing configured, Static weights pick idle Behaviors from the Character.
-
-Right-click the fidget, or click the tray icon, and choose Settings….
-
-Settings → Character picks which character it wears. Buddy Bot is the default. The others are in [Characters](#characters).
-
-Settings → AI chooses who answers. Under AI source, pick `Harness · claude` or another name from [Harness Support](#harness-support). The Harness signs in on its own. Model under Harness names the model it runs on, and blank keeps the Harness's own default. For a Model API, pick Model API in AI source, then set Base URL, Model, and API key under Model / API. Presets fill the Base URL for OpenAI, Anthropic, xAI, and Ollama. Type any other OpenAI-compatible endpoint into Base URL. Apply saves the choice.
-
 Developers and CI can override Settings with optional environment variables:
 
 ```sh
@@ -139,7 +129,19 @@ FIDGET_HARNESS=claude cargo run -p fidget
 FIDGET_CHARACTER=nim cargo run -p fidget
 ```
 
-The full variable list, including `FIDGET_DIRECTOR_*`, is in [harness.md](./docs/harness.md#director-environment). Character packages are in [DEVELOPMENT.md](./docs/DEVELOPMENT.md#character-packages). Keychain dialogs an unsigned build costs are in [harness.md](./docs/harness.md#settings-and-keyring).
+The full variable list, including `FIDGET_DIRECTOR_*`, is in [harness.md](./docs/harness.md#director-environment).
+
+### First Run
+
+It works offline with no key. With nothing configured, Static weights pick idle Behaviors from the Character.
+
+Right-click the fidget, or click the tray icon, and choose Settings….
+
+Settings → Character picks which character it wears. Buddy Bot is the default. The others are in [Characters](#characters).
+
+Settings → AI chooses who answers. Under AI source, pick `Harness · claude` or another name from [Harness Support](#harness-support). The Harness signs in on its own. Model under Harness names the model it runs on, and blank keeps the Harness's own default. For a Model API, pick Model API in AI source, then set Base URL, Model, and API key under Model / API. Presets fill the Base URL for OpenAI, Anthropic, xAI, and Ollama. Type any other OpenAI-compatible endpoint into Base URL. Apply saves the choice.
+
+Character packages are in [DEVELOPMENT.md](./docs/DEVELOPMENT.md#character-packages). Keychain dialogs an unsigned build costs are in [harness.md](./docs/harness.md#settings-and-keyring).
 
 ## Interact
 
