@@ -607,16 +607,15 @@ mod tests {
         assert!(String::from_utf8_lossy(&out.stdout).contains("PASS: fixture dumps"));
     }
 
-    /// Runs a leaf on fixture dumps with no desktop: a Windows leaf from `ci/`,
-    /// any other from `manual-only/`. `envs` paths are under `scripts/scenarios/`.
+    /// Runs a leaf on fixture dumps with no desktop, from whichever leaf folder
+    /// holds it. `envs` paths are under `scripts/scenarios/`.
     fn fixture_run(script: &str, envs: &[(&str, PathBuf)]) -> std::process::Output {
         let scenarios = repo_scenarios();
-        let dir = if script.ends_with(".win.ps1") {
-            "ci"
-        } else {
-            "manual-only"
-        };
-        let path = scenarios.join(dir).join(script);
+        let path = ["ci", "manual-only"]
+            .iter()
+            .map(|dir| scenarios.join(dir).join(script))
+            .find(|path| path.exists())
+            .unwrap_or_else(|| panic!("no leaf {script} in ci/ or manual-only/"));
         let mut cmd = if script.ends_with(".ps1") {
             let mut cmd = Command::new("powershell");
             cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
