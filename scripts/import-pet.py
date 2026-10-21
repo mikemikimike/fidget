@@ -821,6 +821,10 @@ def emit(pet, out, validate=True, stand=None):
     personality — then prove it with `character::load`."""
     from PIL import Image
 
+    resampling = getattr(Image, "Resampling", Image)
+    nearest = resampling.NEAREST
+    lanczos = getattr(resampling, "LANCZOS", Image.LANCZOS)
+
     animations = pet["animations"]
     for spec in animations.values():
         spec["frames"] = [defringe(frame) for frame in spec["frames"]]
@@ -845,10 +849,10 @@ def emit(pet, out, validate=True, stand=None):
                     # Resample premultiplied: with straight alpha, the RGB
                     # of invisible pixels bleeds into the resampled edge.
                     resized.append(
-                        frame.convert("RGBa").resize(size, Image.LANCZOS).convert("RGBA")
+                        frame.convert("RGBa").resize(size, lanczos).convert("RGBA")
                     )
                 else:
-                    resized.append(frame.resize(size, Image.NEAREST))
+                    resized.append(frame.resize(size, nearest))
             spec["frames"] = resized
         if mode == "pixelated":
             # The ADR-0006 quantisation pass: a resample drifts the palette,
@@ -1008,6 +1012,9 @@ def self_test():
     """The pure seams, then a synthetic sheet through the whole pipeline."""
     from PIL import Image
 
+    resampling = getattr(Image, "Resampling", Image)
+    nearest = resampling.NEAREST
+
     assert detect_atlas(1536, 1872) == (1, 9, 192, 208)
     assert detect_atlas(3072, 3744) == (1, 9, 384, 416)
     assert detect_atlas(1536, 2288) == (2, 11, 192, 208)
@@ -1104,7 +1111,7 @@ def self_test():
             "spritesheetPath": "sheet.png",
         }))
         # detect_atlas refuses square cells; stretch to the canonical grid.
-        tall = sheet.resize((ATLAS_COLUMNS * 192, 9 * 208), Image.NEAREST)
+        tall = sheet.resize((ATLAS_COLUMNS * 192, 9 * 208), nearest)
         tall.save(source / "sheet.png")
 
         pet = read_petscodex(source)
