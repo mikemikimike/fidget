@@ -138,6 +138,11 @@ test(
   "a screen-sized window shifted off the screen's corner is not fullscreen",
   { skip },
   () => {
-    assert.deepEqual(run("Over @((Win 15 'Shifted' 300 0 2220 1080), $fidget)"), ["none"]);
+    assert.deepEqual(
+      run(`
+Over @((Win 15 'Right' 300 0 2220 1080), $fidget)
+Over @((Win 16 'Down' 0 300 1920 1380), $fidget)`),
+      ["none", "none"],
+    );
   },
 );
