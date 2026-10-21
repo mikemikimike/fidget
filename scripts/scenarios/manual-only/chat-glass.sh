@@ -43,8 +43,8 @@ fail() {
 }
 
 for tool in window-id pixel-stats stripes-window; do
-  [ "$tools/$tool" -nt "$root/scripts/scenarios/$tool.swift" ] ||
-    swiftc -O "$root/scripts/scenarios/$tool.swift" -o "$tools/$tool"
+  [ "$tools/$tool" -nt "$root/scripts/scenarios/helpers/$tool.swift" ] ||
+    swiftc -O "$root/scripts/scenarios/helpers/$tool.swift" -o "$tools/$tool"
 done
 [ "$tools/ax" -nt "$root/scripts/ax-settings.swift" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
 build_ax_events

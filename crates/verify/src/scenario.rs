@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn leaves_come_from_e2e_and_manual_and_merge_by_name() {
+    fn leaves_come_from_ci_and_manual_only_and_merge_by_name() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir(dir.path().join("ci")).unwrap();
         fs::create_dir(dir.path().join("manual-only")).unwrap();

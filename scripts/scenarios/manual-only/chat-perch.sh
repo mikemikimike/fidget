@@ -41,7 +41,7 @@ helper_key=$(shasum "$root/scripts/scenarios/helpers/window-layer.swift" \
   "$root/scripts/click-cursor.swift" "$root/scripts/warp-cursor.swift" | shasum | cut -d ' ' -f 1)
 tools="${TMPDIR:-/tmp}/fidget-chat-perch-tools/$helper_key"
 mkdir -p "$tools/module-cache"
-for spec in window-layer:scenarios/window-layer chat-window:scenarios/chat-perch-window ax:ax-settings click-cursor:click-cursor warp-cursor:warp-cursor; do
+for spec in window-layer:scenarios/helpers/window-layer chat-window:scenarios/helpers/chat-perch-window ax:ax-settings click-cursor:click-cursor warp-cursor:warp-cursor; do
   tool=${spec%%:*}
   source="$root/scripts/${spec#*:}.swift"
   [ "$tools/$tool" -nt "$source" ] || swiftc -module-cache-path "$tools/module-cache" -O "$source" -o "$tools/$tool"

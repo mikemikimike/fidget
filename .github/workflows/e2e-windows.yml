@@ -1,8 +1,8 @@
-name: windows-e2e
+name: e2e-windows
 
 # Live runs of `scripts/scenarios/ci/*.win.ps1` and the anchor scripts on a
 # hosted runner's desktop. Too heavy for every pull request: it runs on
-# dispatch or the `windows-e2e` label only.
+# dispatch or the `e2e-windows` label only.
 on:
   pull_request:
     types: [labeled]
@@ -18,13 +18,13 @@ permissions:
 
 concurrency:
   # Per label: another label's `labeled` run skips its job, and must not cancel
-  # an e2e run in flight. Re-adding windows-e2e replaces it.
+  # an e2e run in flight. Re-adding e2e-windows replaces it.
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ github.event.label.name }}
   cancel-in-progress: true
 
 jobs:
-  windows-e2e:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'windows-e2e'
+  e2e-windows:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'e2e-windows'
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -39,7 +39,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: .
-          key: windows-e2e
+          key: e2e-windows
           cache-on-failure: true
 
       - name: Warm up WebView2 and show the tray icon
@@ -115,6 +115,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: windows-e2e-evidence
+          name: e2e-windows-evidence
           path: ${{ runner.temp }}/upload
           if-no-files-found: warn
