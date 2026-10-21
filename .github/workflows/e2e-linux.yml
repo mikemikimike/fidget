@@ -128,4 +128,6 @@ jobs:
         with:
           name: e2e-linux-evidence
           path: ${{ runner.temp }}/upload
+          # Each leaf's logs sit under home/.local.
+          include-hidden-files: true
           if-no-files-found: warn
