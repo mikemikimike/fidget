@@ -99,17 +99,39 @@ esac
 }
 
 log=$(mktemp -t fidget-mask-measure-XXXXXX.log)
-count_file="$log.count"
+parsed="$log.parsed"
 cleanup() {
   if [ -n "${app_pid:-}" ]; then
     kill -TERM "$app_pid" 2> /dev/null || true
     wait "$app_pid" 2> /dev/null || true
   fi
-  rm -f "$log" "$count_file"
+  rm -f "$log" "$parsed"
 }
 trap cleanup EXIT
 # A signal has to end the run; cleanup is the EXIT trap's job.
 trap 'exit 130' INT TERM
+
+# As of 2026-10, bash 5.2 can fail to parse a trap that fires in $(...) and
+# can hang on SIGINT as a foreground child exits. With the traps set, run
+# no $(...), and run children in the background and `wait` on them.
+in_background() {
+  "$@" &
+  wait "$!"
+}
+
+# Sets log_lines and log_matches (lines matching glob $1), using builtins.
+scan_log() {
+  log_lines=0
+  log_matches=0
+  [ -f "$log" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    log_lines=$((log_lines + 1))
+    # shellcheck disable=SC2254 # $1 is a glob on purpose.
+    case "$line" in
+      $1) log_matches=$((log_matches + 1)) ;;
+    esac
+  done < "$log"
+}
 
 echo "=== X11 Mask Rebuild Measurement ==="
 echo "Scenario: $scenario"
@@ -133,50 +155,56 @@ esac
 "$bin" > "$log" 2>&1 &
 app_pid=$!
 
+ready_glob='*overlay: [0-9]* display*'
+trace_glob='*mask_rebuild:*'
+
 echo -n "Waiting for overlay ready..."
-last_size=0
+last_lines=0
 stall_count=0
-for _ in $(seq 120); do
-  if grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
+for ((i = 0; i < 120; i++)); do
+  scan_log "$ready_glob"
+  if [ "$log_matches" -gt 0 ]; then
     echo " ready"
     break
   fi
-  current_size=$(wc -c < "$log" 2> /dev/null || echo "0")
-  if [ "$current_size" -eq "$last_size" ]; then
+  if [ "$log_lines" -eq "$last_lines" ]; then
     stall_count=$((stall_count + 1))
     if [ "$stall_count" -gt 10 ]; then
       echo " STALLED"
       echo "App stalled during startup. Log tail:"
-      tail -20 "$log"
+      in_background tail -20 "$log"
       exit 1
     fi
   else
     stall_count=0
   fi
-  last_size=$current_size
-  sleep 0.25
+  last_lines=$log_lines
+  in_background sleep 0.25
 done
 
-if ! grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
+scan_log "$ready_glob"
+if [ "$log_matches" -eq 0 ]; then
   echo " TIMEOUT"
   echo "App failed to start. Log tail:"
-  tail -20 "$log"
+  in_background tail -20 "$log"
   exit 1
 fi
 
 echo -n "Waiting for mask trace..."
-for _ in $(seq 40); do
-  if grep -q 'mask_rebuild:' "$log" 2> /dev/null; then
+for ((i = 0; i < 40; i++)); do
+  scan_log "$trace_glob"
+  if [ "$log_matches" -gt 0 ]; then
     echo " trace active"
     break
   fi
-  sleep 0.25
+  in_background sleep 0.25
 done
 
-if ! grep -q 'mask_rebuild:' "$log" 2> /dev/null; then
+scan_log "$trace_glob"
+if [ "$log_matches" -eq 0 ]; then
   echo " FAILED"
   echo "No mask_rebuild trace appeared. Check FIDGET_TRACE_MASK_REBUILD."
-  tail -20 "$log"
+  in_background tail -20 "$log"
   exit 1
 fi
 
@@ -198,23 +226,21 @@ case "$scenario" in
     ;;
 esac
 
-# As of 2026-10, bash 5.2 cannot parse a trap that fires inside $(...), so
-# the loop below runs none: counts go through a file, the clock is printf.
-printf -v measure_start '%(%s)T' -1
+measure_start=$SECONDS
 echo "Waiting for $target_updates mask updates (deadline: ${deadline_sec}s)..."
 
 while true; do
-  grep -c 'mask_rebuild:' "$log" > "$count_file" 2> /dev/null || true
-  read -r update_count < "$count_file" || update_count=0
+  scan_log "$trace_glob"
+  update_count=$log_matches
 
   if [ "$update_count" -ge "$target_updates" ]; then
-    printf -v measure_end '%(%s)T' -1
+    measure_end=$SECONDS
     measure_elapsed=$((measure_end - measure_start))
     echo "Captured $update_count mask updates in ${measure_elapsed}s"
     break
   fi
 
-  printf -v now '%(%s)T' -1
+  now=$SECONDS
   elapsed=$((now - measure_start))
   if [ "$elapsed" -ge "$deadline_sec" ]; then
     echo "DEADLINE EXCEEDED: Only $update_count updates in ${deadline_sec}s"
@@ -224,9 +250,8 @@ while true; do
     break
   fi
 
-  sleep 0.1
+  in_background sleep 0.1
 done
-rm -f "$count_file"
 
 kill -TERM "$app_pid" 2> /dev/null || true
 wait "$app_pid" 2> /dev/null || true
@@ -254,11 +279,15 @@ if [ "$update_count" -eq 0 ]; then
   exit 0
 fi
 
-grep 'mask_rebuild:' "$log" |
-  sed -n 's/.*mask_rebuild: \([0-9]*\)x\([0-9]*\) @\([0-9]*\)x scale, \([0-9]*\) opaque pixels, \([0-9.]*\) ms\(.*\)/\1 \2 \3 \4 \5 \6/p' \
-    > /tmp/mask_rebuild_parsed.$$
+in_background sed -n 's/.*mask_rebuild: \([0-9]*\)x\([0-9]*\) @\([0-9]*\)x scale, \([0-9]*\) opaque pixels, \([0-9.]*\) ms\(.*\)/\1 \2 \3 \4 \5 \6/p' \
+  "$log" > "$parsed"
 
-position_only=$(grep -c '(position-only)' /tmp/mask_rebuild_parsed.$$ 2> /dev/null || echo "0")
+position_only=0
+while IFS= read -r line; do
+  case "$line" in
+    *'(position-only)'*) position_only=$((position_only + 1)) ;;
+  esac
+done < "$parsed"
 full_rebuilds=$((update_count - position_only))
 
 echo "Total mask updates: $update_count"
@@ -266,14 +295,14 @@ echo "  Full rebuilds: $full_rebuilds (mask/facing/scale changed, pixmap regener
 echo "  Position-only: $position_only (reused cached pixmap)"
 echo ""
 
-rebuild_ratio=$(awk "BEGIN {printf \"%.2f\", $full_rebuilds / $update_count}")
-echo "Full rebuild ratio: $rebuild_ratio (lower is better; 0.00 = all reuse)"
-if [ "$measure_elapsed" -gt 0 ]; then
-  echo "Rate: $(awk "BEGIN {printf \"%.1f\", $update_count / $measure_elapsed}") updates/sec"
-fi
+in_background awk -v full="$full_rebuilds" -v total="$update_count" -v secs="$measure_elapsed" 'BEGIN {
+  printf "Full rebuild ratio: %.2f (lower is better; 0.00 = all reuse)\n", full / total
+  if (secs > 0) printf "Rate: %.1f updates/sec\n", total / secs
+}'
 echo ""
 
-awk '{
+# shellcheck disable=SC2016 # The $5 is awk's.
+in_background awk '{
   time = $5
   sum += time
   if (NR == 1 || time > max) max = time
@@ -286,9 +315,9 @@ awk '{
     printf "  Min: %.3f ms\n", min
     printf "  Max: %.3f ms\n", max
   }
-}' /tmp/mask_rebuild_parsed.$$
+}' "$parsed"
 
-rm -f /tmp/mask_rebuild_parsed.$$
+in_background rm -f "$parsed"
 
 echo ""
 echo "Opaque pixel count:"
@@ -309,7 +338,7 @@ case "$scenario" in
     ;;
   walk)
     if [ "$full_rebuilds" -gt 0 ]; then
-      pct=$(awk "BEGIN {printf \"%.0f\", 100.0 * $full_rebuilds / $update_count}")
+      pct=$(((200 * full_rebuilds + update_count) / (2 * update_count)))
       echo "Full rebuilds: ${pct}% of updates"
       if [ "$pct" -lt 20 ]; then
         echo "✓ Optimization working: majority reuse cached pixmap"
