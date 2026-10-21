@@ -67,7 +67,7 @@ trap 'exit 130' INT TERM
 exec {ready}< <(
   Xvfb -displayfd 1 -screen 0 800x600x24 -nolisten tcp 2> "$out/xvfb.log" &
   echo "pid $!"
-  wait
+  wait "$!"
 )
 read -r -t 3 _ xvfb <&"$ready" || fail "Xvfb did not start"
 started+=("$xvfb")
@@ -87,7 +87,7 @@ desktop_colour=3a6ea5
 exec {desktop}< <(
   python3 "$helper" root "$desktop_colour" &
   echo "$!"
-  wait
+  wait "$!"
 )
 read -r -t 3 desktop_pid <&"$desktop" || fail "the root painter did not start"
 started+=("$desktop_pid")
@@ -96,7 +96,7 @@ read -r -t 3 _ <&"$desktop" || fail "the root was not painted"
 exec {plain}< <(
   python3 "$helper" window a5703a 600 400 &
   echo "$!"
-  wait
+  wait "$!"
 )
 read -r -t 3 plain_pid <&"$plain" || fail "the plain window did not start"
 started+=("$plain_pid")

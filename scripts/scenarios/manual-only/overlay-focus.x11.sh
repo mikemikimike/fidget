@@ -65,7 +65,7 @@ trap 'exit 130' INT TERM
 exec {ready}< <(
   Xvfb -displayfd 1 -screen 0 800x600x24 -nolisten tcp 2> "$out/xvfb.log" &
   echo "pid $!"
-  wait
+  wait "$!"
 )
 read -r -t 3 _ xvfb <&"$ready" || fail "Xvfb did not start"
 started+=("$xvfb")

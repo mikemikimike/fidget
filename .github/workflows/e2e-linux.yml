@@ -83,6 +83,7 @@ jobs:
           if [ -n "$SCENARIOS" ]; then
             read -r -a names <<< "$SCENARIOS"
           else
+            shopt -s nullglob
             names=()
             for leaf in scripts/scenarios/{ci,manual-only}/*.x11.sh; do
               names+=("$(basename "$leaf" .x11.sh)")
