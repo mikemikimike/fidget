@@ -121,6 +121,8 @@ wait_for_next() { # <ERE> <command...>
   "$@" >> "$out/helpers.log" 2>&1 || fail "could not run $*"
   wait_for_count 3 "$log" "$pattern" "$before"
 }
+# A cold start can take seconds to draw; the landing gets its own 3 s after that.
+wait_for_trace 10 "$log" "$frame" || fail "Fidget drew no frame in 10 s; see $log"
 wait_for_trace 3 "$log" "$frame.* (Grounded|Perched) " || fail "the Character did not land in 3 s; see $log"
 read -r sw sh < <(sed -nE 's/.* overlay: .*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
 sprite_center() {

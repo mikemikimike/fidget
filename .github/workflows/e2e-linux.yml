@@ -118,8 +118,9 @@ jobs:
         if: always()
         # Each leaf's private HOME holds caches and sockets; keep only its logs.
         run: |
-          rsync -rltm --include '*/' --include 'home/**.log' --exclude 'home/**' \
-            "$RUNNER_TEMP/evidence/" "$RUNNER_TEMP/upload/" || true
+          rsync -rlt --exclude home/ "$RUNNER_TEMP/evidence/" "$RUNNER_TEMP/upload/" || true
+          cd "$RUNNER_TEMP/evidence" &&
+            find . -path '*/home/*' -name '*.log' -exec cp --parents {} "$RUNNER_TEMP/upload/" \; || true
 
       - name: Upload evidence
         if: always()

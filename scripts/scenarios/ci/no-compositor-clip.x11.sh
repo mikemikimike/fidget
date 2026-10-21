@@ -116,6 +116,8 @@ frame='^[0-9]+ frame: '
 # The last frame line of each Instance, one line each.
 last_frames() { grep -E "$frame" "$log" | awk '{ last[$NF] = $0 } END { for (id in last) print last[id] }'; }
 both_landed() { [ "$(last_frames | grep -cE ' (Grounded|Perched) ')" -eq 2 ]; }
+# A cold start can take seconds to draw; the landing gets its own 3 s after that.
+wait_for_trace 10 "$log" "$frame" || fail "Fidget drew no frame in 10 s; see $log"
 wait_until 3 both_landed || fail "the Characters did not both land in 3 s; see $log"
 read -r sw sh < <(sed -nE 's/.* overlay: .*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
 mapfile -t boxes < <(last_frames | sed -E "s/.* sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1,\2,$sw,$sh/")

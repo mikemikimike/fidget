@@ -103,6 +103,8 @@ wait_for_next() { # <ERE> <command...>
   "$@" >> "$out/helpers.log" 2>&1 || fail "could not run $*"
   wait_for_count 3 "$log" "$pattern" "$before"
 }
+# A cold start can take seconds to draw; the landing gets its own 3 s after that.
+wait_for_trace 10 "$log" "$frame" || fail "Fidget drew no frame in 10 s; see $log"
 wait_for_trace 3 "$log" "$frame.* (Grounded|Perched) " || fail "the Character did not land in 3 s; see $log"
 # The overlay reports its pill once its page has loaded, after its first draw.
 wait_for_trace 3 "$log" "$closed" || fail "the overlay never reported its pill in 3 s; see $log"
