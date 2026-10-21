@@ -418,6 +418,8 @@ Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), o
 uv venv --python 3.11 && uv pip install -r scripts/requirements-import.txt
 ```
 
+Local `detect-secrets` / glance scans should use the repo [`.secrets.baseline`](../.secrets.baseline) (`detect-secrets scan --baseline .secrets.baseline`).
+
 The importer writes the frames and a `character.manifest` to the `-o` directory, and `--force` replaces one that exists. It then runs `character::load` on the output and fails if the loader rejects it. It prints the pack's license and warns when none is declared.
 
 The result is a naive but valid Character Package. It loads and plays, but it is not yet the character. Tune it by hand:
