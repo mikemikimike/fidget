@@ -35,17 +35,15 @@ the hover delay while the user types in Chat, the caret moves to the pill and
 the next word lands there. The gate this decision removes was what kept the pill
 down while Chat was up, so that caret move is the cost it accepts.
 
-Closing a pill opened over Chat returns the keyboard to Chat: the hand-back
-remembers the window that was in front, not just the app.
+Closing a pill opened over Chat returns the keyboard to Chat when that window
+still exists, and steps aside when it does not: the hand-back remembers the
+window that was in front, not just the app.
 
-The dismissal latch now clears only on pointer leave. The reset that ran when
-Chat closed existed for a macOS case where a Summon left the pointer's CSS
-`:hover` stuck, so no leave arrived and the latch never cleared (#1489). That
-reset goes away with the Chat input. Since #1565 the Shell's hit test calls
-enter and leave every frame, so a stuck `:hover` no longer holds the latch:
-moving the pointer off the sprite clears it even when the style does not. A
-Summon or Send with the pointer still resting on the Character keeps the pill
-down, and that is the intended pointer rule rather than a cost.
+The dismissal latch clears only on pointer leave, which the Shell sees from its
+own hit test even when the page's `:hover` sticks. Chat closing no longer clears
+it. A Summon or Send with the pointer still resting on the Character keeps the
+pill down until the pointer moves off, and that is the intended pointer rule
+rather than a cost.
 
 Reversing this means pushing Chat's window state back onto every overlay, and a
 hover again doing different things depending on a window elsewhere.
@@ -57,9 +55,10 @@ hover again doing different things depending on a window elsewhere.
   window instead. It also asks the overlay to track another window's state
   forever.
 - **Keep Chat state only to clear the Summon latch on Chat close (#1489).** The
-  latch is about the pointer, and its only tie to Chat was the macOS focus case
-  above. Keeping the state for one reset keeps the coupling and its sync work
-  alive for a rare path, and it can clear a latch the pointer never left.
+  latch is about the pointer, and its only tie to Chat was a macOS case where a
+  stuck `:hover` left it set. Keeping the state for one reset keeps the coupling
+  and its sync work alive for a rare path, and it can clear a latch the pointer
+  never left.
 - **Put a timer on the dismissal latch.** A hover would reopen the pill while
   the pointer still rests on the Character, which is the very hover that just
   sent or summoned. A guessed interval replaces an observable event.

@@ -39,11 +39,9 @@ fn overlay_panel_class() -> &'static AnyClass {
             Bool::new(focusable(this))
         }
 
-        /// AppKit still calls this when tao keys the overlay, even though
-        /// `canBecomeKeyWindow` refused. `NSPanel`'s default then leaves the
-        /// web view holding the keyboard, so a sprite click on a single display
-        /// eats the next keystrokes. A closed pill must skip that default; an
-        /// open one still runs it.
+        /// AppKit runs NSPanel's default after `canBecomeKeyWindow` refuses,
+        /// which leaves a closed overlay's web view holding the keyboard.
+        /// Skipping it here is what lets a sprite click pass the next key on.
         extern "C" fn become_key(this: &AnyObject, _sel: Sel) {
             if !focusable(this) {
                 return;
@@ -209,14 +207,8 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
         let active: bool = msg_send![app, isActive];
         let key: *mut AnyObject = msg_send![app, keyWindow];
         let holding = active && (key.is_null() || key == ns_window);
-        // Only the hand-back spends what was remembered. A Stay (the user moved
-        // on while the last pill closed) leaves it for the next pill to hand
-        // to; an unconditional drain turned the final close into a step
-        // aside to nothing on two displays. The gate in `overlay_report_qm_draft`
-        // keeps a mid-session close from reaching here, but it only sees
-        // reports that arrived: a close that slips past its report-order
-        // re-check still lands here, and keeping it is what lets the eventual
-        // last close restore instead of step aside.
+        // Only a hand-back spends what was remembered. A Stay leaves it for the
+        // next close, whose drain would otherwise step aside to nothing.
         let pid = if holding {
             FRONT_BEFORE_PILL.swap(0, Ordering::Relaxed)
         } else {
