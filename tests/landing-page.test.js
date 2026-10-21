@@ -92,7 +92,8 @@ test("every frame the page names is in the assembled site", () => {
     JSON.parse(m[1].replaceAll("&quot;", '"')),
   );
   assert.ok(loops.length > srcs.length, "the cast and the hero carry their loops");
-  for (const path of [...srcs, ...sets, ...loops].filter((p) => !p.startsWith("http"))) {
+  // An off-site URL, protocol-relative ones such as GoatCounter's included, is not ours to publish.
+  for (const path of [...srcs, ...sets, ...loops].filter((p) => !/^(https?:)?\/\//.test(p))) {
     assert.ok(existsSync(join(site, path)), `${path} is published`);
   }
 });
