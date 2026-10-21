@@ -1,5 +1,5 @@
-// A stuck :hover must not keep a Summon's hold: the Shell's hit test clears it
-// (ADR-0039, #1565). Drives the real src/index.html and main.js with a real pointer.
+// A stuck :hover must not keep a Summon's hold: the Shell's hit test clears it.
+// Drives the real src/index.html and main.js with a real pointer.
 
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
