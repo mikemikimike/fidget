@@ -143,7 +143,6 @@ pub fn discover_repo_root() -> Result<PathBuf, String> {
     )
 }
 
-/// Which overlay leaf script to run for this host OS.
 /// A `cargo` run in the repo root. Run under `cargo run`, verify inherits its
 /// own package env, which changes build-script fingerprints, so the nested
 /// build would recompile ring, tauri and fidget the build step already made.
@@ -159,6 +158,7 @@ pub fn cargo(repo_root: &Path) -> process::Command {
     cmd
 }
 
+/// Which overlay leaf script to run for this host OS.
 pub fn overlay_script_for_os(os: &str) -> Option<&'static str> {
     match os {
         "macos" => Some("scripts/verify-overlay.sh"),
