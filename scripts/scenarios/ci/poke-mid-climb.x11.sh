@@ -164,11 +164,10 @@ away=$((px + into * 4 * size))
 xdotool mousemove "$((away < 0 ? 0 : away))" "$sy" >> "$out/input.txt" 2>&1 || fail "could not move the pointer off the sprite; see $out/input.txt"
 
 wait_for_trace 3 "$trace" 'frame: .* Climbing .* react#[0-9]' || fail "sprite did not hold react during cooldown; see $trace"
-# The check reads 3.5 s of frames past the Poke; stopping Fidget sooner
-# cuts them off.
-poke_ms=$(awk '/^verbs: .*Poke/ { p = 1; next } p && /^frame: / { print $2; exit }' "$trace")
-traced_past_cooldown() { [ "$(grep '^frame: ' "$trace" | tail -1 | cut -d' ' -f2)" -ge $((poke_ms + 3500)) ]; }
-wait_until 5 traced_past_cooldown || true
+# The checker passes once the trace runs past the Poke's 2.5 s cooldown;
+# stopping Fidget sooner cuts those frames off.
+cooldown_traced() { python3 "$root/scripts/scenarios/helpers/poke-mid-climb-check.py" "$trace" 2> /dev/null; }
+wait_until 3 cooldown_traced || true
 kill "$pid" 2> /dev/null || true
 wait "$pid" 2> /dev/null || true
 
