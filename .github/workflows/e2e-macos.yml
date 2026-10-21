@@ -51,7 +51,8 @@ jobs:
 
       - name: Warm up WebKit
         # A fresh runner draws Fidget's first frame seconds late, past a leaf's
-        # 3 s launch wait. One launch here takes that cold start.
+        # 3 s launch wait. One launch here takes that cold start, which ran past
+        # 3 s itself on macOS, so this one wait gets 30 s.
         run: |
           root=$PWD log="$RUNNER_TEMP/warmup.log"
           . scripts/scenarios/helpers/wait-helpers.mac.sh
@@ -60,7 +61,7 @@ jobs:
             target/debug/fidget > "$log" 2>&1 &
           pid=$!
           drew=0
-          wait_for_trace 3 "$log" '^frame: ' || drew=$?
+          wait_for_trace 30 "$log" '^frame: ' || drew=$?
           stop_fidget || true
           { sleep 3 && process_tree "$pid" | xargs kill -9; } > /dev/null 2>&1 &
           wait "$pid" 2> /dev/null || true
@@ -68,7 +69,7 @@ jobs:
           wait "$!" 2> /dev/null || true
           if [ "$drew" != 0 ]; then
             cat "$log"
-            echo "::error::the warm-up drew no frame in 3 s; see the log above"
+            echo "::error::the warm-up drew no frame in 30 s; see the log above"
             exit 1
           fi
 
