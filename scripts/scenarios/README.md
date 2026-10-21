@@ -14,10 +14,10 @@ run one: set up, post the prompt, and wait for a go-ahead for that run.
 | `helpers/` | Waits, the fixture Harness launcher, and the Swift and Python tools the leaves share. |
 | `fixtures/` | Saved dumps and traces for each leaf's fixture mode. |
 
-A scenario's leaves can sit in both leaf folders: `thinking-row.win.ps1` and
-`thinking-row.x11.sh` are in `ci/`, its macOS leaf in `manual-only/`.
-`fidget-verify scenario <name>` finds this host's leaf in either one. A
-follow-up that gets a leaf passing in a CI job moves it to `ci/`.
+A scenario's leaves can sit in both leaf folders: `chat-close-pill-type.x11.sh`
+is in `ci/`, its macOS and Windows leaves in `manual-only/`. `fidget-verify
+scenario <name>` finds this host's leaf in either one. A follow-up that gets a
+leaf passing in a CI job moves it to `ci/`.
 
 ## Run one
 

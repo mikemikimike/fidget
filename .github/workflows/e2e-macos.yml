@@ -55,13 +55,14 @@ jobs:
           . scripts/scenarios/helpers/wait-helpers.sh
           wait_for_up 60 "$home/app.log" || echo "::warning::Fidget never came up in the warm-up"
           kill "$pid" 2> /dev/null || true
+          wait "$pid" 2> /dev/null || true
           cat "$home/app.log"
 
       - name: Run the scenarios
         env:
           SCENARIOS: ${{ inputs.scenarios }}
         run: |
-          # The leaves write evidence under $TMPDIR; keep it in one folder to upload.
+          # The leaves write evidence under $TMPDIR; keep it in one folder.
           export TMPDIR="$RUNNER_TEMP/evidence"
           mkdir -p "$TMPDIR"
           if [ -n "$SCENARIOS" ]; then
@@ -73,21 +74,27 @@ jobs:
               names+=("$(basename "$leaf" .sh)")
             done
           fi
+          [ "${#names[@]}" -gt 0 ] || { echo "no leaf to run"; exit 1; }
           # A leaf that blocks would hold the job to its timeout; 3 min is well
           # past the slowest leaf's own limit. Its own process group lets the
-          # cap kill Fidget and the helpers with it.
+          # cap stop Fidget and the helpers too; TERM first, so traps clean up.
           bounded() {
             local leaf timer code
+            rm -f "$RUNNER_TEMP/timed-out"
             set -m
             "$@" &
             leaf=$!
             set +m
-            { sleep 180 && echo "timed out after 3 min" && kill -KILL -"$leaf"; } 2> /dev/null &
+            {
+              sleep 180 && touch "$RUNNER_TEMP/timed-out" && echo "timed out after 3 min" &&
+                kill -TERM -"$leaf" && sleep 5 && kill -KILL -"$leaf"
+            } 2> /dev/null &
             timer=$!
             wait "$leaf" && code=0 || code=$?
             pkill -P "$timer" 2> /dev/null || true
             kill "$timer" 2> /dev/null || true
             wait "$timer" 2> /dev/null || true
+            [ ! -e "$RUNNER_TEMP/timed-out" ] || code=124
             return "$code"
           }
           summary=""
@@ -96,7 +103,7 @@ jobs:
             echo "::group::scenario $name"
             bounded cargo run -q -p fidget-verify -- scenario "$name" --go && code=0 || code=$?
             echo "::endgroup::"
-            # A SKIP fails the job: it means the runner's desktop could not prove the leaf.
+            # A SKIP fails the job: the runner could not prove the leaf.
             case $code in
               0) verdict=PASS ;;
               2) verdict=SKIP ;;
