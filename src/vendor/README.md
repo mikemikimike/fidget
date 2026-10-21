@@ -28,7 +28,9 @@ tar xzOf marked-18.0.13.tgz package/lib/marked.esm.js > src/vendor/marked.esm.js
 | licence | MIT |
 
 Used by `src/markdown.js`, and only through its token API — `Lexer.lex`. The
-HTML-string renderer is never called; see that file for why.
+HTML-string renderer is never called; see that file for why. Semgrep may flag
+ReDoS in the minified lexer; patterns are literals, not user-controlled regex
+input.
 
 **It is minified.** marked has published no readable ESM since v16, so the
 readable alternative is not the same library at a different price — it is
