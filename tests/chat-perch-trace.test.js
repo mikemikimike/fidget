@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const script = fileURLToPath(new URL("../scripts/scenarios/chat-perch.sh", import.meta.url));
+const script = fileURLToPath(new URL("../scripts/scenarios/manual-only/chat-perch.sh", import.meta.url));
 
 function check(trace, firstLine = 2, instance = "character-a") {
   const dir = mkdtempSync(join(tmpdir(), "fidget-perch-trace-"));
