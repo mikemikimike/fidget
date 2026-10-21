@@ -1,0 +1,108 @@
+// The X11 mask rebuild measurement must end when it is interrupted, with its
+// app gone and no results printed. A fake Fidget stands in, so nothing shows.
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { test } from "node:test";
+
+const script = path.join(import.meta.dirname, "..", "scripts", "measure-mask-rebuild-x11.sh");
+const ready = "overlay: 1 display";
+const trace = "mask_rebuild: 126x128 @1x scale, 6300 opaque pixels, 0.5 ms";
+
+function fakeFidget(dir, lines) {
+  const bin = path.join(dir, "fidget");
+  const prints = lines.map((line) => `echo "${line}"\n`).join("");
+  fs.writeFileSync(bin, `#!/usr/bin/env bash\necho $$ > "${dir}/pid.tmp" && mv "${dir}/pid.tmp" "${dir}/app.pid"\n${prints}exec sleep 30\n`, {
+    mode: 0o755,
+  });
+  return bin;
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Each case gets 3 s; a hang or a cleanup that misses the app fails fast.
+const budgetMs = 3000;
+
+// Runs the script against a fake that prints `lines`, sending `signal` once
+// `cue` shows and the fake has its pid down. TMPDIR keeps files in `dir`.
+async function measure({ lines, args, signal, cue }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mask-measure-"));
+  const pidFile = path.join(dir, "app.pid");
+  const child = spawn("bash", [script, "--bin", fakeFidget(dir, lines), ...args], {
+    env: { ...process.env, TMPDIR: dir },
+  });
+  let out = "";
+  let afterSignal = "";
+  let sent = false;
+  let started = false;
+  let timer;
+  const watcher = fs.watch(dir, () => {
+    started ||= fs.existsSync(pidFile);
+    fire();
+  });
+  function fire() {
+    if (signal && !sent && started && out.includes(cue)) {
+      sent = true;
+      child.kill(signal);
+    }
+  }
+  const exited = new Promise((resolve) => child.on("exit", (code, sig) => resolve({ code, sig })));
+  const budget = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no exit within ${budgetMs} ms:\n${out}`)), budgetMs);
+  });
+  child.stdout.on("data", (chunk) => {
+    if (sent) afterSignal += chunk;
+    out += chunk;
+    started ||= fs.existsSync(pidFile);
+    fire();
+  });
+  let pid;
+  try {
+    const result = await Promise.race([exited, budget]);
+    pid = Number(fs.readFileSync(pidFile, "utf8"));
+    return { ...result, out, afterSignal, appAlive: alive(pid) };
+  } finally {
+    clearTimeout(timer);
+    watcher.close();
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    if (pid === undefined && fs.existsSync(pidFile)) pid = Number(fs.readFileSync(pidFile, "utf8"));
+    if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function assertInterrupted(r) {
+  assert.strictEqual(r.code, 130, r.out);
+  assert.strictEqual(r.appAlive, false, "the app outlived the script");
+  assert.strictEqual(r.afterSignal, "", "output followed the signal");
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  test(`${signal} ends the measurement with status 130 and stops the app`, async () => {
+    const cue = "Waiting for 100 mask updates";
+    assertInterrupted(await measure({ lines: [ready, trace], args: ["idle", "100", "2"], signal, cue }));
+  });
+
+  test(`${signal} during startup ends the run with status 130 and stops the app`, async () => {
+    const cue = "Waiting for overlay ready...";
+    assertInterrupted(await measure({ lines: [], args: ["idle", "100", "2"], signal, cue }));
+  });
+}
+
+test("updates with none position-only report every one as a full rebuild", async () => {
+  const r = await measure({ lines: [ready, trace], args: ["walk", "1", "2"] });
+  assert.strictEqual(r.code, 0, r.out);
+  assert.match(r.out, /Full rebuilds: 1 /);
+  assert.match(r.out, /Position-only: 0 /);
+  assert.match(r.out, /Full rebuild ratio: 1\.00 /);
+  assert.match(r.out, /Full rebuilds: 100% of updates/);
+});
