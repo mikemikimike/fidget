@@ -320,13 +320,6 @@ in_background awk '{
 in_background rm -f "$parsed"
 
 echo ""
-echo "Opaque pixel count:"
-if [ -f /tmp/mask_rebuild_parsed.$$ ]; then
-  awk '{print $4}' /tmp/mask_rebuild_parsed.$$ | sort -n | uniq -c |
-    awk '{printf "  %d pixels: %d rebuild(s)\n", $2, $1}'
-fi
-
-echo ""
 echo "--- Interpretation ---"
 case "$scenario" in
   idle)
