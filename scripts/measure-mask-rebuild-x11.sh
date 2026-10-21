@@ -99,12 +99,13 @@ esac
 }
 
 log=$(mktemp -t fidget-mask-measure-XXXXXX.log)
+count_file="$log.count"
 cleanup() {
   if [ -n "${app_pid:-}" ]; then
     kill -TERM "$app_pid" 2> /dev/null || true
     wait "$app_pid" 2> /dev/null || true
   fi
-  rm -f "$log"
+  rm -f "$log" "$count_file"
 }
 trap cleanup EXIT
 # A signal has to end the run; cleanup is the EXIT trap's job.
@@ -197,20 +198,23 @@ case "$scenario" in
     ;;
 esac
 
-measure_start=$(date +%s)
+# As of 2026-10, bash 5.2 cannot parse a trap that fires inside $(...), so
+# the loop below runs none: counts go through a file, the clock is printf.
+printf -v measure_start '%(%s)T' -1
 echo "Waiting for $target_updates mask updates (deadline: ${deadline_sec}s)..."
 
 while true; do
-  update_count=$(grep -c 'mask_rebuild:' "$log" 2> /dev/null || echo "0")
+  grep -c 'mask_rebuild:' "$log" > "$count_file" 2> /dev/null || true
+  read -r update_count < "$count_file" || update_count=0
 
   if [ "$update_count" -ge "$target_updates" ]; then
-    measure_end=$(date +%s)
+    printf -v measure_end '%(%s)T' -1
     measure_elapsed=$((measure_end - measure_start))
     echo "Captured $update_count mask updates in ${measure_elapsed}s"
     break
   fi
 
-  now=$(date +%s)
+  printf -v now '%(%s)T' -1
   elapsed=$((now - measure_start))
   if [ "$elapsed" -ge "$deadline_sec" ]; then
     echo "DEADLINE EXCEEDED: Only $update_count updates in ${deadline_sec}s"
@@ -222,6 +226,7 @@ while true; do
 
   sleep 0.1
 done
+rm -f "$count_file"
 
 kill -TERM "$app_pid" 2> /dev/null || true
 wait "$app_pid" 2> /dev/null || true
