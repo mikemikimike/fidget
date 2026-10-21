@@ -300,8 +300,8 @@ fn route_attach_notice(
 
 struct PendingAsks(Mutex<Pending>);
 
-/// Chats the user minimized, by label. Kept so a minimize and its restore each
-/// log once, which the macOS scenario counts.
+/// Chats the user minimized, by label, so each minimize and restore logs once
+/// (`chat-level.sh` counts them) and a focus change can settle the window level.
 #[derive(Default)]
 struct MinimizedChats(Mutex<HashSet<String>>);
 
