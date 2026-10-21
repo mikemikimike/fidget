@@ -107,11 +107,21 @@ const ENGINE_TICK: Duration = Duration::from_millis(16);
 /// calls the sprite's physics have no use for.
 const SENSE_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Prefix of every overlay window label. Chat and Settings use other prefixes.
+const OVERLAY_PREFIX: &str = "overlay-";
+
 /// The overlay covering the display at `index`. The index is both the name
 /// and how the frame loop finds it; `capabilities/overlay.json` grants every
 /// `overlay-*` the same permissions.
 fn overlay_label(index: usize) -> String {
-    format!("overlay-{index}")
+    format!("{OVERLAY_PREFIX}{index}")
+}
+
+/// Whether `label` names an overlay window. Both keyboard hand-backs use
+/// this, so a label-scheme change cannot skip overlays on one platform only.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub(crate) fn is_overlay_label(label: &str) -> bool {
+    label.starts_with(OVERLAY_PREFIX)
 }
 
 /// The Chat surface belonging to `id`. Outside `overlay-` on purpose:
@@ -129,15 +139,6 @@ fn draws_in(owner: &Owner, label: &str) -> bool {
         Owner::Instance(instance) => label == chat_label(instance),
         Owner::EveryChat => label.starts_with("chat-"),
     }
-}
-
-/// Whether `id` has a Chat window the user has not minimized.
-fn chat_is_up(app: &tauri::AppHandle, id: &str) -> bool {
-    let label = chat_label(id);
-    app.get_webview_window(&label).is_some()
-        && !app
-            .try_state::<MinimizedChats>()
-            .is_some_and(|chats| chats.hides(&label))
 }
 
 /// Deliver `chat-opening` to Chat and to each open overlay, in index order.
@@ -309,8 +310,8 @@ fn route_attach_notice(
 
 struct PendingAsks(Mutex<Pending>);
 
-/// Chats the user minimized, by label. Each Chat's window events and, on macOS,
-/// its miniaturize notifications keep it, so the frame loop never asks a window.
+/// Chats the user minimized, by label, so each minimize and restore logs once
+/// (`chat-level.sh` counts them) and a focus change can settle the window level.
 #[derive(Default)]
 struct MinimizedChats(Mutex<HashSet<String>>);
 
@@ -348,10 +349,6 @@ impl MinimizedChats {
                 eprintln!("chat: {label} is not minimized");
             }
         }
-    }
-
-    fn hides(&self, label: &str) -> bool {
-        self.0.lock().is_ok_and(|hidden| hidden.contains(label))
     }
 }
 
@@ -572,9 +569,6 @@ struct SpritePlacement<'a> {
     /// On this tick only: a touch was dropped because a question waits on the
     /// user (ADR-0016), so the bubble points at Chat. False off the bubble owner.
     asking: bool,
-    /// Whether this Instance has a Chat window that is not minimized. Sent to
-    /// every overlay, because the pill that must stay down can open on any of them.
-    chatting: bool,
     /// The cursor hovers this Instance, by `AlphaMask::hovers`: :hover misses
     /// it once Chat has closed (#1565). Bubble owner only, like the pill.
     hovered: bool,
@@ -622,7 +616,6 @@ impl<'a> SpritePlacement<'a> {
             dialogue: instance.dialogue.as_ref().filter(|_| bubble).cloned(),
             thinking: bubble && instance.thinking,
             asking: bubble && instance.asking,
-            chatting: instance.chatting,
             hovered: bubble && instance.hovered,
             bubble,
             cue: instance.cue.filter(|_| bubble).map(Cue::name),
@@ -705,7 +698,6 @@ struct Placed {
     dialogue: Option<String>,
     thinking: bool,
     asking: bool,
-    chatting: bool,
     hovered: bool,
     cue: Option<Cue>,
     /// Where this tick's landing touched, in the space every display shares.
@@ -2287,7 +2279,18 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
             // Win32 for live windows, and any attach is undone before returning.
             unsafe {
                 let foreground = GetForegroundWindow();
-                platform::remember_foreground(foreground);
+                let mut overlays: Vec<HWND> = window
+                    .app_handle()
+                    .webview_windows()
+                    .into_iter()
+                    .filter(|(label, _)| is_overlay_label(label))
+                    .filter_map(|(_, overlay)| overlay.hwnd().ok().map(|handle| handle.0 as HWND))
+                    .collect();
+                // The caller is an overlay even when its label was not listed.
+                if !overlays.contains(&hwnd) {
+                    overlays.push(hwnd);
+                }
+                platform::remember_foreground(foreground, &overlays);
                 let mut attached = None;
                 if !foreground.is_null() {
                     let foreground_thread =
@@ -5418,6 +5421,14 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_overlay_label_is_the_prefix_chat_and_settings_do_not_share() {
+        assert!(super::is_overlay_label(&super::overlay_label(0)));
+        assert!(super::is_overlay_label(&super::overlay_label(1)));
+        assert!(!super::is_overlay_label(&super::chat_label("bmo")));
+        assert!(!super::is_overlay_label("settings"));
+    }
+
     /// Production change that would fail this: `chat_ready` dropping a kept
     /// turn's error, so Chat shows the typed line waiting forever (#1510).
     #[test]
@@ -5604,35 +5615,6 @@ mod tests {
             None,
             "a resize leaves the level"
         );
-    }
-
-    /// A minimized Chat lets the pill back. No event says "minimized": blur
-    /// carries it on macOS, a resize to nothing on Windows.
-    #[test]
-    fn a_minimized_chat_stops_hiding_the_pill_until_it_comes_back() {
-        let chats = MinimizedChats::default();
-        chats.note("chat-a", &tauri::WindowEvent::Focused(false), || true);
-        assert!(chats.hides("chat-a"));
-        assert!(!chats.hides("chat-b"), "only the minimized Chat");
-        chats.note("chat-a", &tauri::WindowEvent::Focused(true), || false);
-        assert!(!chats.hides("chat-a"), "unminimized");
-
-        let gone = tauri::WindowEvent::Resized(tauri::PhysicalSize::new(0, 0));
-        chats.note("chat-a", &gone, || true);
-        assert!(chats.hides("chat-a"));
-        chats.note("chat-a", &tauri::WindowEvent::Destroyed, || true);
-        assert!(!chats.hides("chat-a"), "a reopened Chat starts open");
-    }
-
-    /// A Chat minimized behind another app gets no window event. AppKit's
-    /// miniaturize notification sets it directly.
-    #[test]
-    fn a_chat_minimized_without_focus_lets_the_pill_back() {
-        let chats = MinimizedChats::default();
-        chats.set("chat-a", true);
-        assert!(chats.hides("chat-a"));
-        chats.set("chat-a", false);
-        assert!(!chats.hides("chat-a"), "deminiaturized");
     }
 
     fn owners() -> (Owner, Owner) {
@@ -6865,7 +6847,6 @@ mod tests {
             dialogue: Some("Yare yare daze.".to_string()),
             thinking: true,
             asking: true,
-            chatting: true,
             hovered: true,
             cue: Some(Cue::Drop),
             contact: Some(fidget_core::engine::RippleContact {
@@ -6914,10 +6895,6 @@ mod tests {
             ),
             (None, None, None),
             "and its ripple is drawn once"
-        );
-        assert!(
-            owner.chatting && elsewhere.chatting,
-            "the pill can open on any overlay, so each one hears that Chat is up"
         );
         assert!(
             owner.hovered,
@@ -6971,7 +6948,6 @@ mod tests {
             dialogue: None,
             thinking: false,
             asking: false,
-            chatting: false,
             hovered: false,
             cue: None,
             contact: None,

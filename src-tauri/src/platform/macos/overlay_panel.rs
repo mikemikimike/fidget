@@ -1,9 +1,9 @@
 //! Turning a Tauri window into a non-activating overlay panel.
 
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicIsize, Ordering};
 use std::sync::OnceLock;
 
-use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
+use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, MessageReceiver, Sel};
 use objc2::{msg_send, sel};
 use objc2_app_kit::{
     NSFloatingWindowLevel, NSWindowCollectionBehavior, NSWindowLevel, NSWindowSharingType,
@@ -29,19 +29,38 @@ fn overlay_panel_class() -> &'static AnyClass {
             Bool::NO
         }
 
-        extern "C" fn focusable(this: &AnyObject, _sel: Sel) -> Bool {
+        fn focusable(this: &AnyObject) -> bool {
             let ivar = this.class().instance_variable(c"focusable").unwrap();
             // SAFETY: the class declares `focusable` as a BOOL.
-            unsafe { *ivar.load::<Bool>(this) }
+            unsafe { (*ivar.load::<Bool>(this)).as_bool() }
         }
 
-        // SAFETY: both selectors return BOOL and take no arguments, which is
-        // what `refuse` is declared as.
+        extern "C" fn can_become_key(this: &AnyObject, _sel: Sel) -> Bool {
+            Bool::new(focusable(this))
+        }
+
+        /// AppKit runs NSPanel's default after `canBecomeKeyWindow` refuses,
+        /// which leaves a closed overlay's web view holding the keyboard.
+        /// Skipping it here is what lets a sprite click pass the next key on.
+        extern "C" fn become_key(this: &AnyObject, _sel: Sel) {
+            if !focusable(this) {
+                return;
+            }
+            let superclass = AnyClass::get(c"NSPanel").expect("AppKit always defines NSPanel");
+            // SAFETY: NSPanel implements becomeKeyWindow; no arguments.
+            let _: () =
+                unsafe { this.send_super_message::<(), ()>(superclass, sel!(becomeKeyWindow), ()) };
+        }
+
+        // SAFETY: each selector's argument and return shape matches the
+        // function pointer: the two can... methods return BOOL, becomeKeyWindow
+        // returns void, and all three take no arguments.
         unsafe {
             builder.add_method(
                 sel!(canBecomeKeyWindow),
-                focusable as extern "C" fn(_, _) -> Bool,
+                can_become_key as extern "C" fn(_, _) -> Bool,
             );
+            builder.add_method(sel!(becomeKeyWindow), become_key as extern "C" fn(_, _));
             builder.add_method(
                 sel!(canBecomeMainWindow),
                 refuse as extern "C" fn(_, _) -> Bool,
@@ -129,13 +148,17 @@ fn sharing_type() -> NSWindowSharingType {
     }
 }
 
-/// The app that was in front when a pill took the keyboard, by pid; 0 is none.
+/// Another app's pid when a pill took the keyboard from it. 0 when the
+/// memory is Fidget's own window, or when nothing was remembered.
 static FRONT_BEFORE_PILL: AtomicI32 = AtomicI32::new(0);
+/// Fidget's own key window number when the pill opened over it; 0 otherwise.
+static FRONT_WINDOW_BEFORE_PILL: AtomicIsize = AtomicIsize::new(0);
 
 /// Remember the frontmost app before the pill activates Fidget. Main thread.
 pub fn remember_front_app() {
     let workspace = AnyClass::get(c"NSWorkspace").expect("AppKit defines NSWorkspace");
-    // SAFETY: plain NSWorkspace / NSRunningApplication getters.
+    let application = AnyClass::get(c"NSApplication").expect("AppKit defines NSApplication");
+    // SAFETY: plain NSWorkspace / NSApplication / NSRunningApplication getters.
     unsafe {
         let shared: *mut AnyObject = msg_send![workspace, sharedWorkspace];
         let front: *mut AnyObject = msg_send![shared, frontmostApplication];
@@ -143,8 +166,51 @@ pub fn remember_front_app() {
             return;
         }
         let pid: i32 = msg_send![front, processIdentifier];
-        if pid != std::process::id() as i32 {
+        if pid == std::process::id() as i32 {
+            // The pill opened over Fidget's own Chat or Settings. Remember that
+            // window, so closing the pill returns the keyboard to it instead of
+            // stepping aside from the app the user was already in.
+            let app: *mut AnyObject = msg_send![application, sharedApplication];
+            let key: *mut AnyObject = msg_send![app, keyWindow];
+            if key.is_null() {
+                return;
+            }
+            let key = &*key;
+            // Another pill's overlay is already key: keep what the first pill
+            // remembered, not the overlay.
+            if std::ptr::eq(key.class(), overlay_panel_class()) {
+                return;
+            }
+            let number: isize = msg_send![key, windowNumber];
+            FRONT_WINDOW_BEFORE_PILL.store(number, Ordering::Relaxed);
+            FRONT_BEFORE_PILL.store(0, Ordering::Relaxed);
+        } else {
             FRONT_BEFORE_PILL.store(pid, Ordering::Relaxed);
+            FRONT_WINDOW_BEFORE_PILL.store(0, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Whether `remembered` still exists, so a close can tell a hand-back from a
+/// step aside. Main thread, on the objects `hand_back_keyboard` just fetched.
+unsafe fn front_still_there(
+    app: *mut AnyObject,
+    running: &AnyClass,
+    remembered: crate::pill_focus::RememberedFront,
+) -> bool {
+    match remembered {
+        crate::pill_focus::RememberedFront::None => false,
+        crate::pill_focus::RememberedFront::OwnWindow(number) => {
+            let window: *mut AnyObject = msg_send![app, windowWithWindowNumber: number];
+            !window.is_null()
+        }
+        crate::pill_focus::RememberedFront::OtherApp(pid) => {
+            let previous: *mut AnyObject =
+                msg_send![running, runningApplicationWithProcessIdentifier: pid];
+            !previous.is_null() && {
+                let gone: bool = msg_send![previous, isTerminated];
+                !gone
+            }
         }
     }
 }
@@ -165,38 +231,46 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
         let active: bool = msg_send![app, isActive];
         let key: *mut AnyObject = msg_send![app, keyWindow];
         let holding = active && (key.is_null() || key == ns_window);
-        // Only the hand-back spends the remembered app. A Stay (the user moved
-        // on while the last pill closed) leaves it for the next pill to hand
-        // to; an unconditional drain turned the final close into a step
-        // aside to nothing on two displays. The gate in `overlay_report_qm_draft`
-        // keeps a mid-session close from reaching here, but it only sees
-        // reports that arrived: a close that slips past its report-order
-        // re-check still lands here, and keeping the pid is what lets the
-        // eventual last close restore instead of step aside.
-        let pid = if holding {
-            FRONT_BEFORE_PILL.swap(0, Ordering::Relaxed)
-        } else {
-            FRONT_BEFORE_PILL.load(Ordering::Relaxed)
+        let pid = FRONT_BEFORE_PILL.load(Ordering::Relaxed);
+        let remembered_window = FRONT_WINDOW_BEFORE_PILL.load(Ordering::Relaxed);
+        let remembered = crate::pill_focus::remembered_front(pid, remembered_window);
+        let alive = front_still_there(app, running, remembered);
+        let mut choice = crate::pill_focus::plan_hand_back(holding, remembered, alive);
+        // A Stay writes its payload back. A hand-back writes none, so the next
+        // close cannot restore a window this one already used.
+        let (keep_pid, keep_window) = match crate::pill_focus::remembered_after(choice) {
+            Some(crate::pill_focus::RememberedFront::OtherApp(kept)) => (kept, 0),
+            Some(crate::pill_focus::RememberedFront::OwnWindow(number)) => (0, number),
+            Some(crate::pill_focus::RememberedFront::None) | None => (0, 0),
         };
-        let previous: *mut AnyObject = if pid == 0 {
-            std::ptr::null_mut()
-        } else {
-            msg_send![running, runningApplicationWithProcessIdentifier: pid]
-        };
-        let alive = !previous.is_null() && {
-            let gone: bool = msg_send![previous, isTerminated];
-            !gone
-        };
-        let decision = crate::pill_focus::hand_back(holding, alive);
-        match decision {
-            crate::pill_focus::HandBack::Stay => {}
-            crate::pill_focus::HandBack::Restore => {
-                let _: bool = msg_send![previous, activateWithOptions: 0usize];
+        FRONT_BEFORE_PILL.store(keep_pid, Ordering::Relaxed);
+        FRONT_WINDOW_BEFORE_PILL.store(keep_window, Ordering::Relaxed);
+        if let crate::pill_focus::HandBackPlan::RestoreWindow(number) = choice {
+            let remembered: *mut AnyObject = msg_send![app, windowWithWindowNumber: number];
+            if !remembered.is_null() {
+                let _: () =
+                    msg_send![remembered, makeKeyAndOrderFront: std::ptr::null_mut::<AnyObject>()];
+                if crate::dev_flags::TRACE_BUBBLE.is_on() {
+                    eprintln!("app: hand back window holding={holding} window={number}");
+                }
+                return Ok(());
             }
-            // Nothing to give it back to. macOS 14 can ignore `deactivate`, so
-            // activate the next app in front; deactivate only when there is
-            // none. Hiding would hide the sprite too.
-            crate::pill_focus::HandBack::StepAside => {
+            choice = crate::pill_focus::HandBackPlan::StepAside;
+        }
+        match choice {
+            crate::pill_focus::HandBackPlan::Stay(_) => {}
+            crate::pill_focus::HandBackPlan::RestoreApp(pid) => {
+                let previous: *mut AnyObject =
+                    msg_send![running, runningApplicationWithProcessIdentifier: pid];
+                if !previous.is_null() {
+                    let _: bool = msg_send![previous, activateWithOptions: 0usize];
+                }
+            }
+            // Nothing left to give the keyboard back to. macOS 14 can ignore
+            // `deactivate`, so activate the next app in front, and deactivate
+            // only when there is none. Hiding would hide the sprite too.
+            crate::pill_focus::HandBackPlan::RestoreWindow(_)
+            | crate::pill_focus::HandBackPlan::StepAside => {
                 let next = crate::pill_focus::next_app_in_front(
                     &app_windows(),
                     std::process::id() as i32,
@@ -214,8 +288,18 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
             }
         }
         if crate::dev_flags::TRACE_BUBBLE.is_on() {
+            let decision = match choice {
+                crate::pill_focus::HandBackPlan::Stay(_) => crate::pill_focus::HandBack::Stay,
+                crate::pill_focus::HandBackPlan::RestoreApp(_) => {
+                    crate::pill_focus::HandBack::Restore
+                }
+                crate::pill_focus::HandBackPlan::RestoreWindow(_)
+                | crate::pill_focus::HandBackPlan::StepAside => {
+                    crate::pill_focus::HandBack::StepAside
+                }
+            };
             eprintln!(
-                "app: hand back {decision:?} holding={holding} remembered={pid} alive={alive}"
+                "app: hand back {decision:?} holding={holding} remembered={pid} window={remembered_window} alive={alive}"
             );
         }
     }

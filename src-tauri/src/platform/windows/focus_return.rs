@@ -9,9 +9,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowThreadProcessId, IsIconic, IsWindow, SetForegroundWindow,
 };
 
-use crate::pill_focus::{hand_back, HandBack};
+use crate::pill_focus::{hand_back, worth_remembering, HandBack};
 
-use super::super::windows_hand_back::{step_aside_target, worth_remembering};
+use super::super::windows_hand_back::step_aside_target;
 use super::window_source::visible_windows;
 
 /// The foreground window when a pill took the keyboard; 0 is none.
@@ -25,9 +25,11 @@ fn owner_pid(hwnd: HWND) -> u32 {
 }
 
 /// Remember `foreground` before the pill takes the keyboard, unless it is
-/// Fidget's own (the overlay already in front) or none.
-pub fn remember_foreground(foreground: HWND) {
-    if worth_remembering(foreground as u64, owner_pid(foreground), std::process::id()) {
+/// one of Fidget's overlays or none. Chat is remembered, so the close can
+/// return to it instead of to the overlay on the other display.
+pub fn remember_foreground(foreground: HWND, overlays: &[HWND]) {
+    let overlays: Vec<u64> = overlays.iter().map(|hwnd| *hwnd as u64).collect();
+    if worth_remembering(foreground as u64, &overlays) {
         FOREGROUND_BEFORE_PILL.store(foreground as isize, Ordering::Relaxed);
     }
 }

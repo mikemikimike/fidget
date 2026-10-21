@@ -284,7 +284,7 @@ wait_for_next 5 "$log" "$closed_b" "$tools/ax" key "$pid" escape ||
   fail "the second pill did not close on Escape; see $log"
 end_b=$(grep -nE "$closed_b" "$log" | tail -1 | cut -d: -f1)
 restores=$(sed -n "$opened_b,$end_b p" "$log" |
-  grep -cE '^[0-9]+ app: hand back Restore holding=true remembered=[1-9][0-9]* alive=true$' || true)
+  grep -cE '^[0-9]+ app: hand back Restore holding=true remembered=[1-9][0-9]* window=0 alive=true$' || true)
 handed=$(sed -n "$opened_b,$end_b p" "$log" | grep -cE '^[0-9]+ app: hand back' || true)
 [ "$handed" -eq 1 ] ||
   fail "the close phase logged $handed hand-back lines; expected only the last close's Restore"
@@ -294,7 +294,7 @@ echo "ok: the first close handed the keyboard back to no one"
 
 # Both pills are closed: the hand-back must restore the app that was in front,
 # not step aside for whatever happens to be there now.
-last_restore() { grep -qE '^[0-9]+ app: hand back Restore holding=true remembered=[1-9][0-9]* alive=true$' "$log"; }
+last_restore() { grep -qE '^[0-9]+ app: hand back Restore holding=true remembered=[1-9][0-9]* window=0 alive=true$' "$log"; }
 wait_until 5 last_restore ||
   fail "the last close did not restore the remembered app; got: $(grep -E '^[0-9]+ app: hand back' "$log" | tail -3)"
 echo "ok: the last close restored the remembered app"

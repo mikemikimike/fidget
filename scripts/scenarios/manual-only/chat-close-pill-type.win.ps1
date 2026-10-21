@@ -5,15 +5,17 @@
 #   fixture Harness. Cleanup closes only that tab, so it never comes back in
 #   Notepad's restored session. If this run started Notepad, it also closes
 #   that one window, and only when no tab is left in it.
-# Input: SendInput cursor moves, clicks, typed words, Escape, Enter, Ctrl+Home,
-#   Ctrl+S. Case 5 opens and closes a small window of the script's own.
+# Input: SendInput cursor moves, clicks, a double-click, typed words, Escape,
+#   Enter, Ctrl+Home, Ctrl+S. Case 5 opens and closes a small window of the
+#   script's own. Case 8 closes Chat with WM_CLOSE, the same message as its X.
 #   Each press is held until Fidget traces it down. A pill word is one SendInput;
 #   a Notepad word goes one character at a time, each saved and read back first.
-# Duration: about 12.5 s (the first live Windows pass, at b92365ec). Every wait
-#   gives up 3 s after its trigger; at startup that is the first frame after
-#   the launch, the overlay's page load after that frame, and its first report
-#   after the page load. Waits wake on each line of Fidget's piped stderr, on
-#   file changes, or on UI Automation events; nothing polls.
+# Duration: about 12.5 s before the Chat-open case. Every wait gives up 3 s
+#   after its trigger; at startup that is the first frame after the launch, the
+#   overlay's page load after that frame, and its first report after the page
+#   load. Waits wake on each
+#   line of Fidget's piped stderr, on file changes, or on UI Automation
+#   events; nothing polls.
 # WebView2's profile is one folder every run reuses,
 #   %LOCALAPPDATA%\fidget-scenarios\webview2. The first run on a PC makes it
 #   cold; if that run misses a startup step it says to rerun. A WebView2 still
@@ -30,7 +32,9 @@
 #   closed while the pill was open, Escape steps aside to Notepad; (6) a click
 #   into Notepad closes the empty pill (the page blur finds another window in
 #   front), Fidget's hand-back stays put, and typing lands in Notepad; (7) hover opens a pill, a click on it
-#   keeps typing in it, and Escape hands it back.
+#   keeps typing in it, and Escape hands it back. (8) With Chat open, Escape
+#   hands the keyboard back to Chat's window (`hand back Restore` to that
+#   hwnd), then Chat closes.
 #   It prints the pill-open line, which says whether Windows refused the pill
 #   the foreground (#1577).
 # Self-checks that launch nothing: FIDGET_SCENARIO_NOTEPAD_TABS (names split by
@@ -114,6 +118,9 @@ $T = [ordered]@{
     restore   = '(?:^|\s)overlay: hand back Restore to 0x[0-9a-f]+ -> -?\d+$'
     stepAside = '(?:^|\s)overlay: hand back StepAside to 0x[0-9a-f]+ -> -?\d+$'
     stay      = '(?:^|\s)overlay: hand back Stay to none$'
+    chatOpen  = '(?:^|\s)chat: chat-\S+ is open$'
+    chatClosed = '(?:^|\s)chat: chat-\S+ is closed$'
+    ten       = '(?:^|\s)overlay: draft instance=\S+ text="ten" focused=true$'
     pillOpen  = '(?:^|\s)overlay: pill open SetForegroundWindow\((0x[0-9a-f]+)\) -> (-?\d+) GetForegroundWindow\(\) -> (0x[0-9a-f]+)$'
     hitTest   = '(?:^|\s)hit-test: '
     hit       = '(?:^|\s)hit-test: cursor\(.*\bHIT\s+click-through OFF'
@@ -664,6 +671,23 @@ function Click-Sprite([string]$Case) {
     Press-Hold $script:aim.X $script:aim.Y $Case
     Move-Away $Case
 }
+function Find-Chat {
+    foreach ($h in [PillWin]::Tops()) {
+        if ((Owner-Of $h) -eq $script:proc.Id -and [PillWin]::Title($h) -eq "BMO") { return $h }
+    }
+    [IntPtr]::Zero
+}
+# Two presses inside the double-click interval. Each is held until Fidget
+# traces it, which is one frame, inside that interval.
+function Summon-Chat([string]$Case) {
+    Aim $Case
+    Move-Away $Case
+    if (-not (Wait-ForNext $T.hit { $null = [PillWin]::SetCursorPos($script:aim.X, $script:aim.Y) })) { Fail "${Case}: the sprite's click area did not follow the cursor; see $log" }
+    Press-Hold $script:aim.X $script:aim.Y $Case
+    Press-Hold $script:aim.X $script:aim.Y $Case
+    Move-Away $Case
+    if (-not (Wait-LogCount $T.chatOpen 0)) { Fail "${Case}: Chat did not open; see $log" }
+}
 function Open-Pill([string]$Case) {
     Aim $Case
     Move-Away $Case
@@ -973,6 +997,22 @@ try {
     Close-HandsBack 0x1B restore click-pill
     Type-IntoNotepad nine click-pill onethreesixsevenabcfournine
     Ok "click-pill: Escape handed typing back to Notepad"
+
+    # 8. Chat is in front when the pill opens: Escape returns the keyboard to
+    # Chat's window, not to whichever other app a step aside would find.
+    Summon-Chat chat-open
+    $chat = Find-Chat
+    if ($chat -eq [IntPtr]::Zero) { Fail "chat-open: Chat logged open but no BMO window is up" }
+    if (-not (Wait-Ui 3 { [PillWin]::GetForegroundWindow() -eq $chat })) { Note-Keys "at chat-open"; Fail "chat-open: Chat did not take the keyboard; see $focusLog" }
+    Open-Pill chat-open
+    Type-IntoPill ten $T.ten chat-open
+    Close-HandsBack 0x1B restore chat-open
+    $handed = @(Get-Content -LiteralPath $log | Where-Object { $_ -match $T.restore } | Select-Object -Last 1)
+    $want = "0x$($chat.ToString('x'))"
+    if ($handed -notmatch [regex]::Escape("to $want ")) { Fail "chat-open: the hand-back was not Chat's window $want; got: $($handed.Trim()); see $log" }
+    $null = [PillWin]::PostMessage($chat, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+    if (-not (Wait-LogCount $T.chatClosed 0)) { Fail "chat-open: Chat did not close; see $log" }
+    Ok "chat-open: the pill's close handed the keyboard back to Chat"
 
     "PASS: evidence in $Out ($((Get-NowMs) - $startMs) ms)" | Tee-Object -FilePath $results -Append | Write-Output
 } finally {

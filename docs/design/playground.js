@@ -252,10 +252,9 @@ export function mount(section, data, cue) {
     return { x: event.clientX - box.left - desk.clientLeft, y: event.clientY - box.top - desk.clientTop };
   };
 
-  // The quick-message pill, as cues.html specifies it: a mouse resting on the
-  // sprite for hoverDelayMs opens it with the field focused. A click outside the
-  // sprite and the pill, a grab, a double-click, or Escape dismisses it and
-  // clears the draft; Enter sends, which here only clears it. Leaving the sprite does not.
+  // The quick-message pill, as cues.html specifies it: resting on the sprite
+  // for hoverDelayMs opens it focused, whatever the chat mock does; leaving
+  // the sprite does not dismiss, and Enter sends.
   let dwell = 0;
   let pillUp = false;
   const placePill = () => {

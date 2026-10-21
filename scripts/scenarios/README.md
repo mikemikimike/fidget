@@ -51,7 +51,7 @@ doubled tint or a lost blur fails. `pixel-stats.swift` reads both numbers.
 
 `chat-level.sh` takes the same two binaries. It checks that Chat stays at
 layer 0 while focused (a Perch under the overlay), and that minimizing Chat,
-focused or not, logs the change that lets the quick-message pill back.
+focused or not, logs the change.
 
 `chat-perch.sh` checks all four macOS acceptance cases from #1502: focused
 Chat stays at layer 0, the Character perches on its ledge, the composer accepts
@@ -146,7 +146,8 @@ Notepad (Fidget's `overlay: hand back Restore ...` line), and that with the
 window in front at pill-open closed (a small window of the leaf's own), Escape
 steps aside to Notepad (`hand back StepAside ...`). After a click into Notepad closes
 the empty pill, hover opens a new one, a click on it keeps typing in the pill,
-and Escape then hands it back to Notepad. At startup it waits 3 s for each of the first frame,
+and Escape then hands it back to Notepad. A double-click then opens Chat, a
+pill over that Chat hands the keyboard back to Chat's window, and Chat closes. At startup it waits 3 s for each of the first frame,
 the overlay's `overlay: <label> page loaded` line and its first draft report.
 WebView2's profile is one folder every run reuses,
 `%LOCALAPPDATA%\fidget-scenarios\webview2`, so only the first run on a PC

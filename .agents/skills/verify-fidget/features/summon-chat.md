@@ -36,4 +36,4 @@ Preconditions:
 - Chat needs the Shell's windowing path; a crashed WebKit / missing display shows the verb without a usable Chat surface — report both observations.
 - Under Xvfb with openbox both halves are provable on a debug build. Without a WM or WebKitGTK the Chat surface may be unprovable while the verb remains provable; say which half you proved.
 - Close Chat through the WM (alt+F4 under openbox, or the title-bar close). `xdotool windowclose` destroys the X window behind GTK's back; on Settings it took the whole app down (`GdkWindow … unexpectedly destroyed`), so treat every fidget window the same way.
-- A minimized Chat counts as closed for that Instance (no longer "chatting"); the window can still be on the taskbar — unminimize or Summon again to reopen (#1255).
+- Summon unminimizes an existing Chat instead of opening a second one (#1255).

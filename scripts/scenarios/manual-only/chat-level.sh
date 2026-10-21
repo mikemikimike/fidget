@@ -10,9 +10,8 @@
 # Grants: Accessibility for the terminal that runs it.
 # Asserts: Chat stays at the normal window level (0) while focused so it remains
 #   a Perch under the overlay, and still at 0 once Finder is in front.
-#   A minimized Chat logs that it is minimized, which is what lets the
-#   quick-message pill back, and logs that it is not once restored, focused or
-#   not.
+#   A minimized Chat logs that it is minimized, and logs that it is not once
+#   restored, focused or not.
 #
 # Usage: chat-level.sh --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -95,7 +94,7 @@ before=$(line_count "$trace" '^[0-9]+ chat: chat-[^ ]+ is not minimized$')
 minimize false
 wait_for_count 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is not minimized$' "$before" || fail "restoring Chat logged nothing within 3s; see $trace"
 logged "not minimized" 1 || fail "restoring Chat logged nothing; see $trace"
-echo "ok: a focused Chat counts as closed while minimized"
+echo "ok: a focused Chat logs its minimize"
 
 open -a Finder
 wait_at_layer 0 "Chat behind Finder after minimize"
@@ -107,6 +106,6 @@ before=$(line_count "$trace" '^[0-9]+ chat: chat-[^ ]+ is not minimized$')
 minimize false
 wait_for_count 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is not minimized$' "$before" || fail "restoring an unfocused Chat logged nothing within 3s; see $trace"
 logged "not minimized" 2 || fail "restoring an unfocused Chat logged nothing; see $trace"
-echo "ok: an unfocused Chat counts as closed while minimized"
+echo "ok: an unfocused Chat logs its minimize"
 elapsed_ms=$(($(now_ms) - start_ms))
 echo "PASS: evidence in $out (${elapsed_ms}ms)"
