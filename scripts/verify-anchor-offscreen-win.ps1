@@ -87,6 +87,8 @@ function Test-AnchorOnDesktop($win, $monitors) {
   # loop: a visible 16x16 window at the origin that draws nothing. Not the anchor.
   if ($win.Class -eq "Tao Thread Event Target") { return $false }
   if ($win.Title -eq "Settings") { return $false }
+  # Chat, titled with the character's name; a first launch with no AI source opens it.
+  if ($script:Character -and $win.Title -ceq $script:Character) { return $false }
   $w = $win.Right - $win.Left
   $h = $win.Bottom - $win.Top
   $onMonitor = $false
@@ -98,6 +100,9 @@ function Test-AnchorOnDesktop($win, $monitors) {
   }
   return $onMonitor
 }
+
+$characterLine = Get-Content -LiteralPath $Log | Where-Object { $_ -match '^character: (.+) from ' } | Select-Object -First 1
+$script:Character = if ($characterLine -match '^character: (.+) from ') { $Matches[1] } else { $null }
 
 $monitors = [AnchorVerify]::Monitors()
 if ($monitors.Count -eq 0) { Fail "no monitors" }

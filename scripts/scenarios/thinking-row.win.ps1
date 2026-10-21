@@ -62,7 +62,7 @@ function Thinking-Rows([string]$File) {
 
 # The $Nth Thinking row (1-based), or the newest when $Nth is 0.
 function Get-Row([string]$File, [int]$Nth) {
-    $rows = Thinking-Rows $File
+    $rows = @(Thinking-Rows $File)
     if ($rows.Count -eq 0 -or $Nth -gt $rows.Count) { return $null }
     if ($Nth -gt 0) { $rows[$Nth - 1] } else { $rows[-1] }
 }
@@ -154,7 +154,7 @@ try {
         Assert-Row $dump $Glyph $Name $Nth
     }
     Capture "mid-thought" $GlyphOpen 0
-    $openRow = (Thinking-Rows (Join-Path $out "mid-thought.ax.txt")).Count
+    $openRow = @(Thinking-Rows (Join-Path $out "mid-thought.ax.txt")).Count
     if (-not (Wait-ForMarks 3 $marks '^replied$')) {
         Fail "no reply; see $log"
     }
