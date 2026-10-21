@@ -162,7 +162,8 @@ Set-Content -LiteralPath $marks -Value "" -Encoding ascii
 $Harness = "$bashPath $root/scripts/scenarios/fixture-harness.sh $TestBin script=abort-first count=$marks"
 $paths = @($Harness -split '\s+' | Select-Object -Skip 1)
 if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $Harness" }
-$Name = "bash"
+# The mind line names the Harness by its program, as the fixture branch reads it.
+$Name = ($Harness -split ' ')[0]
 
 # No ambient wake: one would respawn the Harness and pass the re-pick for it.
 $env:FIDGET_HARNESS = $Harness
