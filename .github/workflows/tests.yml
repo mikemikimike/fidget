@@ -78,6 +78,12 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: rustup toolchain install stable --profile minimal --component clippy
 
+      - name: Cargo audit
+        if: steps.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
+        run: |
+          cargo install cargo-audit --locked --quiet
+          cargo audit --deny warnings
+
       - name: Cache cargo build
         if: steps.changes.outputs.code == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

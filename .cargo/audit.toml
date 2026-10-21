@@ -1,0 +1,4 @@
+# Transitive glib 0.18.5 (gtk-rs via Tauri on Linux). See deny.toml; unblock on Tauri bump.
+
+[advisories]
+ignore = ["RUSTSEC-2024-0429"]
