@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-const leaves = join(import.meta.dirname, "..", "scripts", "scenarios", "manual-only");
+const leaves = join(import.meta.dirname, "..", "scripts", "scenarios", "ci");
 
 function withFakeSwiftc(run) {
   const dir = mkdtempSync(join(tmpdir(), "fidget-swiftc-"));

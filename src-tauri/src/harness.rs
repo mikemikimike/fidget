@@ -4450,7 +4450,7 @@ mod tests {
                             }
                             stop(&id, "end_turn");
                         }
-                        // `scripts/scenarios/manual-only/streaming-bubble.sh`. Slow enough
+                        // `scripts/scenarios/ci/streaming-bubble.sh`. Slow enough
                         // to photograph the bubble mid-sentence.
                         "scenario-streaming" => {
                             chunk(&session, "gre");
@@ -4478,7 +4478,7 @@ mod tests {
                             chunk(&session, "Hello");
                             stop(&id, "end_turn");
                         }
-                        // `scripts/scenarios/manual-only/thinking-row.sh`. The first turn
+                        // `scripts/scenarios/ci/thinking-row.sh`. The first turn
                         // asks, so Chat opens by itself, and its end cancels
                         // the ask. Later turns think slowly enough to capture.
                         "scenario-thinking" if prompts == 1 => {
@@ -10888,7 +10888,7 @@ mod tests {
         }
     }
 
-    /// `scripts/scenarios/manual-only/question-bubble.sh` fixture. The first turn asks for
+    /// `scripts/scenarios/ci/question-bubble.sh` fixture. The first turn asks for
     /// permission and the Harness waits on the answer, putting the Instance in
     /// the awaiting-user state. The mark proves the ask is sent.
     #[test]

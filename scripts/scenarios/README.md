@@ -66,7 +66,7 @@ Prepare before requesting the screen:
 ```sh
 cargo build -p fidget -p fidget-verify
 cargo test -p fidget --no-run
-bash scripts/scenarios/manual-only/chat-perch.sh --prepare
+bash scripts/scenarios/ci/chat-perch.sh --prepare
 cargo run -p fidget-verify -- scenario chat-perch
 ```
 
