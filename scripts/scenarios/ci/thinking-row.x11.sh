@@ -98,7 +98,7 @@ wait_for_marks 2 "$marks" '^thought 1$' || fail "no thinking turn; see $log"
 wait_for_marks 2 "$marks" '^thought 2$' || fail "no second thought; see $log"
 # The reply lands 0.9 s after thought 2, about what two AT-SPI clients take
 # to start, so the wait keeps the dump that showed the open row.
-python3 "$root/scripts/ax-wait-linux.py" "$pid" BMO 2 '▾.*THINKING' "$out/mid-thought.ax.txt" ||
+wait_for_ax_dump 2 "$pid" BMO '▾.*THINKING' "$out/mid-thought.ax.txt" ||
   fail "no open Thinking row in AX dump while the Harness thinks; see $log"
 assert_row "$out/mid-thought.ax.txt" ▾ mid-thought
 wait_for_marks 2 "$marks" '^thought 3$' || fail "no third thought; see $log"

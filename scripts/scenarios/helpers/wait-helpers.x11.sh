@@ -17,11 +17,12 @@ wait_for_file() { # <seconds> <file path>
 }
 
 # Wait for an AT-SPI dump to match a pattern. ax-wait-linux.py checks again
-# on each AT-SPI change event from Fidget, so nothing polls.
-wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern>
+# on each AT-SPI change event from Fidget, so nothing polls. With <file>, the
+# dump that matched is saved there.
+wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern> [<file>]
   fidget_alive || return 1
   # shellcheck disable=SC2154
-  python3 "${root}/scripts/ax-wait-linux.py" "$2" "$3" "$1" "$4" 2> /dev/null
+  python3 "${root}/scripts/ax-wait-linux.py" "$2" "$3" "$1" "$4" ${5:+"$5"} 2> /dev/null
 }
 
 # Answer a permission ask by pressing the named button (Allow or Reject) in
