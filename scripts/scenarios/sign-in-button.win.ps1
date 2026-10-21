@@ -162,12 +162,15 @@ try {
     }
     if (-not (Wait-ForMarks 2 $marks '^new$')) { Fail "timed wake did not send session/new; see $marks" }
 
-    Check-NeedsLogin (Invoke-Dump "needs-login")
+    # The landing renders after the refused session/new, so wait for its button.
+    $null = Wait-ForUia 3 $proc.Id { Has (Invoke-Dump "needs-login") "button|Fake login|" }
+    Check-NeedsLogin (Join-Path $out "needs-login.ax.txt")
     if (-not (Invoke-Ax "press" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Fake login" })) {
         Fail "could not press Fake login button; see $out\press.txt"
     }
     if (-not (Wait-ForMarks 2 $marks '^authenticate$')) { Fail "sign-in button did not trigger authenticate; see $log" }
-    Check-Waiting (Invoke-Dump "waiting")
+    $null = Wait-ForUia 3 $proc.Id { Has (Invoke-Dump "waiting") $Waiting }
+    Check-Waiting (Join-Path $out "waiting.ax.txt")
 
     if (-not (Invoke-Ax "press-open" @{ Command = "press"; ProcessId = $proc.Id; Title = "BMO"; Arg3 = "Open" })) {
         Fail "could not press Open on the sign-in link; see $out\press-open.txt"
@@ -175,7 +178,8 @@ try {
     if (-not (Wait-ForMarks 2 $marks '^elicit-url:accept$')) { Fail "sign-in form never answered; see $log" }
     Write-Output "ok: Open accepted the link"
     if (-not (Wait-ForCount 3 $marks '^new$' 1)) { Fail "session did not open after sign-in; see $log" }
-    Check-SignedIn (Invoke-Dump "signed-in")
+    $null = Wait-ForUia 3 $proc.Id { -not (Has (Invoke-Dump "signed-in") $Waiting) }
+    Check-SignedIn (Join-Path $out "signed-in.ax.txt")
     Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
 } finally {
     Stop-FidgetTree $proc "count=$marks"
