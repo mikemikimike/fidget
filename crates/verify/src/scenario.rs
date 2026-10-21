@@ -980,6 +980,29 @@ mod tests {
         );
     }
 
+    /// Live WebKitGTK dumps: each `<pre>` is a section holding all its text,
+    /// inside a section that holds the whole landing.
+    const LAUNCHER_X11_LIVE: &[(&str, &str)] = &[
+        (FAILED, "fixtures/launcher-dies-at-startup-x11-failed.txt"),
+        (AX_420, "fixtures/launcher-dies-at-startup-x11-420.txt"),
+        (AX_320, "fixtures/launcher-dies-at-startup-x11-320.txt"),
+        (LIVE, "fixtures/launcher-dies-at-startup-x11-live.txt"),
+    ];
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_dies_at_startup_x11_measures_the_innermost_section() {
+        fixture_cases(
+            "launcher-dies-at-startup.x11.sh",
+            LAUNCHER_X11_LIVE,
+            &[(
+                AX_320,
+                |t| edit_lines(t, "section|dyld[0]", |l| reframe(l, "1097,442,300,16")),
+                "320: a box ends at 1397",
+            )],
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn sign_in_button_x11_fails_on_each_broken_assertion() {

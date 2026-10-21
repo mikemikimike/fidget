@@ -1,0 +1,22 @@
+frame|BMO|1066,140,320,560
+filler||1061,111,320,560
+filler||1061,111,320,560
+filler||1061,111,320,560
+scroll-area||1061,111,320,560
+web-area|Fidget|1061,111,320,560
+landmark||1061,111,320,90
+label|BMO|1079,125,39,16
+label|BMO|1124,126,36,17
+label|/opt/fidget/scripts/scenarios/fixture-harness.sh · no session yet|1185,128,178,65
+page-tab-list||1061,201,320,32
+page-tab|Chat|1075,201,58,31
+page-tab|Prompt|1137,201,78,31
+section||1061,233,320,340
+form||1061,572,320,71
+entry|Ask BMO…|1077,584,211,43
+button|Send|1297,584,68,43
+landmark||1061,642,320,29
+unknown||1302,650,63,12
+section|Advanced|1302,650,63,12
+unknown|▸ Advanced|1302,650,63,12
+section|▸|1302,650,7,12
