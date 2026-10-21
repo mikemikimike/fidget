@@ -131,7 +131,8 @@ check_landing "$out/landing.ax.txt"
 [ ! -s "$opened" ] || fail "something reached xdg-open before the click: $(cat "$opened")"
 xdotool mousemove --sync "$((x + w / 2))" "$((y + h / 2))" click 1 > "$out/click.txt" 2>&1 ||
   fail "could not click the link; see $out/click.txt"
-wait_for_file 2 "$opened" || true
+# The recording file exists from the start, so wait for its URL, not the file.
+wait_until 2 handed || true
 check_handed "$opened"
 
 wait_for_ax_dump 2 "$pid" BMO "Codex needs " || fail "Chat left the landing after the click; see $log"
