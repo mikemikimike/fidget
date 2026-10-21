@@ -55,6 +55,7 @@ jobs:
         run: |
           root=$PWD log="$RUNNER_TEMP/warmup.log"
           . scripts/scenarios/helpers/wait-helpers.mac.sh
+          seed_tour_shown "$RUNNER_TEMP/warmup/home"
           HOME="$RUNNER_TEMP/warmup/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
             target/debug/fidget > "$log" 2>&1 &
           pid=$!
@@ -64,6 +65,7 @@ jobs:
           { sleep 3 && process_tree "$pid" | xargs kill -9; } > /dev/null 2>&1 &
           wait "$pid" 2> /dev/null || true
           kill "$!" 2> /dev/null || true
+          wait "$!" 2> /dev/null || true
           if [ "$drew" != 0 ]; then
             cat "$log"
             echo "::error::the warm-up drew no frame in 3 s; see the log above"
