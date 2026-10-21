@@ -806,7 +806,7 @@ fn settings_snapshot(app: tauri::AppHandle) -> Result<SettingsSnapshot, String> 
     // status is a store read and the package list is the view's; the view has
     // the key status from the cache that keeps become-key off Keychain. #875, #921.
     let cwd = view
-        .development_texts
+        .variable_texts
         .get(settings::form::HARNESS_CWD_ID)
         .map(String::as_str)
         .unwrap_or("");
@@ -1549,7 +1549,7 @@ fn shortcut_event(
     view: &settings::SettingsView,
 ) -> settings::controller::Event {
     let current = view
-        .development_texts
+        .variable_texts
         .get(&fills.row)
         .map(|s| s.as_str())
         .or_else(|| {

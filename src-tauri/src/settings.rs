@@ -163,7 +163,7 @@ pub struct SettingsView {
     pub api_key_error: String,
     /// The Completer source popup's title in force: Off, a preset name, or
     /// Custom. The exported variable outranks the file, as on the endpoint
-    /// rows. The command line beside it is a `development_texts` row.
+    /// rows. The command line beside it is a `variable_texts` row.
     pub harness: String,
     /// What the attachment is doing. Not attached, attached but not signed in,
     /// or attached.
@@ -177,11 +177,11 @@ pub struct SettingsView {
     /// The raw token for Hermes interactive paste. Empty when snippet already
     /// embeds the token (Claude, Codex, Grok, OpenCode, Pi).
     pub byo_token: String,
-    /// The Development rows by form row id: the exported variable's value where
-    /// it owns the row, else the file's. Keyed, so a new row needs no new field
-    /// or binding.
+    /// The Development switches and every text row a variable can own, by form
+    /// row id: the exported variable's value where it owns the row, else the
+    /// file's. Keyed, so a new row needs no new field or binding.
     pub development_switches: HashMap<String, bool>,
-    pub development_texts: HashMap<String, String>,
+    pub variable_texts: HashMap<String, String>,
     /// Live OS grants, not a file field. The window rereads them on become-key.
     pub consent: Vec<ConsentRow>,
     /// The name Privacy & Security will show for this process.
@@ -240,9 +240,8 @@ fn development_switches(settings: &Settings) -> HashMap<String, bool> {
 }
 
 /// Every text row a variable can own, by row id, with the same precedence. Both
-/// windows fill a row from this map by id, so its tab does not matter: the wake
-/// interval and the Harness command line are the AI tab's.
-fn development_texts(settings: &Settings) -> HashMap<String, String> {
+/// windows fill a row from this map by id, whichever tab the row sits on.
+fn variable_texts(settings: &Settings) -> HashMap<String, String> {
     HashMap::from([
         (
             form::HARNESS_COMMAND_ID.to_string(),
@@ -611,7 +610,7 @@ impl SettingsView {
             byo_steps,
             byo_token,
             development_switches: development_switches(settings),
-            development_texts: development_texts(settings),
+            variable_texts: variable_texts(settings),
             consent: consent::rows(|id| settings.wants_consent(id)),
             consent_listed_as: String::new(),
             chat_ui: settings.chat_ui.clone(),
@@ -703,7 +702,7 @@ impl SettingsView {
                 .map(|(id, on)| (id.clone(), RowValue::Bool(*on))),
         );
         values.extend(
-            self.development_texts
+            self.variable_texts
                 .iter()
                 .map(|(id, value)| (id.clone(), RowValue::Text(value.clone()))),
         );
@@ -768,7 +767,7 @@ impl SettingsView {
             form::BYO_HARNESS_ID => Some(self.byo_harness.clone()),
             form::DIRECTOR_BASE_URL_PICK_ID => Some(form::endpoint_title(&self.director_base_url)),
             form::DIRECTOR_REASONING_EFFORT_PICK_ID => Some(form::effort_title(
-                self.development_texts
+                self.variable_texts
                     .get(form::DIRECTOR_REASONING_EFFORT_ID)
                     .map(String::as_str)
                     .unwrap_or_default(),
@@ -3999,7 +3998,7 @@ mod tests {
                     }
                     form::FormRow::TextField { id, .. } => {
                         assert!(
-                            view.development_texts.contains_key(id),
+                            view.variable_texts.contains_key(id),
                             "{id} has no value to draw"
                         )
                     }
@@ -4027,7 +4026,7 @@ mod tests {
                 view.development_switches[form::TRACE_FRAMES_ID],
                 "the exported variable wins"
             );
-            assert_eq!(view.development_texts[form::DIRECTOR_TIMEOUT_SECS_ID], "7");
+            assert_eq!(view.variable_texts[form::DIRECTOR_TIMEOUT_SECS_ID], "7");
 
             std::env::remove_var(dev_flags::TRACE_FRAMES.var());
             std::env::remove_var(model::TIMEOUT_SECS);
@@ -4036,7 +4035,7 @@ mod tests {
                 !view.development_switches[form::TRACE_FRAMES_ID],
                 "the file wins with nothing exported"
             );
-            assert_eq!(view.development_texts[form::DIRECTOR_TIMEOUT_SECS_ID], "45");
+            assert_eq!(view.variable_texts[form::DIRECTOR_TIMEOUT_SECS_ID], "45");
         });
     }
 
@@ -4060,7 +4059,7 @@ mod tests {
                 };
                 let view = endpoint_view(&file);
                 assert_eq!(
-                    view.development_texts[form::DIRECTOR_TIMEOUT_SECS_ID],
+                    view.variable_texts[form::DIRECTOR_TIMEOUT_SECS_ID],
                     expected,
                     "exported {exported:?}"
                 );
@@ -4287,12 +4286,12 @@ mod tests {
             );
 
             let view = endpoint_view(&settings);
-            assert_eq!(view.development_texts[form::HOVER_DELAY_MS_ID], "800");
+            assert_eq!(view.variable_texts[form::HOVER_DELAY_MS_ID], "800");
 
             std::env::set_var(crate::HOVER_DELAY_MS_VAR, "300");
             let view = endpoint_view(&settings);
             std::env::remove_var(crate::HOVER_DELAY_MS_VAR);
-            assert_eq!(view.development_texts[form::HOVER_DELAY_MS_ID], "300");
+            assert_eq!(view.variable_texts[form::HOVER_DELAY_MS_ID], "300");
             dev_flags::seed(&Settings::default());
         });
     }
@@ -4308,11 +4307,11 @@ mod tests {
                 ..Settings::default()
             };
             let view = endpoint_view(&file);
-            assert_eq!(view.development_texts[form::DIRECTOR_WAKE_SECS_ID], "300");
+            assert_eq!(view.variable_texts[form::DIRECTOR_WAKE_SECS_ID], "300");
 
             std::env::set_var(model::WAKE_SECS, "30");
             let view = endpoint_view(&file);
-            assert_eq!(view.development_texts[form::DIRECTOR_WAKE_SECS_ID], "30");
+            assert_eq!(view.variable_texts[form::DIRECTOR_WAKE_SECS_ID], "30");
             std::env::remove_var(model::WAKE_SECS);
         });
     }
@@ -4326,14 +4325,14 @@ mod tests {
             };
             let view = endpoint_view(&file);
             assert_eq!(
-                view.development_texts[form::HARNESS_CWD_ID],
+                view.variable_texts[form::HARNESS_CWD_ID],
                 "/tmp/from-the-file"
             );
 
             std::env::set_var(crate::harness::CWD, "/tmp/from-the-env");
             let view = endpoint_view(&file);
             assert_eq!(
-                view.development_texts[form::HARNESS_CWD_ID],
+                view.variable_texts[form::HARNESS_CWD_ID],
                 "/tmp/from-the-env"
             );
             std::env::remove_var(crate::harness::CWD);
@@ -4649,7 +4648,7 @@ mod tests {
             let view = endpoint_view(&saved);
             assert_eq!(view.harness, form::HARNESS_CUSTOM);
             assert_eq!(
-                view.development_texts
+                view.variable_texts
                     .get(form::HARNESS_COMMAND_ID)
                     .map(String::as_str),
                 Some("opencode acp"),
@@ -4667,7 +4666,7 @@ mod tests {
             let view = endpoint_view(&saved);
             assert_eq!(view.harness, "Harness · hermes");
             assert_eq!(
-                view.development_texts
+                view.variable_texts
                     .get(form::HARNESS_COMMAND_ID)
                     .map(String::as_str),
                 Some("grok agent stdio")
@@ -5315,7 +5314,7 @@ mod tests {
             let view = endpoint_view(&settings);
             assert_eq!(view.harness, form::HARNESS_CUSTOM);
             assert_eq!(
-                view.development_texts
+                view.variable_texts
                     .get(form::HARNESS_COMMAND_ID)
                     .map(String::as_str),
                 Some("grok agent stdio")
