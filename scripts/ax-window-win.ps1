@@ -317,10 +317,14 @@ if ($Command -eq "tray") {
     $taskbar = [FidgetWinEnum]::FindWindow("Shell_TrayWnd", $null)
     $icon = Wait-UiaChange 0 3 {
         $buttons = Find-ByControlType ([System.Windows.Automation.AutomationElement]::FromHandle($taskbar)) ([System.Windows.Automation.ControlType]::Button)
-        $buttons | Where-Object { $_.Current.Name -like "fidget*" } | Select-Object -First 1
+        # Case-sensitive: the tray tooltip is "fidget", while the anchor window
+        # "Fidget" has a taskbar button of its own that opens no menu.
+        $buttons | Where-Object { $_.Current.Name -clike "fidget*" } | Select-Object -First 1
     }
     if ($null -eq $icon) {
-        Write-Error "no fidget icon on the taskbar after 3s; is it in the hidden-icons overflow?"
+        $names = @(Find-ByControlType ([System.Windows.Automation.AutomationElement]::FromHandle($taskbar)) ([System.Windows.Automation.ControlType]::Button) |
+                ForEach-Object { $_.Current.Name }) -join "; "
+        Write-Error "no fidget icon on the taskbar after 3s; is it in the hidden-icons overflow? Buttons: $names"
         exit 1
     }
     $r = $icon.Current.BoundingRectangle
@@ -344,7 +348,7 @@ if ($Command -eq "tray") {
                 [FidgetWinEnum]::GetWindowThreadProcessId($_, [ref]$menuPid) | Out-Null
                 "pid=$menuPid visible=$([FidgetWinEnum]::IsWindowVisible($_))"
             }) -join "; "
-        Write-Error "the tray menu has no $Arg3 row (fidget pid=$ProcessId; #32768 windows: $menus)"
+        Write-Error "the tray menu has no $Arg3 row (clicked "$($icon.Current.Name)" at $r; fidget pid=$ProcessId; #32768 windows: $menus)"
         exit 1
     }
     $signal = [FidgetUiaSignal]::new($ProcessId)
