@@ -412,13 +412,13 @@ cd src-tauri && FIDGET_INSTANCES="buddy-bot:One,buddy-bot:Two,nim:Nim" cargo run
 
 ## Importing Pets
 
-Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), or [Shimeji Shop](https://shimejishop.com/) packs to Character Packages. `scripts/import-pet.py` needs Python 3.11 or newer and Pillow. Set it up once, from the repository root:
+Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), or [Shimeji Shop](https://shimejishop.com/) packs to Character Packages. `scripts/import-pet.py` needs Python 3.11 or newer, Pillow and defusedxml. Set it up once, from the repository root:
 
 ```sh
 uv venv --python 3.11 && uv pip install -r scripts/requirements-import.txt
 ```
 
-Local `detect-secrets` / glance scans should use the repo [`.secrets.baseline`](../.secrets.baseline) (`detect-secrets scan --baseline .secrets.baseline`).
+Local `detect-secrets` scans should use the repo [`.secrets.baseline`](../.secrets.baseline) (`detect-secrets scan --baseline .secrets.baseline`).
 
 The importer writes the frames and a `character.manifest` to the `-o` directory, and `--force` replaces one that exists. It then runs `character::load` on the output and fails if the loader rejects it. It prints the pack's license and warns when none is declared.
 

@@ -708,6 +708,7 @@ def read_shimeji(source, name=None):
     come from actions.xml, whose Action elements name Pose sequences — a
     richer source than frame numbering alone. Shimeji art walks left, so
     every frame is mirrored to head right, the engine's default (#96)."""
+    from defusedxml import DefusedXmlException
     from defusedxml import ElementTree as ET
 
     from PIL import Image, ImageOps
@@ -725,9 +726,10 @@ def read_shimeji(source, name=None):
         actions = dict(SHIMEJI_DEFAULT_ACTIONS)
     else:
         # A pack is a download from the internet, so its actions.xml is
-        # untrusted. Parsing goes through defusedxml; the literal `<!ENTITY`
-        # scan below is an extra fast reject before the parser runs.
-        if b"<!ENTITY" in actions_file.read_bytes():
+        # untrusted: defusedxml refuses entity declarations in any encoding.
+        try:
+            tree = ET.parse(actions_file)
+        except DefusedXmlException:
             sys.exit(f"{actions_file}: declares an XML entity - refusing to parse")
 
         # Tags are namespaced ({http://www.group-finity.com/Mascot}Action);
@@ -737,7 +739,7 @@ def read_shimeji(source, name=None):
             return tag.rsplit("}", 1)[-1]
 
         actions = {}
-        for element in ET.parse(actions_file).iter():
+        for element in tree.iter():
             if local(element.tag) != "Action":
                 continue
             poses = [
@@ -821,10 +823,6 @@ def emit(pet, out, validate=True, stand=None):
     personality — then prove it with `character::load`."""
     from PIL import Image
 
-    resampling = getattr(Image, "Resampling", Image)
-    nearest = resampling.NEAREST
-    lanczos = getattr(resampling, "LANCZOS", Image.LANCZOS)
-
     animations = pet["animations"]
     for spec in animations.values():
         spec["frames"] = [defringe(frame) for frame in spec["frames"]]
@@ -849,10 +847,12 @@ def emit(pet, out, validate=True, stand=None):
                     # Resample premultiplied: with straight alpha, the RGB
                     # of invisible pixels bleeds into the resampled edge.
                     resized.append(
-                        frame.convert("RGBa").resize(size, lanczos).convert("RGBA")
+                        frame.convert("RGBa")
+                        .resize(size, Image.Resampling.LANCZOS)
+                        .convert("RGBA")
                     )
                 else:
-                    resized.append(frame.resize(size, nearest))
+                    resized.append(frame.resize(size, Image.Resampling.NEAREST))
             spec["frames"] = resized
         if mode == "pixelated":
             # The ADR-0006 quantisation pass: a resample drifts the palette,
@@ -1012,9 +1012,6 @@ def self_test():
     """The pure seams, then a synthetic sheet through the whole pipeline."""
     from PIL import Image
 
-    resampling = getattr(Image, "Resampling", Image)
-    nearest = resampling.NEAREST
-
     assert detect_atlas(1536, 1872) == (1, 9, 192, 208)
     assert detect_atlas(3072, 3744) == (1, 9, 384, 416)
     assert detect_atlas(1536, 2288) == (2, 11, 192, 208)
@@ -1111,7 +1108,7 @@ def self_test():
             "spritesheetPath": "sheet.png",
         }))
         # detect_atlas refuses square cells; stretch to the canonical grid.
-        tall = sheet.resize((ATLAS_COLUMNS * 192, 9 * 208), nearest)
+        tall = sheet.resize((ATLAS_COLUMNS * 192, 9 * 208), Image.Resampling.NEAREST)
         tall.save(source / "sheet.png")
 
         pet = read_petscodex(source)
@@ -1231,17 +1228,22 @@ def self_test():
         assert (out / "frames" / "walk-2.png").exists()
         assert not (out / "frames" / "walk-3.png").exists()
 
-        # Untrusted pack XML: an entity declaration is refused, not expanded.
-        (tmp / "conf" / "actions.xml").write_text(
-            '<?xml version="1.0"?><!DOCTYPE Mascot [<!ENTITY a "aa">]>'
-            '<Mascot><ActionList/></Mascot>'
+        # Untrusted pack XML: an entity declaration is refused, not expanded,
+        # in UTF-16 too, where a scan for the ASCII bytes would miss it.
+        bomb = (
+            '<!DOCTYPE Mascot [<!ENTITY a "aa">]>'
+            '<Mascot><ActionList><Action Name="&a;"/></ActionList></Mascot>'
         )
-        try:
-            read_shimeji(tmp, "Bomb")
-        except SystemExit as refused:
-            assert "entity" in str(refused), refused
-        else:
-            raise AssertionError("an entity declaration was parsed")
+        for encoding in ("utf-8", "utf-16"):
+            (tmp / "conf" / "actions.xml").write_bytes(
+                f'<?xml version="1.0" encoding="{encoding}"?>{bomb}'.encode(encoding)
+            )
+            try:
+                read_shimeji(tmp, "Bomb")
+            except SystemExit as refused:
+                assert "entity" in str(refused), refused
+            else:
+                raise AssertionError(f"a {encoding} entity declaration was parsed")
 
     # A pack of bare shime PNGs and no actions.xml — shimejishop distributes
     # these — rides Shimeji-ee's standard conf instead.

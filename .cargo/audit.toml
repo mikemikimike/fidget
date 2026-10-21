@@ -2,16 +2,9 @@
 
 [advisories]
 ignore = [
-  # Transitive glib 0.18.5 (gtk-rs via Tauri on Linux). Unblock on Tauri bump.
-  "RUSTSEC-2024-0429",
   # tauri-plugin-updater pins zip 4.6.1; it extracts signed Windows update bundles only.
   # These advisories cover Unix permission bits and symlink handling, not that path.
   "RUSTSEC-2026-0367",
   "RUSTSEC-2026-0368",
-  "RUSTSEC-2026-0369",
-  # Transitive unmaintained crates (zbus stack, proc-macro-error). No direct dep.
-  "RUSTSEC-2024-0370",
-  "RUSTSEC-2026-0370",
-  "RUSTSEC-2026-0371",
-  "RUSTSEC-2026-0372"
+  "RUSTSEC-2026-0369"
 ]

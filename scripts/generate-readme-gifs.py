@@ -9,10 +9,6 @@ from pathlib import Path
 
 from PIL import Image
 
-_resampling = getattr(Image, "Resampling", Image)
-_RESAMPLE_NEAREST = _resampling.NEAREST
-_RESAMPLE_LANCZOS = getattr(_resampling, "LANCZOS", Image.LANCZOS)
-
 # GIF has no partial alpha and Pillow turns a faint pixel into an opaque speck,
 # so 64 drops edge samples. Nim's foot shadow is alpha 76, so a higher cut
 # deletes it. The cut is on alpha, never on black: pupils are opaque #000.
@@ -62,7 +58,7 @@ def scale_frame(img, target_height):
         return img
     aspect_ratio = img.width / img.height
     new_width = int(target_height * aspect_ratio)
-    return img.resize((new_width, target_height), _RESAMPLE_NEAREST)
+    return img.resize((new_width, target_height), Image.Resampling.NEAREST)
 
 
 def save_gif(images, output_path, fps):
@@ -109,7 +105,7 @@ def create_looping_gif(frames, output_path, fps, scale=1, target_height=None):
         if target_height:
             img = scale_frame(img, target_height)
         elif scale > 1:
-            img = img.resize((img.width * scale, img.height * scale), _RESAMPLE_NEAREST)
+            img = img.resize((img.width * scale, img.height * scale), Image.Resampling.NEAREST)
         images.append(binarize_alpha(img))
 
     save_gif(images, output_path, fps)

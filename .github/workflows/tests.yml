@@ -78,11 +78,15 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: rustup toolchain install stable --profile minimal --component clippy
 
+      - name: Install cargo-audit
+        if: steps.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+        with:
+          tool: cargo-audit
+
       - name: Cargo audit
         if: steps.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
-        run: |
-          cargo install cargo-audit --locked --quiet
-          cargo audit
+        run: cargo audit
 
       - name: Cache cargo build
         if: steps.changes.outputs.code == 'true'
