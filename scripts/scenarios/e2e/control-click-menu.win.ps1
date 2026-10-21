@@ -1,0 +1,307 @@
+#!/usr/bin/env pwsh
+# Scenario: control-click-menu (Windows)
+# On screen: launches Fidget as BMO with a fixture Harness. The scenario finds
+#   the sprite, right-clicks its centre, waits for the menu to appear, and
+#   reads its items. Escape closes the menu. Fidget quits when the scenario
+#   ends.
+# Input: one real right-click on the sprite and one Escape. Fidget treats
+#   Control-click as the menu gesture only on macOS; here the right button is the menu gesture.
+# Duration: a few seconds, 10 s at most.
+# Grants: a desktop session. UI Automation for the terminal that runs it. bash
+#   on PATH for the fixture Harness wrapper.
+# Asserts: the right-click lands as Menu, and the open menu's UI Automation
+#   items include Chat..., Settings... and Quit.
+# Skips (exit 2, preflight.txt) only when a fullscreen window is stacked over
+#   the sprite and would take the right-click. Any other fullscreen app is left
+#   alone; hide-in-fullscreen is off, so Fidget neither fades nor moves.
+#
+# Usage: control-click-menu.win.ps1 --go <fidget binary> <fidget test binary>
+# Without --go it prints this header, which is the takeover prompt, and exits 2.
+# Set FIDGET_SCENARIO_MENU to assert that item list, one name per line, and
+# skip the GUI. That checks the assertion, not the live menu.
+# No param() block: Windows PowerShell binds `--go` as -Go and swallows the
+# next token, so $Go never equals "--go" and the leaf always exits 2.
+$Go = if ($args.Count -gt 0) { $args[0] } else { "" }
+$Bin = if ($args.Count -gt 1) { $args[1] } else { "" }
+$TestBin = if ($args.Count -gt 2) { $args[2] } else { "" }
+$ErrorActionPreference = "Stop"
+$Ellipsis = [string][char]0x2026
+
+function Show-Header {
+    $lines = Get-Content -LiteralPath $PSCommandPath
+    $header = @()
+    foreach ($line in $lines | Select-Object -Skip 1) {
+        if ($line.StartsWith("#")) {
+            $header += ($line -replace '^# ?', '')
+        } elseif ($line.Trim().Length -gt 0) {
+            break
+        }
+    }
+    $header -join "`n"
+}
+
+if ($Go -ne "--go") {
+    Show-Header
+    exit 2
+}
+if (-not $Bin -or -not $TestBin) {
+    Write-Error "usage: control-click-menu.win.ps1 --go <fidget binary> <fidget test binary>"
+    exit 1
+}
+
+$selfTestFrameLine = "1791259416 frame: 1791259416038 Grounded pos(1720,1392) sprite(1657,1264) idle#0 <id>"
+$selfTestVerbsLine = "1791259408 overlay: 2 display(s); sprite 126x128; BMO as BMO"
+$selfTestMenuLine = "1791259425 verbs: [Menu]"
+$selfTestPresenceHidden = "1791260872 presence: hidden over 500ms"
+$selfTestClickHitTrue = "1791260862 click: down hits=[true] target=Some(0) cursor=(2554,1328) visible=true sprite=untargeted(2563,1264)"
+$selfTestClickHitFalse = "1791260862 click: down hits=[false] target=None cursor=(2554,1328) visible=true sprite=untargeted(2563,1264)"
+$selfTestSettledFrame = "1791260880 frame: 1791260880723 Grounded pos(1720,1328) sprite(1657,1264) land#1 <id>"
+if (-not ($selfTestFrameLine -match '^\d+ frame: .* sprite\(')) { Write-Error "self-test: frame pattern failed"; exit 1 }
+if (-not ($selfTestFrameLine -match '^\d+ frame: .* sprite\((-?\d+),(-?\d+)\) ')) { Write-Error "self-test: frame coordinate pattern failed"; exit 1 }
+if (-not ($selfTestMenuLine -match '^\d+ verbs: .*\[Menu\]')) { Write-Error "self-test: Menu pattern failed"; exit 1 }
+if ($selfTestVerbsLine -match '^\d+ verbs: ') { Write-Error "self-test: should not match non-verbs line"; exit 1 }
+if (-not ($selfTestPresenceHidden -match '^\d+ presence: hidden')) { Write-Error "self-test: presence:hidden pattern failed"; exit 1 }
+if (-not ($selfTestClickHitTrue -match '^\d+ click: down hits=\[true\]')) { Write-Error "self-test: click hits=[true] pattern failed"; exit 1 }
+if ($selfTestClickHitFalse -match '^\d+ click: down hits=\[true\]') { Write-Error "self-test: should not match hits=[false]"; exit 1 }
+if (-not ($selfTestSettledFrame -match '^\d+\.?\d* frame: .* Grounded .* sprite\((-?\d+),(-?\d+)\) ')) { Write-Error "self-test: settled frame Grounded pattern failed"; exit 1 }
+if ($selfTestSettledFrame -match 'walk#|Falling') { Write-Error "self-test: settled frame should not match walk# or Falling"; exit 1 }
+
+$root = (Resolve-Path (Join-Path $PSScriptRoot "../../..")).Path
+. (Join-Path $PSScriptRoot "..\wait-helpers.win.ps1")
+$script:Evidence = $null
+
+function Fail([string]$Message) {
+    [Console]::Error.WriteLine("FAIL: $Message")
+    if ($script:Evidence) { [Console]::Error.WriteLine("evidence in $($script:Evidence)") }
+    $traceFile = Join-Path $data "process.log"
+    if (-not (Test-Path -LiteralPath $traceFile -ErrorAction SilentlyContinue)) {
+        [Console]::Error.WriteLine("data_dir did not resolve to $data")
+    }
+    exit 1
+}
+
+function Check-Items([string]$File) {
+    $lines = @(Get-Content -LiteralPath $File -Encoding utf8)
+    foreach ($item in @("Chat$Ellipsis", "Settings$Ellipsis", "Quit")) {
+        if (-not ($lines | Where-Object { $_ -ceq $item })) { Fail "no '$item' in the menu; see $File" }
+        Write-Output "ok: the menu holds $item"
+    }
+}
+
+if ($env:FIDGET_SCENARIO_MENU) {
+    Check-Items $env:FIDGET_SCENARIO_MENU
+    Write-Output "PASS: fixture dumps"
+    exit 0
+}
+
+. (Join-Path $PSScriptRoot "..\bash-setup-win.ps1")
+if (-not $bashPath) {
+    [Console]::Error.WriteLine("SKIP: bash not found (tried Git Bash, then PATH)")
+    exit 2
+}
+
+$TestBin = (Resolve-Path -LiteralPath $TestBin).Path
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$out = Join-Path $env:TEMP "fidget-scenario-control-click-menu-$stamp"
+$script:Evidence = $out
+$data = Initialize-ScenarioData $out @{ hide_in_fullscreen = $false }
+
+$log = Join-Path $out "app.log"
+$err = Join-Path $out "app.err"
+$marks = Join-Path $out "harness.log"
+Set-Content -LiteralPath $marks -Value "" -Encoding ascii
+
+$rootBash = $root -replace '\\', '/'
+$testBinBash = $TestBin -replace '\\', '/'
+$marksBash = $marks -replace '\\', '/'
+$harness = "$bashPath $rootBash/scripts/scenarios/fixture-harness.sh $testBinBash script=nop count=$marksBash"
+$paths = @($harness -split '\s+' | Select-Object -Skip 1)
+if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
+
+$env:FIDGET_HARNESS = $harness
+$env:FIDGET_DIRECTOR_WAKE_SECS = "3600"
+$env:FIDGET_DIRECTOR_API_KEY = "x"
+$env:FIDGET_CAPTURABLE = "1"
+$env:FIDGET_TRACE_FRAMES = "1"
+# ax-window-win.ps1 presses once a hit-test line shows the click area followed the cursor.
+$env:FIDGET_TRACE_HITTEST = "1"
+$env:FIDGET_TRACE_WINDOWS = "1"
+$env:FIDGET_CHARACTER = "bmo"
+$env:FIDGET_CHARACTERS = Join-Path $root "characters"
+
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+
+Add-Type -AssemblyName System.Windows.Forms
+
+$stackCode = @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public class ClickStack {
+    public delegate bool Callback(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(Callback cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int index);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lp, int n);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lp, int n);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+    public const int GWL_EXSTYLE = -20;
+    public const int DWMWA_CLOAKED = 14;
+}
+"@
+Add-Type -TypeDefinition $stackCode
+
+# Visible top-level windows front to back, unfiltered; Get-FullscreenOverClick
+# decides which of them could take the click.
+function Get-ClickStack {
+    $state = @{ Windows = [System.Collections.Generic.List[object]]::new() }
+    [ClickStack]::EnumWindows({
+            param($hwnd, $lParam)
+            if (-not [ClickStack]::IsWindowVisible($hwnd)) { return $true }
+            $rect = New-Object ClickStack+RECT
+            if (-not [ClickStack]::GetWindowRect($hwnd, [ref]$rect)) { return $true }
+            $cloaked = 0
+            $hr = [ClickStack]::DwmGetWindowAttribute($hwnd, [ClickStack]::DWMWA_CLOAKED, [ref]$cloaked, 4)
+            $ownerPid = [uint32]0
+            [ClickStack]::GetWindowThreadProcessId($hwnd, [ref]$ownerPid) | Out-Null
+            $cls = New-Object System.Text.StringBuilder 256
+            [ClickStack]::GetClassName($hwnd, $cls, $cls.Capacity) | Out-Null
+            $title = New-Object System.Text.StringBuilder 512
+            [ClickStack]::GetWindowText($hwnd, $title, $title.Capacity) | Out-Null
+            $state.Windows.Add(@{
+                    Pid = [int]$ownerPid; Class = $cls.ToString(); Title = $title.ToString()
+                    Left = $rect.Left; Top = $rect.Top; Right = $rect.Right; Bottom = $rect.Bottom
+                    ExStyle = [ClickStack]::GetWindowLong($hwnd, [ClickStack]::GWL_EXSTYLE); Cloaked = ($hr -eq 0 -and $cloaked -ne 0)
+                })
+            return $true
+        }, [IntPtr]::Zero) | Out-Null
+    return $state.Windows
+}
+
+# The fullscreen window stacked over Fidget at (X, Y), which would take the
+# right-click, else $null. Fullscreen is within 1 px of a whole screen.
+function Get-FullscreenOverClick($Windows, $Screens, [int]$X, [int]$Y, [int]$FidgetPid) {
+    $clickThrough = 0x20
+    $toolWindow = 0x80
+    foreach ($win in $Windows) {
+        if ($X -lt $win.Left -or $X -ge $win.Right -or $Y -lt $win.Top -or $Y -ge $win.Bottom) { continue }
+        if ($win.Pid -eq $FidgetPid) { return $null }
+        if ($win.Cloaked -or ($win.ExStyle -band $clickThrough) -ne 0) { continue }
+        # Tool windows do take clicks. Skipping them is a guess that a fullscreen
+        # one is a game or recording overlay, not an app the user is in.
+        if (($win.ExStyle -band $toolWindow) -ne 0) { continue }
+        foreach ($screen in $Screens) {
+            if ([Math]::Abs($win.Left - $screen.Left) -le 1 -and [Math]::Abs($win.Top - $screen.Top) -le 1 -and
+                [Math]::Abs(($win.Right - $win.Left) - $screen.Width) -le 1 -and [Math]::Abs(($win.Bottom - $win.Top) - $screen.Height) -le 1) {
+                return $win
+            }
+        }
+    }
+    return $null
+}
+
+function Skip-IfFullscreenOverClick([int]$X, [int]$Y, [int]$FidgetPid, [string]$Evidence) {
+    $screens = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { $b = $_.Bounds; @{ Left = $b.Left; Top = $b.Top; Width = $b.Width; Height = $b.Height } })
+    $over = Get-FullscreenOverClick (Get-ClickStack) $screens $X $Y $FidgetPid
+    if (-not $over) { return }
+    Set-Content -LiteralPath (Join-Path $Evidence "preflight.txt") -Encoding utf8 -Value "Click: $X,$Y`nClass: $($over.Class)`nTitle: $($over.Title)"
+    [Console]::Error.WriteLine("SKIP: fullscreen app '$($over.Title)' is over the sprite and would take the right-click; minimize it or move it off that display and re-run")
+    [Console]::Error.WriteLine("evidence in $Evidence")
+    exit 2
+}
+
+$axPs1 = Join-Path $out "ax.ps1"
+$ax = Join-Path $root "scripts\ax-window-win.ps1"
+[System.IO.File]::WriteAllLines($axPs1, @(
+        '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false',
+        '$OutputEncoding = [Console]::OutputEncoding',
+        "& '$ax' @args"
+    ), $utf8)
+
+$startMs = Get-NowMs
+$proc = Start-FidgetPiped $Bin @() $log $err
+try {
+    function Invoke-Ax([string]$Label, [hashtable]$AxArgs) {
+        return (Invoke-AxWin (Join-Path $out "$Label.txt") $AxArgs)
+    }
+    function Traced([string]$Pattern) {
+        $traceFile = Join-Path $data "process.log"
+        if (Test-Path -LiteralPath $traceFile) {
+            [bool](Get-Content -LiteralPath $traceFile | Where-Object { $_ -match $Pattern })
+        } else {
+            return $false
+        }
+    }
+    function Wait-Settled {
+        $script:rest = $null
+        if (-not (Wait-Until 3 { ($script:rest = Get-SpriteAtRest $traceFile) })) {
+            Fail "sprite did not settle within 3s; see $traceFile"
+        }
+        return $script:rest
+    }
+
+    $traceFile = Join-Path $data "process.log"
+    if (-not (Wait-ForFile 3 $traceFile)) { Fail "process.log never appeared; see $err" }
+
+    $settingsFile = Join-Path $data "settings.json"
+    if (Test-Path -LiteralPath $settingsFile) {
+        $settingsContent = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
+        if ($settingsContent.hide_in_fullscreen -ne $false) {
+            Fail "settings.json does not have hide_in_fullscreen: false as seeded"
+        }
+    }
+
+    if (-not (Wait-ForTrace 3 $traceFile '^\d+ frame: .* sprite\(')) { Fail "Fidget traced no frame; see $traceFile" }
+
+    if (Traced '^\d+ presence: hidden') {
+        Fail "overlay hidden (presence: hidden) - see process.log window_source lines"
+    }
+
+    $settled = Wait-Settled
+    $trace = Get-Content -LiteralPath $traceFile
+    $size = $trace | Select-String -Pattern 'sprite (\d+)x(\d+);' | Select-Object -First 1
+    if (-not $size) { Fail "no sprite size in $traceFile" }
+    $w = [int]$size.Matches[0].Groups[1].Value
+    $h = [int]$size.Matches[0].Groups[2].Value
+
+    $attemptsFile = Join-Path $out "menu-attempts.txt"
+    $maxAttempts = 3
+    $success = $false
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $attemptLog = "Attempt $attempt of $maxAttempts"
+        Add-Content -LiteralPath $attemptsFile -Value $attemptLog
+        $trace = Get-Content -LiteralPath $traceFile
+        $menuCountBefore = @($trace | Select-String -Pattern '^\d+ verbs: .*\[Menu\]').Count
+        Skip-IfFullscreenOverClick ($settled.X + [int]($w / 2)) ($settled.Y + [int]($h / 2)) $proc.Id $out
+        if (-not (Invoke-Ax "menu-$attempt" @{ Command = "menu"; ProcessId = $proc.Id; TraceFile = $traceFile; SpriteW = $w; SpriteH = $h })) {
+            $msg = "no open menu in the UI Automation tree on attempt $attempt; see $out\menu-$attempt.txt"
+            Add-Content -LiteralPath $attemptsFile -Value $msg
+            if ($attempt -eq $maxAttempts) { Fail $msg }
+            $settled = Wait-Settled
+            continue
+        }
+        if (Wait-ForCount 2 $traceFile '^\d+ verbs: .*\[Menu\]' $menuCountBefore) {
+            $menuFile = Join-Path $out "menu-$attempt.txt"
+            $destFile = Join-Path $out "menu.txt"
+            Copy-Item -LiteralPath $menuFile -Destination $destFile -Force
+            $success = $true
+            break
+        }
+        if ($attempt -lt $maxAttempts) {
+            $settled = Wait-Settled
+        }
+    }
+    if (-not $success) {
+        Fail "right-click did not produce [Menu] verb after $maxAttempts attempts"
+    }
+    Write-Output "ok: the right-click landed as Menu"
+    Check-Items (Join-Path $out "menu.txt")
+    Write-Output "PASS: evidence in $out ($((Get-NowMs) - $startMs)ms)"
+} finally {
+    Stop-FidgetTree $proc "count=$marksBash"
+}

@@ -5,6 +5,17 @@ one launches Fidget, so each run is a GUI takeover. Read
 [`docs/agents/gui-takeover.md`](../../docs/agents/gui-takeover.md) before you
 run one: set up, post the prompt, and wait for a go-ahead for that run.
 
+## Layout
+
+| Folder | Holds |
+|---|---|
+| `e2e/` | Leaves that run unattended. The `windows-e2e` workflow runs every `e2e/*.win.ps1` on a hosted Windows runner. |
+| `manual/` | Leaves that need a person, a second display, or an app a hosted runner lacks: Windows 11 Notepad's tabs for `chat-close-pill-type.win.ps1`. |
+| this folder | Helpers the leaves share, and `fixtures/`. |
+
+A scenario's leaves can sit in both folders. `fidget-verify scenario <name>`
+finds this host's leaf in either one.
+
 ## Run one
 
 Print the scenario's header. That is setup, not the takeover:
@@ -52,7 +63,7 @@ Prepare before requesting the screen:
 ```sh
 cargo build -p fidget -p fidget-verify
 cargo test -p fidget --no-run
-bash scripts/scenarios/chat-perch.sh --prepare
+bash scripts/scenarios/e2e/chat-perch.sh --prepare
 cargo run -p fidget-verify -- scenario chat-perch
 ```
 
@@ -214,14 +225,14 @@ skip the launch:
 ```sh
 FIDGET_SCENARIO_AX_OPEN=scripts/scenarios/fixtures/thinking-row-open.txt \
 FIDGET_SCENARIO_AX_DONE=scripts/scenarios/fixtures/thinking-row-done.txt \
-scripts/scenarios/thinking-row.x11.sh --go /bin/true /bin/true
+scripts/scenarios/e2e/thinking-row.x11.sh --go /bin/true /bin/true
 ```
 
 ```sh
 FIDGET_SCENARIO_AX_420=scripts/scenarios/fixtures/chat-header-narrow-420.txt \
 FIDGET_SCENARIO_AX_360=scripts/scenarios/fixtures/chat-header-narrow-360.txt \
 FIDGET_SCENARIO_AX_320=scripts/scenarios/fixtures/chat-header-narrow-320.txt \
-scripts/scenarios/chat-header-narrow.x11.sh --go /bin/true /bin/true
+scripts/scenarios/e2e/chat-header-narrow.x11.sh --go /bin/true /bin/true
 ```
 
 Those runs do not prove the live window. A live `--go` still needs the

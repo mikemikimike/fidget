@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 # Scenario: chat-perch (Windows), Chat as a Perch (#1502), twin of
-#   scenarios/chat-perch.sh.
+#   scenarios/e2e/chat-perch.sh.
 # On screen: one Fidget/BMO instance with Chat open and a fixture Harness.
 #   Chat is focused and moved near the top of the primary display, the
 #   Character is placed on its ledge, and the waiting question shows a bubble
