@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-const scenarios = path.join(import.meta.dirname, "..", "scripts", "scenarios");
+const scenarios = path.join(import.meta.dirname, "..", "scripts", "scenarios", "helpers");
 const helper = path.join(scenarios, "wait-helpers.sh");
 
 function run(body, file = helper) {

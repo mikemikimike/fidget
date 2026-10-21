@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 # Scenario: chat-perch (Windows), Chat as a Perch (#1502), twin of
-#   scenarios/chat-perch.sh.
+#   scenarios/manual-only/chat-perch.sh.
 # On screen: one Fidget/BMO instance with Chat open and a fixture Harness.
 #   Chat is focused and moved near the top of the primary display, the
 #   Character is placed on its ledge, and the waiting question shows a bubble
@@ -114,7 +114,7 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText((Join-Path $data "settings.json"),
     '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
 
-$harness = "$root\scripts\scenarios\fixture-harness.cmd $TestBin script=scenario-asking count=$marks"
+$harness = "$root\scripts\scenarios\helpers\fixture-harness.cmd $TestBin script=scenario-asking count=$marks"
 if (@($harness -split '\s+').Count -ne 4) { Fail "a Harness path holds a space: $harness" }
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms

@@ -1,0 +1,5 @@
+frame|BMO|
+button|▸ Thinking|
+static|I thought it over.|
+button|▾ Thinking|
+static|still working|

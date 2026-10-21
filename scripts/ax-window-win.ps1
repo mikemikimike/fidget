@@ -317,42 +317,59 @@ if ($Command -eq "tray") {
     $taskbar = [FidgetWinEnum]::FindWindow("Shell_TrayWnd", $null)
     $icon = Wait-UiaChange 0 3 {
         $buttons = Find-ByControlType ([System.Windows.Automation.AutomationElement]::FromHandle($taskbar)) ([System.Windows.Automation.ControlType]::Button)
-        $buttons | Where-Object { $_.Current.Name -like "fidget*" } | Select-Object -First 1
+        # Case-sensitive: the tray tooltip is "fidget", while the anchor window
+        # "Fidget" has a taskbar button of its own that opens no menu.
+        $buttons | Where-Object { $_.Current.Name -clike "fidget*" } | Select-Object -First 1
     }
     if ($null -eq $icon) {
-        Write-Error "no fidget icon on the taskbar after 3s; is it in the hidden-icons overflow?"
+        $names = @(Find-ByControlType ([System.Windows.Automation.AutomationElement]::FromHandle($taskbar)) ([System.Windows.Automation.ControlType]::Button) |
+                ForEach-Object { $_.Current.Name }) -join "; "
+        Write-Error "no fidget icon on the taskbar after 3s; is it in the hidden-icons overflow? Buttons: $names"
         exit 1
     }
     $r = $icon.Current.BoundingRectangle
-    $signal = [FidgetUiaSignal]::new(0)
-    try {
-        [FidgetWinEnum]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) | Out-Null
-        [FidgetWinEnum]::Press()
-        $deadline = [DateTime]::UtcNow.AddSeconds(3)
-        $findRow = { Get-PopupMenuItems | Where-Object { $_ -isnot [string] -and $_.Current.Name.StartsWith($Arg3) } | Select-Object -First 1 }
-        $row = & $findRow
-        while ($null -eq $row -and $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) {
+    # Fidget's own menu: another process's hidden #32768 can list items too.
+    $findRow = { Get-PopupMenuItems -FidgetPid $ProcessId | Where-Object { $_ -isnot [string] -and $_.Current.Name.StartsWith($Arg3) } | Select-Object -First 1 }
+    # The icon is drawn before its click handler settles, so a press can open
+    # no menu or drop the row's Invoke. Each retry waits on the window, not a clock.
+    $why = ""
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $signal = [FidgetUiaSignal]::new(0)
+        try {
+            [FidgetWinEnum]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) | Out-Null
+            [FidgetWinEnum]::Press()
+            $deadline = [DateTime]::UtcNow.AddSeconds(3)
             $row = & $findRow
+            while ($null -eq $row -and $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) {
+                $row = & $findRow
+            }
+        } finally {
+            $signal.Dispose()
         }
-    } finally {
-        $signal.Dispose()
-    }
-    if ($null -eq $row) {
-        Write-Error "the tray menu has no $Arg3 row"
-        exit 1
-    }
-    $signal = [FidgetUiaSignal]::new($ProcessId)
-    try {
-        Invoke-Element $row
-        $deadline = [DateTime]::UtcNow.AddSeconds(3)
-        while ($true) {
-            if ([FidgetWinEnum]::Find([uint32]$ProcessId, $Title) -ne [IntPtr]::Zero) { exit 0 }
-            if (-not $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) { break }
+        if ($null -eq $row) {
+            $menus = @([FidgetWinEnum]::OfClass("#32768", $false) | ForEach-Object {
+                    $menuPid = 0
+                    [FidgetWinEnum]::GetWindowThreadProcessId($_, [ref]$menuPid) | Out-Null
+                    "pid=$menuPid visible=$([FidgetWinEnum]::IsWindowVisible($_))"
+                }) -join "; "
+            $why = "the tray menu has no $Arg3 row (clicked `"$($icon.Current.Name)`" at $r; fidget pid=$ProcessId; #32768 windows: $menus)"
+            continue
         }
-    } finally {
-        $signal.Dispose()
+        $signal = [FidgetUiaSignal]::new($ProcessId)
+        try {
+            Invoke-Element $row
+            $deadline = [DateTime]::UtcNow.AddSeconds(2)
+            while ($true) {
+                if ([FidgetWinEnum]::Find([uint32]$ProcessId, $Title) -ne [IntPtr]::Zero) { exit 0 }
+                if (-not $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) { break }
+            }
+        } finally {
+            $signal.Dispose()
+        }
+        $why = "$Title did not open within 2s of $Arg3"
+        [FidgetWinEnum]::Escape()
     }
-    Write-Error "$Title did not open within 3s"
+    Write-Error "$why, after 3 tries"
     exit 1
 }
 

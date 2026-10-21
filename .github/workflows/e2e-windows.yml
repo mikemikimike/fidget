@@ -1,0 +1,120 @@
+name: e2e-windows
+
+# Live runs of `scripts/scenarios/ci/*.win.ps1` and the anchor scripts on a
+# hosted runner's desktop. Too heavy for every pull request: it runs on
+# dispatch or the `e2e-windows` label only.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Space-separated ci/ leaf names; empty runs them all
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per label: another label's `labeled` run skips its job, and must not cancel
+  # an e2e run in flight. Re-adding e2e-windows replaces it.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ github.event.label.name }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-windows:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'e2e-windows'
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: .
+          key: e2e-windows
+          cache-on-failure: true
+
+      - name: Warm up WebView2 and show the tray icon
+        # A fresh runner starts WebView2 cold, past a leaf's launch budget, and
+        # hides a new tray icon in the overflow, where the leaves cannot click it.
+        shell: pwsh
+        run: |
+          cargo build -p fidget
+          $env:FIDGET_DATA_DIR = Join-Path $env:RUNNER_TEMP "warmup"
+          New-Item -ItemType Directory -Force -Path $env:FIDGET_DATA_DIR | Out-Null
+          ./scripts/show-tray-icon-win.ps1 target\debug\fidget.exe
+
+      - name: Run the scenarios and anchor scripts
+        shell: pwsh
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+        run: |
+          # The leaves write evidence under $env:TEMP; keep it in one folder to upload.
+          $env:TEMP = Join-Path $env:RUNNER_TEMP "evidence"
+          $env:TMP = $env:TEMP
+          New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+          $names = if ($env:SCENARIOS) { $env:SCENARIOS.Trim() -split '\s+' } else {
+            Get-ChildItem scripts\scenarios\ci\*.win.ps1 | ForEach-Object { $_.Name -replace '\.win\.ps1$', '' }
+          }
+          # A leaf that blocks (a UI Automation call can) would hold the job to its
+          # timeout; 3 min is well past the slowest leaf's own limit.
+          function Invoke-Bounded([string]$File, [string[]]$ArgList) {
+            $p = Start-Process $File -ArgumentList $ArgList -NoNewWindow -PassThru
+            $null = $p.Handle
+            if ($p.WaitForExit(180000)) { return $p.ExitCode }
+            & taskkill.exe /PID $p.Id /T /F | Out-Null
+            Write-Host "timed out after 3 min"
+            return 124
+          }
+          $results = @()
+          foreach ($name in $names) {
+            Write-Host "::group::scenario $name"
+            $code = Invoke-Bounded cargo @("run", "-q", "-p", "fidget-verify", "--", "scenario", $name, "--go")
+            $results += [pscustomobject]@{ Name = $name; Code = $code }
+            Write-Host "::endgroup::"
+          }
+          if (-not $env:SCENARIOS) {
+            foreach ($anchor in 'offscreen', 'taskbar') {
+              Write-Host "::group::anchor $anchor"
+              $code = Invoke-Bounded powershell @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts\verify-anchor-$anchor-win.ps1")
+              $results += [pscustomobject]@{ Name = "anchor-$anchor"; Code = $code }
+              Write-Host "::endgroup::"
+            }
+          }
+          # The anchor scripts write under .verify; keep their folders with the rest.
+          Copy-Item -Recurse .verify\anchor-* $env:TEMP -ErrorAction SilentlyContinue
+          # A SKIP fails the job: it means the runner's desktop could not prove the leaf.
+          $label = @{ 0 = "PASS"; 2 = "SKIP" }
+          $results | ForEach-Object {
+            $verdict = if ($label.ContainsKey($_.Code)) { $label[$_.Code] } else { "FAIL ($($_.Code))" }
+            "{0,-28} {1}" -f $_.Name, $verdict
+          } | Tee-Object -Variable summary
+          $fence = '```'
+          "$fence`n$($summary -join "`n")`n$fence" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          if ($results | Where-Object { $_.Code -ne 0 }) { exit 1 }
+          exit 0
+
+      - name: Gather evidence
+        if: always()
+        shell: pwsh
+        # Each leaf's private HOME and WebView2 profile hold system-locked caches
+        # the upload cannot read, and no evidence.
+        run: |
+          robocopy "$env:RUNNER_TEMP\evidence" "$env:RUNNER_TEMP\upload" /S /XD home webview2 /NFL /NDL /NJH /NJS | Out-Null
+          exit 0
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-windows-evidence
+          path: ${{ runner.temp }}/upload
+          if-no-files-found: warn
