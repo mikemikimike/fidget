@@ -329,7 +329,8 @@ if ($Command -eq "tray") {
         [FidgetWinEnum]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) | Out-Null
         [FidgetWinEnum]::Press()
         $deadline = [DateTime]::UtcNow.AddSeconds(3)
-        $findRow = { Get-PopupMenuItems | Where-Object { $_ -isnot [string] -and $_.Current.Name.StartsWith($Arg3) } | Select-Object -First 1 }
+        # Fidget's own menu: another process's hidden #32768 can list items too.
+        $findRow = { Get-PopupMenuItems -FidgetPid $ProcessId | Where-Object { $_ -isnot [string] -and $_.Current.Name.StartsWith($Arg3) } | Select-Object -First 1 }
         $row = & $findRow
         while ($null -eq $row -and $signal.Wait([int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)) {
             $row = & $findRow
@@ -338,7 +339,12 @@ if ($Command -eq "tray") {
         $signal.Dispose()
     }
     if ($null -eq $row) {
-        Write-Error "the tray menu has no $Arg3 row"
+        $menus = @([FidgetWinEnum]::OfClass("#32768", $false) | ForEach-Object {
+                $menuPid = 0
+                [FidgetWinEnum]::GetWindowThreadProcessId($_, [ref]$menuPid) | Out-Null
+                "pid=$menuPid visible=$([FidgetWinEnum]::IsWindowVisible($_))"
+            }) -join "; "
+        Write-Error "the tray menu has no $Arg3 row (fidget pid=$ProcessId; #32768 windows: $menus)"
         exit 1
     }
     $signal = [FidgetUiaSignal]::new($ProcessId)

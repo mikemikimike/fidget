@@ -56,11 +56,26 @@ function Fail([string]$Message) {
     exit 1
 }
 
-function Assert-Row([string]$File, [string]$Glyph, [string]$Label) {
-    $row = Get-Content -LiteralPath $File -Encoding utf8 | Where-Object { $_ -match '(?i)^button\|.*thinking' } | Select-Object -Last 1
+function Thinking-Rows([string]$File) {
+    @(Get-Content -LiteralPath $File -Encoding utf8 | Where-Object { $_ -match '(?i)^button\|.*thinking' })
+}
+
+# The $Nth Thinking row (1-based), or the newest when $Nth is 0.
+function Get-Row([string]$File, [int]$Nth) {
+    $rows = Thinking-Rows $File
+    if ($rows.Count -eq 0 -or $Nth -gt $rows.Count) { return $null }
+    if ($Nth -gt 0) { $rows[$Nth - 1] } else { $rows[-1] }
+}
+
+function Test-Row([string]$File, [string]$Glyph, [int]$Nth) {
+    $row = Get-Row $File $Nth
+    return ($row -and $row.ToLower().StartsWith("button|$Glyph".ToLower()))
+}
+
+function Assert-Row([string]$File, [string]$Glyph, [string]$Label, [int]$Nth = 0) {
+    $row = Get-Row $File $Nth
     if (-not $row) { Fail "$Label`: no Thinking row in $File" }
-    $prefix = "button|$Glyph".ToLower()
-    if ($row.ToLower().StartsWith($prefix)) {
+    if (Test-Row $File $Glyph $Nth) {
         Write-Output "ok: ${Label}: $row"
     } else {
         Fail "$Label`: Thinking row reads '$row', want it to start with $Glyph"
@@ -125,24 +140,25 @@ try {
         "& '$ax' @args"
     )
     [System.IO.File]::WriteAllLines($dumpPs1, $dumpLines, $utf8)
-    # Each wake is a new turn with its own row, so the newest row is this turn's.
-    function Capture([string]$Name, [string]$Glyph) {
+    # Each wake is a new turn with its own row, and the next turn starts as
+    # this one replies. So the newest row is open mid-thought, and that same
+    # row is the one that must collapse.
+    function Capture([string]$Name, [string]$Glyph, [int]$Nth) {
         $dump = Join-Path $out "$Name.ax.txt"
-        $prefix = ("button|$Glyph").ToLower()
         $null = Wait-ForUia 3 $script:proc.Id {
             & powershell -NoProfile -ExecutionPolicy Bypass -File $dumpPs1 dump -ProcessId $script:proc.Id -Title "BMO" |
                 Out-File -FilePath $dump -Encoding utf8
-            $row = Get-Content -LiteralPath $dump -Encoding utf8 | Where-Object { $_ -match '(?i)^button\|.*thinking' } | Select-Object -Last 1
-            $row -and $row.ToLower().StartsWith($prefix)
+            Test-Row $dump $Glyph $Nth
         }
         if (-not (Test-Path -LiteralPath $dump)) { Fail "${Name}: UI Automation dump failed; see $log" }
-        Assert-Row $dump $Glyph $Name
+        Assert-Row $dump $Glyph $Name $Nth
     }
-    Capture "mid-thought" $GlyphOpen
+    Capture "mid-thought" $GlyphOpen 0
+    $openRow = (Thinking-Rows (Join-Path $out "mid-thought.ax.txt")).Count
     if (-not (Wait-ForMarks 3 $marks '^replied$')) {
         Fail "no reply; see $log"
     }
-    Capture "after-reply" $GlyphDone
+    Capture "after-reply" $GlyphDone $openRow
     $elapsedMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $startMs
     Write-Output "PASS: evidence in $out (${elapsedMs}ms)"
 } finally {

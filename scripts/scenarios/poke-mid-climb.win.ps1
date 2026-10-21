@@ -252,7 +252,7 @@ function Cooldown-Traced {
     foreach ($line in Get-Content -LiteralPath $trace) {
         if ($line -cmatch $framePattern) {
             $lastAt = [long]$Matches[1]
-            if ($null -eq $reactAt -and $Matches[5] -ceq "react") { $reactAt = $lastAt }
+            if ($null -eq $reactAt -and $Matches[2] -ceq "Climbing" -and $Matches[5] -ceq "react") { $reactAt = $lastAt }
         }
     }
     return ($null -ne $reactAt -and $lastAt - $reactAt -ge 3500)
