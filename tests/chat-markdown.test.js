@@ -530,8 +530,8 @@ test("the vendored parser is the file src/vendor/README.md documents", () => {
     `marked@${vendored} lib/marked.esm.js; see src/vendor/README.md to re-vendor`,
   );
 
-  // `npm audit` reads package.json, not the vendored file, so a re-vendor
-  // that skips package.json would leave the audit checking the old version.
+  // `npm audit` reads package-lock.json, not the vendored file, so a re-vendor
+  // that skips package.json and the lock leaves it checking the old version.
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
   const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url)));
   assert.equal(pkg.devDependencies.marked, vendored, "package.json pins the vendored marked");
