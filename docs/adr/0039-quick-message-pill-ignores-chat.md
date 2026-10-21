@@ -35,9 +35,11 @@ the hover delay while the user types in Chat, the caret moves to the pill and
 the next word lands there. The gate this decision removes was what kept the pill
 down while Chat was up, so that caret move is the cost it accepts.
 
-Closing a pill opened over Chat returns the keyboard to Chat when that window
-still exists, and steps aside when it does not: the hand-back remembers the
-window that was in front, not just the app.
+Closing a pill opened over Chat returns the keyboard to that window when it
+still exists, and steps aside when it does not. macOS, Windows and X11
+remember the window that was in front, and the overlay is the only one of
+Fidget's windows they skip. Wayland cannot activate another client's surface,
+so there the compositor keeps the keyboard.
 
 The dismissal latch clears only on pointer leave, which the Shell sees from its
 own hit test even when the page's `:hover` sticks. Chat closing no longer clears

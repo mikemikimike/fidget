@@ -426,10 +426,14 @@ pub fn remember_foreground(window: &tauri::Window) {
     }
 }
 
-/// Remember the foreground window before a pill takes the keyboard.
+/// Remember the foreground window before a pill takes the keyboard, unless
+/// it is this overlay.
 #[cfg(target_os = "windows")]
-pub fn remember_foreground(foreground: windows_sys::Win32::Foundation::HWND) {
-    windows::remember_foreground(foreground);
+pub fn remember_foreground(
+    foreground: windows_sys::Win32::Foundation::HWND,
+    overlay: windows_sys::Win32::Foundation::HWND,
+) {
+    windows::remember_foreground(foreground, overlay);
 }
 
 /// Last pill closed: on X11, if the overlay still has focus, activate the window

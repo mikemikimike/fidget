@@ -66,11 +66,62 @@ pub enum HandBack {
 
 /// `holding`: Fidget's overlay still has the keyboard. `previous_alive`: the
 /// app or window remembered at focus time still exists. Same on every OS.
+/// macOS plans through `plan_hand_back`, which also names Fidget's own window.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
     match (holding, previous_alive) {
         (false, _) => HandBack::Stay,
         (true, true) => HandBack::Restore,
         (true, false) => HandBack::StepAside,
+    }
+}
+
+/// What was in front when a pill took the keyboard. Fidget's own Chat is a
+/// window number, not a stand-in pid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RememberedFront {
+    None,
+    OtherApp(i32),
+    OwnWindow(isize),
+}
+
+/// Where the keyboard goes when the last pill closes. A `Stay` keeps what
+/// was remembered for the next close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandBackPlan {
+    Stay(RememberedFront),
+    RestoreApp(i32),
+    RestoreWindow(isize),
+    StepAside,
+}
+
+/// `pid` is another app, or 0. `window` is Fidget's own key window, or 0.
+pub fn remembered_front(pid: i32, window: isize) -> RememberedFront {
+    if pid > 0 {
+        RememberedFront::OtherApp(pid)
+    } else if window != 0 {
+        RememberedFront::OwnWindow(window)
+    } else {
+        RememberedFront::None
+    }
+}
+
+/// `holding`: the overlay still has the keyboard. `target_alive`: the
+/// remembered app or window still exists.
+pub fn plan_hand_back(
+    holding: bool,
+    remembered: RememberedFront,
+    target_alive: bool,
+) -> HandBackPlan {
+    if !holding {
+        return HandBackPlan::Stay(remembered);
+    }
+    match remembered {
+        RememberedFront::OtherApp(pid) if target_alive => HandBackPlan::RestoreApp(pid),
+        RememberedFront::OwnWindow(number) if target_alive => HandBackPlan::RestoreWindow(number),
+        RememberedFront::None | RememberedFront::OtherApp(_) | RememberedFront::OwnWindow(_) => {
+            HandBackPlan::StepAside
+        }
     }
 }
 
@@ -141,6 +192,54 @@ mod tests {
         assert_eq!(hand_back(false, false), HandBack::Stay);
         assert_eq!(hand_back(true, true), HandBack::Restore);
         assert_eq!(hand_back(true, false), HandBack::StepAside);
+    }
+
+    #[test]
+    fn a_window_number_with_no_pid_is_fidgets_own_window() {
+        assert_eq!(remembered_front(0, 680), RememberedFront::OwnWindow(680));
+        assert_eq!(remembered_front(42, 0), RememberedFront::OtherApp(42));
+        assert_eq!(remembered_front(0, 0), RememberedFront::None);
+        assert_eq!(
+            remembered_front(-1, 680),
+            RememberedFront::OwnWindow(680),
+            "a negative pid is not an app"
+        );
+    }
+
+    #[test]
+    fn a_hand_back_over_chat_goes_to_that_window() {
+        assert_eq!(
+            plan_hand_back(true, RememberedFront::OwnWindow(680), true),
+            HandBackPlan::RestoreWindow(680)
+        );
+    }
+
+    #[test]
+    fn a_stay_keeps_the_app_and_the_window() {
+        assert_eq!(
+            plan_hand_back(false, RememberedFront::OtherApp(42), true),
+            HandBackPlan::Stay(RememberedFront::OtherApp(42))
+        );
+        assert_eq!(
+            plan_hand_back(false, RememberedFront::OwnWindow(680), true),
+            HandBackPlan::Stay(RememberedFront::OwnWindow(680))
+        );
+    }
+
+    #[test]
+    fn a_gone_window_steps_aside() {
+        assert_eq!(
+            plan_hand_back(true, RememberedFront::OwnWindow(680), false),
+            HandBackPlan::StepAside
+        );
+        assert_eq!(
+            plan_hand_back(true, RememberedFront::OtherApp(42), false),
+            HandBackPlan::StepAside
+        );
+        assert_eq!(
+            plan_hand_back(true, RememberedFront::None, false),
+            HandBackPlan::StepAside
+        );
     }
 
     fn flips(pairs: &[(&str, bool)]) -> Vec<(String, bool)> {

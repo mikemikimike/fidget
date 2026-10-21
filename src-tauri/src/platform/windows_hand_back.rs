@@ -1,9 +1,10 @@
 //! Windows keyboard hand-back choices, pure so they test on every OS.
 
 /// Whether the foreground window at pill-open is worth remembering: a real
-/// window that is not one of Fidget's own (the overlay already in front).
-pub(super) fn worth_remembering(foreground: u64, foreground_pid: u32, own_pid: u32) -> bool {
-    foreground != 0 && foreground_pid != own_pid
+/// window that is not the overlay. Chat and Settings are Fidget's too, and
+/// closing the pill has to be able to return the keyboard to them.
+pub(super) fn worth_remembering(foreground: u64, overlay: u64) -> bool {
+    foreground != 0 && foreground != overlay
 }
 
 /// Where a step aside hands the keyboard: the first window, front to back,
@@ -18,9 +19,13 @@ mod tests {
 
     #[test]
     fn the_overlay_or_no_window_is_never_remembered() {
-        assert!(worth_remembering(0x10, 7, 3));
-        assert!(!worth_remembering(0x10, 3, 3), "Fidget's own window");
-        assert!(!worth_remembering(0, 0, 3), "no foreground window");
+        assert!(worth_remembering(0x10, 0x20), "another app");
+        assert!(
+            worth_remembering(0x30, 0x20),
+            "Fidget's own Chat, which is not the overlay"
+        );
+        assert!(!worth_remembering(0x20, 0x20), "the overlay");
+        assert!(!worth_remembering(0, 0x20), "no foreground window");
     }
 
     #[test]

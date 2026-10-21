@@ -148,10 +148,10 @@ fn sharing_type() -> NSWindowSharingType {
     }
 }
 
-/// The app that was in front when a pill took the keyboard, by pid; 0 is none
-/// and -1 means Fidget itself, with the key window below.
+/// Another app's pid when a pill took the keyboard from it. 0 when the
+/// memory is Fidget's own window, or when nothing was remembered.
 static FRONT_BEFORE_PILL: AtomicI32 = AtomicI32::new(0);
-/// That key window's number when Fidget was already in front; 0 is none.
+/// Fidget's own key window number when the pill opened over it; 0 otherwise.
 static FRONT_WINDOW_BEFORE_PILL: AtomicIsize = AtomicIsize::new(0);
 
 /// Remember the frontmost app before the pill activates Fidget. Main thread.
@@ -183,10 +183,34 @@ pub fn remember_front_app() {
             }
             let number: isize = msg_send![key, windowNumber];
             FRONT_WINDOW_BEFORE_PILL.store(number, Ordering::Relaxed);
-            FRONT_BEFORE_PILL.store(-1, Ordering::Relaxed);
+            FRONT_BEFORE_PILL.store(0, Ordering::Relaxed);
         } else {
             FRONT_BEFORE_PILL.store(pid, Ordering::Relaxed);
             FRONT_WINDOW_BEFORE_PILL.store(0, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Whether `remembered` still exists, so a close can tell a hand-back from a
+/// step aside. Main thread, on the objects `hand_back_keyboard` just fetched.
+unsafe fn front_still_there(
+    app: *mut AnyObject,
+    running: &AnyClass,
+    remembered: crate::pill_focus::RememberedFront,
+) -> bool {
+    match remembered {
+        crate::pill_focus::RememberedFront::None => false,
+        crate::pill_focus::RememberedFront::OwnWindow(number) => {
+            let window: *mut AnyObject = msg_send![app, windowWithWindowNumber: number];
+            !window.is_null()
+        }
+        crate::pill_focus::RememberedFront::OtherApp(pid) => {
+            let previous: *mut AnyObject =
+                msg_send![running, runningApplicationWithProcessIdentifier: pid];
+            !previous.is_null() && {
+                let gone: bool = msg_send![previous, isTerminated];
+                !gone
+            }
         }
     }
 }
@@ -207,49 +231,43 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
         let active: bool = msg_send![app, isActive];
         let key: *mut AnyObject = msg_send![app, keyWindow];
         let holding = active && (key.is_null() || key == ns_window);
+        let pid = FRONT_BEFORE_PILL.load(Ordering::Relaxed);
+        let remembered_window = FRONT_WINDOW_BEFORE_PILL.load(Ordering::Relaxed);
+        let remembered = crate::pill_focus::remembered_front(pid, remembered_window);
+        let alive = front_still_there(app, running, remembered);
+        let mut choice = crate::pill_focus::plan_hand_back(holding, remembered, alive);
         // Only a hand-back spends what was remembered. A Stay leaves it for the
         // next close, whose drain would otherwise step aside to nothing.
-        let pid = if holding {
-            FRONT_BEFORE_PILL.swap(0, Ordering::Relaxed)
-        } else {
-            FRONT_BEFORE_PILL.load(Ordering::Relaxed)
-        };
-        let remembered_window = if holding {
-            FRONT_WINDOW_BEFORE_PILL.swap(0, Ordering::Relaxed)
-        } else {
-            FRONT_WINDOW_BEFORE_PILL.load(Ordering::Relaxed)
-        };
-        if holding && pid < 0 && remembered_window != 0 {
-            let remembered: *mut AnyObject =
-                msg_send![app, windowWithWindowNumber: remembered_window];
+        if !matches!(choice, crate::pill_focus::HandBackPlan::Stay(_)) {
+            FRONT_BEFORE_PILL.store(0, Ordering::Relaxed);
+            FRONT_WINDOW_BEFORE_PILL.store(0, Ordering::Relaxed);
+        }
+        if let crate::pill_focus::HandBackPlan::RestoreWindow(number) = choice {
+            let remembered: *mut AnyObject = msg_send![app, windowWithWindowNumber: number];
             if !remembered.is_null() {
                 let _: () =
                     msg_send![remembered, makeKeyAndOrderFront: std::ptr::null_mut::<AnyObject>()];
                 if crate::dev_flags::TRACE_BUBBLE.is_on() {
-                    eprintln!("app: hand back window holding={holding} window={remembered_window}");
+                    eprintln!("app: hand back window holding={holding} window={number}");
                 }
                 return Ok(());
             }
+            choice = crate::pill_focus::HandBackPlan::StepAside;
         }
-        let previous: *mut AnyObject = if pid > 0 {
-            msg_send![running, runningApplicationWithProcessIdentifier: pid]
-        } else {
-            std::ptr::null_mut()
-        };
-        let alive = !previous.is_null() && {
-            let gone: bool = msg_send![previous, isTerminated];
-            !gone
-        };
-        let decision = crate::pill_focus::hand_back(holding, alive);
-        match decision {
-            crate::pill_focus::HandBack::Stay => {}
-            crate::pill_focus::HandBack::Restore => {
-                let _: bool = msg_send![previous, activateWithOptions: 0usize];
+        match choice {
+            crate::pill_focus::HandBackPlan::Stay(_) => {}
+            crate::pill_focus::HandBackPlan::RestoreApp(pid) => {
+                let previous: *mut AnyObject =
+                    msg_send![running, runningApplicationWithProcessIdentifier: pid];
+                if !previous.is_null() {
+                    let _: bool = msg_send![previous, activateWithOptions: 0usize];
+                }
             }
-            // Nothing to give it back to. macOS 14 can ignore `deactivate`, so
-            // activate the next app in front; deactivate only when there is
-            // none. Hiding would hide the sprite too.
-            crate::pill_focus::HandBack::StepAside => {
+            // Nothing left to give the keyboard back to. macOS 14 can ignore
+            // `deactivate`, so activate the next app in front, and deactivate
+            // only when there is none. Hiding would hide the sprite too.
+            crate::pill_focus::HandBackPlan::RestoreWindow(_)
+            | crate::pill_focus::HandBackPlan::StepAside => {
                 let next = crate::pill_focus::next_app_in_front(
                     &app_windows(),
                     std::process::id() as i32,
@@ -267,6 +285,16 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
             }
         }
         if crate::dev_flags::TRACE_BUBBLE.is_on() {
+            let decision = match choice {
+                crate::pill_focus::HandBackPlan::Stay(_) => crate::pill_focus::HandBack::Stay,
+                crate::pill_focus::HandBackPlan::RestoreApp(_) => {
+                    crate::pill_focus::HandBack::Restore
+                }
+                crate::pill_focus::HandBackPlan::RestoreWindow(_)
+                | crate::pill_focus::HandBackPlan::StepAside => {
+                    crate::pill_focus::HandBack::StepAside
+                }
+            };
             eprintln!(
                 "app: hand back {decision:?} holding={holding} remembered={pid} window={remembered_window} alive={alive}"
             );

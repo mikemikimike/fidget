@@ -132,7 +132,8 @@ Notepad (Fidget's `overlay: hand back Restore ...` line), and that with the
 window in front at pill-open closed (a small window of the leaf's own), Escape
 steps aside to Notepad (`hand back StepAside ...`). After a click into Notepad closes
 the empty pill, hover opens a new one, a click on it keeps typing in the pill,
-and Escape then hands it back to Notepad. At startup it waits 3 s for each of the first frame,
+and Escape then hands it back to Notepad. A double-click then opens Chat, a
+pill over that Chat hands the keyboard back to Chat's window, and Chat closes. At startup it waits 3 s for each of the first frame,
 the overlay's `overlay: <label> page loaded` line and its first draft report.
 WebView2's profile is one folder every run reuses,
 `%LOCALAPPDATA%\fidget-scenarios\webview2`, so only the first run on a PC
