@@ -4,8 +4,8 @@
 ignore = [
   # Transitive glib 0.18.5 (gtk-rs via Tauri on Linux). Unblock on Tauri bump.
   "RUSTSEC-2024-0429",
-  # tauri-plugin-updater still pins zip 4.6.1; extraction advisories do not apply
-  # because fidget never calls ZipArchive::extract (read-only central-directory parse).
+  # tauri-plugin-updater pins zip 4.6.1; it extracts signed Windows update bundles only.
+  # These advisories cover Unix permission bits and symlink handling, not that path.
   "RUSTSEC-2026-0367",
   "RUSTSEC-2026-0368",
   "RUSTSEC-2026-0369",
