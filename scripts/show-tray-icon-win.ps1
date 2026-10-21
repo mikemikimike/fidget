@@ -55,3 +55,5 @@ try {
 } finally {
     & taskkill.exe /PID $proc.Id /T /F | Out-Null
 }
+# taskkill errs when a child is already gone; the promotion is what counts.
+exit 0

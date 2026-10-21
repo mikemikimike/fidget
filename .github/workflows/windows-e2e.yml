@@ -17,8 +17,8 @@ permissions:
   contents: read
 
 concurrency:
-  # Per label, as in tests.yml: another label's `labeled` run skips its job,
-  # and must not cancel an e2e run in flight. Re-adding windows-e2e replaces it.
+  # Per label: another label's `labeled` run skips its job, and must not cancel
+  # an e2e run in flight. Re-adding windows-e2e replaces it.
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ github.event.label.name }}
   cancel-in-progress: true
 
