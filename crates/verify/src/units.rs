@@ -23,10 +23,8 @@ pub fn run(repo_root: &Path, report: &mut RunReport) {
     let _ = fs::remove_file(&summary);
 
     report.say("prove-units: cargo test -p fidget-core");
-    let mut cargo = Command::new("cargo");
-    cargo
-        .args(["test", "-p", "fidget-core"])
-        .current_dir(repo_root);
+    let mut cargo = crate::paths::cargo(repo_root);
+    cargo.args(["test", "-p", "fidget-core"]);
     suite(report, "cargo-core", &mut cargo, &dest, &summary);
 
     report.say("prove-units: node --test");

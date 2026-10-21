@@ -209,8 +209,8 @@ fn script_command(path: &Path) -> Command {
 /// The app binary, then the test binary when the scenario takes one.
 fn binaries(repo_root: &Path, wants_test: bool, report: &mut RunReport) -> Option<Vec<PathBuf>> {
     report.say("scenario: building fidget");
-    let mut build = Command::new("cargo");
-    build.args(["build", "-p", "fidget"]).current_dir(repo_root);
+    let mut build = crate::paths::cargo(repo_root);
+    build.args(["build", "-p", "fidget"]);
     if report.exec(&mut build, None) != Some(0) {
         report.check(
             Outcome::Error,
@@ -222,9 +222,8 @@ fn binaries(repo_root: &Path, wants_test: bool, report: &mut RunReport) -> Optio
     let mut found = vec![repo_root.join("target/debug/fidget")];
     if wants_test {
         report.say("scenario: building the fixture Harness test binary");
-        let out = Command::new("cargo")
+        let out = crate::paths::cargo(repo_root)
             .args(["test", "-p", "fidget", "--no-run", "--message-format=json"])
-            .current_dir(repo_root)
             .output();
         match out
             .ok()
@@ -615,7 +614,7 @@ mod tests {
             .iter()
             .map(|dir| scenarios.join(dir).join(script))
             .find(|path| path.exists())
-            .unwrap_or_else(|| panic!("no leaf {script} in ci/ or manual-only/"));
+            .unwrap_or_else(|| panic!("no leaf {script} in any of {LEAF_DIRS:?}"));
         let mut cmd = if script.ends_with(".ps1") {
             let mut cmd = Command::new("powershell");
             cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);

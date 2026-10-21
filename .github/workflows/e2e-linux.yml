@@ -76,8 +76,9 @@ jobs:
           mkdir -p "$TMPDIR"
           # -displayfd writes the display number once Xvfb accepts clients.
           exec {ready}< <(Xvfb -displayfd 1 -screen 0 1920x1080x24 -nolisten tcp 2> "$TMPDIR/xvfb.log")
-          read -r -t 3 n <&"$ready"
+          read -r -t 3 n <&"$ready" || { echo "::error::Xvfb did not start in 3 s; see xvfb.log"; exit 1; }
           export DISPLAY=":$n"
+          dbus-update-activation-environment DISPLAY
           xfwm4 > "$TMPDIR/xfwm4.log" 2>&1 &
           # Its service is the tray leaves' StatusNotifierWatcher.
           /usr/libexec/ayatana-indicator-application/ayatana-indicator-application-service \
@@ -92,11 +93,13 @@ jobs:
               target/debug/fidget > "$log" 2>&1 &
             pid=$!
             drew=0
-            wait_for_trace 10 "$log" '^frame: ' || drew=$?
+            wait_for_trace 3 "$log" '^frame: ' || drew=$?
             stop_fidget || true
+            { sleep 3 && process_tree "$pid" | xargs kill -9; } > /dev/null 2>&1 &
             wait "$pid" 2> /dev/null || true
+            kill "$!" 2> /dev/null || true
             if [ "$drew" != 0 ]; then
-              echo "::error::the warm-up drew no frame in 10 s; see warmup.log in the evidence"
+              echo "::error::the warm-up drew no frame in 3 s; see warmup.log in the evidence"
               exit 1
             fi
           )

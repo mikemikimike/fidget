@@ -144,6 +144,21 @@ pub fn discover_repo_root() -> Result<PathBuf, String> {
 }
 
 /// Which overlay leaf script to run for this host OS.
+/// A `cargo` run in the repo root. Run under `cargo run`, verify inherits its
+/// own package env, which changes build-script fingerprints, so the nested
+/// build would recompile ring, tauri and fidget the build step already made.
+pub fn cargo(repo_root: &Path) -> process::Command {
+    let mut cmd = process::Command::new("cargo");
+    cmd.current_dir(repo_root);
+    for (key, _) in env::vars_os() {
+        let name = key.to_string_lossy();
+        if name.starts_with("CARGO_PKG_") || name.starts_with("CARGO_MANIFEST_") {
+            cmd.env_remove(&key);
+        }
+    }
+    cmd
+}
+
 pub fn overlay_script_for_os(os: &str) -> Option<&'static str> {
     match os {
         "macos" => Some("scripts/verify-overlay.sh"),
@@ -192,6 +207,21 @@ mod tests {
         let nested = root.join("a").join("b");
         fs::create_dir_all(&nested).unwrap();
         assert_eq!(find_repo_root(&nested).as_deref(), Some(root.as_path()));
+    }
+
+    #[test]
+    fn cargo_drops_the_package_env_cargo_run_hands_us() {
+        // cargo test sets these for this process, as cargo run does for verify.
+        let cmd = cargo(Path::new("."));
+        let removed: Vec<_> = cmd
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_string_lossy().into_owned())
+            .collect();
+        for key in ["CARGO_PKG_NAME", "CARGO_MANIFEST_DIR"] {
+            assert!(removed.iter().any(|k| k == key), "{key} reaches the build");
+        }
+        assert!(!removed.iter().any(|k| k == "CARGO_HOME"));
     }
 
     #[test]
