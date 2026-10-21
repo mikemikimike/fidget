@@ -120,7 +120,7 @@ Set-Content -LiteralPath $marks -Value "" -Encoding ascii
 $harness = "$bashPath $root/scripts/scenarios/fixture-harness.sh $TestBin script=auth-sign-in-link count=$marks"
 $paths = @($harness -split '\s+' | Select-Object -Skip 1)
 if ($paths.Count -ne 4) { Fail "a path in the Harness line holds a space: $harness" }
-$Launcher = "bash"
+$Launcher = ($harness -split " ")[0]
 
 $env:FIDGET_HARNESS = $harness
 $env:FIDGET_DIRECTOR_WAKE_SECS = "1"
