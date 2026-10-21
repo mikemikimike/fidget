@@ -157,8 +157,13 @@ click_at() { # <x> <y> [<x> <y>]
   xdotool mouseup 1 ${3:+mousemove "$3" "$4"}
 }
 open_pill() { # <case>
+  local frames
   sprite_center
+  # Fidget reads the pointer each frame. Two frames off the sprite let it see
+  # the leave that lifts a Send's hold on the pill.
+  frames=$(line_count "$log" "$frame")
   xdotool mousemove "$((cx + 400))" "$cy"
+  wait_for_count 3 "$log" "$frame" "$((frames + 1))" || fail "$1: no frame after the pointer left; see $log"
   wait_for_next "$draft\"\" focused=true" xdotool mousemove "$cx" "$cy" || fail "$1: the pill did not open; see $log"
 }
 type_into_pill() { # <word> <case>

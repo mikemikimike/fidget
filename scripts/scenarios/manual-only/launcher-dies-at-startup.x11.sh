@@ -38,8 +38,10 @@ fail() {
   exit 1
 }
 
-rect() { tr , ' ' <<< "${1##*|}"; }                   # <dump line>: its frame as "x y w h"
-box() { grep -E '^label\|' "$2" | grep -m1 -F "$1"; } # <text> <dump>
+rect() { tr , ' ' <<< "${1##*|}"; } # <dump line>: its frame as "x y w h"
+# <text> <dump>: the innermost box. WebKitGTK names a <pre> as a section
+# holding all its text, and so is every section around it.
+box() { grep -E '^(label|section)\|' "$2" | grep -F "$1" | tail -1; }
 
 check_failed() { # <dump>
   grep -qF "|Harness couldn't start|" "$1" || fail "Chat shows no Harness error landing; see $1"

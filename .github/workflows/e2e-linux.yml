@@ -116,8 +116,10 @@ jobs:
 
       - name: Gather evidence
         if: always()
-        # Each leaf's private HOME holds caches and sockets, and no evidence.
-        run: rsync -rlt --exclude home/ "$RUNNER_TEMP/evidence/" "$RUNNER_TEMP/upload/" || true
+        # Each leaf's private HOME holds caches and sockets; keep only its logs.
+        run: |
+          rsync -rltm --include '*/' --include 'home/**.log' --exclude 'home/**' \
+            "$RUNNER_TEMP/evidence/" "$RUNNER_TEMP/upload/" || true
 
       - name: Upload evidence
         if: always()

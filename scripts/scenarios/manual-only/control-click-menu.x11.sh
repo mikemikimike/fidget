@@ -90,6 +90,7 @@ wait_for_up 10 "$log" || fail "Fidget never wrote its overlay line; see $log"
 # The overlay spans the display, so its centre is not the sprite. The newest
 # frame trace line says where the sprite is drawn.
 wait_for_trace 2 "$trace" '^frame: .* sprite\(' || fail "Fidget traced no frame; see $trace"
+wait_for_rest "$trace" || fail "the sprite never came to rest; see $trace"
 read -r w h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$trace" | head -1) || fail "no sprite size in $trace"
 read -r x y < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$trace" | tail -1) || fail "no frame trace in $trace"
 cx=$((x + w / 2))
