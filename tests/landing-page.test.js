@@ -383,3 +383,16 @@ test("every published page carries the site header with a link home", () => {
     assert.ok(page.includes('<a class="site-brand" href="./">'), `${name} has no link home`);
   }
 });
+
+// #1753: GoatCounter counts visits to every page, the landing page included.
+const COUNTER = '<script data-goatcounter="https://fidget.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>';
+
+test("every published page carries the visit counter once, just before </head>", () => {
+  const pages = readdirSync(site).filter((name) => name.endsWith(".html"));
+  assert.ok(pages.includes(PAGE), "the landing page is published");
+  for (const name of pages) {
+    const page = published(name);
+    assert.equal(page.split(COUNTER).length - 1, 1, `${name} lacks the one visit counter`);
+    assert.ok(page.includes(`${COUNTER}\n</head>`), `${name} has the counter outside its <head>`);
+  }
+});

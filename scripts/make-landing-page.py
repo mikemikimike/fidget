@@ -966,6 +966,23 @@ def self_check():
         else:
             raise AssertionError("a page with no <body> took no header and passed")
 
+        (out / "c.html").write_text("<html><head><title>c</title></head><body></body></html>", encoding="utf-8")
+        (out / PAGE).write_text("<head>\n</head><body>landing</body>", encoding="utf-8")
+        stamp_counter(out)
+        stamp_counter(out)
+        assert (out / "c.html").read_text(encoding="utf-8") == \
+            f"<html><head><title>c</title>{COUNTER}\n</head><body></body></html>", \
+            "a page did not get the visit counter once, right before its </head>"
+        assert (out / PAGE).read_text(encoding="utf-8") == f"<head>\n{COUNTER}\n</head><body>landing</body>", \
+            "the landing page did not get the visit counter once"
+        (out / "d.html").write_text("<body>no head</body>", encoding="utf-8")
+        try:
+            stamp_counter(out)
+        except Malformed:
+            pass
+        else:
+            raise AssertionError("a page with no </head> took no visit counter and passed")
+
     print(f"self-check: {len(words['features'])} features, {len(words['harnesses'])} Harnesses, "
           f"{len(words['faq'])} questions, checks passed")
 
