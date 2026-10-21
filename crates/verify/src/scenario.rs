@@ -585,6 +585,28 @@ mod tests {
         assert!(err.contains("want it to start with"), "stderr was:\n{err}");
     }
 
+    /// A later turn's rows sit around this turn's, so the first row is the
+    /// wrong one in both dumps, and the newest is wrong after the reply.
+    #[cfg(windows)]
+    #[test]
+    fn thinking_row_win_reads_the_row_that_was_open() {
+        let out = fixture_run(
+            "thinking-row.win.ps1",
+            &[
+                (
+                    "FIDGET_SCENARIO_AX_OPEN",
+                    "fixtures/thinking-row-open-two.txt".into(),
+                ),
+                (
+                    "FIDGET_SCENARIO_AX_DONE",
+                    "fixtures/thinking-row-done-two.txt".into(),
+                ),
+            ],
+        );
+        assert_exit(&out, 0, "");
+        assert!(String::from_utf8_lossy(&out.stdout).contains("PASS: fixture dumps"));
+    }
+
     /// Runs an `e2e/` leaf on fixture dumps with no desktop. `envs` paths are
     /// under `scripts/scenarios/` unless absolute.
     fn fixture_run(script: &str, envs: &[(&str, PathBuf)]) -> std::process::Output {

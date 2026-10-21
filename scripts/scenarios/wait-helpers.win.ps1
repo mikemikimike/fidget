@@ -146,10 +146,9 @@ function Wait-ForMarks([double]$Seconds, [string]$MarksFile, [string]$Pattern) {
     return (Wait-ForLine $Seconds $MarksFile $Pattern)
 }
 
-# Fidget is up once it writes its `overlay:` line, which lands before it
-# attaches a Harness or handles a taskbar click. A first wait starts here, so
-# it gets its whole budget instead of sharing it with the launch. Pass the
-# piped stderr log; its lines carry no seconds prefix.
+# Fidget is up at its `overlay:` line, before it attaches a Harness or takes a
+# taskbar click; a first wait starting here gets its whole budget. Pass the
+# piped stderr log, whose lines carry no seconds prefix.
 function Wait-ForUp([double]$Seconds, [string]$ErrLog) {
     return (Wait-ForLine $Seconds $ErrLog '^overlay: ')
 }

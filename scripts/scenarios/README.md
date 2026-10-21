@@ -9,7 +9,7 @@ run one: set up, post the prompt, and wait for a go-ahead for that run.
 
 | Folder | Holds |
 |---|---|
-| `e2e/` | Leaves that run unattended. The `windows-e2e` workflow runs every `e2e/*.win.ps1` on a hosted Windows runner. |
+| `e2e/` | Leaves that run without a person once the host gives the grants in their header. Only the Windows ones are proven unattended so far: the `windows-e2e` workflow runs every `e2e/*.win.ps1` on a hosted runner. The macOS ones need Accessibility, Screen Recording or Automation grants, which a hosted runner cannot give. |
 | `manual/` | Leaves that need a person, a second display, or an app a hosted runner lacks: Windows 11 Notepad's tabs for `chat-close-pill-type.win.ps1`. |
 | this folder | Helpers the leaves share, and `fixtures/`. |
 

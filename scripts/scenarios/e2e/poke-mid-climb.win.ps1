@@ -60,7 +60,13 @@ $pokePattern = '^(?:\d+ )?verbs:.*Poke'
 
 # poke-mid-climb-check.py in PowerShell, so no Windows host needs Python. Case
 # sensitive and word for word like it: the same broken fixtures fail both.
-function Check-Trace([string]$File) {
+# POKE_COOLDOWN_MS is 2500; the windows leave a tick either side of it.
+$PausedUntilMs = 2300
+$ResumedFromMs = 2600
+$ResumedByMs = 3500
+
+# The frames from the first Poke on a climbing sprite, or $null before one.
+function Get-FramesAfterPoke([string]$File) {
     $frames = [System.Collections.Generic.List[object]]::new()
     $pokeAt = $null
     $state = $null
@@ -75,17 +81,21 @@ function Check-Trace([string]$File) {
             $pokeAt = $frames.Count
         }
     }
-    if ($null -eq $pokeAt) { Fail "no Poke landed on a climbing sprite" }
-    $after = @($frames | Select-Object -Skip $pokeAt)
-    # POKE_COOLDOWN_MS is 2500; the windows leave a tick either side of it.
+    if ($null -eq $pokeAt) { return $null }
+    return , @($frames | Select-Object -Skip $pokeAt)
+}
+
+function Check-Trace([string]$File) {
+    $after = Get-FramesAfterPoke $File
+    if ($null -eq $after) { Fail "no Poke landed on a climbing sprite" }
     $span = if ($after.Count -gt 0) { $after[-1].At - $after[0].At } else { 0 }
-    if ($span -lt 2300) {
+    if ($span -lt $PausedUntilMs) {
         $seconds = ($span / 1000).ToString("0.0", [Globalization.CultureInfo]::InvariantCulture)
         Fail "the trace stops $seconds s after the Poke"
     }
     $start = $after[0].At
-    $paused = @($after | Where-Object { $_.At - $start -lt 2300 })
-    $resumed = @($after | Where-Object { $_.At - $start -ge 2600 -and $_.At - $start -le 3500 })
+    $paused = @($after | Where-Object { $_.At - $start -lt $PausedUntilMs })
+    $resumed = @($after | Where-Object { $_.At - $start -ge $ResumedFromMs -and $_.At - $start -le $ResumedByMs })
     if ($paused | Where-Object { $_.State -cne "Climbing" }) { Fail "the sprite left the wall during the pause" }
     if (@($paused | ForEach-Object { "$($_.X),$($_.Y)" } | Sort-Object -Unique).Count -ne 1) {
         Fail "the sprite moved during the pause"
@@ -247,15 +257,10 @@ function In-State([string]$Pattern) {
     [bool]($frame -and $frame.State -cmatch "^($Pattern)$")
 }
 
+# Whether the trace already runs as far past the Poke as Check-Trace reads.
 function Cooldown-Traced {
-    $reactAt = $null; $lastAt = $null
-    foreach ($line in Get-Content -LiteralPath $trace) {
-        if ($line -cmatch $framePattern) {
-            $lastAt = [long]$Matches[1]
-            if ($null -eq $reactAt -and $Matches[2] -ceq "Climbing" -and $Matches[5] -ceq "react") { $reactAt = $lastAt }
-        }
-    }
-    return ($null -ne $reactAt -and $lastAt - $reactAt -ge 3500)
+    $after = Get-FramesAfterPoke $trace
+    return ($null -ne $after -and $after.Count -gt 0 -and $after[-1].At - $after[0].At -ge $ResumedByMs)
 }
 
 function Pokes { @(Select-String -LiteralPath $trace -Pattern $pokePattern -CaseSensitive).Count }
@@ -392,7 +397,6 @@ try {
     if (-not (Wait-ForTrace 3 $trace 'frame: .* Climbing .* react#\d+')) {
         Fail "sprite did not hold react during cooldown; see $trace"
     }
-    # Check-Trace reads the climb resuming up to 3.5 s after the Poke.
     $null = Wait-OnChanges 5 (Split-Path -Parent $trace) { Cooldown-Traced }
 } finally {
     Stop-FidgetTree $script:proc

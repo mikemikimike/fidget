@@ -101,8 +101,8 @@ function Test-AnchorOnDesktop($win, $monitors) {
   return $onMonitor
 }
 
-$characterLine = Get-Content -LiteralPath $Log | Where-Object { $_ -match '^character: (.+) from ' } | Select-Object -First 1
-$script:Character = if ($characterLine -match '^character: (.+) from ') { $Matches[1] } else { $null }
+$characterLine = Select-String -LiteralPath $Log -Pattern '^character: (.+) from ' | Select-Object -First 1
+$script:Character = if ($characterLine) { $characterLine.Matches[0].Groups[1].Value } else { $null }
 
 $monitors = [AnchorVerify]::Monitors()
 if ($monitors.Count -eq 0) { Fail "no monitors" }

@@ -87,7 +87,8 @@ $done = $env:FIDGET_SCENARIO_AX_DONE
 if ($open -or $done) {
     if (-not $open -or -not $done) { Fail "set both FIDGET_SCENARIO_AX_OPEN and FIDGET_SCENARIO_AX_DONE" }
     Assert-Row $open $GlyphOpen "open"
-    Assert-Row $done $GlyphDone "done"
+    # As live: the row that was open is the one that must collapse.
+    Assert-Row $done $GlyphDone "done" @(Thinking-Rows $open).Count
     Write-Output "PASS: fixture dumps"
     exit 0
 }
