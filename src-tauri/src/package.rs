@@ -736,7 +736,7 @@ mod tests {
     fn write_archive(path: &Path, root_name: &str, macos_litter: bool) {
         let file = fs::File::create(path).expect("archive is creatable");
         let mut zip = zip::ZipWriter::new(file);
-        let stored: zip::write::FileOptions<'_, ()> =
+        let stored: zip::write::FileOptions<'_, '_, ()> =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
         let mut write = |name: String, bytes: &[u8]| {
@@ -917,7 +917,7 @@ mod tests {
             let mut zip = zip::ZipWriter::new(file);
             zip.start_file(
                 CHARACTER_MANIFEST_FILE,
-                zip::write::FileOptions::<'_, ()>::default()
+                zip::write::FileOptions::<'_, '_, ()>::default()
                     .compression_method(zip::CompressionMethod::Deflated),
             )
             .expect("archive entry is startable");
