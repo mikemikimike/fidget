@@ -141,6 +141,9 @@ windows-sys = {version = "0.61", features = [
 ]}
 # Raw window handle for getting the HWND from Tauri.
 raw-window-handle = "0.6"
+# Windows pipes do not poll. The wire reads them on the ACP runtime, so the
+# read has to leave that thread, the same split async-process uses.
+blocking = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The context menu (#155) is not here: `tauri::menu` already wraps the menu

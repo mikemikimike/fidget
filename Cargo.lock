@@ -1234,6 +1234,7 @@ dependencies = [
  "async-process",
  "base64 0.23.1",
  "block2",
+ "blocking",
  "bytemuck",
  "ctrlc",
  "fidget-core",

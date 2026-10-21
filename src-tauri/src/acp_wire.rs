@@ -875,6 +875,88 @@ impl Drop for Wire {
     }
 }
 
+type SpawnedStdio = (
+    Option<Box<dyn futures_io::AsyncWrite + Unpin + Send>>,
+    Option<Box<dyn futures_io::AsyncRead + Unpin + Send>>,
+);
+
+/// The child `run` drives. Windows cannot use `async_process` here: stable
+/// `std` does not return the creation thread, and that handle is what gets
+/// resumed.
+enum HarnessProc {
+    #[cfg(windows)]
+    Windows(windows_job::Spawned),
+    #[cfg(not(windows))]
+    Unix(async_process::Child),
+}
+
+impl HarnessProc {
+    fn id(&self) -> u32 {
+        match self {
+            #[cfg(windows)]
+            Self::Windows(child) => child.id(),
+            #[cfg(not(windows))]
+            Self::Unix(child) => child.id(),
+        }
+    }
+
+    fn take_stdio(&mut self) -> SpawnedStdio {
+        match self {
+            #[cfg(windows)]
+            Self::Windows(child) => (
+                child.stdin.take().map(|pipe| {
+                    Box::new(blocking::Unblock::new(pipe))
+                        as Box<dyn futures_io::AsyncWrite + Unpin + Send>
+                }),
+                child.stdout.take().map(|pipe| {
+                    Box::new(blocking::Unblock::new(pipe))
+                        as Box<dyn futures_io::AsyncRead + Unpin + Send>
+                }),
+            ),
+            #[cfg(not(windows))]
+            Self::Unix(child) => {
+                (
+                    child.stdin.take().map(|pipe| {
+                        Box::new(pipe) as Box<dyn futures_io::AsyncWrite + Unpin + Send>
+                    }),
+                    child.stdout.take().map(|pipe| {
+                        Box::new(pipe) as Box<dyn futures_io::AsyncRead + Unpin + Send>
+                    }),
+                )
+            }
+        }
+    }
+
+    fn kill(&mut self) -> std::io::Result<()> {
+        match self {
+            #[cfg(windows)]
+            Self::Windows(child) => child.kill(),
+            #[cfg(not(windows))]
+            Self::Unix(child) => child.kill(),
+        }
+    }
+
+    fn try_status(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self {
+            #[cfg(windows)]
+            Self::Windows(child) => child.try_status(),
+            #[cfg(not(windows))]
+            Self::Unix(child) => child.try_status(),
+        }
+    }
+
+    fn status(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<std::process::ExitStatus>> + '_>> {
+        match self {
+            #[cfg(windows)]
+            Self::Windows(child) => Box::pin(child.status()),
+            #[cfg(not(windows))]
+            Self::Unix(child) => Box::pin(child.status()),
+        }
+    }
+}
+
 /// The whole life of one child, on the wire thread.
 fn run(
     command: Command,
@@ -903,13 +985,13 @@ fn run(
     let stderr = match std::io::pipe() {
         Ok((reader, writer)) => {
             tail.pump_stderr(reader);
-            std::process::Stdio::from(writer)
+            Some(writer)
         }
-        Err(_) => std::process::Stdio::inherit(),
+        Err(_) => None,
     };
     runtime.block_on(async move {
         #[cfg(windows)]
-        let spawned = windows_job::spawn_in_job(command, stderr);
+        let spawned = windows_job::spawn_in_job(command, stderr).map(HarnessProc::Windows);
 
         #[cfg(not(windows))]
         let spawned = {
@@ -917,8 +999,11 @@ fn run(
             async_command
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .stderr(stderr);
-            async_command.spawn()
+                .stderr(match stderr {
+                    Some(writer) => std::process::Stdio::from(writer),
+                    None => std::process::Stdio::inherit(),
+                });
+            async_command.spawn().map(HarnessProc::Unix)
         };
         // Both platforms hand back the spawn's own `io::Error`, so the missing
         // file is read off its kind in one place rather than two.
@@ -929,7 +1014,7 @@ fn run(
                 return;
             }
         };
-        let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        let (Some(stdin), Some(stdout)) = child.take_stdio() else {
             let _ = ready.send(Err(SpawnError::Failed("no pipes to the child".to_string())));
             return;
         };
@@ -1039,7 +1124,7 @@ fn run(
 /// How the child ended, if it has. The transport closes as the child exits,
 /// a moment before the kernel can report it, so this waits that moment and no
 /// longer. A child that only closed its stdout is still running.
-fn exit_status(child: &mut async_process::Child) -> Option<std::process::ExitStatus> {
+fn exit_status(child: &mut HarnessProc) -> Option<std::process::ExitStatus> {
     let until = Instant::now() + Duration::from_millis(500);
     loop {
         match child.try_status() {
@@ -4216,16 +4301,36 @@ mod tests {
 #[cfg(windows)]
 mod windows_job {
     use std::collections::HashMap;
+    use std::ffi::OsStr;
+    use std::future::Future;
+    use std::io::{Error, PipeReader, PipeWriter, Result};
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use std::os::windows::process::ExitStatusExt;
+    use std::process::ExitStatus;
     use std::sync::Mutex;
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, DuplicateHandle, SetHandleInformation, DUPLICATE_SAME_ACCESS,
+        ERROR_ACCESS_DENIED, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+        WAIT_TIMEOUT,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{GetFileAttributesW, INVALID_FILE_ATTRIBUTES};
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE};
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
         SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
+    use windows_sys::Win32::System::SystemInformation::{
+        GetSystemDirectoryW, GetWindowsDirectoryW,
+    };
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, OpenThread, ResumeThread, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW,
-        CREATE_SUSPENDED, PROCESS_ALL_ACCESS, THREAD_SUSPEND_RESUME,
+        CreateProcessW, DeleteProcThreadAttributeList, GetCurrentProcess, GetExitCodeProcess,
+        GetThreadId, InitializeProcThreadAttributeList, ResumeThread, TerminateProcess,
+        UpdateProcThreadAttribute, WaitForSingleObject, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW,
+        CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, INFINITE,
+        PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES,
+        STARTUPINFOEXW, STARTUPINFOW,
     };
 
     /// A Job Object handle, parked in `JOBS` until the process exits.
@@ -4240,183 +4345,718 @@ mod windows_job {
 
     static JOBS: Mutex<Option<HashMap<u32, SafeHandle>>> = Mutex::new(None);
 
-    /// Spawn with create-time Job Object association via `CREATE_SUSPENDED`.
-    /// The process cannot fork children until after job assignment, which
-    /// closes the post-spawn race.
-    pub(super) fn spawn_in_job(
-        mut command: std::process::Command,
-        stderr: std::process::Stdio,
-    ) -> Result<async_process::Child, std::io::Error> {
-        use std::os::windows::process::CommandExt;
+    /// Inheritable handles are process-wide. Two spawns must not run
+    /// `CreateProcessW` at once, or each child can inherit the other's pipes.
+    static SPAWN_LOCK: Mutex<()> = Mutex::new(());
 
-        let job = unsafe {
+    /// The child, plus the creation thread that was resumed.
+    pub(super) struct Spawned {
+        pub(super) stdin: Option<PipeWriter>,
+        pub(super) stdout: Option<PipeReader>,
+        process: OwnedHandle,
+        pid: u32,
+        resumed_thread: u32,
+    }
+
+    impl Spawned {
+        pub(super) fn id(&self) -> u32 {
+            self.pid
+        }
+
+        /// `GetThreadId` of the `hThread` from `CreateProcessW` that was resumed.
+        pub(super) fn resumed_thread(&self) -> u32 {
+            self.resumed_thread
+        }
+
+        pub(super) fn kill(&mut self) -> Result<()> {
+            let ok = unsafe { TerminateProcess(self.process.as_raw_handle(), 1) };
+            if ok != 0 {
+                return Ok(());
+            }
+            let err = Error::last_os_error();
+            // Already gone. `TerminateProcess` reports access denied.
+            if err.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32)
+                && self.try_status()?.is_some()
+            {
+                return Ok(());
+            }
+            Err(err)
+        }
+
+        pub(super) fn try_status(&mut self) -> Result<Option<ExitStatus>> {
+            let handle = self.process.as_raw_handle();
+            unsafe {
+                match WaitForSingleObject(handle, 0) {
+                    WAIT_OBJECT_0 => {}
+                    WAIT_TIMEOUT => return Ok(None),
+                    _ => return Err(Error::last_os_error()),
+                }
+                let mut code = 0u32;
+                if GetExitCodeProcess(handle, &mut code) == 0 {
+                    return Err(Error::last_os_error());
+                }
+                Ok(Some(ExitStatus::from_raw(code)))
+            }
+        }
+
+        pub(super) fn status(&mut self) -> impl Future<Output = Result<ExitStatus>> + Send {
+            // Our write end. A child blocked on stdin reads EOF once it is gone.
+            self.stdin.take();
+            let process = self.process.try_clone();
+            async move {
+                let process = process?;
+                match tokio::task::spawn_blocking(move || wait_exit(&process)).await {
+                    Ok(result) => result,
+                    Err(err) => Err(Error::other(err)),
+                }
+            }
+        }
+    }
+
+    fn wait_exit(process: &OwnedHandle) -> Result<ExitStatus> {
+        let handle = process.as_raw_handle();
+        unsafe {
+            if WaitForSingleObject(handle, INFINITE) != WAIT_OBJECT_0 {
+                return Err(Error::last_os_error());
+            }
+            let mut code = 0u32;
+            if GetExitCodeProcess(handle, &mut code) == 0 {
+                return Err(Error::last_os_error());
+            }
+            Ok(ExitStatus::from_raw(code))
+        }
+    }
+
+    /// Spawn suspended, assign the job, then resume `PROCESS_INFORMATION.hThread`.
+    /// The child cannot fork until the job holds it. Enumeration order is not
+    /// that thread, and stable `std` does not return the handle.
+    pub(super) fn spawn_in_job(
+        command: std::process::Command,
+        stderr: Option<PipeWriter>,
+    ) -> Result<Spawned> {
+        match create_job() {
+            Ok(job) => spawn_created(command, stderr, Some(job)),
+            Err(why) => {
+                eprintln!("harness: {why}; spawning without Job Object (grandchildren may linger)");
+                spawn_created(command, stderr, None)
+            }
+        }
+    }
+
+    fn create_job() -> std::result::Result<HANDLE, &'static str> {
+        unsafe {
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
             if job.is_null() || job == INVALID_HANDLE_VALUE {
-                return spawn_fallback_no_job(command, "CreateJobObjectW failed", stderr);
+                return Err("CreateJobObjectW failed");
             }
-
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
             info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-
             let ok = SetInformationJobObject(
                 job,
                 JobObjectExtendedLimitInformation,
                 &info as *const _ as *const _,
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             );
-
             if ok == 0 {
                 CloseHandle(job);
-                return spawn_fallback_no_job(command, "SetInformationJobObject failed", stderr);
+                return Err("SetInformationJobObject failed");
             }
+            Ok(job)
+        }
+    }
 
-            job
-        };
-
-        let creation_flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | CREATE_SUSPENDED;
-        command.creation_flags(creation_flags);
-
-        let mut async_command = async_process::Command::from(command);
-        async_command
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(stderr);
-
-        let mut child = match async_command.spawn() {
-            Ok(child) => child,
-            // Handed on as it came. `SpawnError::start` reads the kind, and a
-            // `format!` around it would turn a missing file into prose.
-            Err(why) => {
-                unsafe { CloseHandle(job) };
-                return Err(why);
-            }
-        };
-
-        let pid = child.id();
-
-        unsafe {
-            let process = OpenProcess(PROCESS_ALL_ACCESS, 0, pid);
-            if process.is_null() || process == INVALID_HANDLE_VALUE {
-                // Intentional leak. The job has `KILL_ON_JOB_CLOSE`. Closing it could kill the child.
-                eprintln!("harness: OpenProcess failed for pid {pid}; resuming without job");
-                if resume_primary_thread(pid).is_err() {
-                    let _ = child.kill();
-                    return Err(std::io::Error::other(format!(
-                        "OpenProcess failed and resume failed for pid {pid}; child killed"
-                    )));
+    fn spawn_created(
+        command: std::process::Command,
+        stderr: Option<PipeWriter>,
+        mut job: Option<HANDLE>,
+    ) -> Result<Spawned> {
+        let suspend = job.is_some();
+        let created = match create_process(&command, stderr, suspend) {
+            Ok(created) => created,
+            Err(err) => {
+                if let Some(job) = job.take() {
+                    unsafe { CloseHandle(job) };
                 }
-                return Ok(child);
+                return Err(err);
             }
+        };
+        let Created {
+            process,
+            thread,
+            pid,
+            tid,
+            stdin,
+            stdout,
+        } = created;
 
-            let assigned = AssignProcessToJobObject(job, process);
-            CloseHandle(process);
-
+        let mut job = if let Some(handle) = job {
+            let assigned = unsafe { AssignProcessToJobObject(handle, process.as_raw_handle()) };
             if assigned == 0 {
-                // Intentional leak. The job has `KILL_ON_JOB_CLOSE`. Closing it could kill the child.
+                // Intentional leak. The job has `KILL_ON_JOB_CLOSE`. Closing it
+                // could kill the child, which was not assigned.
                 eprintln!(
                     "harness: AssignProcessToJobObject failed for pid {pid}; resuming without job"
                 );
-                if resume_primary_thread(pid).is_err() {
-                    let _ = child.kill();
-                    return Err(std::io::Error::other(format!("AssignProcessToJobObject failed and resume failed for pid {pid}; child killed")));
-                }
-                return Ok(child);
+                let _leaked = handle;
+                None
+            } else {
+                Some(handle)
             }
+        } else {
+            None
+        };
 
-            if let Err(why) = resume_primary_thread(pid) {
-                CloseHandle(job);
-                let _ = child.kill();
-                return Err(std::io::Error::other(format!(
-                    "ResumeThread failed for pid {pid}: {why}; child killed"
+        if suspend {
+            let previous = unsafe { ResumeThread(thread) };
+            unsafe { CloseHandle(thread) };
+            if previous == u32::MAX {
+                unsafe { TerminateProcess(process.as_raw_handle(), 1) };
+                if let Some(job) = job.take() {
+                    unsafe { CloseHandle(job) };
+                }
+                return Err(Error::other(format!(
+                    "ResumeThread failed for pid {pid}; child killed"
                 )));
             }
-
-            match JOBS.lock() {
-                Ok(mut slot) => {
-                    let map = slot.get_or_insert_with(HashMap::new);
-                    map.insert(pid, SafeHandle(job));
-                }
-                Err(_) => {
-                    eprintln!("harness: JOBS lock poisoned, handle leaked for pid {pid}");
-                    CloseHandle(job);
-                }
-            }
+        } else {
+            unsafe { CloseHandle(thread) };
         }
 
-        Ok(child)
+        if let Some(job) = job.take() {
+            remember_job(pid, job);
+        }
+
+        Ok(Spawned {
+            stdin: Some(stdin),
+            stdout: Some(stdout),
+            process,
+            pid,
+            resumed_thread: tid,
+        })
     }
 
-    fn resume_primary_thread(pid: u32) -> Result<(), String> {
-        unsafe {
-            let tid = find_primary_thread(pid)?;
-            let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, tid);
-            if thread.is_null() || thread == INVALID_HANDLE_VALUE {
-                return Err("OpenThread failed".to_string());
+    struct Created {
+        process: OwnedHandle,
+        thread: HANDLE,
+        pid: u32,
+        tid: u32,
+        stdin: PipeWriter,
+        stdout: PipeReader,
+    }
+
+    fn create_process(
+        command: &std::process::Command,
+        stderr: Option<PipeWriter>,
+        suspend: bool,
+    ) -> Result<Created> {
+        let (stdin_read, stdin_write) = std::io::pipe()?;
+        let (stdout_read, stdout_write) = std::io::pipe()?;
+        set_inherit(stdin_write.as_raw_handle(), false)?;
+        set_inherit(stdout_read.as_raw_handle(), false)?;
+
+        let spec = command_spec(command)?;
+        let mut command_line = spec.command_line;
+        let created = {
+            let _lock = SPAWN_LOCK
+                .lock()
+                .map_err(|_| Error::other("spawn lock poisoned"))?;
+            set_inherit(stdin_read.as_raw_handle(), true)?;
+            set_inherit(stdout_write.as_raw_handle(), true)?;
+            if let Some(pipe) = &stderr {
+                set_inherit(pipe.as_raw_handle(), true)?;
             }
-
-            let result = ResumeThread(thread);
-            CloseHandle(thread);
-
-            if result == u32::MAX {
-                return Err("ResumeThread failed".to_string());
+            let mut stderr_dup = None;
+            let stderr_handle = if let Some(pipe) = &stderr {
+                pipe.as_raw_handle()
+            } else {
+                let dup = inheritable_stderr()?;
+                stderr_dup = Some(dup);
+                dup
+            };
+            let mut inherited = vec![stdin_read.as_raw_handle(), stdout_write.as_raw_handle()];
+            if !stderr_handle.is_null() && stderr_handle != INVALID_HANDLE_VALUE {
+                inherited.push(stderr_handle);
             }
+            // This list is the only thing the child inherits. `bInheritHandles`
+            // alone would also hand over every inheritable handle in the process.
+            let mut handle_list = HandleList::new(&inherited)?;
+            let result = unsafe {
+                let startup = STARTUPINFOEXW {
+                    StartupInfo: STARTUPINFOW {
+                        cb: std::mem::size_of::<STARTUPINFOEXW>() as u32,
+                        dwFlags: STARTF_USESTDHANDLES,
+                        hStdInput: stdin_read.as_raw_handle(),
+                        hStdOutput: stdout_write.as_raw_handle(),
+                        hStdError: stderr_handle,
+                        ..STARTUPINFOW::default()
+                    },
+                    lpAttributeList: handle_list.as_ptr(),
+                };
+                let mut info = PROCESS_INFORMATION::default();
+                // The job path breaks out of this group, as the old overwrite did.
+                // Without a job the child stays in it, so Ctrl+C still reaches it.
+                let mut flags =
+                    CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT;
+                if suspend {
+                    flags |= CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED;
+                }
+                let env = spec
+                    .env
+                    .as_ref()
+                    .map_or(std::ptr::null(), |block| block.as_ptr().cast());
+                let dir = spec
+                    .dir
+                    .as_ref()
+                    .map_or(std::ptr::null(), |path| path.as_ptr());
+                let ok = CreateProcessW(
+                    spec.application.as_ptr(),
+                    command_line.as_mut_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    1,
+                    flags,
+                    env,
+                    dir,
+                    &startup.StartupInfo,
+                    &mut info,
+                );
+                if let Some(dup) = stderr_dup {
+                    if !dup.is_null() && dup != INVALID_HANDLE_VALUE {
+                        CloseHandle(dup);
+                    }
+                }
+                if ok == 0 {
+                    Err(Error::last_os_error())
+                } else {
+                    Ok(info)
+                }
+            };
+            let _ = set_inherit(stdin_read.as_raw_handle(), false);
+            let _ = set_inherit(stdout_write.as_raw_handle(), false);
+            if let Some(pipe) = &stderr {
+                let _ = set_inherit(pipe.as_raw_handle(), false);
+            }
+            result
+        };
+        drop(stdin_read);
+        drop(stdout_write);
+        drop(stderr);
 
+        let info = created?;
+        let tid = unsafe { GetThreadId(info.hThread) };
+        if tid == 0 {
+            let err = Error::last_os_error();
+            unsafe {
+                TerminateProcess(info.hProcess, 1);
+                CloseHandle(info.hThread);
+                CloseHandle(info.hProcess);
+            }
+            return Err(err);
+        }
+        Ok(Created {
+            process: unsafe { OwnedHandle::from_raw_handle(info.hProcess) },
+            thread: info.hThread,
+            pid: info.dwProcessId,
+            tid,
+            stdin: stdin_write,
+            stdout: stdout_read,
+        })
+    }
+
+    struct CommandSpec {
+        application: Vec<u16>,
+        command_line: Vec<u16>,
+        env: Option<Vec<u16>>,
+        dir: Option<Vec<u16>>,
+    }
+
+    fn command_spec(command: &std::process::Command) -> Result<CommandSpec> {
+        let program = command.get_program();
+        let resolved = resolve_application(program)?;
+        let args: Vec<_> = command.get_args().collect();
+        let (application, mut command_line) = if is_batch_wide(&resolved) {
+            (cmd_exe()?, batch_command_line(&resolved, &args)?)
+        } else {
+            (resolved, exe_command_line(program, &args)?)
+        };
+        command_line.push(0);
+        Ok(CommandSpec {
+            application,
+            command_line,
+            env: environment_block(command)?,
+            dir: command
+                .get_current_dir()
+                .map(|path| nul_wide(path.as_os_str()))
+                .transpose()?,
+        })
+    }
+
+    fn exe_command_line(program: &OsStr, args: &[&OsStr]) -> Result<Vec<u16>> {
+        let mut cmd = Vec::new();
+        push_quoted_program(&mut cmd, program)?;
+        for arg in args {
+            cmd.push(b' ' as u16);
+            append_arg(&mut cmd, arg)?;
+        }
+        Ok(cmd)
+    }
+
+    fn push_quoted_program(cmd: &mut Vec<u16>, program: &OsStr) -> Result<()> {
+        if program
+            .encode_wide()
+            .any(|unit| unit == 0 || unit == b'"' as u16)
+        {
+            return Err(Error::new(std::io::ErrorKind::InvalidInput, "program path"));
+        }
+        cmd.push(b'"' as u16);
+        cmd.extend(program.encode_wide());
+        cmd.push(b'"' as u16);
+        Ok(())
+    }
+
+    fn append_arg(cmd: &mut Vec<u16>, arg: &OsStr) -> Result<()> {
+        no_interior_nul(arg)?;
+        let bytes = arg.as_encoded_bytes();
+        let quote = bytes.is_empty() || bytes.iter().any(|byte| *byte == b' ' || *byte == b'\t');
+        if quote {
+            cmd.push(b'"' as u16);
+        }
+        let mut backslashes = 0usize;
+        for unit in arg.encode_wide() {
+            if unit == b'\\' as u16 {
+                backslashes += 1;
+            } else {
+                if unit == b'"' as u16 {
+                    cmd.extend((0..=backslashes).map(|_| b'\\' as u16));
+                }
+                backslashes = 0;
+            }
+            cmd.push(unit);
+        }
+        if quote {
+            cmd.extend((0..backslashes).map(|_| b'\\' as u16));
+            cmd.push(b'"' as u16);
+        }
+        Ok(())
+    }
+
+    fn is_batch_wide(program: &[u16]) -> bool {
+        let program = program.strip_suffix(&[0]).unwrap_or(program);
+        // Case-insensitive `.bat` or `.cmd`, matching `Command`'s batch check.
+        matches!(
+            program.len().checked_sub(4).and_then(|i| program.get(i..)),
+            Some([46, 98 | 66, 97 | 65, 116 | 84] | [46, 99 | 67, 109 | 77, 100 | 68])
+        )
+    }
+
+    /// Where `Command` looks. A path that already has a directory is used as
+    /// given, with `.exe` appended when that file exists. A bare name is
+    /// sought beside this exe, then in the system and Windows directories, then on `PATH`.
+    fn resolve_application(program: &OsStr) -> Result<Vec<u16>> {
+        no_interior_nul(program)?;
+        if !is_bare_name(program) {
+            if has_exe_suffix(program) {
+                return nul_wide(program);
+            }
+            let with_exe = std::path::Path::new(program).with_extension("exe");
+            if file_exists(&with_exe) {
+                return nul_wide(with_exe.as_os_str());
+            }
+            return nul_wide(program);
+        }
+        let has_extension = program.as_encoded_bytes().contains(&b'.');
+        for dir in search_dirs() {
+            let mut full = dir.join(program);
+            if !has_extension {
+                full.set_extension("exe");
+            }
+            if file_exists(&full) {
+                return nul_wide(full.as_os_str());
+            }
+        }
+        Err(Error::new(
+            std::io::ErrorKind::NotFound,
+            "program not found",
+        ))
+    }
+
+    fn is_bare_name(program: &OsStr) -> bool {
+        !program
+            .as_encoded_bytes()
+            .iter()
+            .any(|byte| *byte == b'/' || *byte == b'\\')
+    }
+
+    fn has_exe_suffix(program: &OsStr) -> bool {
+        let bytes = program.as_encoded_bytes();
+        bytes.len() >= 4 && bytes[bytes.len() - 4..].eq_ignore_ascii_case(b".exe")
+    }
+
+    fn search_dirs() -> Vec<std::path::PathBuf> {
+        let mut dirs = Vec::new();
+        if let Ok(mut app) = std::env::current_exe() {
+            app.pop();
+            dirs.push(app);
+        }
+        if let Some(dir) = wide_dir(GetSystemDirectoryW) {
+            dirs.push(dir);
+        }
+        if let Some(dir) = wide_dir(GetWindowsDirectoryW) {
+            dirs.push(dir);
+        }
+        if let Some(path) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&path).filter(|dir| !dir.as_os_str().is_empty()));
+        }
+        dirs
+    }
+
+    fn wide_dir(
+        fill: unsafe extern "system" fn(*mut u16, u32) -> u32,
+    ) -> Option<std::path::PathBuf> {
+        let mut buf = vec![0u16; 261];
+        let wrote = unsafe { fill(buf.as_mut_ptr(), buf.len() as u32) };
+        if wrote == 0 || wrote as usize >= buf.len() {
+            return None;
+        }
+        buf.truncate(wrote as usize);
+        Some(std::path::PathBuf::from(std::ffi::OsString::from_wide(
+            &buf,
+        )))
+    }
+
+    fn file_exists(path: &std::path::Path) -> bool {
+        let Ok(wide) = nul_wide(path.as_os_str()) else {
+            return false;
+        };
+        unsafe { GetFileAttributesW(wide.as_ptr()) != INVALID_FILE_ATTRIBUTES }
+    }
+
+    fn cmd_exe() -> Result<Vec<u16>> {
+        let mut buf = vec![0u16; 261];
+        let wrote = unsafe { GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) };
+        if wrote == 0 || wrote as usize >= buf.len() {
+            return Err(Error::last_os_error());
+        }
+        buf.truncate(wrote as usize);
+        buf.extend(r"\cmd.exe".encode_utf16());
+        buf.push(0);
+        Ok(buf)
+    }
+
+    fn batch_command_line(script: &[u16], args: &[&OsStr]) -> Result<Vec<u16>> {
+        let script = script.strip_suffix(&[0]).unwrap_or(script);
+        if script.contains(&(b'"' as u16)) || script.last() == Some(&(b'\\' as u16)) {
+            return Err(Error::new(std::io::ErrorKind::InvalidInput, "batch path"));
+        }
+        let mut cmd: Vec<u16> = "cmd.exe /e:ON /v:OFF /d /c \"".encode_utf16().collect();
+        cmd.push(b'"' as u16);
+        cmd.extend_from_slice(script);
+        cmd.push(b'"' as u16);
+        for arg in args {
+            let bytes = arg.as_encoded_bytes();
+            if bytes.contains(&b'\r') || bytes.contains(&b'\n') {
+                return Err(Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "batch argument",
+                ));
+            }
+            cmd.push(b' ' as u16);
+            append_bat_arg(&mut cmd, arg)?;
+        }
+        cmd.push(b'"' as u16);
+        Ok(cmd)
+    }
+
+    fn append_bat_arg(cmd: &mut Vec<u16>, arg: &OsStr) -> Result<()> {
+        no_interior_nul(arg)?;
+        let mut quote = arg.is_empty() || arg.as_encoded_bytes().last() == Some(&b'\\');
+        const UNQUOTED: &str = r"#$*+-./:?@\_";
+        for unit in arg.encode_wide() {
+            let Some(ch) = char::from_u32(u32::from(unit)) else {
+                continue;
+            };
+            let ascii_needs =
+                ch.is_ascii() && !(ch.is_ascii_alphanumeric() || UNQUOTED.contains(ch));
+            if ascii_needs || ch.is_control() {
+                quote = true;
+            }
+        }
+        if quote {
+            cmd.push(b'"' as u16);
+        }
+        let mut backslashes = 0usize;
+        for unit in arg.encode_wide() {
+            if unit == b'\\' as u16 {
+                backslashes += 1;
+            } else {
+                if unit == b'"' as u16 {
+                    cmd.extend((0..backslashes).map(|_| b'\\' as u16));
+                    cmd.push(b'"' as u16);
+                } else if unit == b'%' as u16 || unit == b'\r' as u16 {
+                    // `%%cd:~,%` is a zero-length substring, so cmd does not expand `%VAR%`.
+                    cmd.extend_from_slice(&[
+                        b'%' as u16,
+                        b'%' as u16,
+                        b'c' as u16,
+                        b'd' as u16,
+                        b':' as u16,
+                        b'~' as u16,
+                        b',' as u16,
+                    ]);
+                }
+                backslashes = 0;
+            }
+            cmd.push(unit);
+        }
+        if quote {
+            cmd.extend((0..backslashes).map(|_| b'\\' as u16));
+            cmd.push(b'"' as u16);
+        }
+        Ok(())
+    }
+
+    /// No edits inherit the parent block. Any edit replaces it, so the child
+    /// gets that block plus the edits. A cleared environment is not visible
+    /// through the stable `Command` API, and this child is not cleared.
+    fn environment_block(command: &std::process::Command) -> Result<Option<Vec<u16>>> {
+        let changes: Vec<_> = command
+            .get_envs()
+            .map(|(key, value)| (key.to_os_string(), value.map(|value| value.to_os_string())))
+            .collect();
+        if changes.is_empty() {
+            return Ok(None);
+        }
+        let mut vars: Vec<_> = std::env::vars_os().collect();
+        for (key, value) in changes {
+            no_interior_nul(&key)?;
+            vars.retain(|(existing, _)| !existing.eq_ignore_ascii_case(&key));
+            if let Some(value) = value {
+                no_interior_nul(&value)?;
+                vars.push((key, value));
+            }
+        }
+        let mut block = Vec::new();
+        if vars.is_empty() {
+            block.push(0);
+        }
+        for (key, value) in vars {
+            block.extend(key.encode_wide());
+            block.push(b'=' as u16);
+            block.extend(value.encode_wide());
+            block.push(0);
+        }
+        block.push(0);
+        Ok(Some(block))
+    }
+
+    fn nul_wide(text: &OsStr) -> Result<Vec<u16>> {
+        no_interior_nul(text)?;
+        let mut wide: Vec<u16> = text.encode_wide().collect();
+        wide.push(0);
+        Ok(wide)
+    }
+
+    fn no_interior_nul(text: &OsStr) -> Result<()> {
+        if text.encode_wide().any(|unit| unit == 0) {
+            Err(Error::new(std::io::ErrorKind::InvalidInput, "interior nul"))
+        } else {
             Ok(())
         }
     }
 
-    fn find_primary_thread(pid: u32) -> Result<u32, String> {
-        // Assumes the first thread enumerated for the PID is the primary.
-        // A `CREATE_SUSPENDED` spawn keeps it suspended, so it is first.
-        // #1671 removes the assumption.
-        use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
-        };
+    struct HandleList {
+        buf: Vec<usize>,
+    }
 
-        unsafe {
-            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if snapshot == INVALID_HANDLE_VALUE {
-                return Err("CreateToolhelp32Snapshot failed".to_string());
+    impl HandleList {
+        fn new(handles: &[HANDLE]) -> Result<Self> {
+            let mut bytes = 0usize;
+            unsafe {
+                InitializeProcThreadAttributeList(std::ptr::null_mut(), 1, 0, &mut bytes);
             }
-
-            let mut entry: THREADENTRY32 = std::mem::zeroed();
-            entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
-
-            if Thread32First(snapshot, &mut entry) == 0 {
-                CloseHandle(snapshot);
-                return Err("Thread32First failed".to_string());
+            if bytes == 0 {
+                return Err(Error::last_os_error());
             }
-
-            loop {
-                if entry.th32OwnerProcessID == pid {
-                    let tid = entry.th32ThreadID;
-                    CloseHandle(snapshot);
-                    return Ok(tid);
-                }
-
-                if Thread32Next(snapshot, &mut entry) == 0 {
-                    break;
-                }
+            let mut buf = vec![0usize; bytes.div_ceil(std::mem::size_of::<usize>())];
+            let list = buf.as_mut_ptr().cast();
+            let ok = unsafe { InitializeProcThreadAttributeList(list, 1, 0, &mut bytes) };
+            if ok == 0 {
+                return Err(Error::last_os_error());
             }
+            let ok = unsafe {
+                UpdateProcThreadAttribute(
+                    list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                    handles.as_ptr().cast(),
+                    std::mem::size_of_val(handles),
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                )
+            };
+            if ok == 0 {
+                unsafe { DeleteProcThreadAttributeList(list) };
+                return Err(Error::last_os_error());
+            }
+            Ok(Self { buf })
+        }
 
-            CloseHandle(snapshot);
-            Err("No thread found for process".to_string())
+        fn as_ptr(&mut self) -> *mut core::ffi::c_void {
+            self.buf.as_mut_ptr().cast()
         }
     }
 
-    fn spawn_fallback_no_job(
-        command: std::process::Command,
-        why: &str,
-        stderr: std::process::Stdio,
-    ) -> Result<async_process::Child, std::io::Error> {
-        eprintln!("harness: {why}; spawning without Job Object (grandchildren may linger)");
-        let mut async_command = async_process::Command::from(command);
-        async_command
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(stderr);
-        async_command.spawn()
+    impl Drop for HandleList {
+        fn drop(&mut self) {
+            unsafe { DeleteProcThreadAttributeList(self.buf.as_mut_ptr().cast()) };
+        }
+    }
+
+    fn set_inherit(handle: HANDLE, inherit: bool) -> Result<()> {
+        let flags = if inherit { HANDLE_FLAG_INHERIT } else { 0 };
+        let ok = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, flags) };
+        if ok == 0 {
+            Err(Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn inheritable_stderr() -> Result<HANDLE> {
+        let current = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+        if current.is_null() || current == INVALID_HANDLE_VALUE {
+            return Ok(std::ptr::null_mut());
+        }
+        let mut dup = std::ptr::null_mut();
+        let ok = unsafe {
+            DuplicateHandle(
+                GetCurrentProcess(),
+                current,
+                GetCurrentProcess(),
+                &mut dup,
+                0,
+                1,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if ok == 0 {
+            Err(Error::last_os_error())
+        } else {
+            Ok(dup)
+        }
+    }
+
+    fn remember_job(pid: u32, job: HANDLE) {
+        match JOBS.lock() {
+            Ok(mut slot) => {
+                slot.get_or_insert_with(HashMap::new)
+                    .insert(pid, SafeHandle(job));
+            }
+            Err(_) => {
+                eprintln!("harness: JOBS lock poisoned, handle leaked for pid {pid}");
+                unsafe { CloseHandle(job) };
+            }
+        }
     }
 
     pub(super) fn terminate_job(pid: u32) {
@@ -4453,5 +5093,145 @@ mod windows_job {
         // Job assignment failure paths must resume the suspended child
         // before returning Ok. A child left suspended hangs later tests
         // waiting for stdio.
+
+        // The harness runs a test on a worker thread. CRT init is still the
+        // creation thread, so the id is printed there, before that pool exists.
+        #[used]
+        #[link_section = ".CRT$XCU"]
+        static PRIMARY_THREAD_PROBE: unsafe extern "C" fn() = primary_thread_probe;
+
+        const PROBE_NAME: [u16; 28] = [
+            b'F' as u16,
+            b'I' as u16,
+            b'D' as u16,
+            b'G' as u16,
+            b'E' as u16,
+            b'T' as u16,
+            b'_' as u16,
+            b'P' as u16,
+            b'R' as u16,
+            b'I' as u16,
+            b'M' as u16,
+            b'A' as u16,
+            b'R' as u16,
+            b'Y' as u16,
+            b'_' as u16,
+            b'T' as u16,
+            b'H' as u16,
+            b'R' as u16,
+            b'E' as u16,
+            b'A' as u16,
+            b'D' as u16,
+            b'_' as u16,
+            b'P' as u16,
+            b'R' as u16,
+            b'O' as u16,
+            b'B' as u16,
+            b'E' as u16,
+            0,
+        ];
+
+        unsafe extern "system" {
+            fn GetEnvironmentVariableW(name: *const u16, buf: *mut u16, n: u32) -> u32;
+            fn GetCurrentThreadId() -> u32;
+            fn WriteFile(
+                handle: *mut core::ffi::c_void,
+                buf: *const u8,
+                n: u32,
+                written: *mut u32,
+                overlapped: *mut core::ffi::c_void,
+            ) -> i32;
+            fn ExitProcess(code: u32) -> !;
+        }
+
+        unsafe extern "C" fn primary_thread_probe() {
+            let mut buf = [0u16; 4];
+            let n = unsafe {
+                GetEnvironmentVariableW(PROBE_NAME.as_ptr(), buf.as_mut_ptr(), buf.len() as u32)
+            };
+            if n == 0 {
+                return;
+            }
+            let id = unsafe { GetCurrentThreadId() };
+            let mut digits = [0u8; 16];
+            let mut len = 0usize;
+            let mut rest = id;
+            if rest == 0 {
+                digits[0] = b'0';
+                len = 1;
+            } else {
+                let mut tmp = [0u8; 16];
+                let mut t = 0usize;
+                while rest > 0 {
+                    tmp[t] = b'0' + (rest % 10) as u8;
+                    t += 1;
+                    rest /= 10;
+                }
+                while t > 0 {
+                    t -= 1;
+                    digits[len] = tmp[t];
+                    len += 1;
+                }
+            }
+            digits[len] = b'\n';
+            len += 1;
+            let mut written = 0u32;
+            unsafe {
+                // The inherited stdout pipe. `windows-sys` here is an extern
+                // thunk, so it does not touch the Rust runtime this runs before.
+                let stdout = windows_sys::Win32::System::Console::GetStdHandle(
+                    windows_sys::Win32::System::Console::STD_OUTPUT_HANDLE,
+                );
+                WriteFile(
+                    stdout,
+                    digits.as_ptr(),
+                    len as u32,
+                    &mut written,
+                    core::ptr::null_mut(),
+                );
+                ExitProcess(0);
+            }
+        }
+
+        #[test]
+        fn primary_thread_probe_child() {
+            if std::env::var_os("FIDGET_PRIMARY_THREAD_PROBE").is_some() {
+                panic!("crt probe did not exit");
+            }
+        }
+
+        #[test]
+        fn resumed_thread_is_the_one_that_runs() {
+            let exe = std::env::current_exe().expect("test binary");
+            let mut command = std::process::Command::new(exe);
+            command
+                .env("FIDGET_PRIMARY_THREAD_PROBE", "1")
+                .args(["primary_thread_probe_child", "--exact"]);
+            let mut spawned = spawn_in_job(command, None).expect("spawn");
+            let mut stdout = spawned.stdout.take().expect("stdout");
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut buf = String::new();
+                let _ = std::io::Read::read_to_string(&mut stdout, &mut buf);
+                let _ = tx.send(buf);
+            });
+            let buf = match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                Ok(buf) => buf,
+                Err(_) => {
+                    let _ = spawned.kill();
+                    terminate_job(spawned.id());
+                    panic!("suspended child never printed its thread id");
+                }
+            };
+            let printed: u32 = buf
+                .trim()
+                .parse()
+                .unwrap_or_else(|_| panic!("stdout {buf:?}"));
+            let resumed = spawned.resumed_thread();
+            // The job outlives the child. Drop it here so the suite does not
+            // keep a kill-on-close handle for a pid the OS may reuse.
+            terminate_job(spawned.id());
+            assert_eq!(printed, resumed);
+        }
     }
 }
