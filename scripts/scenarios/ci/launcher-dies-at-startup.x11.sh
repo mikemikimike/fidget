@@ -134,7 +134,6 @@ wait_for_up 10 "$log" || fail "Fidget never wrote its overlay line; see $log"
 ax() { python3 "$root/scripts/ax-window-linux.py" "$@"; }
 dump() { ax dump "$pid" BMO frames > "$out/$1.ax.txt" 2> "$out/$1.err"; }
 spawns() { grep -cx spawn "$marks" || true; }
-respawned() { [ "$(spawns)" -ge 2 ]; }
 shows_failed() { dump failed && grep -qF "|Harness couldn't start|" "$out/failed.ax.txt"; }
 shows_live() { dump live && live_line "$out/live.ax.txt"; }
 
@@ -165,8 +164,8 @@ for w in 420 320; do fits "$w"; done
 
 [ "$(spawns)" -eq 1 ] || fail "the Harness launched again before the re-pick ($(spawns) spawns)"
 ax press "$pid" BMO Codex > "$out/press.txt" 2>&1 || fail "could not press Codex on the landing; see $out/press.txt"
-wait_for_marks 2 "$marks" '^spawn$' || fail "the re-pick did not launch the Harness again; see $log"
-respawned || fail "the re-pick did not launch the Harness again; see $log"
+# The first launch's spawn is already in the marks file: wait for a second.
+wait_for_count 2 "$marks" '^spawn$' 1 || fail "the re-pick did not launch the Harness again; see $log"
 wait_for_ax_dump 2 "$pid" BMO " · session " || true
 shows_live || true
 check_live "$out/live.ax.txt"
