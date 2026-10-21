@@ -366,7 +366,11 @@ def cmd_menu(argv):
     import subprocess
     import time
 
-    subprocess.check_call(["xdotool", "mousemove", "--sync", x, y, "click", "3"])
+    # Fidget samples the buttons once a frame, so a click with no hold can fall
+    # between two samples. GTK ignores a release this soon after a menu pops.
+    subprocess.check_call(["xdotool", "mousemove", "--sync", x, y, "mousedown", "3"])
+    time.sleep(0.12)
+    subprocess.check_call(["xdotool", "mouseup", "3"])
     items = []
     for _ in range(20):
         time.sleep(0.25)
