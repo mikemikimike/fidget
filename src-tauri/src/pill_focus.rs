@@ -66,7 +66,6 @@ pub enum HandBack {
 
 /// `holding`: Fidget's overlay still has the keyboard. `previous_alive`: the
 /// app or window remembered at focus time still exists. Same on every OS.
-/// macOS plans through `plan_hand_back`, which also names Fidget's own window.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
     match (holding, previous_alive) {

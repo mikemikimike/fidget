@@ -10,10 +10,10 @@
 #   script's own. Case 8 closes Chat with WM_CLOSE, the same message as its X.
 #   Each press is held until Fidget traces it down. A pill word is one SendInput;
 #   a Notepad word goes one character at a time, each saved and read back first.
-# Duration: about 12.5 s before the Chat-open case (the first live Windows
-#   pass, at b92365ec). Every wait gives up 3 s after its trigger; at startup
-#   that is the first frame after the launch, the overlay's page load after
-#   that frame, and its first report after the page load. Waits wake on each
+# Duration: about 12.5 s before the Chat-open case. Every wait gives up 3 s
+#   after its trigger; at startup that is the first frame after the launch, the
+#   overlay's page load after that frame, and its first report after the page
+#   load. Waits wake on each
 #   line of Fidget's piped stderr, on file changes, or on UI Automation
 #   events; nothing polls.
 # WebView2's profile is one folder every run reuses,
