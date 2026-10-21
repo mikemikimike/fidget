@@ -43,6 +43,10 @@ On a pull request, `windows` also runs `cargo test` in the Windows job when
 the diff misses that job's path list in `.github/workflows/tests.yml`. Clippy
 in that job already runs. The tracker calls this the Windows compile job.
 
+`windows-scenarios` runs the live Windows scenarios and anchor scripts in
+`.github/workflows/windows-scenarios.yml` on a hosted runner. Remove and
+re-add it to run them again.
+
 | Label | When |
 |---|---|
 | `bug` | A `fix`. Shipped behavior misbehaves. |

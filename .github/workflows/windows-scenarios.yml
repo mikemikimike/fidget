@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   scenarios:
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'windows-scenarios'
@@ -35,11 +39,6 @@ jobs:
           key: windows-scenarios
           cache-on-failure: true
 
-      - name: Build fidget, its test binary, and fidget-verify
-        run: |
-          cargo build -p fidget -p fidget-verify
-          cargo test -p fidget --no-run
-
       - name: Run the scenarios and anchor scripts
         shell: pwsh
         env:
@@ -49,7 +48,6 @@ jobs:
           $env:TEMP = Join-Path $env:RUNNER_TEMP "evidence"
           $env:TMP = $env:TEMP
           New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
-          $env:FIDGET_VERIFY_BIN = (Resolve-Path "target\debug\fidget.exe").Path
           # pill-dual-display needs a person and two displays.
           $names = if ($env:SCENARIOS) { $env:SCENARIOS -split '\s+' } else {
             Get-ChildItem scripts\scenarios\*.win.ps1 |
@@ -71,13 +69,16 @@ jobs:
               Write-Host "::endgroup::"
             }
           }
+          # A SKIP fails the job: it means the runner's desktop could not prove the leaf.
           $label = @{ 0 = "PASS"; 2 = "SKIP" }
           $results | ForEach-Object {
             $verdict = if ($label.ContainsKey($_.Code)) { $label[$_.Code] } else { "FAIL ($($_.Code))" }
             "{0,-28} {1}" -f $_.Name, $verdict
           } | Tee-Object -Variable summary
-          "``````n$($summary -join "`n")`n``````" | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          if ($results | Where-Object { $_.Code -notin 0, 2 }) { exit 1 }
+          $fence = '```'
+          "$fence`n$($summary -join "`n")`n$fence" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          if ($results | Where-Object { $_.Code -ne 0 }) { exit 1 }
+          exit 0
 
       - name: Upload evidence
         if: always()
@@ -85,6 +86,6 @@ jobs:
         with:
           name: windows-scenarios-evidence
           path: |
-            ${{ runner.temp }}/evidence/fidget-scenario-*
+            ${{ runner.temp }}/evidence
             .verify/anchor-*
           if-no-files-found: warn
