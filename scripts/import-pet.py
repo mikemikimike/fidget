@@ -708,7 +708,7 @@ def read_shimeji(source, name=None):
     come from actions.xml, whose Action elements name Pose sequences — a
     richer source than frame numbering alone. Shimeji art walks left, so
     every frame is mirrored to head right, the engine's default (#96)."""
-    import xml.etree.ElementTree as ET
+    from defusedxml import ElementTree as ET
 
     from PIL import Image, ImageOps
 
@@ -725,15 +725,8 @@ def read_shimeji(source, name=None):
         actions = dict(SHIMEJI_DEFAULT_ACTIONS)
     else:
         # A pack is a download from the internet, so its actions.xml is
-        # untrusted. expat caps entity amplification only since 2.4, and no pack
-        # has a reason to declare an entity, so the declaration itself is refused.
-        #
-        # ponytail: a scan for the literal token rather than a parser-level
-        # handler, because CPython's C XMLParser exposes no handler to install
-        # one on. `<!ENTITY` is spelled exactly this way in XML, so the only
-        # false positive is a pack that writes it inside a comment or text,
-        # which is refused too. Take the defusedxml dependency if a real pack
-        # ever trips that.
+        # untrusted. Parsing goes through defusedxml; the literal `<!ENTITY`
+        # scan below is an extra fast reject before the parser runs.
         if b"<!ENTITY" in actions_file.read_bytes():
             sys.exit(f"{actions_file}: declares an XML entity - refusing to parse")
 
