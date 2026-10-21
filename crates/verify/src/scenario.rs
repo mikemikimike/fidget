@@ -983,7 +983,7 @@ mod tests {
     /// Live WebKitGTK dumps: each `<pre>` is a section holding all its text,
     /// inside a section that holds the whole landing.
     const LAUNCHER_X11_LIVE: &[(&str, &str)] = &[
-        (FAILED, "fixtures/launcher-dies-at-startup-x11-failed.txt"),
+        (FAILED, "fixtures/launcher-dies-at-startup-x11-420.txt"),
         (AX_420, "fixtures/launcher-dies-at-startup-x11-420.txt"),
         (AX_320, "fixtures/launcher-dies-at-startup-x11-320.txt"),
         (LIVE, "fixtures/launcher-dies-at-startup-x11-live.txt"),

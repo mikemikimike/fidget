@@ -91,9 +91,14 @@ jobs:
             HOME="$TMPDIR/warmup/home" FIDGET_HARNESS=true FIDGET_TRACE_FRAMES=1 \
               target/debug/fidget > "$log" 2>&1 &
             pid=$!
-            wait_for_trace 60 "$log" '^frame: ' || echo "the warm-up drew no frame in 60 s"
-            stop_fidget
-          ) || true
+            drew=0
+            wait_for_trace 10 "$log" '^frame: ' || drew=$?
+            stop_fidget || true
+            if [ "$drew" != 0 ]; then
+              echo "::error::the warm-up drew no frame in 10 s; see warmup.log in the evidence"
+              exit 1
+            fi
+          )
           if [ -n "$SCENARIOS" ]; then
             read -r -a names <<< "$SCENARIOS"
           else
