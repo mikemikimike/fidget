@@ -81,7 +81,9 @@ reflowed() { # <width>
   local aw
   "$tools/ax" dump "$pid" BMO frames > "$out/$1.ax.txt" 2>&1 || return 1
   read -r _ _ aw _ <<< "$(rect "$(grep -m1 '^AXWebArea|' "$out/$1.ax.txt")")"
-  [ -n "$aw" ] && [ "$aw" -le "$1" ]
+  # The boxes are laid out after the page narrows; fits() reads both.
+  [ -n "$aw" ] && [ "$aw" -le "$1" ] && box "$dyld" "$out/$1.ax.txt" > /dev/null &&
+    box "|$harness|" "$out/$1.ax.txt" > /dev/null
 }
 name=$harness dyld="dyld[0]: Library not loaded"
 fits() { # <width>: both boxes end inside Chat, and Error output starts above the composer
