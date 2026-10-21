@@ -72,15 +72,28 @@ jobs:
           SCENARIOS: ${{ inputs.scenarios }}
         run: |
           # The leaves write evidence under $TMPDIR: one folder to upload.
-          export TMPDIR="$RUNNER_TEMP/evidence" DISPLAY=:99
+          export TMPDIR="$RUNNER_TEMP/evidence"
           mkdir -p "$TMPDIR"
-          Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp > "$TMPDIR/xvfb.log" 2>&1 &
-          timeout 10 sh -c 'until xdpyinfo > /dev/null 2>&1; do sleep 0.1; done'
+          # -displayfd writes the display number once Xvfb accepts clients.
+          exec {ready}< <(Xvfb -displayfd 1 -screen 0 1920x1080x24 -nolisten tcp 2> "$TMPDIR/xvfb.log")
+          read -r -t 3 n <&"$ready"
+          export DISPLAY=":$n"
           xfwm4 > "$TMPDIR/xfwm4.log" 2>&1 &
           # Its service is the tray leaves' StatusNotifierWatcher.
-          "$(dpkg -L ayatana-indicator-application | grep -m1 'application-service$')" \
+          /usr/libexec/ayatana-indicator-application/ayatana-indicator-application-service \
             > "$TMPDIR/indicator.log" 2>&1 &
-          gdbus wait --session --timeout 10 org.kde.StatusNotifierWatcher
+          gdbus wait --session --timeout 3 org.kde.StatusNotifierWatcher
+          # A fresh runner draws Fidget's first frame seconds late, past a leaf's
+          # 3 s launch wait. One launch here takes that cold start.
+          (
+            root=$PWD log="$TMPDIR/warmup.log"
+            . scripts/scenarios/helpers/wait-helpers.x11.sh
+            HOME="$TMPDIR/warmup/home" FIDGET_HARNESS=true FIDGET_TRACE_FRAMES=1 \
+              target/debug/fidget > "$log" 2>&1 &
+            pid=$!
+            wait_for_trace 60 "$log" '^frame: ' || echo "the warm-up drew no frame in 60 s"
+            stop_fidget
+          ) || true
           if [ -n "$SCENARIOS" ]; then
             read -r -a names <<< "$SCENARIOS"
           else

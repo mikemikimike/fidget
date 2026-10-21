@@ -98,7 +98,7 @@ env HOME="$out/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
   FIDGET_CHARACTERS="$root/characters" "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true' EXIT INT TERM
-wait_for_up 10 "$log" || fail "Fidget never wrote its overlay line; see $log"
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 wait_for_rest "$trace" || fail "the sprite never came to rest; see $trace"
 size=$(sed -nE 's/^overlay: .* sprite ([0-9]+)x[0-9]+;.*/\1/p' "$trace" | head -1)
