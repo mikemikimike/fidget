@@ -2269,7 +2269,18 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
             // Win32 for live windows, and any attach is undone before returning.
             unsafe {
                 let foreground = GetForegroundWindow();
-                platform::remember_foreground(foreground, hwnd);
+                let mut overlays: Vec<HWND> = window
+                    .app_handle()
+                    .webview_windows()
+                    .into_iter()
+                    .filter(|(label, _)| label.starts_with("overlay-"))
+                    .filter_map(|(_, overlay)| overlay.hwnd().ok().map(|handle| handle.0 as HWND))
+                    .collect();
+                // The caller is an overlay even when its label was not listed.
+                if !overlays.contains(&hwnd) {
+                    overlays.push(hwnd);
+                }
+                platform::remember_foreground(foreground, &overlays);
                 let mut attached = None;
                 if !foreground.is_null() {
                     let foreground_thread =

@@ -66,7 +66,7 @@ pub enum HandBack {
 
 /// `holding`: Fidget's overlay still has the keyboard. `previous_alive`: the
 /// app or window remembered at focus time still exists. Same on every OS.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
     match (holding, previous_alive) {
         (false, _) => HandBack::Stay,
@@ -124,6 +124,18 @@ pub fn plan_hand_back(
         RememberedFront::OwnWindow(number) if target_alive => HandBackPlan::RestoreWindow(number),
         RememberedFront::None | RememberedFront::OtherApp(_) | RememberedFront::OwnWindow(_) => {
             HandBackPlan::StepAside
+        }
+    }
+}
+
+/// What a close leaves remembered. A Stay keeps its payload. Every hand-back
+/// spends it, so the next close cannot restore a window this one already used.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn remembered_after(plan: HandBackPlan) -> Option<RememberedFront> {
+    match plan {
+        HandBackPlan::Stay(remembered) => Some(remembered),
+        HandBackPlan::RestoreApp(_) | HandBackPlan::RestoreWindow(_) | HandBackPlan::StepAside => {
+            None
         }
     }
 }
@@ -219,13 +231,28 @@ mod tests {
 
     #[test]
     fn a_stay_keeps_the_app_and_the_window() {
+        let app = plan_hand_back(false, RememberedFront::OtherApp(42), true);
+        let window = plan_hand_back(false, RememberedFront::OwnWindow(680), true);
+        assert_eq!(remembered_after(app), Some(RememberedFront::OtherApp(42)));
         assert_eq!(
-            plan_hand_back(false, RememberedFront::OtherApp(42), true),
-            HandBackPlan::Stay(RememberedFront::OtherApp(42))
+            remembered_after(window),
+            Some(RememberedFront::OwnWindow(680))
+        );
+    }
+
+    #[test]
+    fn a_hand_back_spends_what_was_remembered() {
+        assert_eq!(
+            remembered_after(plan_hand_back(true, RememberedFront::OwnWindow(680), true)),
+            None
         );
         assert_eq!(
-            plan_hand_back(false, RememberedFront::OwnWindow(680), true),
-            HandBackPlan::Stay(RememberedFront::OwnWindow(680))
+            remembered_after(plan_hand_back(true, RememberedFront::OtherApp(42), true)),
+            None
+        );
+        assert_eq!(
+            remembered_after(plan_hand_back(true, RememberedFront::OwnWindow(680), false)),
+            None
         );
     }
 

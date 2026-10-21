@@ -25,9 +25,11 @@ fn owner_pid(hwnd: HWND) -> u32 {
 }
 
 /// Remember `foreground` before the pill takes the keyboard, unless it is
-/// the overlay or none. Chat is remembered, so the close can return to it.
-pub fn remember_foreground(foreground: HWND, overlay: HWND) {
-    if worth_remembering(foreground as u64, overlay as u64) {
+/// one of Fidget's overlays or none. Chat is remembered, so the close can
+/// return to it instead of to the overlay on the other display.
+pub fn remember_foreground(foreground: HWND, overlays: &[HWND]) {
+    let overlays: Vec<u64> = overlays.iter().map(|hwnd| *hwnd as u64).collect();
+    if worth_remembering(foreground as u64, &overlays) {
         FOREGROUND_BEFORE_PILL.store(foreground as isize, Ordering::Relaxed);
     }
 }

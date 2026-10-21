@@ -236,12 +236,15 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
         let remembered = crate::pill_focus::remembered_front(pid, remembered_window);
         let alive = front_still_there(app, running, remembered);
         let mut choice = crate::pill_focus::plan_hand_back(holding, remembered, alive);
-        // Only a hand-back spends what was remembered. A Stay leaves it for the
-        // next close, whose drain would otherwise step aside to nothing.
-        if !matches!(choice, crate::pill_focus::HandBackPlan::Stay(_)) {
-            FRONT_BEFORE_PILL.store(0, Ordering::Relaxed);
-            FRONT_WINDOW_BEFORE_PILL.store(0, Ordering::Relaxed);
-        }
+        // A Stay writes its payload back. A hand-back writes none, so the next
+        // close cannot restore a window this one already used.
+        let (keep_pid, keep_window) = match crate::pill_focus::remembered_after(choice) {
+            Some(crate::pill_focus::RememberedFront::OtherApp(kept)) => (kept, 0),
+            Some(crate::pill_focus::RememberedFront::OwnWindow(number)) => (0, number),
+            Some(crate::pill_focus::RememberedFront::None) | None => (0, 0),
+        };
+        FRONT_BEFORE_PILL.store(keep_pid, Ordering::Relaxed);
+        FRONT_WINDOW_BEFORE_PILL.store(keep_window, Ordering::Relaxed);
         if let crate::pill_focus::HandBackPlan::RestoreWindow(number) = choice {
             let remembered: *mut AnyObject = msg_send![app, windowWithWindowNumber: number];
             if !remembered.is_null() {
