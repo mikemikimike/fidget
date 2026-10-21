@@ -33,13 +33,21 @@ function alive(pid) {
   }
 }
 
+// Each case gets 3 s; a hang or a cleanup that misses the app fails fast.
+const budgetMs = 3000;
+
 async function interrupt(signal) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mask-measure-"));
-  const child = spawn("bash", [script, "--bin", fakeFidget(dir), "idle", "100", "3"]);
+  const pidFile = path.join(dir, "app.pid");
+  const child = spawn("bash", [script, "--bin", fakeFidget(dir), "idle", "100", "2"]);
   let out = "";
   let afterSignal = "";
   let sent = false;
+  let timer;
   const exited = new Promise((resolve) => child.on("exit", (code, sig) => resolve({ code, sig })));
+  const budget = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no exit within ${budgetMs} ms:\n${out}`)), budgetMs);
+  });
   child.stdout.on("data", (chunk) => {
     if (sent) afterSignal += chunk;
     out += chunk;
@@ -48,10 +56,18 @@ async function interrupt(signal) {
       child.kill(signal);
     }
   });
-  const result = await exited;
-  const pid = Number(fs.readFileSync(path.join(dir, "app.pid"), "utf8"));
-  fs.rmSync(dir, { recursive: true, force: true });
-  return { ...result, out, afterSignal, appAlive: alive(pid) };
+  let pid;
+  try {
+    const result = await Promise.race([exited, budget]);
+    pid = Number(fs.readFileSync(pidFile, "utf8"));
+    return { ...result, out, afterSignal, appAlive: alive(pid) };
+  } finally {
+    clearTimeout(timer);
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    if (pid === undefined && fs.existsSync(pidFile)) pid = Number(fs.readFileSync(pidFile, "utf8"));
+    if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
