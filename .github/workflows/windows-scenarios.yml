@@ -1,0 +1,90 @@
+name: Windows Scenarios
+
+# Live runs of the Windows `scripts/scenarios` leaves and anchor scripts on a
+# hosted runner's desktop session. Manual, or the `windows-scenarios` label.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Space-separated leaf names; empty runs them all
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  scenarios:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'windows-scenarios'
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: .
+          key: windows-scenarios
+          cache-on-failure: true
+
+      - name: Build fidget, its test binary, and fidget-verify
+        run: |
+          cargo build -p fidget -p fidget-verify
+          cargo test -p fidget --no-run
+
+      - name: Run the scenarios and anchor scripts
+        shell: pwsh
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+        run: |
+          # The leaves write evidence under $env:TEMP; keep it in one folder to upload.
+          $env:TEMP = Join-Path $env:RUNNER_TEMP "evidence"
+          $env:TMP = $env:TEMP
+          New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+          $env:FIDGET_VERIFY_BIN = (Resolve-Path "target\debug\fidget.exe").Path
+          # pill-dual-display needs a person and two displays.
+          $names = if ($env:SCENARIOS) { $env:SCENARIOS -split '\s+' } else {
+            Get-ChildItem scripts\scenarios\*.win.ps1 |
+              ForEach-Object { $_.Name -replace '\.win\.ps1$', '' } |
+              Where-Object { $_ -notin 'wait-helpers', 'pill-dual-display' }
+          }
+          $results = @()
+          foreach ($name in $names) {
+            Write-Host "::group::scenario $name"
+            cargo run -q -p fidget-verify -- scenario $name --go
+            $results += [pscustomobject]@{ Name = $name; Code = $LASTEXITCODE }
+            Write-Host "::endgroup::"
+          }
+          if (-not $env:SCENARIOS) {
+            foreach ($anchor in 'offscreen', 'taskbar') {
+              Write-Host "::group::anchor $anchor"
+              powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\verify-anchor-$anchor-win.ps1"
+              $results += [pscustomobject]@{ Name = "anchor-$anchor"; Code = $LASTEXITCODE }
+              Write-Host "::endgroup::"
+            }
+          }
+          $label = @{ 0 = "PASS"; 2 = "SKIP" }
+          $results | ForEach-Object {
+            $verdict = if ($label.ContainsKey($_.Code)) { $label[$_.Code] } else { "FAIL ($($_.Code))" }
+            "{0,-28} {1}" -f $_.Name, $verdict
+          } | Tee-Object -Variable summary
+          "``````n$($summary -join "`n")`n``````" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          if ($results | Where-Object { $_.Code -notin 0, 2 }) { exit 1 }
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-scenarios-evidence
+          path: |
+            ${{ runner.temp }}/evidence/fidget-scenario-*
+            .verify/anchor-*
+          if-no-files-found: warn
