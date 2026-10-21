@@ -69,8 +69,8 @@ else
   pid=$!
   trap 'stop_fidget' EXIT INT TERM
 
-  # A cold runner can take seconds to launch; that is not the first wait's budget.
-  wait_for_up 10 "$log" || fail "Fidget never wrote its overlay line; see $log"
+  # The launch gets its own wait, so the first check keeps its whole budget.
+  wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
   wait_for_rest "$log" || fail "the sprite never came to rest; see $log"
   size=$(sed -nE 's/^overlay: .* sprite ([0-9]+)x[0-9]+;.*/\1/p' "$log" | head -1)
   [ -n "$size" ] || fail "no sprite size in $log"

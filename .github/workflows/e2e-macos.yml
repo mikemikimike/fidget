@@ -42,21 +42,33 @@ jobs:
           key: e2e-macos
           cache-on-failure: true
 
-      - name: Build and warm up WebKit
-        # A fresh runner starts WebKit cold, past a leaf's launch budget.
+      - name: Build the app, the test binary and fidget-verify
+        # Built here so no leaf spends its 3 min cap compiling.
         run: |
-          cargo build -p fidget -p fidget-verify
+          cargo build -p fidget
+          cargo build -p fidget-verify
           cargo test -p fidget --no-run
-          home="$RUNNER_TEMP/warmup"
-          mkdir -p "$home/Library/Application Support/fidget"
-          echo '{"first_run_tour_shown": true}' > "$home/Library/Application Support/fidget/settings.json"
-          HOME="$home" FIDGET_DIRECTOR_API_KEY=x target/debug/fidget > "$home/app.log" 2>&1 &
+
+      - name: Warm up WebKit
+        # A fresh runner draws Fidget's first frame seconds late, past a leaf's
+        # 3 s launch wait. One launch here takes that cold start.
+        run: |
+          root=$PWD log="$RUNNER_TEMP/warmup.log"
+          . scripts/scenarios/helpers/wait-helpers.mac.sh
+          HOME="$RUNNER_TEMP/warmup/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
+            target/debug/fidget > "$log" 2>&1 &
           pid=$!
-          . scripts/scenarios/helpers/wait-helpers.sh
-          wait_for_up 60 "$home/app.log" || echo "::warning::Fidget never came up in the warm-up"
-          kill "$pid" 2> /dev/null || true
+          drew=0
+          wait_for_trace 3 "$log" '^frame: ' || drew=$?
+          stop_fidget || true
+          { sleep 3 && process_tree "$pid" | xargs kill -9; } > /dev/null 2>&1 &
           wait "$pid" 2> /dev/null || true
-          cat "$home/app.log"
+          kill "$!" 2> /dev/null || true
+          if [ "$drew" != 0 ]; then
+            cat "$log"
+            echo "::error::the warm-up drew no frame in 3 s; see the log above"
+            exit 1
+          fi
 
       - name: Run the scenarios
         env:
@@ -87,7 +99,7 @@ jobs:
             set +m
             {
               sleep 180 && touch "$RUNNER_TEMP/timed-out" && echo "timed out after 3 min" &&
-                kill -TERM -"$leaf" && sleep 5 && kill -KILL -"$leaf"
+                kill -TERM -"$leaf" && sleep 3 && kill -KILL -"$leaf"
             } 2> /dev/null &
             timer=$!
             wait "$leaf" && code=0 || code=$?
