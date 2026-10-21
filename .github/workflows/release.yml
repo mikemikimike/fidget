@@ -271,7 +271,7 @@ jobs:
           } > /tmp/homebrew-pr.md
           # A merged bump pull request keeps the branch name, so an edit to it
           # is a no-op that ships nothing. Only an open one is reused.
-          open_pr="$(gh pr list --head "${GITHUB_REPOSITORY_OWNER}:${PR_BRANCH}" --state open --json number --jq '.[0].number // ""')"
+          open_pr="$(gh pr list --head "$PR_BRANCH" --state open --json number --jq '.[0].number // ""')"
           if [ -n "$open_pr" ]; then
             gh pr edit "$open_pr" --title "$title" --body-file /tmp/homebrew-pr.md
           else
