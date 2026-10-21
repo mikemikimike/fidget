@@ -106,7 +106,9 @@ cleanup() {
   fi
   rm -f "$log"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# A signal has to end the run; cleanup is the EXIT trap's job.
+trap 'exit 130' INT TERM
 
 echo "=== X11 Mask Rebuild Measurement ==="
 echo "Scenario: $scenario"
