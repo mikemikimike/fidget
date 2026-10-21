@@ -28,15 +28,24 @@ used the pill is over, so the pill gets out of the way.
 
 Hovering the Character while Chat is open opens the pill, so the user can choose
 either composer. Two fields can be up with a draft in each; this decision does
-not resolve that. Closing a pill opened over Chat returns the keyboard to Chat:
-the hand-back remembers the window that was in front, not just the app.
+not resolve that.
+
+An opening pill takes the keyboard. If the pointer rests on the Character for
+the hover delay while the user types in Chat, the caret moves to the pill and
+the next word lands there. The gate this decision removes was what kept the pill
+down while Chat was up, so that caret move is the cost it accepts.
+
+Closing a pill opened over Chat returns the keyboard to Chat: the hand-back
+remembers the window that was in front, not just the app.
 
 The dismissal latch now clears only on pointer leave. The reset that ran when
-Chat closed existed for a macOS case where a Summon left the hover stuck with no
-pointer-leave, so the latch never cleared (#1489). That reset goes away with the
-Chat input. Where a leave is observed the latch clears as it always did; where a
-hover sticks with no leave, the pill stays down until the pointer moves off and
-back. That is the accepted cost.
+Chat closed existed for a macOS case where a Summon left the pointer's CSS
+`:hover` stuck, so no leave arrived and the latch never cleared (#1489). That
+reset goes away with the Chat input. Since #1565 the Shell's hit test calls
+enter and leave every frame, so a stuck `:hover` no longer holds the latch:
+moving the pointer off the sprite clears it even when the style does not. A
+Summon or Send with the pointer still resting on the Character keeps the pill
+down, and that is the intended pointer rule rather than a cost.
 
 Reversing this means pushing Chat's window state back onto every overlay, and a
 hover again doing different things depending on a window elsewhere.

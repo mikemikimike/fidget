@@ -12,8 +12,9 @@
 #   for the terminal that runs it.
 # Asserts: a sprite click leaves the word in TextEdit with no pill draft, and
 #   each pill that opens takes the typed word with no click (#1565), including
-#   one with Chat still open, each way of closing it hands the keyboard back,
-#   and a click-through moves the caret.
+#   one with Chat still open, whose close returns the keyboard to Chat's window;
+#   each way of closing it hands the keyboard back, and a click-through moves
+#   the caret.
 #
 # Usage: chat-close-pill-type.sh --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -235,9 +236,16 @@ wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is open$' "$tools/click-cursor"
   fail "Chat did not open; see $log"
 open_pill chat-open
 type_into_pill five chat-open
+# Counted before the trigger so an earlier close cannot satisfy the wait.
+handed=$(line_count "$log" '^[0-9]+ app: hand back window ')
 wait_for_next 3 "$log" "$closed" "$tools/ax" key "$pid" escape ||
   fail "chat-open: the pill did not close; see $log"
-echo "ok: chat-open: the pill opened and took typing with Chat open"
+# The pill opened over Fidget's own Chat, so this close must return the keyboard
+# to that window. A step aside prints the plain hand-back line instead, and the
+# next step would still pass on it.
+wait_for_count 3 "$log" '^[0-9]+ app: hand back window holding=true window=[1-9][0-9]*$' "$handed" ||
+  fail "chat-open: the pill's close did not hand the keyboard back to Chat's window; see $log"
+echo "ok: chat-open: the pill opened and took typing with Chat open, and its close handed the keyboard back to Chat"
 wait_for_next 3 "$log" '^[0-9]+ chat: chat-[^ ]+ is closed$' osascript \
   -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true" \
   -e 'tell application "System Events" to keystroke "w" using command down' ||
