@@ -3,8 +3,8 @@
 
 A one-time authoring tool, not a build step: it translates a pet once and the
 output is ours to review and hand-tune. Unlike the make-*-characters scripts
-this one needs Pillow — the petscodex ecosystem ships webp sprite sheets, and
-decoding webp rules out the standard library. It is the one script allowed to.
+this one needs Pillow and defusedxml — petscodex ships webp sprite sheets, and
+Shimeji packs ship untrusted actions.xml. It is the one script allowed to.
 
     python3 scripts/import-pet.py ~/.codex/pets/cat --format petscodex -o characters/cat
     python3 scripts/import-pet.py --self-test

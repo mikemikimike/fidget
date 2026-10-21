@@ -41,6 +41,7 @@ tmp/
 /_site/
 
 # Python
+.venv-security/
 __pycache__/
 *.py[cod]
 

@@ -1,8 +1,0 @@
-# cargo-deny policy. Run: cargo deny check advisories
-
-[advisories]
-ignore = [
-  # GHSA-wrw7-89jp-8q8g: glib 0.18.5 VariantStrIter unsoundness; gtk-rs 0.18 via Tauri/wry on Linux.
-  # Unblock when Tauri pulls glib >= 0.20. Review by 2027-04-01.
-  {id = "RUSTSEC-2024-0429", reason = "transitive gtk-rs 0.18 until Tauri stack upgrades"}
-]
