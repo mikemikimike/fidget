@@ -11,6 +11,9 @@
 #   on PATH for the fixture Harness wrapper.
 # Asserts: the right-click lands as Menu, and the open menu's UI Automation
 #   items include Chat..., Settings... and Quit.
+# Skips (exit 2, preflight.txt) only when a fullscreen window is stacked over
+#   the sprite and would take the right-click. Any other fullscreen app is left
+#   alone; hide-in-fullscreen is off, so Fidget neither fades nor moves.
 #
 # Usage: control-click-menu.win.ps1 --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -132,76 +135,79 @@ $OutputEncoding = $utf8
 
 Add-Type -AssemblyName System.Windows.Forms
 
-$preflightCode = @"
+$stackCode = @"
 using System;
 using System.Text;
 using System.Runtime.InteropServices;
-public class PreflightCheck {
+public class ClickStack {
     public delegate bool Callback(IntPtr hWnd, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool EnumWindows(Callback cb, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int index);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lp, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lp, int n);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
-    public const int GWL_STYLE = -16;
     public const int GWL_EXSTYLE = -20;
-    public const int WS_VISIBLE = 0x10000000;
+    public const int WS_EX_TRANSPARENT = 0x00000020;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int DWMWA_CLOAKED = 14;
 }
 "@
-Add-Type -TypeDefinition $preflightCode
+Add-Type -TypeDefinition $stackCode
 
-function Get-FrontmostFullscreenApp {
-    $screens = [System.Windows.Forms.Screen]::AllScreens
-    $frontmost = $null
-    $frontmostZ = [int]::MaxValue
-    $currentZ = 0
-    $foundFrontmost = $false
-    [PreflightCheck]::EnumWindows({
-        param($hwnd, $lParam)
-        if (-not $foundFrontmost) {
-            $visible = [PreflightCheck]::IsWindowVisible($hwnd)
-            if (-not $visible) { return $true }
-            $style = [PreflightCheck]::GetWindowLong($hwnd, [PreflightCheck]::GWL_STYLE)
-            if (($style -band [PreflightCheck]::WS_VISIBLE) -eq 0) { return $true }
-            $exStyle = [PreflightCheck]::GetWindowLong($hwnd, [PreflightCheck]::GWL_EXSTYLE)
-            if (($exStyle -band [PreflightCheck]::WS_EX_TOOLWINDOW) -ne 0) { return $true }
+# Top-level windows front to back that could take a click: Fidget's own, and
+# others that are neither click-through nor tool windows (overlays, palettes).
+function Get-ClickStack([int]$FidgetPid) {
+    $state = @{ Windows = [System.Collections.Generic.List[object]]::new() }
+    [ClickStack]::EnumWindows({
+            param($hwnd, $lParam)
+            if (-not [ClickStack]::IsWindowVisible($hwnd)) { return $true }
             $cloaked = 0
-            $hr = [PreflightCheck]::DwmGetWindowAttribute($hwnd, [PreflightCheck]::DWMWA_CLOAKED, [ref]$cloaked, [System.Runtime.InteropServices.Marshal]::SizeOf([type][int]))
+            $hr = [ClickStack]::DwmGetWindowAttribute($hwnd, [ClickStack]::DWMWA_CLOAKED, [ref]$cloaked, 4)
             if ($hr -eq 0 -and $cloaked -ne 0) { return $true }
-            $rect = New-Object PreflightCheck+RECT
-            if (-not [PreflightCheck]::GetWindowRect($hwnd, [ref]$rect)) { return $true }
-            $width = $rect.Right - $rect.Left
-            $height = $rect.Bottom - $rect.Top
-            if ($width -le 0 -or $height -le 0) { return $true }
-            foreach ($screen in $screens) {
-                $sb = $screen.Bounds
-                if ([Math]::Abs($rect.Left - $sb.Left) -le 1 -and [Math]::Abs($rect.Top - $sb.Top) -le 1 -and [Math]::Abs($width - $sb.Width) -le 1 -and [Math]::Abs($height - $sb.Height) -le 1) {
-                    $cls = New-Object System.Text.StringBuilder 256
-                    [PreflightCheck]::GetClassName($hwnd, $cls, $cls.Capacity) | Out-Null
-                    $title = New-Object System.Text.StringBuilder 512
-                    [PreflightCheck]::GetWindowText($hwnd, $title, $title.Capacity) | Out-Null
-                    $script:frontmost = @{Class=$cls.ToString(); Title=$title.ToString()}
-                    $script:foundFrontmost = $true
-                    return $false
-                }
-            }
-        }
-        return $true
-    }, [IntPtr]::Zero) | Out-Null
-    return $frontmost
+            $ownerPid = [uint32]0
+            [ClickStack]::GetWindowThreadProcessId($hwnd, [ref]$ownerPid) | Out-Null
+            $exStyle = [ClickStack]::GetWindowLong($hwnd, [ClickStack]::GWL_EXSTYLE)
+            $passive = [ClickStack]::WS_EX_TRANSPARENT -bor [ClickStack]::WS_EX_TOOLWINDOW
+            if ($ownerPid -ne $FidgetPid -and ($exStyle -band $passive) -ne 0) { return $true }
+            $rect = New-Object ClickStack+RECT
+            if (-not [ClickStack]::GetWindowRect($hwnd, [ref]$rect)) { return $true }
+            $cls = New-Object System.Text.StringBuilder 256
+            [ClickStack]::GetClassName($hwnd, $cls, $cls.Capacity) | Out-Null
+            $title = New-Object System.Text.StringBuilder 512
+            [ClickStack]::GetWindowText($hwnd, $title, $title.Capacity) | Out-Null
+            $state.Windows.Add(@{ Pid = [int]$ownerPid; Class = $cls.ToString(); Title = $title.ToString(); Left = $rect.Left; Top = $rect.Top; Right = $rect.Right; Bottom = $rect.Bottom })
+            return $true
+        }, [IntPtr]::Zero) | Out-Null
+    return $state.Windows
 }
 
-$fullscreenApp = Get-FrontmostFullscreenApp
-if ($fullscreenApp) {
-    $preflightFile = Join-Path $out "preflight.txt"
-    Set-Content -LiteralPath $preflightFile -Value "Class: $($fullscreenApp.Class)`nTitle: $($fullscreenApp.Title)" -Encoding utf8
-    [Console]::Error.WriteLine("SKIP: fullscreen app '$($fullscreenApp.Title)' is frontmost; close or minimize it and re-run")
-    [Console]::Error.WriteLine("evidence in $out")
+# The fullscreen window stacked over Fidget at (X, Y), which would take the
+# right-click, else $null. Fullscreen is within 1 px of a whole screen.
+function Get-FullscreenOverClick($Windows, $Screens, [int]$X, [int]$Y, [int]$FidgetPid) {
+    foreach ($win in $Windows) {
+        if ($X -lt $win.Left -or $X -ge $win.Right -or $Y -lt $win.Top -or $Y -ge $win.Bottom) { continue }
+        if ($win.Pid -eq $FidgetPid) { return $null }
+        foreach ($screen in $Screens) {
+            if ([Math]::Abs($win.Left - $screen.Left) -le 1 -and [Math]::Abs($win.Top - $screen.Top) -le 1 -and
+                [Math]::Abs(($win.Right - $win.Left) - $screen.Width) -le 1 -and [Math]::Abs(($win.Bottom - $win.Top) - $screen.Height) -le 1) {
+                return $win
+            }
+        }
+    }
+    return $null
+}
+
+function Skip-IfFullscreenOverClick([int]$X, [int]$Y, [int]$FidgetPid, [string]$Evidence) {
+    $screens = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { $b = $_.Bounds; @{ Left = $b.Left; Top = $b.Top; Width = $b.Width; Height = $b.Height } })
+    $over = Get-FullscreenOverClick (Get-ClickStack $FidgetPid) $screens $X $Y $FidgetPid
+    if (-not $over) { return }
+    Set-Content -LiteralPath (Join-Path $Evidence "preflight.txt") -Encoding utf8 -Value "Click: $X,$Y`nClass: $($over.Class)`nTitle: $($over.Title)"
+    [Console]::Error.WriteLine("SKIP: fullscreen app '$($over.Title)' is over the sprite and would take the right-click; minimize it or move it off that display and re-run")
+    [Console]::Error.WriteLine("evidence in $Evidence")
     exit 2
 }
 
@@ -267,6 +273,7 @@ try {
         Add-Content -LiteralPath $attemptsFile -Value $attemptLog
         $trace = Get-Content -LiteralPath $traceFile
         $menuCountBefore = @($trace | Select-String -Pattern '^\d+ verbs: .*\[Menu\]').Count
+        Skip-IfFullscreenOverClick ($settled.X + [int]($w / 2)) ($settled.Y + [int]($h / 2)) $proc.Id $out
         if (-not (Invoke-Ax "menu-$attempt" @{ Command = "menu"; ProcessId = $proc.Id; TraceFile = $traceFile; SpriteW = $w; SpriteH = $h })) {
             $msg = "no open menu in the UI Automation tree on attempt $attempt; see $out\menu-$attempt.txt"
             Add-Content -LiteralPath $attemptsFile -Value $msg
