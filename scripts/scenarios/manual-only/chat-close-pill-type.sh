@@ -75,21 +75,32 @@ wait_for_next() { # <seconds> <file> <ERE> <command...>
 build_tool() { # <name> <source>
   [ "$tools/$1" -nt "$2" ] || swiftc -O "$2" -o "$tools/$1" || fail "could not build $1"
 }
-build_tool ax "$root/scripts/ax-settings.swift"
-build_tool warp-cursor "$root/scripts/warp-cursor.swift"
-build_tool click-cursor "$root/scripts/click-cursor.swift"
-
-# Case 7 quits TextEdit, which would take unsaved work with it.
-! pgrep -x TextEdit > /dev/null || fail "TextEdit is running. Quit it first: this run opens and quits TextEdit itself."
+# Case 7 quits TextEdit, which would take unsaved work with it, so refuse
+# before doing any work and end only the TextEdit this run starts, by pid.
+textedit_pid=
+# open has already returned. One lookup; a miss fails here instead of polling.
+# pgrep exits 1 when nothing matches, which under pipefail would hide that.
+capture_textedit_pid() {
+  textedit_pid=$(pgrep -x TextEdit | head -1) || true
+  [ -n "$textedit_pid" ] || fail "TextEdit did not start"
+}
+refuse_running_textedit() {
+  ! pgrep -x TextEdit > /dev/null ||
+    fail "TextEdit is running. Quit it first: this run opens and quits TextEdit itself."
+}
+refuse_running_textedit
 close_textedit() {
-  if pgrep -x TextEdit > /dev/null; then
-    capped 3 osascript -e 'tell application "TextEdit" to close every document saving no' > /dev/null 2>&1 || true
-    capped 3 osascript -e 'tell application "TextEdit" to quit saving no' > /dev/null 2>&1 || true
-    if pgrep -x TextEdit > /dev/null; then pkill -x TextEdit 2> /dev/null || true; fi
-  fi
+  [ -n "$textedit_pid" ] || return 0
+  capped 3 osascript -e 'tell application "TextEdit" to close every document saving no' > /dev/null 2>&1 || true
+  capped 3 osascript -e 'tell application "TextEdit" to quit saving no' > /dev/null 2>&1 || true
+  kill "$textedit_pid" 2> /dev/null || true
 }
 trap close_textedit EXIT
 trap 'exit 130' INT TERM
+
+build_tool ax "$root/scripts/ax-settings.swift"
+build_tool warp-cursor "$root/scripts/warp-cursor.swift"
+build_tool click-cursor "$root/scripts/click-cursor.swift"
 
 # Preflight, before Fidget starts: helpers post input only with an Accessibility
 # grant, and macOS drops synthetic clicks and keys from an ungranted terminal.
@@ -106,7 +117,10 @@ fi
 one=scenario-one.txt two=scenario-two.txt
 : > "$out/$one"
 printf abc > "$out/$two"
+# The builds and the preflight are long enough for the user to open TextEdit.
+refuse_running_textedit
 capped 3 open -g -a TextEdit "$out/$one" || fail "could not open $one in TextEdit"
+capture_textedit_pid
 for probe in "TextEdit:count documents" "System Events:count processes"; do
   app=${probe%%:*}
   if ! answer=$(capped 3 osascript -e "tell application \"$app\" to ${probe#*:}" 2>&1); then
@@ -288,7 +302,9 @@ typing_back_in_textedit eight escape
 open_pill app-quit
 # A quit that gets no answer in 3 s ends TextEdit by signal: either way it quits.
 capped 3 osascript -e 'tell application "TextEdit" to quit saving no' > "$out/quit.txt" 2>&1 ||
-  pkill -x TextEdit || fail "could not quit TextEdit"
+  kill "$textedit_pid" || fail "could not quit TextEdit"
+# The pid is dead. A later failure must not tell TextEdit to close every document.
+textedit_pid=
 wait_for_next 3 "$log" "$closed" "$tools/ax" key "$pid" escape || fail "app-quit: the pill did not close; see $log"
 front_pid() { capped 3 osascript -e 'tell application "System Events" to get unix id of first process whose frontmost is true'; }
 not_front() { [ "$(front_pid)" != "$pid" ]; }
@@ -298,7 +314,10 @@ echo "ok: app-quit: Fidget stepped aside"
 # 8. A click through a transparent part of the overlay moves TextEdit's caret
 # to the click: the word lands before the document's text, which only that
 # click can cause (a fresh document's caret is at the end).
+# The user may have opened TextEdit since case 7 quit it.
+refuse_running_textedit
 capped 3 open -a TextEdit "$out/$two" > "$out/textedit2.txt" 2>&1 || fail "could not reopen TextEdit"
+capture_textedit_pid
 wait_textedit_front click-away "$two"
 open_pill click-away
 type_into_pill nine click-away
