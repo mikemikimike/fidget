@@ -190,6 +190,7 @@ fn start_stderr_capture_unix() {
     use std::io::BufRead;
     use std::os::unix::io::FromRawFd;
 
+    // SAFETY: `pipe` fills two valid FDs on success; we return before using them on failure.
     let pipe_result = unsafe {
         let mut fds = [0; 2];
         if libc::pipe(fds.as_mut_ptr()) != 0 {
@@ -201,14 +202,17 @@ fn start_stderr_capture_unix() {
     let (read_fd, write_fd) = pipe_result;
 
     #[cfg(debug_assertions)]
+    // SAFETY: dup duplicates a live stderr FD opened by the runtime.
     let original_stderr = unsafe { libc::dup(libc::STDERR_FILENO) };
 
+    // SAFETY: write_fd came from our pipe; dup2 installs it as stderr and we close the spare end.
     unsafe {
         libc::dup2(write_fd, libc::STDERR_FILENO);
         libc::close(write_fd);
     }
 
     std::thread::spawn(move || {
+        // SAFETY: read_fd is the pipe read end; this thread owns it until the loop finishes.
         let reader = unsafe { std::fs::File::from_raw_fd(read_fd) };
         let reader = std::io::BufReader::new(reader);
 
@@ -216,6 +220,7 @@ fn start_stderr_capture_unix() {
             append(&line);
 
             #[cfg(debug_assertions)]
+            // SAFETY: original_stderr is a dup of stderr; forget avoids closing the shared FD.
             unsafe {
                 use std::io::Write;
                 let mut stderr = std::fs::File::from_raw_fd(original_stderr);

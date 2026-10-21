@@ -471,6 +471,7 @@ pub fn raise_above_overlay(window: &tauri::WebviewWindow) -> Result<(), String> 
         .map_err(|e| format!("window has no native handle: {e}"))?
         as *mut objc2::runtime::AnyObject;
 
+    // SAFETY: `ptr` is the live NSWindow from Tauri on the main thread; msg_send targets are valid.
     unsafe {
         let ns_window = &*ptr;
         let mtm = MainThreadMarker::new_unchecked();
@@ -500,6 +501,7 @@ pub fn activate_for_typing(window: &tauri::WebviewWindow) -> Result<(), String> 
         .map_err(|e| format!("window has no native handle: {e}"))?
         as *mut objc2::runtime::AnyObject;
 
+    // SAFETY: `ptr` is the live NSWindow from Tauri on the main thread; msg_send targets are valid.
     unsafe {
         let ns_window = &*ptr;
         let mtm = MainThreadMarker::new_unchecked();
