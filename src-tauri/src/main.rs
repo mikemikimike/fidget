@@ -107,11 +107,21 @@ const ENGINE_TICK: Duration = Duration::from_millis(16);
 /// calls the sprite's physics have no use for.
 const SENSE_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Prefix of every overlay window label. Chat and Settings use other prefixes.
+const OVERLAY_PREFIX: &str = "overlay-";
+
 /// The overlay covering the display at `index`. The index is both the name
 /// and how the frame loop finds it; `capabilities/overlay.json` grants every
 /// `overlay-*` the same permissions.
 fn overlay_label(index: usize) -> String {
-    format!("overlay-{index}")
+    format!("{OVERLAY_PREFIX}{index}")
+}
+
+/// Whether `label` names an overlay window. Both keyboard hand-backs use
+/// this, so a label-scheme change cannot skip overlays on one platform only.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub(crate) fn is_overlay_label(label: &str) -> bool {
+    label.starts_with(OVERLAY_PREFIX)
 }
 
 /// The Chat surface belonging to `id`. Outside `overlay-` on purpose:
@@ -2273,7 +2283,7 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
                     .app_handle()
                     .webview_windows()
                     .into_iter()
-                    .filter(|(label, _)| label.starts_with("overlay-"))
+                    .filter(|(label, _)| is_overlay_label(label))
                     .filter_map(|(_, overlay)| overlay.hwnd().ok().map(|handle| handle.0 as HWND))
                     .collect();
                 // The caller is an overlay even when its label was not listed.
@@ -5411,6 +5421,14 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_overlay_label_is_the_prefix_chat_and_settings_do_not_share() {
+        assert!(super::is_overlay_label(&super::overlay_label(0)));
+        assert!(super::is_overlay_label(&super::overlay_label(1)));
+        assert!(!super::is_overlay_label(&super::chat_label("bmo")));
+        assert!(!super::is_overlay_label("settings"));
+    }
+
     /// Production change that would fail this: `chat_ready` dropping a kept
     /// turn's error, so Chat shows the typed line waiting forever (#1510).
     #[test]

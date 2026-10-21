@@ -428,7 +428,7 @@ pub fn remember_foreground(window: &tauri::Window) {
         .app_handle()
         .webview_windows()
         .into_iter()
-        .filter(|(label, _)| label.starts_with("overlay-"))
+        .filter(|(label, _)| crate::is_overlay_label(label))
         .filter_map(|(_, overlay)| x11_window(&overlay))
         .collect();
     // The caller is an overlay even when its label was not listed.
