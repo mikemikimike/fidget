@@ -48,11 +48,12 @@ jobs:
           $env:TEMP = Join-Path $env:RUNNER_TEMP "evidence"
           $env:TMP = $env:TEMP
           New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
-          # pill-dual-display needs a person and two displays.
+          # pill-dual-display needs a person and two displays. chat-close-pill-type
+          # needs Windows 11 Notepad's tabs, which Windows Server's Notepad lacks.
           $names = if ($env:SCENARIOS) { $env:SCENARIOS -split '\s+' } else {
             Get-ChildItem scripts\scenarios\*.win.ps1 |
               ForEach-Object { $_.Name -replace '\.win\.ps1$', '' } |
-              Where-Object { $_ -notin 'wait-helpers', 'pill-dual-display' }
+              Where-Object { $_ -notin 'wait-helpers', 'pill-dual-display', 'chat-close-pill-type' }
           }
           $results = @()
           foreach ($name in $names) {

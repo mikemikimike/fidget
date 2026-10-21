@@ -247,6 +247,17 @@ function In-State([string]$Pattern) {
     [bool]($frame -and $frame.State -cmatch "^($Pattern)$")
 }
 
+function Cooldown-Traced {
+    $reactAt = $null; $lastAt = $null
+    foreach ($line in Get-Content -LiteralPath $trace) {
+        if ($line -cmatch $framePattern) {
+            $lastAt = [long]$Matches[1]
+            if ($null -eq $reactAt -and $Matches[5] -ceq "react") { $reactAt = $lastAt }
+        }
+    }
+    return ($null -ne $reactAt -and $lastAt - $reactAt -ge 3500)
+}
+
 function Pokes { @(Select-String -LiteralPath $trace -Pattern $pokePattern -CaseSensitive).Count }
 
 # A frame where the sprite moved (walking, climbing or falling) is progress,
@@ -381,6 +392,8 @@ try {
     if (-not (Wait-ForTrace 3 $trace 'frame: .* Climbing .* react#\d+')) {
         Fail "sprite did not hold react during cooldown; see $trace"
     }
+    # Check-Trace reads the climb resuming up to 3.5 s after the Poke.
+    $null = Wait-OnChanges 5 (Split-Path -Parent $trace) { Cooldown-Traced }
 } finally {
     Stop-FidgetTree $script:proc
 }

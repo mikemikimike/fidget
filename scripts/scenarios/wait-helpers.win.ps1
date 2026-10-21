@@ -146,6 +146,14 @@ function Wait-ForMarks([double]$Seconds, [string]$MarksFile, [string]$Pattern) {
     return (Wait-ForLine $Seconds $MarksFile $Pattern)
 }
 
+# Fidget is up once it writes its `overlay:` line, which lands before it
+# attaches a Harness or handles a taskbar click. A first wait starts here, so
+# it gets its whole budget instead of sharing it with the launch. Pass the
+# piped stderr log; its lines carry no seconds prefix.
+function Wait-ForUp([double]$Seconds, [string]$ErrLog) {
+    return (Wait-ForLine $Seconds $ErrLog '^overlay: ')
+}
+
 function Wait-ForFile([double]$Seconds, [string]$FilePath) {
     $dir = Split-Path -Parent $FilePath
     while ($dir -and -not (Test-Path -LiteralPath $dir)) { $dir = Split-Path -Parent $dir }
@@ -226,6 +234,9 @@ function In-State([string]$LogFile, [string]$StatePattern) {
 # any fixture Harness whose command line holds $Pattern (bash can outlive the
 # tree when its parent is already gone).
 function Stop-FidgetTree($Process, [string]$Pattern) {
+    # Under a leaf's Stop, taskkill's stderr (a child already gone) would throw
+    # and turn a passed run into a failure.
+    $ErrorActionPreference = "Continue"
     if ($Process -and -not $Process.HasExited) {
         & taskkill.exe /PID $Process.Id /T /F 2>&1 | Out-Null
         if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue }

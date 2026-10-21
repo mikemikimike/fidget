@@ -57,7 +57,7 @@ function Fail([string]$Message) {
 }
 
 function Assert-Row([string]$File, [string]$Glyph, [string]$Label) {
-    $row = Get-Content -LiteralPath $File -Encoding utf8 | Where-Object { $_ -match '(?i)^button\|.*thinking' } | Select-Object -First 1
+    $row = Get-Content -LiteralPath $File -Encoding utf8 | Where-Object { $_ -match '(?i)^button\|.*thinking' } | Select-Object -Last 1
     if (-not $row) { Fail "$Label`: no Thinking row in $File" }
     $prefix = "button|$Glyph".ToLower()
     if ($row.ToLower().StartsWith($prefix)) {
@@ -107,6 +107,7 @@ $env:FIDGET_CHARACTERS = Join-Path $root "characters"
 $startMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 $script:proc = Start-FidgetPiped $Bin @() $log (Join-Path $out "app.err")
 try {
+    if (-not (Wait-ForUp 5 (Join-Path $out "app.err"))) { Fail "Fidget never wrote its overlay line; see $out\app.err" }
     if (-not (Wait-ForMarks 3 $marks '^asked$')) {
         Fail "no wake reached the Harness; see $log"
     }
@@ -124,24 +125,22 @@ try {
         "& '$ax' @args"
     )
     [System.IO.File]::WriteAllLines($dumpPs1, $dumpLines, $utf8)
+    # Each wake is a new turn with its own row, so the newest row is this turn's.
     function Capture([string]$Name, [string]$Glyph) {
         $dump = Join-Path $out "$Name.ax.txt"
         $prefix = ("button|$Glyph").ToLower()
-        if (-not (Wait-ForAxDump 2 $script:proc.Id "BMO" "(?i)^button\|.*thinking")) {
-            Fail "${Name}: Thinking row never appeared; see $log"
+        $null = Wait-ForUia 3 $script:proc.Id {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $dumpPs1 dump -ProcessId $script:proc.Id -Title "BMO" |
+                Out-File -FilePath $dump -Encoding utf8
+            $row = Get-Content -LiteralPath $dump -Encoding utf8 | Where-Object { $_ -match '(?i)^button\|.*thinking' } | Select-Object -Last 1
+            $row -and $row.ToLower().StartsWith($prefix)
         }
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $dumpPs1 dump -ProcessId $script:proc.Id -Title "BMO" |
-            Out-File -FilePath $dump -Encoding utf8
-        $code = $LASTEXITCODE
-        if ($code -ne 0) { Fail "${Name}: UI Automation dump failed; see $dump" }
+        if (-not (Test-Path -LiteralPath $dump)) { Fail "${Name}: UI Automation dump failed; see $log" }
         Assert-Row $dump $Glyph $Name
     }
     Capture "mid-thought" $GlyphOpen
     if (-not (Wait-ForMarks 3 $marks '^replied$')) {
         Fail "no reply; see $log"
-    }
-    if (-not (Wait-ForAxDump 2 $script:proc.Id "BMO" "\u25B8")) {
-        Fail "Thinking row never collapsed; see $log"
     }
     Capture "after-reply" $GlyphDone
     $elapsedMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $startMs
