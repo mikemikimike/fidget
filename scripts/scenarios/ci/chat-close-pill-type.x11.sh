@@ -69,7 +69,7 @@ trap 'exit 130' INT TERM
 exec {ready}< <(
   Xvfb -displayfd 1 -screen 0 1280x800x24 -nolisten tcp 2> "$out/xvfb.log" &
   echo "pid $!"
-  wait
+  wait "$!"
 )
 read -r -t 3 _ xvfb <&"$ready" || fail "Xvfb did not start"
 started+=("$xvfb")
@@ -121,6 +121,8 @@ wait_for_next() { # <ERE> <command...>
   "$@" >> "$out/helpers.log" 2>&1 || fail "could not run $*"
   wait_for_count 3 "$log" "$pattern" "$before"
 }
+# The landing gets its own 3 s after the first frame.
+wait_for_trace 3 "$log" "$frame" || fail "Fidget drew no frame in 3 s; see $log"
 wait_for_trace 3 "$log" "$frame.* (Grounded|Perched) " || fail "the Character did not land in 3 s; see $log"
 read -r sw sh < <(sed -nE 's/.* overlay: .*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
 sprite_center() {
@@ -157,8 +159,13 @@ click_at() { # <x> <y> [<x> <y>]
   xdotool mouseup 1 ${3:+mousemove "$3" "$4"}
 }
 open_pill() { # <case>
+  local frames
   sprite_center
+  # Fidget reads the pointer each frame. Two frames off the sprite let it see
+  # the leave that lifts a Send's hold on the pill.
+  frames=$(line_count "$log" "$frame")
   xdotool mousemove "$((cx + 400))" "$cy"
+  wait_for_count 3 "$log" "$frame" "$((frames + 1))" || fail "$1: no frame after the pointer left; see $log"
   wait_for_next "$draft\"\" focused=true" xdotool mousemove "$cx" "$cy" || fail "$1: the pill did not open; see $log"
 }
 type_into_pill() { # <word> <case>

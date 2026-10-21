@@ -38,8 +38,10 @@ fail() {
   exit 1
 }
 
-rect() { tr , ' ' <<< "${1##*|}"; }                   # <dump line>: its frame as "x y w h"
-box() { grep -E '^label\|' "$2" | grep -m1 -F "$1"; } # <text> <dump>
+rect() { tr , ' ' <<< "${1##*|}"; } # <dump line>: its frame as "x y w h"
+# <text> <dump>: the innermost box. WebKitGTK names a <pre> as a section
+# holding all its text, and so is every section around it.
+box() { grep -E '^(label|section)\|' "$2" | grep -F "$1" | tail -1; }
 
 check_failed() { # <dump>
   grep -qF "|Harness couldn't start|" "$1" || fail "Chat shows no Harness error landing; see $1"
@@ -127,11 +129,11 @@ env HOME="$out/home" \
   "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 ax() { python3 "$root/scripts/ax-window-linux.py" "$@"; }
 dump() { ax dump "$pid" BMO frames > "$out/$1.ax.txt" 2> "$out/$1.err"; }
 spawns() { grep -cx spawn "$marks" || true; }
-respawned() { [ "$(spawns)" -ge 2 ]; }
 shows_failed() { dump failed && grep -qF "|Harness couldn't start|" "$out/failed.ax.txt"; }
 shows_live() { dump live && live_line "$out/live.ax.txt"; }
 
@@ -162,8 +164,8 @@ for w in 420 320; do fits "$w"; done
 
 [ "$(spawns)" -eq 1 ] || fail "the Harness launched again before the re-pick ($(spawns) spawns)"
 ax press "$pid" BMO Codex > "$out/press.txt" 2>&1 || fail "could not press Codex on the landing; see $out/press.txt"
-wait_for_marks 2 "$marks" '^spawn$' || fail "the re-pick did not launch the Harness again; see $log"
-respawned || fail "the re-pick did not launch the Harness again; see $log"
+# The first launch's spawn is already in the marks file: wait for a second.
+wait_for_count 2 "$marks" '^spawn$' 1 || fail "the re-pick did not launch the Harness again; see $log"
 wait_for_ax_dump 2 "$pid" BMO " · session " || true
 shows_live || true
 check_live "$out/live.ax.txt"

@@ -67,7 +67,7 @@ trap 'exit 130' INT TERM
 exec {ready}< <(
   Xvfb -displayfd 1 -screen 0 800x600x24 -nolisten tcp 2> "$out/xvfb.log" &
   echo "pid $!"
-  wait
+  wait "$!"
 )
 read -r -t 3 _ xvfb <&"$ready" || fail "Xvfb did not start"
 started+=("$xvfb")
@@ -87,7 +87,7 @@ desktop_colour=3a6ea5
 exec {desktop}< <(
   python3 "$helper" root "$desktop_colour" &
   echo "$!"
-  wait
+  wait "$!"
 )
 read -r -t 3 desktop_pid <&"$desktop" || fail "the root painter did not start"
 started+=("$desktop_pid")
@@ -96,7 +96,7 @@ read -r -t 3 _ <&"$desktop" || fail "the root was not painted"
 exec {plain}< <(
   python3 "$helper" window a5703a 600 400 &
   echo "$!"
-  wait
+  wait "$!"
 )
 read -r -t 3 plain_pid <&"$plain" || fail "the plain window did not start"
 started+=("$plain_pid")
@@ -116,6 +116,8 @@ frame='^[0-9]+ frame: '
 # The last frame line of each Instance, one line each.
 last_frames() { grep -E "$frame" "$log" | awk '{ last[$NF] = $0 } END { for (id in last) print last[id] }'; }
 both_landed() { [ "$(last_frames | grep -cE ' (Grounded|Perched) ')" -eq 2 ]; }
+# The landing gets its own 3 s after the first frame.
+wait_for_trace 3 "$log" "$frame" || fail "Fidget drew no frame in 3 s; see $log"
 wait_until 3 both_landed || fail "the Characters did not both land in 3 s; see $log"
 read -r sw sh < <(sed -nE 's/.* overlay: .*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$log" | head -1) || fail "no sprite size in $log"
 mapfile -t boxes < <(last_frames | sed -E "s/.* sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1,\2,$sw,$sh/")

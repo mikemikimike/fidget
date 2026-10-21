@@ -62,7 +62,8 @@ cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
 {"first_run_tour_shown": true}
 SETTINGS_EOF
 log="$out/app.log"
-trace="$out/home/.local/share/fidget/process.log"
+# Fidget's stderr: process.log puts a timestamp before each line.
+trace=$log
 last_frame() { grep '^frame: ' "$trace" | tail -1; }
 in_state() { last_frame | grep -qE " ($1) "; }
 sprite_xy() { last_frame | sed -E 's/.*sprite\((-?[0-9]+),(-?[0-9]+)\).*/\1 \2/'; }
@@ -97,6 +98,7 @@ env HOME="$out/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
   FIDGET_CHARACTERS="$root/characters" "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true' EXIT INT TERM
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 wait_for_rest "$trace" || fail "the sprite never came to rest; see $trace"
 size=$(sed -nE 's/^overlay: .* sprite ([0-9]+)x[0-9]+;.*/\1/p' "$trace" | head -1)
@@ -162,6 +164,10 @@ away=$((px + into * 4 * size))
 xdotool mousemove "$((away < 0 ? 0 : away))" "$sy" >> "$out/input.txt" 2>&1 || fail "could not move the pointer off the sprite; see $out/input.txt"
 
 wait_for_trace 3 "$trace" 'frame: .* Climbing .* react#[0-9]' || fail "sprite did not hold react during cooldown; see $trace"
+# The checker passes once the trace runs past the Poke's 2.5 s cooldown;
+# stopping Fidget sooner cuts those frames off.
+cooldown_traced() { python3 "$root/scripts/scenarios/helpers/poke-mid-climb-check.py" "$trace" 2> /dev/null; }
+wait_until 3 cooldown_traced || true
 kill "$pid" 2> /dev/null || true
 wait "$pid" 2> /dev/null || true
 

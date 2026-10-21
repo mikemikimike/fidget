@@ -48,6 +48,10 @@ in that job already runs. The tracker calls this the Windows compile job.
 runner. It is too heavy for every pull request, so add it when the diff
 touches Windows behavior. Remove and re-add it to run again.
 
+`e2e-linux` runs `.github/workflows/e2e-linux.yml`: every
+`scripts/scenarios/ci/*.x11.sh`, live on a hosted runner's Xvfb display. Add it
+when the diff touches Linux behavior. Remove and re-add it to run again.
+
 | Label | When |
 |---|---|
 | `bug` | A `fix`. Shipped behavior misbehaves. |

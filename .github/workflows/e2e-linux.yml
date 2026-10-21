@@ -1,0 +1,156 @@
+name: e2e-linux
+
+# Live runs of `scripts/scenarios/ci/*.x11.sh` on a hosted runner's Xvfb
+# display. Too heavy for every pull request: it runs on dispatch or the
+# `e2e-linux` label only.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Space-separated ci/ leaf names; empty runs them all
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per label: another label's `labeled` run skips its job, and must not cancel
+  # an e2e run in flight. Re-adding e2e-linux replaces it.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ github.event.label.name }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-linux:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'e2e-linux'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the X11 session packages
+        # The build's packages from tests.yml, then the display, window
+        # managers, tray host and tools the leaves drive.
+        run: |
+          # The image's Chrome apt source can fail `apt-get update`, and nothing
+          # here needs it.
+          sudo find /etc/apt/sources.list.d -type f \
+            -exec grep -lE 'dl\.google\.com' {} + 2>/dev/null \
+            | sudo xargs -r rm -vf || true
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf \
+            libayatana-appindicator3-dev \
+            xvfb xfwm4 icewm picom xdotool x11-utils inotify-tools mousepad \
+            ayatana-indicator-application at-spi2-core dbus-x11 python3-pyatspi python3-pil
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: .
+          key: e2e-linux
+          cache-on-failure: true
+
+      - name: Build the app, the test binary and fidget-verify
+        # Built here so no leaf spends its 3 min cap compiling.
+        run: |
+          cargo build -p fidget
+          cargo build -p fidget-verify
+          cargo test -p fidget --no-run
+
+      - name: Run the scenarios
+        # One session bus for the AT-SPI bus, the tray watcher and every leaf.
+        shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+        run: |
+          # The leaves write evidence under $TMPDIR: one folder to upload.
+          export TMPDIR="$RUNNER_TEMP/evidence"
+          mkdir -p "$TMPDIR"
+          # -displayfd writes the display number once Xvfb accepts clients.
+          exec {ready}< <(Xvfb -displayfd 1 -screen 0 1920x1080x24 -nolisten tcp 2> "$TMPDIR/xvfb.log")
+          read -r -t 3 n <&"$ready" || { echo "::error::Xvfb did not start in 3 s; see xvfb.log"; exit 1; }
+          export DISPLAY=":$n"
+          dbus-update-activation-environment DISPLAY
+          xfwm4 > "$TMPDIR/xfwm4.log" 2>&1 &
+          # Its service is the tray leaves' StatusNotifierWatcher.
+          /usr/libexec/ayatana-indicator-application/ayatana-indicator-application-service \
+            > "$TMPDIR/indicator.log" 2>&1 &
+          gdbus wait --session --timeout 3 org.kde.StatusNotifierWatcher
+          # A fresh runner draws Fidget's first frame seconds late, past a leaf's
+          # 3 s launch wait. One launch here takes that cold start.
+          (
+            root=$PWD log="$TMPDIR/warmup.log"
+            . scripts/scenarios/helpers/wait-helpers.x11.sh
+            HOME="$TMPDIR/warmup/home" FIDGET_HARNESS=true FIDGET_TRACE_FRAMES=1 \
+              target/debug/fidget > "$log" 2>&1 &
+            pid=$!
+            drew=0
+            wait_for_trace 3 "$log" '^frame: ' || drew=$?
+            stop_fidget || true
+            { sleep 3 && process_tree "$pid" | xargs kill -9; } > /dev/null 2>&1 &
+            wait "$pid" 2> /dev/null || true
+            kill "$!" 2> /dev/null || true
+            if [ "$drew" != 0 ]; then
+              echo "::error::the warm-up drew no frame in 3 s; see warmup.log in the evidence"
+              exit 1
+            fi
+          )
+          if [ -n "$SCENARIOS" ]; then
+            read -r -a names <<< "$SCENARIOS"
+          else
+            shopt -s nullglob
+            names=()
+            for leaf in scripts/scenarios/ci/*.x11.sh; do
+              names+=("$(basename "$leaf" .x11.sh)")
+            done
+          fi
+          summary="" failed=0
+          for name in "${names[@]}"; do
+            echo "::group::scenario $name"
+            code=0
+            # 3 min is well past the slowest leaf's own limit. The Harness runs
+            # in its own process group, which timeout does not reach.
+            timeout -k 10 180 cargo run -q -p fidget-verify -- scenario "$name" --go || code=$?
+            if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
+              echo "timed out after 3 min"
+              pkill -KILL -f "$PWD/target/debug/" || true
+            fi
+            echo "::endgroup::"
+            # A SKIP fails the job: the runner could not prove the leaf.
+            case $code in
+              0) verdict=PASS ;;
+              2) verdict=SKIP ;;
+              *) verdict="FAIL ($code)" ;;
+            esac
+            [ "$code" -eq 0 ] || failed=1
+            summary+=$(printf '%-28s %s' "$name" "$verdict")$'\n'
+          done
+          printf '%s' "$summary"
+          printf '```\n%s```\n' "$summary" >> "$GITHUB_STEP_SUMMARY"
+          exit "$failed"
+
+      - name: Gather evidence
+        if: always()
+        # Each leaf's private HOME holds caches and sockets; keep only its logs.
+        run: |
+          rsync -rlt --exclude home/ "$RUNNER_TEMP/evidence/" "$RUNNER_TEMP/upload/" || true
+          cd "$RUNNER_TEMP/evidence" &&
+            find . -path '*/home/*' -name '*.log' -exec cp --parents {} "$RUNNER_TEMP/upload/" \; || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-linux-evidence
+          path: ${{ runner.temp }}/upload
+          # Each leaf's logs sit under home/.local.
+          include-hidden-files: true
+          if-no-files-found: warn

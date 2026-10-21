@@ -85,6 +85,7 @@ env HOME="$out/home" \
   "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 dump() { # <name>
   python3 "$root/scripts/ax-window-linux.py" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1 ||
@@ -95,8 +96,11 @@ dump() { # <name>
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_marks 2 "$marks" '^thought 1$' || fail "no thinking turn; see $log"
 wait_for_marks 2 "$marks" '^thought 2$' || fail "no second thought; see $log"
-wait_for_ax_dump 2 "$pid" BMO 'THINKING' || fail "no thinking row in AX dump; see $log"
-dump mid-thought ▾
+# The reply lands 0.9 s after thought 2, about what two AT-SPI clients take
+# to start, so the wait keeps the dump that showed the open row.
+wait_for_ax_dump 2 "$pid" BMO '▾.*THINKING' "$out/mid-thought.ax.txt" ||
+  fail "no open Thinking row in AX dump while the Harness thinks; see $log"
+assert_row "$out/mid-thought.ax.txt" ▾ mid-thought
 wait_for_marks 2 "$marks" '^thought 3$' || fail "no third thought; see $log"
 wait_for_marks 2 "$marks" '^thought 4$' || fail "no fourth thought; see $log"
 wait_for_marks 2 "$marks" '^replied$' || fail "no reply; see $log"

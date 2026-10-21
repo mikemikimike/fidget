@@ -209,8 +209,8 @@ fn script_command(path: &Path) -> Command {
 /// The app binary, then the test binary when the scenario takes one.
 fn binaries(repo_root: &Path, wants_test: bool, report: &mut RunReport) -> Option<Vec<PathBuf>> {
     report.say("scenario: building fidget");
-    let mut build = Command::new("cargo");
-    build.args(["build", "-p", "fidget"]).current_dir(repo_root);
+    let mut build = crate::paths::cargo(repo_root);
+    build.args(["build", "-p", "fidget"]);
     if report.exec(&mut build, None) != Some(0) {
         report.check(
             Outcome::Error,
@@ -222,9 +222,8 @@ fn binaries(repo_root: &Path, wants_test: bool, report: &mut RunReport) -> Optio
     let mut found = vec![repo_root.join("target/debug/fidget")];
     if wants_test {
         report.say("scenario: building the fixture Harness test binary");
-        let out = Command::new("cargo")
+        let out = crate::paths::cargo(repo_root)
             .args(["test", "-p", "fidget", "--no-run", "--message-format=json"])
-            .current_dir(repo_root)
             .output();
         match out
             .ok()
@@ -370,7 +369,7 @@ mod tests {
     #[test]
     fn thinking_row_x11_fixture_passes_and_a_wrong_glyph_fails() {
         let scenarios = repo_scenarios();
-        let script = scenarios.join("manual-only/thinking-row.x11.sh");
+        let script = scenarios.join("ci/thinking-row.x11.sh");
         let open = scenarios.join("fixtures/thinking-row-open.txt");
         let done = scenarios.join("fixtures/thinking-row-done.txt");
         let ok = Command::new("bash")
@@ -408,7 +407,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn thinking_row_x11_without_a_display_skips() {
-        let script = repo_scenarios().join("manual-only/thinking-row.x11.sh");
+        let script = repo_scenarios().join("ci/thinking-row.x11.sh");
         let out = Command::new("bash")
             .arg(&script)
             .args(["--go", "/bin/true", "/bin/true"])
@@ -430,7 +429,7 @@ mod tests {
     #[test]
     fn chat_header_narrow_x11_fixture_passes_and_a_wide_page_fails() {
         let scenarios = repo_scenarios();
-        let script = scenarios.join("manual-only/chat-header-narrow.x11.sh");
+        let script = scenarios.join("ci/chat-header-narrow.x11.sh");
         let ax420 = scenarios.join("fixtures/chat-header-narrow-420.txt");
         let ax360 = scenarios.join("fixtures/chat-header-narrow-360.txt");
         let ax320 = scenarios.join("fixtures/chat-header-narrow-320.txt");
@@ -469,7 +468,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn chat_header_narrow_x11_without_a_display_skips() {
-        let script = repo_scenarios().join("manual-only/chat-header-narrow.x11.sh");
+        let script = repo_scenarios().join("ci/chat-header-narrow.x11.sh");
         let out = Command::new("bash")
             .arg(&script)
             .args(["--go", "/bin/true", "/bin/true"])
@@ -607,16 +606,15 @@ mod tests {
         assert!(String::from_utf8_lossy(&out.stdout).contains("PASS: fixture dumps"));
     }
 
-    /// Runs a leaf on fixture dumps with no desktop: a Windows leaf from `ci/`,
-    /// any other from `manual-only/`. `envs` paths are under `scripts/scenarios/`.
+    /// Runs a leaf on fixture dumps with no desktop, from whichever leaf folder
+    /// holds it. `envs` paths are under `scripts/scenarios/`.
     fn fixture_run(script: &str, envs: &[(&str, PathBuf)]) -> std::process::Output {
         let scenarios = repo_scenarios();
-        let dir = if script.ends_with(".win.ps1") {
-            "ci"
-        } else {
-            "manual-only"
-        };
-        let path = scenarios.join(dir).join(script);
+        let path = LEAF_DIRS
+            .iter()
+            .map(|dir| scenarios.join(dir).join(script))
+            .find(|path| path.exists())
+            .unwrap_or_else(|| panic!("no leaf {script} in any of {LEAF_DIRS:?}"));
         let mut cmd = if script.ends_with(".ps1") {
             let mut cmd = Command::new("powershell");
             cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
@@ -981,6 +979,30 @@ mod tests {
         );
     }
 
+    /// Live WebKitGTK dumps: each `<pre>` is a section holding all its text,
+    /// inside a section that holds the whole landing.
+    #[cfg(unix)]
+    const LAUNCHER_X11_LIVE: &[(&str, &str)] = &[
+        (FAILED, "fixtures/launcher-dies-at-startup-x11-420.txt"),
+        (AX_420, "fixtures/launcher-dies-at-startup-x11-420.txt"),
+        (AX_320, "fixtures/launcher-dies-at-startup-x11-320.txt"),
+        (LIVE, "fixtures/launcher-dies-at-startup-x11-live.txt"),
+    ];
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_dies_at_startup_x11_measures_the_innermost_section() {
+        fixture_cases(
+            "launcher-dies-at-startup.x11.sh",
+            LAUNCHER_X11_LIVE,
+            &[(
+                AX_320,
+                |t| edit_lines(t, "section|dyld[0]", |l| reframe(l, "1097,442,300,16")),
+                "320: a box ends at 1397",
+            )],
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn sign_in_button_x11_fails_on_each_broken_assertion() {
@@ -1011,7 +1033,7 @@ mod tests {
             std::os::unix::fs::symlink(path.trim(), bare.path().join(tool)).unwrap();
         }
         let out = Command::new("/bin/bash")
-            .arg(repo_scenarios().join("manual-only/chat-close-pill-type.x11.sh"))
+            .arg(repo_scenarios().join("ci/chat-close-pill-type.x11.sh"))
             .args(["--go", "/bin/true", "/bin/true"])
             .env("PATH", bare.path())
             .output()

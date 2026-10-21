@@ -64,7 +64,8 @@ test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-control-click-menu-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out/home/.local/share/fidget"
 log="$out/app.log" marks="$out/harness.log"
-trace="$out/home/.local/share/fidget/process.log"
+# Fidget's stderr: process.log puts a timestamp before each line.
+trace=$log
 : > "$marks"
 
 cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
@@ -84,10 +85,12 @@ env HOME="$out/home" \
   "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 # The overlay spans the display, so its centre is not the sprite. The newest
 # frame trace line says where the sprite is drawn.
 wait_for_trace 2 "$trace" '^frame: .* sprite\(' || fail "Fidget traced no frame; see $trace"
+wait_for_rest "$trace" || fail "the sprite never came to rest; see $trace"
 read -r w h < <(sed -nE 's/.*sprite ([0-9]+)x([0-9]+);.*/\1 \2/p' "$trace" | head -1) || fail "no sprite size in $trace"
 read -r x y < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$trace" | tail -1) || fail "no frame trace in $trace"
 cx=$((x + w / 2))

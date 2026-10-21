@@ -65,7 +65,7 @@ trap 'exit 130' INT TERM
 exec {ready}< <(
   Xvfb -displayfd 1 -screen 0 800x600x24 -nolisten tcp 2> "$out/xvfb.log" &
   echo "pid $!"
-  wait
+  wait "$!"
 )
 read -r -t 3 _ xvfb <&"$ready" || fail "Xvfb did not start"
 started+=("$xvfb")
@@ -103,6 +103,8 @@ wait_for_next() { # <ERE> <command...>
   "$@" >> "$out/helpers.log" 2>&1 || fail "could not run $*"
   wait_for_count 3 "$log" "$pattern" "$before"
 }
+# The landing gets its own 3 s after the first frame.
+wait_for_trace 3 "$log" "$frame" || fail "Fidget drew no frame in 3 s; see $log"
 wait_for_trace 3 "$log" "$frame.* (Grounded|Perched) " || fail "the Character did not land in 3 s; see $log"
 # The overlay reports its pill once its page has loaded, after its first draw.
 wait_for_trace 3 "$log" "$closed" || fail "the overlay never reported its pill in 3 s; see $log"

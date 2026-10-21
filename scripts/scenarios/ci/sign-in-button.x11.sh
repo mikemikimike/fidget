@@ -115,6 +115,7 @@ env HOME="$out/home" PATH="$out/bin:$PATH" \
   "$bin" > "$log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 ax() { python3 "$root/scripts/ax-window-linux.py" "$@"; }
 dump() { # <name>
@@ -143,11 +144,13 @@ wait_for_marks 2 "$marks" '^authenticate$' || fail "sign-in button did not trigg
 dump waiting
 check_waiting "$out/waiting.ax.txt"
 
+news=$(line_count "$marks" '^new$')
 ax press "$pid" BMO Open > "$out/press-open.txt" 2>&1 || fail "could not press Open on the sign-in link; see $out/press-open.txt"
 wait_for_marks 2 "$marks" '^elicit-url:accept$' || fail "sign-in form never answered; see $log"
-wait_for_file 2 "$opened" || true
+# The recording file exists from the start, so wait for its URL, not the file.
+wait_until 2 handed || true
 check_opened "$opened"
-wait_for_marks 2 "$marks" '^new$' || fail "session did not open after sign-in; see $log"
+wait_for_count 2 "$marks" '^new$' "$news" || fail "session did not open after sign-in; see $log"
 
 dump signed-in
 check_signed_in "$out/signed-in.ax.txt"

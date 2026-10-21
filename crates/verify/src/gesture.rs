@@ -74,8 +74,8 @@ pub fn run(verb: Verb, repo_root: &Path, report: &mut RunReport) {
     }
 
     report.say(&format!("{}: building...", verb.name()));
-    let mut build = Command::new("cargo");
-    build.args(["build", "-p", "fidget"]).current_dir(repo_root);
+    let mut build = crate::paths::cargo(repo_root);
+    build.args(["build", "-p", "fidget"]);
     match report.exec(&mut build, None) {
         Some(0) => {}
         Some(c) => {
