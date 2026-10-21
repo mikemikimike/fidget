@@ -611,7 +611,7 @@ mod tests {
     /// holds it. `envs` paths are under `scripts/scenarios/`.
     fn fixture_run(script: &str, envs: &[(&str, PathBuf)]) -> std::process::Output {
         let scenarios = repo_scenarios();
-        let path = ["ci", "manual-only"]
+        let path = LEAF_DIRS
             .iter()
             .map(|dir| scenarios.join(dir).join(script))
             .find(|path| path.exists())
