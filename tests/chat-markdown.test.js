@@ -523,15 +523,15 @@ test("the vendored parser is the file src/vendor/README.md documents", () => {
   // registry hash in that file claiming something it cannot check.
   const marked = readFileSync(new URL("../src/vendor/marked.esm.js", import.meta.url));
 
+  const vendored = "18.0.13";
   assert.equal(
     createHash("sha256").update(marked).digest("hex"),
     "2e70fea3ee49f98ab67ee395e5af51cc6bee4fafed15910da9ccb7f650df8014",
-    "marked@18.0.13 lib/marked.esm.js; see src/vendor/README.md to re-vendor",
+    `marked@${vendored} lib/marked.esm.js; see src/vendor/README.md to re-vendor`,
   );
 
   // `npm audit` reads package.json, not the vendored file, so a re-vendor
   // that skips package.json would leave the audit checking the old version.
-  const vendored = marked.toString().match(/marked v(\S+) - /)?.[1];
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
   const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url)));
   assert.equal(pkg.devDependencies.marked, vendored, "package.json pins the vendored marked");

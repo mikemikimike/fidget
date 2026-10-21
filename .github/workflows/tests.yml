@@ -79,10 +79,20 @@ jobs:
         run: rustup toolchain install stable --profile minimal --component clippy
 
       - name: Install cargo-audit
+        # A pinned release binary, not `cargo install`: building it took two
+        # minutes, and the repo's Actions allowlist rules out install actions.
         if: steps.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
-        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
-        with:
-          tool: cargo-audit
+        env:
+          VERSION: v0.22.2
+          SHA256: ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39
+        run: |
+          archive="cargo-audit-x86_64-unknown-linux-gnu-$VERSION.tgz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/$VERSION/$archive"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/cargo-audit"
+          tar xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/cargo-audit"
+          install "$(find "$RUNNER_TEMP/cargo-audit" -type f -name cargo-audit)" "$HOME/.cargo/bin/"
 
       - name: Cargo audit
         if: steps.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
