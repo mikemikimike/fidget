@@ -2068,12 +2068,20 @@ fn overlay_report_qm_draft(
     payload: Option<fidget_core::quick_message::QmDraft>,
 ) {
     // An overlay takes the keyboard while it has an open pill (#1565) and
-    // hands it back when its last one closes. Counted per window, since a
-    // pill can move; a removed Character sends a closed draft from each.
-    let flips = pill_focus::shared()
+    // hands it back when the last one in the process closes. Counted per
+    // window, since a pill can move, but one remembered app serves them all:
+    // a pill close on one display may be handing the keyboard to its own move
+    // to another, so only a close that empties the process hands it
+    // back, and the hand re-checks on the main thread against the pill that
+    // reported after it.
+    let (flips, process_empty) = pill_focus::shared()
         .lock()
-        .map(|mut pills| pills.note(window.label(), &instance, payload.is_some()))
-        .unwrap_or_default();
+        .map(|mut pills| {
+            let flips = pills.note(window.label(), &instance, payload.is_some());
+            let clear = !pills.any_open();
+            (flips, clear)
+        })
+        .unwrap_or((Vec::new(), true));
     for (label, open) in flips {
         let Some(overlay) = window.app_handle().get_webview_window(&label) else {
             continue;
@@ -2083,9 +2091,16 @@ fn overlay_report_qm_draft(
                 eprintln!("overlay: {label} could not set its key state: {why}");
             }
         }
-        if !open {
+        if !open && process_empty {
             let handed = overlay.clone();
             let _ = overlay.run_on_main_thread(move || {
+                if pill_focus::shared()
+                    .lock()
+                    .map(|pills| pills.any_open())
+                    .unwrap_or(false)
+                {
+                    return;
+                }
                 if let Err(why) = platform::hand_back_keyboard(&handed) {
                     eprintln!("overlay: {why}");
                 }

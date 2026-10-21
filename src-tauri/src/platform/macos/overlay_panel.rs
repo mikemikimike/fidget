@@ -153,7 +153,6 @@ pub fn remember_front_app() {
 /// back to the remembered app, unless the user already moved to another
 /// window. Main thread.
 pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
-    let pid = FRONT_BEFORE_PILL.swap(0, Ordering::Relaxed);
     let ns_window = window
         .ns_window()
         .map_err(|e| format!("overlay has no native window handle: {e}"))?
@@ -166,6 +165,19 @@ pub fn hand_back_keyboard(window: &tauri::WebviewWindow) -> Result<(), String> {
         let active: bool = msg_send![app, isActive];
         let key: *mut AnyObject = msg_send![app, keyWindow];
         let holding = active && (key.is_null() || key == ns_window);
+        // Only the hand-back spends the remembered app. A Stay (the user moved
+        // on while the last pill closed) leaves it for the next pill to hand
+        // to; an unconditional drain turned the final close into a step
+        // aside to nothing on two displays. The gate in `overlay_report_qm_draft`
+        // keeps a mid-session close from reaching here, but it only sees
+        // reports that arrived: a close that slips past its report-order
+        // re-check still lands here, and keeping the pid is what lets the
+        // eventual last close restore instead of step aside.
+        let pid = if holding {
+            FRONT_BEFORE_PILL.swap(0, Ordering::Relaxed)
+        } else {
+            FRONT_BEFORE_PILL.load(Ordering::Relaxed)
+        };
         let previous: *mut AnyObject = if pid == 0 {
             std::ptr::null_mut()
         } else {
