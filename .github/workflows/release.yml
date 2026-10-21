@@ -269,8 +269,11 @@ jobs:
             echo
             echo 'The Release job ran scripts/verify-homebrew-cask.sh before this commit.'
           } > /tmp/homebrew-pr.md
-          if gh pr view "$PR_BRANCH" --json number --jq .number > /dev/null 2>&1; then
-            gh pr edit "$PR_BRANCH" --title "$title" --body-file /tmp/homebrew-pr.md
+          # A merged bump pull request keeps the branch name, so an edit to it
+          # is a no-op that ships nothing. Only an open one is reused.
+          open_pr="$(gh pr list --head "$PR_BRANCH" --state open --json number --jq '.[0].number // ""')"
+          if [ -n "$open_pr" ]; then
+            gh pr edit "$open_pr" --title "$title" --body-file /tmp/homebrew-pr.md
           else
             gh pr create --base "$BRANCH" --head "$PR_BRANCH" \
               --title "$title" --body-file /tmp/homebrew-pr.md
