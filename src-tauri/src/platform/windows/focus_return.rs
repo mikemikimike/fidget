@@ -9,9 +9,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowThreadProcessId, IsIconic, IsWindow, SetForegroundWindow,
 };
 
-use crate::pill_focus::{hand_back, HandBack};
+use crate::pill_focus::{hand_back, worth_remembering, HandBack};
 
-use super::super::windows_hand_back::{step_aside_target, worth_remembering};
+use super::super::windows_hand_back::step_aside_target;
 use super::window_source::visible_windows;
 
 /// The foreground window when a pill took the keyboard; 0 is none.

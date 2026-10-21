@@ -417,13 +417,25 @@ pub fn overlay_focus_follows_pill() -> bool {
     false
 }
 
-/// Remember the active window before a pill takes the keyboard.
-/// Wayland: nothing to remember, see `hand_back_keyboard`.
+/// Remember the active window before a pill takes the keyboard, unless it
+/// is one of Fidget's overlays. Wayland has no X window to remember.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn remember_foreground(window: &tauri::Window) {
-    if let Some(overlay) = x11_window(window) {
-        x11::remember_active_window(overlay);
+    let Some(caller) = x11_window(window) else {
+        return;
+    };
+    let mut overlays: Vec<u32> = window
+        .app_handle()
+        .webview_windows()
+        .into_iter()
+        .filter(|(label, _)| label.starts_with("overlay-"))
+        .filter_map(|(_, overlay)| x11_window(&overlay))
+        .collect();
+    // The caller is an overlay even when its label was not listed.
+    if !overlays.contains(&caller) {
+        overlays.push(caller);
     }
+    x11::remember_active_window(&overlays);
 }
 
 /// Remember the foreground window before a pill takes the keyboard, unless

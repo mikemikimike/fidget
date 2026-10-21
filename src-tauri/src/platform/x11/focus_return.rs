@@ -123,8 +123,8 @@ pub(crate) fn hand_back_to<C: Connection>(
     Ok(decision)
 }
 
-/// Remember the active window, unless it is the overlay itself.
-pub fn remember_active_window(overlay: Window) {
+/// Remember the active window, unless it is one of Fidget's overlays.
+pub fn remember_active_window(overlays: &[Window]) {
     let Some(conn) = super::connection::connection() else {
         return;
     };
@@ -133,7 +133,8 @@ pub fn remember_active_window(overlay: Window) {
     };
     let root = conn.setup().roots[0].root;
     if let Some(active) = active_window(conn, root, atoms.net_active_window) {
-        if active != overlay {
+        let ids: Vec<u64> = overlays.iter().copied().map(u64::from).collect();
+        if crate::pill_focus::worth_remembering(u64::from(active), &ids) {
             ACTIVE_BEFORE_PILL.store(active, Ordering::Relaxed);
         }
     }

@@ -140,6 +140,14 @@ pub fn remembered_after(plan: HandBackPlan) -> Option<RememberedFront> {
     }
 }
 
+/// A real window that is not one of these overlays. Chat and Settings are
+/// not overlays, so a close can return the keyboard to them. The other
+/// display's overlay is in front when a pill moves across.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub fn worth_remembering(foreground: u64, overlays: &[u64]) -> bool {
+    foreground != 0 && !overlays.contains(&foreground)
+}
+
 /// Whether the overlay `overlay` is the foreground window `foreground`
 /// (Win32 handles as integers; 0 is none).
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -185,6 +193,19 @@ mod tests {
         assert!(holds_foreground(0x40ec4, 0x40ec4));
         assert!(!holds_foreground(0x150e64, 0x40ec4), "Notepad in front");
         assert!(!holds_foreground(0, 0), "no foreground window is not ours");
+    }
+
+    #[test]
+    fn the_overlay_or_no_window_is_never_remembered() {
+        let overlays = &[0x20, 0x21];
+        assert!(worth_remembering(0x10, overlays), "another app");
+        assert!(worth_remembering(0x30, overlays), "Fidget's own Chat");
+        assert!(!worth_remembering(0x20, overlays), "the overlay that asked");
+        assert!(
+            !worth_remembering(0x21, overlays),
+            "the other display's overlay"
+        );
+        assert!(!worth_remembering(0, overlays), "no foreground window");
     }
 
     #[test]
