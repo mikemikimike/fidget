@@ -1,6 +1,6 @@
 name: windows-e2e
 
-# Live runs of `scripts/scenarios/e2e/*.win.ps1` and the anchor scripts on a
+# Live runs of `scripts/scenarios/ci/*.win.ps1` and the anchor scripts on a
 # hosted runner's desktop. Too heavy for every pull request: it runs on
 # dispatch or the `windows-e2e` label only.
 on:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       scenarios:
-        description: Space-separated e2e leaf names; empty runs them all
+        description: Space-separated ci/ leaf names; empty runs them all
         required: false
         default: ""
 
@@ -62,7 +62,7 @@ jobs:
           $env:TMP = $env:TEMP
           New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
           $names = if ($env:SCENARIOS) { $env:SCENARIOS.Trim() -split '\s+' } else {
-            Get-ChildItem scripts\scenarios\e2e\*.win.ps1 | ForEach-Object { $_.Name -replace '\.win\.ps1$', '' }
+            Get-ChildItem scripts\scenarios\ci\*.win.ps1 | ForEach-Object { $_.Name -replace '\.win\.ps1$', '' }
           }
           # A leaf that blocks (a UI Automation call can) would hold the job to its
           # timeout; 3 min is well past the slowest leaf's own limit.

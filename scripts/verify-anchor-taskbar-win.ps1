@@ -63,7 +63,7 @@ if (-not (Test-Path $Bin)) { Fail "missing $Bin - build with cargo first, or set
 Pass "Binary ready: $Bin"
 
 # The shared waits block on file changes under $Out; a dead app fails them.
-. (Join-Path $Root "scripts\scenarios\wait-helpers.win.ps1")
+. (Join-Path $Root "scripts\scenarios\helpers\wait-helpers.win.ps1")
 $script:WatchDir = $Out
 $Log = Join-Path $Out "app.log"
 

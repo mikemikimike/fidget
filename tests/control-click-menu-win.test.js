@@ -1,4 +1,4 @@
-// scripts/scenarios/e2e/control-click-menu.win.ps1 skips only when a fullscreen
+// scripts/scenarios/ci/control-click-menu.win.ps1 skips only when a fullscreen
 // window would take its right-click. Only the pure decision is loaded, through
 // the PowerShell parser, so no window or app launch runs.
 
@@ -14,7 +14,7 @@ const script = join(
   "..",
   "scripts",
   "scenarios",
-  "e2e",
+  "ci",
   "control-click-menu.win.ps1",
 );
 const resolved = resolvePwsh();

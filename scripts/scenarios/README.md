@@ -9,12 +9,15 @@ run one: set up, post the prompt, and wait for a go-ahead for that run.
 
 | Folder | Holds |
 |---|---|
-| `e2e/` | Leaves that run without a person once the host gives the grants in their header. Only the Windows ones are proven unattended so far: the `windows-e2e` workflow runs every `e2e/*.win.ps1` on a hosted runner. The macOS ones need Accessibility, Screen Recording or Automation grants, which a hosted runner cannot give. |
-| `manual/` | Leaves that need a person, a second display, or an app a hosted runner lacks: Windows 11 Notepad's tabs for `chat-close-pill-type.win.ps1`. |
-| this folder | Helpers the leaves share, and `fixtures/`. |
+| `ci/` | Leaves a CI job runs. The `windows-e2e` workflow runs every `ci/*.win.ps1` on a hosted runner. |
+| `manual-only/` | Every other leaf. Until a leaf passes in an automatic run, treat it as manual: some need a person or a second display, and the rest wait for a CI job on their platform. |
+| `helpers/` | Waits, the fixture Harness launcher, and the Swift and Python tools the leaves share. |
+| `fixtures/` | Saved dumps and traces for each leaf's fixture mode. |
 
-A scenario's leaves can sit in both folders. `fidget-verify scenario <name>`
-finds this host's leaf in either one.
+A scenario's leaves can sit in both leaf folders: `thinking-row.win.ps1` is in
+`ci/`, its macOS and X11 leaves in `manual-only/`. `fidget-verify scenario
+<name>` finds this host's leaf in either one. A follow-up that gets a leaf
+passing in a CI job moves it to `ci/`.
 
 ## Run one
 
@@ -63,7 +66,7 @@ Prepare before requesting the screen:
 ```sh
 cargo build -p fidget -p fidget-verify
 cargo test -p fidget --no-run
-bash scripts/scenarios/e2e/chat-perch.sh --prepare
+bash scripts/scenarios/manual-only/chat-perch.sh --prepare
 cargo run -p fidget-verify -- scenario chat-perch
 ```
 
@@ -88,7 +91,7 @@ no X11 or Windows leaf yet.
 
 `poke-mid-climb.sh` takes only the app binary and runs no Harness. It throws
 the sprite at a display's side edge with a real drag
-(`scripts/scenarios/throw-sprite.swift`), then clicks it until one click lands
+(`scripts/scenarios/helpers/throw-sprite.swift`), then clicks it until one click lands
 as a Poke while it climbs. From the frame trace, it checks that the Poke
 starts `react` over, that the sprite stays Climbing at one position in one
 climb frame for the first 2.3 s of the 2.5 s cooldown, and that it climbs on
@@ -225,14 +228,14 @@ skip the launch:
 ```sh
 FIDGET_SCENARIO_AX_OPEN=scripts/scenarios/fixtures/thinking-row-open.txt \
 FIDGET_SCENARIO_AX_DONE=scripts/scenarios/fixtures/thinking-row-done.txt \
-scripts/scenarios/e2e/thinking-row.x11.sh --go /bin/true /bin/true
+scripts/scenarios/manual-only/thinking-row.x11.sh --go /bin/true /bin/true
 ```
 
 ```sh
 FIDGET_SCENARIO_AX_420=scripts/scenarios/fixtures/chat-header-narrow-420.txt \
 FIDGET_SCENARIO_AX_360=scripts/scenarios/fixtures/chat-header-narrow-360.txt \
 FIDGET_SCENARIO_AX_320=scripts/scenarios/fixtures/chat-header-narrow-320.txt \
-scripts/scenarios/e2e/chat-header-narrow.x11.sh --go /bin/true /bin/true
+scripts/scenarios/manual-only/chat-header-narrow.x11.sh --go /bin/true /bin/true
 ```
 
 Those runs do not prove the live window. A live `--go` still needs the

@@ -11,7 +11,7 @@ import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
-// The fixture launcher of scripts/scenarios/e2e/launcher-dies-at-startup.sh: one
+// The fixture launcher of scripts/scenarios/manual-only/launcher-dies-at-startup.sh: one
 // unbroken path, the shape that pushed the landing sideways (#1186).
 const LAUNCHER = "/private/tmp/claude-501/scratchpad/pr1088/wt/target/debug/deps/fidget-b9e5365f61326ae2";
 const FAILED = {

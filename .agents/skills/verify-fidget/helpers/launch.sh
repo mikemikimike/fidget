@@ -6,9 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/common.sh"
-# shellcheck source=../../../../scripts/scenarios/wait-helpers.sh
+# shellcheck source=../../../../scripts/scenarios/helpers/wait-helpers.sh
 # shellcheck disable=SC1091
-. "$REPO_ROOT/scripts/scenarios/wait-helpers.sh"
+. "$REPO_ROOT/scripts/scenarios/helpers/wait-helpers.sh"
 
 cd "$REPO_ROOT"
 

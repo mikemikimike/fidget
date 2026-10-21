@@ -148,9 +148,9 @@ fn parse_scenario_header(text: &str) -> String {
     header.join("\n")
 }
 
-/// Leaves live in `e2e/` (unattended, which a CI e2e job can run) or
-/// `manual/` (a person or a desktop a hosted runner lacks); helpers sit above.
-const LEAF_DIRS: [&str; 2] = ["e2e", "manual"];
+/// Leaves live in `ci/` (a CI job runs them) or `manual-only/` (not yet proven
+/// by an automatic run); `helpers/` and `fixtures/` sit beside them.
+const LEAF_DIRS: [&str; 2] = ["ci", "manual-only"];
 
 /// Every scenario name under `dir`'s leaf folders, sorted, with each host leaf
 /// that has a `# Scenario:` header.
@@ -288,18 +288,18 @@ mod tests {
     #[test]
     fn an_x11_suffix_is_the_linux_leaf_not_a_second_name() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir(dir.path().join("e2e")).unwrap();
+        fs::create_dir(dir.path().join("ci")).unwrap();
         fs::write(
-            dir.path().join("e2e/thinking-row.sh"),
+            dir.path().join("ci/thinking-row.sh"),
             "# Scenario: thinking-row (macOS)\n",
         )
         .unwrap();
         fs::write(
-            dir.path().join("e2e/thinking-row.x11.sh"),
+            dir.path().join("ci/thinking-row.x11.sh"),
             "# Scenario: thinking-row (X11)\n",
         )
         .unwrap();
-        fs::write(dir.path().join("e2e/fixture-harness.sh"), "#!/bin/sh\n").unwrap();
+        fs::write(dir.path().join("ci/fixture-harness.sh"), "#!/bin/sh\n").unwrap();
 
         let indexed = index_scenarios(dir.path());
         assert_eq!(indexed.len(), 1);
@@ -324,9 +324,9 @@ mod tests {
     #[test]
     fn a_windows_suffix_is_the_windows_leaf() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir(dir.path().join("manual")).unwrap();
+        fs::create_dir(dir.path().join("manual-only")).unwrap();
         fs::write(
-            dir.path().join("manual/thinking-row.win.ps1"),
+            dir.path().join("manual-only/thinking-row.win.ps1"),
             "# Scenario: thinking-row (Windows)\n",
         )
         .unwrap();
@@ -341,15 +341,15 @@ mod tests {
     #[test]
     fn leaves_come_from_e2e_and_manual_and_merge_by_name() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir(dir.path().join("e2e")).unwrap();
-        fs::create_dir(dir.path().join("manual")).unwrap();
+        fs::create_dir(dir.path().join("ci")).unwrap();
+        fs::create_dir(dir.path().join("manual-only")).unwrap();
         fs::write(
-            dir.path().join("e2e/chat-close-pill-type.x11.sh"),
+            dir.path().join("ci/chat-close-pill-type.x11.sh"),
             "# Scenario: chat-close-pill-type (X11)\n",
         )
         .unwrap();
         fs::write(
-            dir.path().join("manual/chat-close-pill-type.win.ps1"),
+            dir.path().join("manual-only/chat-close-pill-type.win.ps1"),
             "# Scenario: chat-close-pill-type (Windows)\n",
         )
         .unwrap();
@@ -358,8 +358,8 @@ mod tests {
         let indexed = index_scenarios(dir.path());
         assert_eq!(indexed.len(), 1);
         let leaf = |os| indexed[0].leaf(os).unwrap().path.clone();
-        assert!(leaf("linux").ends_with("e2e/chat-close-pill-type.x11.sh"));
-        assert!(leaf("windows").ends_with("manual/chat-close-pill-type.win.ps1"));
+        assert!(leaf("linux").ends_with("ci/chat-close-pill-type.x11.sh"));
+        assert!(leaf("windows").ends_with("manual-only/chat-close-pill-type.win.ps1"));
     }
 
     fn repo_scenarios() -> PathBuf {
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn thinking_row_x11_fixture_passes_and_a_wrong_glyph_fails() {
         let scenarios = repo_scenarios();
-        let script = scenarios.join("e2e/thinking-row.x11.sh");
+        let script = scenarios.join("manual-only/thinking-row.x11.sh");
         let open = scenarios.join("fixtures/thinking-row-open.txt");
         let done = scenarios.join("fixtures/thinking-row-done.txt");
         let ok = Command::new("bash")
@@ -408,7 +408,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn thinking_row_x11_without_a_display_skips() {
-        let script = repo_scenarios().join("e2e/thinking-row.x11.sh");
+        let script = repo_scenarios().join("manual-only/thinking-row.x11.sh");
         let out = Command::new("bash")
             .arg(&script)
             .args(["--go", "/bin/true", "/bin/true"])
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn chat_header_narrow_x11_fixture_passes_and_a_wide_page_fails() {
         let scenarios = repo_scenarios();
-        let script = scenarios.join("e2e/chat-header-narrow.x11.sh");
+        let script = scenarios.join("manual-only/chat-header-narrow.x11.sh");
         let ax420 = scenarios.join("fixtures/chat-header-narrow-420.txt");
         let ax360 = scenarios.join("fixtures/chat-header-narrow-360.txt");
         let ax320 = scenarios.join("fixtures/chat-header-narrow-320.txt");
@@ -469,7 +469,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn chat_header_narrow_x11_without_a_display_skips() {
-        let script = repo_scenarios().join("e2e/chat-header-narrow.x11.sh");
+        let script = repo_scenarios().join("manual-only/chat-header-narrow.x11.sh");
         let out = Command::new("bash")
             .arg(&script)
             .args(["--go", "/bin/true", "/bin/true"])
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn chat_header_narrow_win_fixture_passes_with_web_area_only() {
         let scenarios = repo_scenarios();
-        let script = scenarios.join("e2e/chat-header-narrow.win.ps1");
+        let script = scenarios.join("ci/chat-header-narrow.win.ps1");
         let ax420 = scenarios.join("fixtures/chat-header-narrow-420-win.txt");
         let ax360 = scenarios.join("fixtures/chat-header-narrow-360.txt");
         let ax320 = scenarios.join("fixtures/chat-header-narrow-320.txt");
@@ -525,7 +525,7 @@ mod tests {
     #[test]
     fn thinking_row_win_fixture_passes_and_a_wrong_glyph_fails() {
         let scenarios = repo_scenarios();
-        let script = scenarios.join("e2e/thinking-row.win.ps1");
+        let script = scenarios.join("ci/thinking-row.win.ps1");
         let open = scenarios.join("fixtures/thinking-row-open.txt");
         let done = scenarios.join("fixtures/thinking-row-done.txt");
         let ok = Command::new("powershell")
@@ -607,11 +607,16 @@ mod tests {
         assert!(String::from_utf8_lossy(&out.stdout).contains("PASS: fixture dumps"));
     }
 
-    /// Runs an `e2e/` leaf on fixture dumps with no desktop. `envs` paths are
-    /// under `scripts/scenarios/` unless absolute.
+    /// Runs a leaf on fixture dumps with no desktop: a Windows leaf from `ci/`,
+    /// any other from `manual-only/`. `envs` paths are under `scripts/scenarios/`.
     fn fixture_run(script: &str, envs: &[(&str, PathBuf)]) -> std::process::Output {
         let scenarios = repo_scenarios();
-        let path = scenarios.join("e2e").join(script);
+        let dir = if script.ends_with(".win.ps1") {
+            "ci"
+        } else {
+            "manual-only"
+        };
+        let path = scenarios.join(dir).join(script);
         let mut cmd = if script.ends_with(".ps1") {
             let mut cmd = Command::new("powershell");
             cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
@@ -1006,7 +1011,7 @@ mod tests {
             std::os::unix::fs::symlink(path.trim(), bare.path().join(tool)).unwrap();
         }
         let out = Command::new("/bin/bash")
-            .arg(repo_scenarios().join("e2e/chat-close-pill-type.x11.sh"))
+            .arg(repo_scenarios().join("manual-only/chat-close-pill-type.x11.sh"))
             .args(["--go", "/bin/true", "/bin/true"])
             .env("PATH", bare.path())
             .output()
@@ -1168,7 +1173,7 @@ mod tests {
         for _ in 0..2 {
             let out = Command::new("powershell")
                 .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(repo_scenarios().join("manual/chat-close-pill-type.win.ps1"))
+                .arg(repo_scenarios().join("manual-only/chat-close-pill-type.win.ps1"))
                 .args([
                     "--go",
                     "C:\\Windows\\System32\\cmd.exe",
@@ -1209,7 +1214,7 @@ mod tests {
     fn notepad_plan(tabs: &str, before: bool) -> (Option<i32>, String) {
         let out = Command::new("powershell")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(repo_scenarios().join("manual/chat-close-pill-type.win.ps1"))
+            .arg(repo_scenarios().join("manual-only/chat-close-pill-type.win.ps1"))
             .args([
                 "--go",
                 "C:\\Windows\\System32\\cmd.exe",
@@ -1268,7 +1273,7 @@ mod tests {
         fs::write(&path, log).unwrap();
         let out = Command::new("powershell")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(repo_scenarios().join("manual/chat-close-pill-type.win.ps1"))
+            .arg(repo_scenarios().join("manual-only/chat-close-pill-type.win.ps1"))
             .args([
                 "--go",
                 "C:\\Windows\\System32\\cmd.exe",
@@ -1303,7 +1308,7 @@ mod tests {
     fn pill_self_check_with(envs: &[(&str, &std::ffi::OsStr)]) -> String {
         let out = Command::new("powershell")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(repo_scenarios().join("manual/chat-close-pill-type.win.ps1"))
+            .arg(repo_scenarios().join("manual-only/chat-close-pill-type.win.ps1"))
             .args([
                 "--go",
                 "C:\\Windows\\System32\\cmd.exe",
@@ -1591,7 +1596,7 @@ mod tests {
         let shell = if cfg!(windows) { "powershell" } else { "pwsh" };
         let Ok(out) = Command::new(shell)
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(repo_scenarios().join("manual/chat-close-pill-type.win.ps1"))
+            .arg(repo_scenarios().join("manual-only/chat-close-pill-type.win.ps1"))
             .args(["--go", "fidget.exe", "fidget-test.exe"])
             .env("FIDGET_SCENARIO_UNEXPECTED", &results)
             .output()
@@ -1664,7 +1669,7 @@ mod tests {
     fn window_verdict(at_launch: &str, left: &str) -> String {
         let out = Command::new("powershell")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(repo_scenarios().join("manual/chat-close-pill-type.win.ps1"))
+            .arg(repo_scenarios().join("manual-only/chat-close-pill-type.win.ps1"))
             .args([
                 "--go",
                 "C:\\Windows\\System32\\cmd.exe",
@@ -1766,7 +1771,7 @@ mod tests {
         let lock = |profile: &std::path::Path| {
             let out = Command::new("powershell")
                 .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(repo_scenarios().join("manual/chat-close-pill-type.win.ps1"))
+                .arg(repo_scenarios().join("manual-only/chat-close-pill-type.win.ps1"))
                 .args([
                     "--go",
                     "C:\\Windows\\System32\\cmd.exe",
@@ -1817,7 +1822,7 @@ mod tests {
     fn wait_helpers_win_wake_on_each_piped_line() {
         let out = Command::new("powershell")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(repo_scenarios().join("test-wait-helpers.ps1"))
+            .arg(repo_scenarios().join("helpers/test-wait-helpers.ps1"))
             .output()
             .unwrap();
         let text = format!(
