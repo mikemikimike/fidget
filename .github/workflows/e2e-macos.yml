@@ -87,6 +87,7 @@ jobs:
             wait "$leaf" && code=0 || code=$?
             pkill -P "$timer" 2> /dev/null || true
             kill "$timer" 2> /dev/null || true
+            wait "$timer" 2> /dev/null || true
             return "$code"
           }
           summary=""

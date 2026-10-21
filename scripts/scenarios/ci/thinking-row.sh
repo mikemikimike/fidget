@@ -62,9 +62,10 @@ trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT IN
 # The first row is the turn that thought; the ask turn before it has none.
 capture() { # <name> <glyph the first Thinking row starts with>
   local id row
+  # The dump goes first: the row it reads changes when the reply lands.
+  "$tools/ax" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1 || fail "$1: AX dump failed; see $out/$1.ax.txt"
   id=$("$tools/window-id" "$pid" BMO) || fail "$1: no Chat window"
   screencapture -x -o -l "$id" "$out/$1.png"
-  "$tools/ax" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1 || fail "$1: AX dump failed; see $out/$1.ax.txt"
   row=$(grep -iEm1 '^AXButton\|(▸|▾) thinking' "$out/$1.ax.txt") || fail "$1: no Thinking row in $out/$1.ax.txt"
   [[ $row == "AXButton|$2"* ]] || fail "$1: Thinking row reads '$row', want it to start with $2"
   echo "ok: $1: $row"

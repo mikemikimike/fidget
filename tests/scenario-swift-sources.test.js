@@ -4,12 +4,16 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-const leaves = join(import.meta.dirname, "..", "scripts", "scenarios", "ci");
+const scenarios = join(import.meta.dirname, "..", "scripts", "scenarios");
+// A leaf moves to ci/ once a job proves it, so look in both folders.
+const leaf = (name) =>
+  ["ci", "manual-only"].map((dir) => join(scenarios, dir, name)).find(existsSync) ??
+  assert.fail(`no leaf ${name} in ci/ or manual-only/`);
 
 function withFakeSwiftc(run) {
   const dir = mkdtempSync(join(tmpdir(), "fidget-swiftc-"));
@@ -46,7 +50,7 @@ done
 
 test("chat-perch.sh --prepare builds from Swift sources that exist", () => {
   const { result, gone } = withFakeSwiftc((env) =>
-    spawnSync("bash", [join(leaves, "chat-perch.sh"), "--prepare"], { encoding: "utf8", env }),
+    spawnSync("bash", [leaf("chat-perch.sh"), "--prepare"], { encoding: "utf8", env }),
   );
   assert.equal(gone, "", `missing Swift sources:\n${gone}`);
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -55,7 +59,7 @@ test("chat-perch.sh --prepare builds from Swift sources that exist", () => {
 test("chat-glass.sh builds from Swift sources that exist", () => {
   // /bin/true as Fidget exits at once, so the run fails after the build.
   const { gone } = withFakeSwiftc((env) =>
-    spawnSync("bash", [join(leaves, "chat-glass.sh"), "--go", "/bin/true", "/bin/true"], {
+    spawnSync("bash", [leaf("chat-glass.sh"), "--go", "/bin/true", "/bin/true"], {
       encoding: "utf8",
       env,
       timeout: 30_000,
