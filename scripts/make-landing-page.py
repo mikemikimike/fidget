@@ -29,8 +29,9 @@ overlay's own rules from src/main.css and src/cue.js. Its still tiles name
 their Characters in PLAY_TILES; a loop or constant it cannot find fails the build.
 
 Every other page in `<out>` gets the same site header, docs/design/site-nav.html,
-right after its `<body>`, so assemble-site.sh runs this script after the
-steps that publish pages.
+right after its `<body>`, and every page, this one included, gets the GoatCounter
+visit counter right before its `</head>`, so assemble-site.sh runs this script
+after the steps that publish pages.
 
 The page names frames by the paths make-character-gallery.py publishes under
 `<out>/characters/`, and copies nothing itself, so the gallery's checks are the
@@ -57,6 +58,8 @@ SHELL = ROOT / "docs" / "design" / "landing.html"
 NAV = ROOT / "docs" / "design" / "site-nav.html"
 PAGE = "index.html"
 REPO = "https://github.com/omesser/fidget"
+# GoatCounter's snippet for the site `fidget`, as its docs gave it on 2026-10-21 (#1753).
+COUNTER = '<script data-goatcounter="https://fidget.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>'
 # The README names Buddy Bot as the default Character; the hero is that one.
 HERO = "buddy-bot"
 # GitHub renders an attachment URL alone on its line as a video player.
@@ -644,6 +647,18 @@ def stamp_nav(out, nav):
         page.write_text(stamped, encoding="utf-8")
 
 
+def stamp_counter(out):
+    """Put the visit counter right before the </head> of every page in out."""
+    for page in sorted(out.glob("*.html")):
+        text = page.read_text(encoding="utf-8")
+        if COUNTER in text:
+            continue
+        stamped, found = re.subn(r"</head>", lambda head: COUNTER + "\n" + head.group(0), text, count=1)
+        if not found:
+            raise Malformed(f"{page.name} has no </head> to put the visit counter in")
+        page.write_text(stamped, encoding="utf-8")
+
+
 def render(readme_text, characters_root, rust_source, shell, release=None, engine=None):
     words = read_readme(readme_text)
     _, defaults = gallery.from_rust(rust_source)
@@ -966,6 +981,25 @@ def self_check():
         else:
             raise AssertionError("a page with no <body> took no header and passed")
 
+    with tempfile.TemporaryDirectory() as out:
+        out = pathlib.Path(out)
+        (out / "c.html").write_text("<html><head><title>c</title></head><body></body></html>", encoding="utf-8")
+        (out / PAGE).write_text("<head>\n</head><body>landing</body>", encoding="utf-8")
+        stamp_counter(out)
+        stamp_counter(out)
+        assert (out / "c.html").read_text(encoding="utf-8") == \
+            f"<html><head><title>c</title>{COUNTER}\n</head><body></body></html>", \
+            "a page did not get the visit counter once, right before its </head>"
+        assert (out / PAGE).read_text(encoding="utf-8") == f"<head>\n{COUNTER}\n</head><body>landing</body>", \
+            "the landing page did not get the visit counter once"
+        (out / "d.html").write_text("<body>no head</body>", encoding="utf-8")
+        try:
+            stamp_counter(out)
+        except Malformed:
+            pass
+        else:
+            raise AssertionError("a page with no </head> took no visit counter and passed")
+
     print(f"self-check: {len(words['features'])} features, {len(words['harnesses'])} Harnesses, "
           f"{len(words['faq'])} questions, checks passed")
 
@@ -1001,6 +1035,7 @@ def main():
         (arguments.out / PAGE).write_text(page, encoding="utf-8")
         _, hero = read_cast(CHARACTERS, gallery.from_rust(rust)[1])
         stamp_nav(arguments.out, site_nav(hero))
+        stamp_counter(arguments.out)
     except Malformed as broken:
         sys.exit(f"landing page: {broken}")
     print(f"{arguments.out / PAGE}: generated from {arguments.readme.name} and {CHARACTERS.name}/")

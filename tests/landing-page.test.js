@@ -92,7 +92,8 @@ test("every frame the page names is in the assembled site", () => {
     JSON.parse(m[1].replaceAll("&quot;", '"')),
   );
   assert.ok(loops.length > srcs.length, "the cast and the hero carry their loops");
-  for (const path of [...srcs, ...sets, ...loops].filter((p) => !p.startsWith("http"))) {
+  // An off-site URL, protocol-relative ones such as GoatCounter's included, is not ours to publish.
+  for (const path of [...srcs, ...sets, ...loops].filter((p) => !/^(https?:)?\/\//.test(p))) {
     assert.ok(existsSync(join(site, path)), `${path} is published`);
   }
 });
@@ -381,5 +382,18 @@ test("every published page carries the site header with a link home", () => {
     const page = published(name);
     assert.equal(page.match(/<header class="site-nav">/g)?.length, 1, `${name} lacks the one site header`);
     assert.ok(page.includes('<a class="site-brand" href="./">'), `${name} has no link home`);
+  }
+});
+
+// #1753: GoatCounter counts visits to every page, the landing page included.
+const COUNTER = '<script data-goatcounter="https://fidget.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>';
+
+test("every published page carries the visit counter once, just before </head>", () => {
+  const pages = readdirSync(site).filter((name) => name.endsWith(".html"));
+  assert.ok(pages.includes(PAGE), "the landing page is published");
+  for (const name of pages) {
+    const page = published(name);
+    assert.equal(page.split(COUNTER).length - 1, 1, `${name} lacks the one visit counter`);
+    assert.ok(page.includes(`${COUNTER}\n</head>`), `${name} has the counter outside its <head>`);
   }
 });
