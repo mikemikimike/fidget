@@ -41,7 +41,8 @@ fail() {
 }
 
 [ -x "$tools/window-id" ] || swiftc -O "$root/scripts/scenarios/helpers/window-id.swift" -o "$tools/window-id"
-[ -x "$tools/ax" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+[ "$tools/ax" -nt "$root/scripts/ax-settings.swift" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+build_ax_events
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
 harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
@@ -62,7 +63,9 @@ trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT IN
 # The first row is the turn that thought; the ask turn before it has none.
 capture() { # <name> <glyph the first Thinking row starts with>
   local id row
+  # Chat draws the row after the mark that triggers it, so wait for the glyph.
   # The dump goes first: the row it reads changes when the reply lands.
+  wait_for_ax_dump 3 "$pid" BMO "^AXButton\|$2 " || true
   "$tools/ax" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1 || fail "$1: AX dump failed; see $out/$1.ax.txt"
   id=$("$tools/window-id" "$pid" BMO) || fail "$1: no Chat window"
   screencapture -x -o -l "$id" "$out/$1.png"

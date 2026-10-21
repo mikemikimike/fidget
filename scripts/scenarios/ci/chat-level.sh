@@ -77,7 +77,8 @@ wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $l
 # `chat: <label> is open` is the line a fresh Chat writes; it never writes
 # `is not minimized`, which is a deminiaturize transition.
 wait_for_trace 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is open$' || fail "Chat never logged open; see $trace"
-at_layer 0 || fail "focused Chat is at layer $("$tools/window-layer" "$pid" BMO), not 0"
+# The window server lists Chat a moment after it logs open.
+wait_at_layer 0 "focused Chat"
 echo "ok: focused Chat stays at layer 0 (a Perch under the overlay)"
 
 open -a Finder

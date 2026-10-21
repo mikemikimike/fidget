@@ -63,7 +63,8 @@ pid=$!
 trap 'stop_fidget' EXIT INT TERM
 
 dump() { "$tools/ax" dump "$pid" BMO frames > "$out/$1.ax.txt" 2>&1; }
-landing() { dump "$1" && grep -qF '|Codex needs ' "$out/$1.ax.txt"; }
+# The header's status line lands after the landing itself; the checks read both.
+landing() { dump "$1" && grep -qF '|Codex needs ' "$out/$1.ax.txt" && grep -qF 'npx is not installed' "$out/$1.ax.txt"; }
 shot() { screencapture -x -o -l "$("$tools/window-id" "$pid" BMO)" "$out/$1.png"; }
 
 # Fidget draws the tray icon before its click handler and its place in the menu
