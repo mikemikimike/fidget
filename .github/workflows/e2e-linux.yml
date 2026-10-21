@@ -94,6 +94,7 @@ jobs:
             drew=0
             wait_for_trace 10 "$log" '^frame: ' || drew=$?
             stop_fidget || true
+            wait "$pid" 2> /dev/null || true
             if [ "$drew" != 0 ]; then
               echo "::error::the warm-up drew no frame in 10 s; see warmup.log in the evidence"
               exit 1
