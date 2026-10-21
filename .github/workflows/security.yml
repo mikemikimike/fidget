@@ -1,0 +1,94 @@
+name: Security
+
+# Advisory databases change under an untouched lockfile, so the nightly run is
+# what surfaces a new advisory; pull requests and main get the same three scans.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  # Reads Cargo.lock and `.cargo/audit.toml` only, so no Rust build or cache.
+  cargo-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install cargo-audit
+        # A pinned release binary, not `cargo install`: building it took two
+        # minutes, and the repo's Actions allowlist rules out install actions.
+        env:
+          VERSION: v0.22.2
+          SHA256: ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39 # pragma: allowlist secret
+        run: |
+          archive="cargo-audit-x86_64-unknown-linux-gnu-$VERSION.tgz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/$VERSION/$archive"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/cargo-audit"
+          tar xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/cargo-audit"
+          install "$(find "$RUNNER_TEMP/cargo-audit" -type f -name cargo-audit)" "$HOME/.cargo/bin/"
+
+      - name: Cargo audit
+        run: cargo audit
+
+  # Reads package-lock.json only; nothing is installed.
+  npm-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 'lts/*'
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  # Every pull request, Markdown included: a pasted key is as live in a doc.
+  # Known false positives sit in `.secrets.baseline` or carry
+  # `pragma: allowlist secret`; only a hit in neither fails the job.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Scan for secrets
+        # The hook exits 1 on a new secret and 3 when it only moved a known
+        # hit's line number, which the local pre-commit hook commits.
+        run: | # pragma: allowlist secret
+          pip install detect-secrets==1.5.0
+          mapfile -d '' files < <(git ls-files -z)
+          status=0
+          detect-secrets-hook --baseline .secrets.baseline "${files[@]}" || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "::warning::.secrets.baseline has stale line numbers; run pre-commit locally to refresh it"
+          elif [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi

@@ -78,26 +78,6 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: rustup toolchain install stable --profile minimal --component clippy
 
-      - name: Install cargo-audit
-        # A pinned release binary, not `cargo install`: building it took two
-        # minutes, and the repo's Actions allowlist rules out install actions.
-        if: steps.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
-        env:
-          VERSION: v0.22.2
-          SHA256: ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39 # pragma: allowlist secret
-        run: |
-          archive="cargo-audit-x86_64-unknown-linux-gnu-$VERSION.tgz"
-          curl -fsSL -o "$RUNNER_TEMP/$archive" \
-            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/$VERSION/$archive"
-          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
-          mkdir "$RUNNER_TEMP/cargo-audit"
-          tar xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/cargo-audit"
-          install "$(find "$RUNNER_TEMP/cargo-audit" -type f -name cargo-audit)" "$HOME/.cargo/bin/"
-
-      - name: Cargo audit
-        if: steps.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
-        run: cargo audit
-
       - name: Cache cargo build
         if: steps.changes.outputs.code == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -203,7 +183,7 @@ jobs:
 
       - name: Run pre-commit
         # Runs on docs-only changes too; SKIP drops the hooks whose toolchain
-        # was not installed, and detect-secrets, which the secrets job owns.
+        # was not installed, and detect-secrets, which security.yml owns.
         # macOS-only hooks check uname themselves.
         env:
           SKIP: ${{ steps.changes.outputs.code == 'false' && 'detect-secrets,cargo-fmt,cargo-clippy,shfmt,shellcheck' || 'detect-secrets' }}
@@ -239,37 +219,6 @@ jobs:
           fi
         env:
           RUNNER_OS: ${{ runner.os }}
-
-  # Every pull request, Markdown included: a pasted key is as live in a doc.
-  # Known false positives sit in `.secrets.baseline` or carry
-  # `pragma: allowlist secret`; only a hit in neither fails the job.
-  secrets:
-    if: github.event.action != 'labeled' || github.event.label.name == 'windows'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-
-      - name: Scan for secrets
-        # The hook exits 1 on a new secret and 3 when it only moved a known
-        # hit's line number, which the local pre-commit hook commits.
-        run: | # pragma: allowlist secret
-          pip install detect-secrets==1.5.0
-          mapfile -d '' files < <(git ls-files -z)
-          status=0
-          detect-secrets-hook --baseline .secrets.baseline "${files[@]}" || status=$?
-          if [ "$status" -eq 3 ]; then
-            echo "::warning::.secrets.baseline has stale line numbers; run pre-commit locally to refresh it"
-          elif [ "$status" -ne 0 ]; then
-            exit "$status"
-          fi
 
   # Own job: no node test depends on the OS, and only Ubuntu ships the Chrome the
   # headless renderer tests drive. Without Rust or apt it finishes beside `checks`.
@@ -336,7 +285,6 @@ jobs:
         # A glob, not `tests/`: Node 24 reads a bare directory as a test file.
         # Pillow is for tests/readme-gifs.test.js.
         run: |
-          npm audit --audit-level=high
           pip install pillow
           node --test tests/*.test.js
 
