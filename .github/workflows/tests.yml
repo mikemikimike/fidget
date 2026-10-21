@@ -290,6 +290,7 @@ jobs:
         # A glob, not `tests/`: Node 24 reads a bare directory as a test file.
         # Pillow is for tests/readme-gifs.test.js.
         run: |
+          npm audit --audit-level=high
           pip install pillow
           node --test tests/*.test.js
 
