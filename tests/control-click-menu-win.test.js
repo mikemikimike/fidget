@@ -28,11 +28,17 @@ if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq "Get-FullscreenOverClick" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
-$screens = @(@{ Left = 0; Top = 0; Width = 1920; Height = 1080 }, @{ Left = 1920; Top = 0; Width = 2560; Height = 1440 })
-$fidget = @{ Pid = 7; Class = 'overlay'; Title = ''; Left = 0; Top = 0; Right = 4480; Bottom = 1440 }
-$game = @{ Pid = 9; Class = 'game'; Title = 'Game'; Left = 0; Top = 0; Right = 1920; Bottom = 1080 }
-$video = @{ Pid = 11; Class = 'video'; Title = 'Video'; Left = 1920; Top = 0; Right = 4480; Bottom = 1440 }
-$editor = @{ Pid = 12; Class = 'editor'; Title = 'Editor'; Left = 800; Top = 400; Right = 1200; Bottom = 700 }
+$screens = @(@{ Left = 0; Top = 0; Width = 1920; Height = 1080 }, @{ Left = 1920; Top = 0; Width = 2560; Height = 1440 }, @{ Left = 0; Top = 1080; Width = 1920; Height = 1080 })
+function Win($procId, $title, $left, $top, $right, $bottom, $exStyle = 0, $cloaked = $false) {
+  @{ Pid = $procId; Class = $title; Title = $title; Left = $left; Top = $top; Right = $right; Bottom = $bottom; ExStyle = $exStyle; Cloaked = $cloaked }
+}
+# Fidget's overlay is a click-through tool window until the cursor reaches the sprite.
+$fidget = Win 7 'overlay' 0 0 4480 2160 0xA0
+$game = Win 9 'Game' 0 0 1920 1080
+$video = Win 11 'Video' 1920 0 4480 1440
+$editor = Win 12 'Editor' 800 400 1200 700
+$maximized = Win 13 'Maximized' 0 0 1920 1040
+$below = Win 14 'Below' 0 1080 1920 2160
 function Over($windows) {
   $hit = Get-FullscreenOverClick $windows $screens 960 540 7
   if ($hit) { $hit.Title } else { 'none' }
@@ -85,5 +91,45 @@ test(
   { skip },
   () => {
     assert.deepEqual(run("Over @($editor, $fidget)"), ["none"]);
+  },
+);
+
+test(
+  "a click-through fullscreen window over Fidget passes the click on",
+  { skip },
+  () => {
+    assert.deepEqual(run("Over @((Win 9 'Dimmer' 0 0 1920 1080 0x20), $fidget)"), ["none"]);
+  },
+);
+
+test(
+  "a cloaked fullscreen window over Fidget is not on screen to take the click",
+  { skip },
+  () => {
+    assert.deepEqual(run("Over @((Win 9 'Elsewhere' 0 0 1920 1080 0 $true), $fidget)"), ["none"]);
+  },
+);
+
+test(
+  "a fullscreen tool window over Fidget counts as an overlay, not an app",
+  { skip },
+  () => {
+    assert.deepEqual(run("Over @((Win 9 'Overlay' 0 0 1920 1080 0x80), $fidget)"), ["none"]);
+  },
+);
+
+test(
+  "a maximized window over the click stops short of the screen and is not fullscreen",
+  { skip },
+  () => {
+    assert.deepEqual(run("Over @($maximized, $fidget)"), ["none"]);
+  },
+);
+
+test(
+  "a fullscreen window holding the click's X but not its Y is not at the click",
+  { skip },
+  () => {
+    assert.deepEqual(run("Over @($below, $fidget)"), ["none"]);
   },
 );
