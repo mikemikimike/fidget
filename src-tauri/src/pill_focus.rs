@@ -77,6 +77,7 @@ pub fn hand_back(holding: bool, previous_alive: bool) -> HandBack {
 
 /// What was in front when a pill took the keyboard. Fidget's own Chat is a
 /// window number, not a stand-in pid.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RememberedFront {
     None,
@@ -86,6 +87,7 @@ pub enum RememberedFront {
 
 /// Where the keyboard goes when the last pill closes. A `Stay` keeps what
 /// was remembered for the next close.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HandBackPlan {
     Stay(RememberedFront),
@@ -95,6 +97,7 @@ pub enum HandBackPlan {
 }
 
 /// `pid` is another app, or 0. `window` is Fidget's own key window, or 0.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn remembered_front(pid: i32, window: isize) -> RememberedFront {
     if pid > 0 {
         RememberedFront::OtherApp(pid)
@@ -107,6 +110,7 @@ pub fn remembered_front(pid: i32, window: isize) -> RememberedFront {
 
 /// `holding`: the overlay still has the keyboard. `target_alive`: the
 /// remembered app or window still exists.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn plan_hand_back(
     holding: bool,
     remembered: RememberedFront,
