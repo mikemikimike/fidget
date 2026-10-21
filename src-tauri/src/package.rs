@@ -942,7 +942,7 @@ mod tests {
             ReadError::Unreadable { path, why } => {
                 assert_eq!(path, archive);
                 assert!(
-                    why.contains("declares"),
+                    why.contains("declared"),
                     "the refusal says the entry outgrew its header: {why}"
                 );
             }
