@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn thinking_row_x11_fixture_passes_and_a_wrong_glyph_fails() {
         let scenarios = repo_scenarios();
-        let script = scenarios.join("manual-only/thinking-row.x11.sh");
+        let script = scenarios.join("ci/thinking-row.x11.sh");
         let open = scenarios.join("fixtures/thinking-row-open.txt");
         let done = scenarios.join("fixtures/thinking-row-done.txt");
         let ok = Command::new("bash")
@@ -408,7 +408,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn thinking_row_x11_without_a_display_skips() {
-        let script = repo_scenarios().join("manual-only/thinking-row.x11.sh");
+        let script = repo_scenarios().join("ci/thinking-row.x11.sh");
         let out = Command::new("bash")
             .arg(&script)
             .args(["--go", "/bin/true", "/bin/true"])
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn chat_header_narrow_x11_fixture_passes_and_a_wide_page_fails() {
         let scenarios = repo_scenarios();
-        let script = scenarios.join("manual-only/chat-header-narrow.x11.sh");
+        let script = scenarios.join("ci/chat-header-narrow.x11.sh");
         let ax420 = scenarios.join("fixtures/chat-header-narrow-420.txt");
         let ax360 = scenarios.join("fixtures/chat-header-narrow-360.txt");
         let ax320 = scenarios.join("fixtures/chat-header-narrow-320.txt");
@@ -469,7 +469,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn chat_header_narrow_x11_without_a_display_skips() {
-        let script = repo_scenarios().join("manual-only/chat-header-narrow.x11.sh");
+        let script = repo_scenarios().join("ci/chat-header-narrow.x11.sh");
         let out = Command::new("bash")
             .arg(&script)
             .args(["--go", "/bin/true", "/bin/true"])
@@ -1010,7 +1010,7 @@ mod tests {
             std::os::unix::fs::symlink(path.trim(), bare.path().join(tool)).unwrap();
         }
         let out = Command::new("/bin/bash")
-            .arg(repo_scenarios().join("manual-only/chat-close-pill-type.x11.sh"))
+            .arg(repo_scenarios().join("ci/chat-close-pill-type.x11.sh"))
             .args(["--go", "/bin/true", "/bin/true"])
             .env("PATH", bare.path())
             .output()
