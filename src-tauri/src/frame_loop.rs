@@ -171,11 +171,9 @@ pub(crate) fn run_frame_loop(
             settings: mut director,
             inspect,
         } = director_run;
-        // Track whether we need to emit "something can answer now" after the
-        // first successful wake. Set when `first_connection` is true (going from
-        // not configured to configured), cleared after the first successful wake
-        // or if configuration is lost. The bug: emitting it immediately on Retarget
-        // shows the banner even when harness spawn will fail moments later.
+        // Set on a first connection, cleared by the first successful wake or a lost
+        // configuration, so "something can answer now" waits for a Harness that
+        // actually spawned.
         let mut pending_first_connection_message = false;
         let FrameExtras {
             settings,
@@ -281,10 +279,9 @@ pub(crate) fn run_frame_loop(
         // blocks on this channel when idle instead of polling at 16ms. #183.
         #[cfg(all(unix, not(target_os = "macos")))]
         let mut input_events = platform::spawn_xi2_listener();
-        // macOS: the same channel, fed by a mouse event tap, and only once the
-        // user has turned Input Monitoring on. Starts `None` so a leftover OS
-        // grant cannot listen before the first tick reads the setting. `mut`
-        // because that setting can be flipped while the loop runs (#721).
+        // macOS: the same channel, fed by a mouse event tap once Input Monitoring is
+        // on. Starts `None` so a leftover OS grant cannot listen before the first tick
+        // reads the setting, which can flip while the loop runs.
         #[cfg(target_os = "macos")]
         let mut input_events: Option<platform::EventTap> = None;
         #[cfg(not(unix))]
@@ -329,17 +326,14 @@ pub(crate) fn run_frame_loop(
             {
                 let wanted = crate::consent::wanted(crate::consent::CapabilityId::InputMonitoring);
                 if !wanted {
-                    // Drop stops the tap thread from this side. A grant
-                    // revoked while the setting stays on is still not caught
-                    // here: the loop waits out the deadline below, which is
-                    // the back-off it would have had anyway (#721).
+                    // Drop stops the tap thread. A grant revoked while the setting stays on is
+                    // not caught here; the loop waits out the deadline below, the back-off it
+                    // would have had anyway.
                     input_events = None;
                 } else if input_events.is_none() && schedule_mode == scheduler::ScheduleMode::Idle {
-                    // Idle only: this asks TCC whether the grant has landed
-                    // yet, and an Active tick asking 60 times a second would
-                    // cost more than the tap saves. An idle wait is at most a
-                    // second while the poll is still on, so a grant made in
-                    // System Settings is picked up about that fast.
+                    // Idle only: asking TCC 60 times a second would cost more than the tap
+                    // saves. An idle wait is at most a second while polling, so a new grant is
+                    // picked up about that fast.
                     input_events = platform::spawn_event_tap();
                 }
             }
@@ -349,10 +343,9 @@ pub(crate) fn run_frame_loop(
             // sleep. Dropped after the match, where nothing borrows it.
             let mut listener_hung_up = false;
 
-            // Active sleeps 16ms. Idle blocks until a real deadline with no
-            // cap (#183). Hidden: sleep, ignore input events. Visible
-            // (Asleep/DND included): the listener stays on so hit-testing keeps
-            // Poke/Grab/Throw.
+            // Active sleeps 16ms. Idle blocks until a real deadline with no cap. Hidden
+            // sleeps and ignores input. Visible, Asleep and DND included, keeps the
+            // listener so hit-testing keeps Poke, Grab and Throw.
             match (schedule_mode, was_visible, &input_events) {
                 (scheduler::ScheduleMode::Idle, true, Some(events)) => {
                     let next_director = lives
@@ -892,10 +885,8 @@ pub(crate) fn run_frame_loop(
                                 &director,
                                 configured,
                             );
-                            // On first connection, defer the "something can answer now"
-                            // message until after the first successful wake. Otherwise
-                            // the banner appears even when harness spawn fails moments
-                            // later, scrolling the chat away from the connection error.
+                            // Defer the banner to the first successful wake, or a failed spawn
+                            // scrolls the chat away from its own error.
                             if first_connection {
                                 pending_first_connection_message = true;
                             } else {
@@ -1683,10 +1674,8 @@ pub(crate) fn run_frame_loop(
                     }
                 }
 
-                // The verbs are this Instance's alone, decided above. Taken
-                // rather than cloned: the snapshot is reused across Instances,
-                // and a verb left behind would be replayed next tick.
-                // This Instance only. The snapshot is shared, and a
+                // This Instance's verbs, taken rather than cloned: the snapshot is shared
+                // across Instances, so a verb left behind replays next tick, and a
                 // neighbour's caret must not stop this one.
                 world.composing =
                     platform::overlay_composing().as_deref() == Some(live.id.as_str());
@@ -1891,10 +1880,8 @@ pub(crate) fn run_frame_loop(
                                     inspect.last_payload = Some(payload);
                                     inspect.wake_secs = live.pace.wait().as_secs();
                                 }
-                                // Starting a call cancels the one before it
-                                // (ADR-0016). Tell a typed line on the wire its
-                                // caret is cancelled, not that nothing came back (#681),
-                                // and name the wake that cancelled it (#890).
+                                // Starting a call cancels the one before it (ADR-0016). Tell a typed
+                                // line on the wire its caret was cancelled, and by which wake.
                                 if let Some(note) = caret {
                                     let _ = app.emit_to(chat_label(&live.id), CHAT_EVENT, note);
                                 }
