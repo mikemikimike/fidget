@@ -4456,5 +4456,62 @@ mod windows_job {
         // Job assignment failure paths must resume the suspended child
         // before returning Ok. A child left suspended hangs later tests
         // waiting for stdio.
+
+        /// #1671: a second suspended thread owned by the child must resume too.
+        /// It calls `RtlExitUserProcess(42)`, so exit code 42 proves it ran.
+        #[test]
+        fn test_resume_resumes_every_child_thread() {
+            use std::os::windows::io::AsRawHandle;
+            use std::os::windows::process::CommandExt;
+            use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+            use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+            use windows_sys::Win32::System::Threading::{
+                CreateRemoteThread, GetExitCodeProcess, WaitForSingleObject,
+            };
+
+            let mut child = std::process::Command::new("cmd.exe")
+                .args(["/d", "/c", "pause"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED)
+                .spawn()
+                .expect("spawn cmd.exe");
+            let process = child.as_raw_handle() as HANDLE;
+
+            let exit = unsafe {
+                let ntdll = GetModuleHandleA(c"ntdll.dll".as_ptr().cast());
+                let exit = GetProcAddress(ntdll, c"RtlExitUserProcess".as_ptr().cast());
+                exit.expect("RtlExitUserProcess")
+            };
+            let thread = unsafe {
+                CreateRemoteThread(
+                    process,
+                    std::ptr::null(),
+                    0,
+                    Some(std::mem::transmute::<
+                        unsafe extern "system" fn() -> isize,
+                        unsafe extern "system" fn(*mut core::ffi::c_void) -> u32,
+                    >(exit)),
+                    42usize as *const core::ffi::c_void,
+                    CREATE_SUSPENDED,
+                    std::ptr::null_mut(),
+                )
+            };
+            assert!(!thread.is_null(), "CreateRemoteThread failed");
+            unsafe { CloseHandle(thread) };
+
+            resume_primary_thread(child.id()).expect("resume");
+
+            let waited = unsafe { WaitForSingleObject(process, 3000) };
+            if waited != WAIT_OBJECT_0 {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("child still blocked after 3 s: the injected thread stayed suspended");
+            }
+            let mut code = 0u32;
+            assert_ne!(unsafe { GetExitCodeProcess(process, &mut code) }, 0);
+            assert_eq!(code, 42);
+            let _ = child.wait();
+        }
     }
 }
