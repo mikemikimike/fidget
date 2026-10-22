@@ -557,44 +557,42 @@ def cue_css(css):
     return "\n".join(kept) + "\n"
 
 
+def lift(css, shared, scope, wanted, prefix=""):
+    """`shared`'s :root tokens scoped to `scope`, the `wanted` selectors of each
+    rule in `css` behind `prefix`, and the wanted selectors no rule has."""
+    tokens = [f"{scope} {{{body}}}" for prelude, body in top_level_rules(shared) if prelude == ":root"]
+    kept, found = [], set()
+    for prelude, body in top_level_rules(css):
+        selectors = [part.strip() for part in prelude.split(",") if part.strip() in wanted]
+        found.update(selectors)
+        if selectors:
+            kept.append(", ".join(prefix + part for part in selectors) + f" {{{body}}}")
+    return tokens, kept, [rule for rule in wanted if rule not in found]
+
+
 def chat_css(css, shared, wanted=CHAT_RULES):
     """The minimal Chat UI's own tokens and the `wanted` rules from
     src/chat-ui.css, scoped to `.play-chat-ui`, so the chat mock is the app's
     Chat as the pill is its quick message. Scoped because chat-ui.css styles a
     whole window: its `.bar` alone would restyle every title bar on the desk."""
-    kept = [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(shared) if prelude == ":root"]
     theme = [f".play-chat-ui {{{body}}}" for prelude, body in top_level_rules(css) if prelude == ".chat-ui-minimal"]
     if not theme:
         # Without it every --chat-* token is unset and the mock draws transparent.
         raise Malformed(f"{CHAT_UI.name} holds no .chat-ui-minimal block for the chat mock's colours")
-    kept += theme
-    found = set()
-    for prelude, body in top_level_rules(css):
-        selectors = [part.strip() for part in prelude.split(",") if part.strip() in wanted]
-        found.update(selectors)
-        if selectors:
-            kept.append(", ".join(f".play-chat-ui {part}" for part in selectors) + f" {{{body}}}")
-    missing = [rule for rule in wanted if rule not in found]
+    tokens, kept, missing = lift(css, shared, ".play-chat-ui", wanted, ".play-chat-ui ")
     if missing:
         raise Malformed(f"{CHAT_UI.name} holds no {', '.join(missing)} rule for the chat mock")
-    return "\n".join(kept) + "\n"
+    return "\n".join(tokens + theme + kept) + "\n"
 
 
 def bubble_css(css, shared, wanted=BUBBLE_RULES):
     """The overlay's speech bubble from src/main.css, so the page character
     speaks in the app's own bubble. The shared tokens it reads are scoped to
     `.bubble`, as the chat mock's are to `.play-chat-ui`."""
-    kept = [f".bubble {{{body}}}" for prelude, body in top_level_rules(shared) if prelude == ":root"]
-    found = set()
-    for prelude, body in top_level_rules(css):
-        selectors = [part.strip() for part in prelude.split(",")]
-        if all(part in wanted for part in selectors):
-            found.update(selectors)
-            kept.append(f"{prelude} {{{body}}}")
-    missing = [rule for rule in wanted if rule not in found]
+    tokens, kept, missing = lift(css, shared, ".bubble", wanted)
     if missing:
         raise Malformed(f"{CUES.name} holds no {', '.join(missing)} rule for the page character's bubble")
-    return "\n".join(kept) + "\n"
+    return "\n".join(tokens + kept) + "\n"
 
 
 def play_data(page):
@@ -973,7 +971,7 @@ def self_check():
     assert bubble_css(".bubble { color: red; }\n.bubble.visible, .cue { opacity: 1; }\n.bubble-content { a: b; }\n",
                       ":root { --shared-ink: #fff; }\n", wanted=(".bubble", ".bubble-content")) == (
         ".bubble { --shared-ink: #fff; }\n.bubble { color: red; }\n.bubble-content { a: b; }\n"), \
-        "the bubble lifted a rule shared with something else, or lost its shared tokens"
+        "the bubble lifted a selector it does not want, or lost its shared tokens"
     try:
         bubble_css(".bubble { color: red; }", "")
     except Malformed:
