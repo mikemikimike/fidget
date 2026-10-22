@@ -26,9 +26,10 @@ root=$(cd "$(dirname "$0")/../../.." && pwd)
 out="${TMPDIR:-/tmp}/fidget-scenario-thinking-row-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home/Library/Application Support/fidget" "$tools"
-log="$out/app.log" marks="$out/harness.log"
+log="$out/app.log" marks="$out/harness.log" hold="$out/hold"
 trace="$out/home/Library/Application Support/fidget/process.log"
 : > "$marks"
+mkfifo "$hold"
 
 cat > "$out/home/Library/Application Support/fidget/settings.json" << 'SETTINGS_EOF'
 {"first_run_tour_shown": true}
@@ -45,8 +46,8 @@ fail() {
 build_ax_events
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
-harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
-[ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
+harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-thinking count=$marks hold=$hold"
+[ "$(wc -w <<< "$harness")" -eq 5 ] || fail "a path in the Harness line holds a space: $harness"
 
 start_ms=$(now_ms)
 # TRACE_BUBBLE is what logs `chat: <label> is open`; nothing else says a fresh
@@ -81,6 +82,9 @@ wait_for_trace 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is open$' || fail "Chat neve
 [ -n "$("$tools/window-id" "$pid" BMO 2> /dev/null)" ] || fail "Chat did not open for the ask"
 wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought ▾
+# Opening the FIFO releases the Harness's held reply. Read-write never blocks,
+# even if the Harness is gone; the fd closes when the scenario exits.
+exec 3<> "$hold"
 wait_for_marks 3 "$marks" '^replied$' || fail "no reply; see $log"
 capture after-reply ▸
 elapsed_ms=$(($(now_ms) - start_ms))

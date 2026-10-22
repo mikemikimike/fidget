@@ -3836,6 +3836,18 @@ mod tests {
         }
     }
 
+    /// Whether a leaf opened `fifo` before `bound`. Opening a FIFO's read end
+    /// blocks until a writer opens it; on a timeout that open stays blocked in
+    /// its thread, which the fixture's exit ends.
+    fn hold(fifo: &Path, bound: Duration) -> bool {
+        let (tx, rx) = mpsc::channel();
+        let fifo = fifo.to_owned();
+        thread::spawn(move || {
+            let _ = tx.send(std::fs::File::open(fifo).is_ok());
+        });
+        rx.recv_timeout(bound).unwrap_or(false)
+    }
+
     fn record_open(count: Option<&Path>, message: &Value) {
         if let Some(cwd) = message.pointer("/params/cwd").and_then(Value::as_str) {
             record(count, &format!("cwd={cwd}"));
@@ -4500,12 +4512,18 @@ mod tests {
                             record(count, "asked");
                             thread::sleep(Duration::from_millis(300));
                             say(json!({"jsonrpc": "2.0", "id": 99, "result": {"option": "allow"}}));
-                            // Slow enough that a hosted runner's dump lands
-                            // between `thought 2` and the reply.
                             for n in 1..=4 {
                                 thought(&session, &format!("Thought {n} of four. "));
                                 record(count, &format!("thought {n}"));
-                                thread::sleep(Duration::from_millis(800));
+                                thread::sleep(Duration::from_millis(300));
+                            }
+                            // The reply collapses the row, so a leaf that passes
+                            // `hold=<fifo>` opens it once it has the open-row dump.
+                            // 3 s bounds a leaf that never does.
+                            if let Some(fifo) = std::env::args()
+                                .find_map(|arg| arg.strip_prefix("hold=").map(PathBuf::from))
+                            {
+                                hold(&fifo, Duration::from_secs(3));
                             }
                             chunk(&session, "fidget\nChat is open.");
                             stop(&id, "end_turn");
@@ -6188,6 +6206,39 @@ mod tests {
                 .iter()
                 .any(|arg| arg.contains("CLAUDE_CONFIG_DIR") || arg.contains("ANTHROPIC_API_KEY")));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hold_ends_when_the_leaf_opens_the_fifo_or_at_the_bound() {
+        let fifo = std::env::temp_dir().join(format!("fidget-hold-{}", uuid::Uuid::new_v4()));
+        assert!(Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+
+        let started = Instant::now();
+        assert!(!hold(&fifo, Duration::from_millis(300)));
+        assert!(started.elapsed() >= Duration::from_millis(300));
+
+        let leaf = fifo.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(200));
+            // What `exec 3<> fifo` does: it never blocks, with or without a reader.
+            let open = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(leaf);
+            thread::sleep(Duration::from_secs(5));
+            drop(open);
+        });
+        let started = Instant::now();
+        assert!(hold(&fifo, Duration::from_secs(3)));
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(200), "{took:?}");
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        let _ = std::fs::remove_file(&fifo);
     }
 
     /// Production change that would fail this. The child stays in the app's
