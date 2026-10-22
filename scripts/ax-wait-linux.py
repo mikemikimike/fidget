@@ -46,7 +46,6 @@ def main(argv):
     pid, title, seconds, pattern = int(argv[1]), argv[2], float(argv[3]), re.compile(argv[4])
     try:
         import pyatspi
-        from gi.repository import GLib
     except ImportError:
         print("pyatspi is not installed", file=sys.stderr)
         return 2
@@ -67,28 +66,7 @@ def main(argv):
                 f.write(out.getvalue())
         return True
 
-    if matches():
-        return 0
-    found = []
-
-    def on_event(event):
-        try:
-            if event.host_application.get_process_id() != pid:
-                return
-        except Exception:
-            return
-        if not found and matches():
-            found.append(True)
-            pyatspi.Registry.stop()
-
-    def give_up():
-        pyatspi.Registry.stop()
-        return False
-
-    pyatspi.Registry.registerEventListener(on_event, *EVENTS)
-    GLib.timeout_add(int(seconds * 1000), give_up)
-    pyatspi.Registry.start()
-    return 0 if found or matches() else 1
+    return 0 if ax.wait_until(pid, matches, seconds, EVENTS) else 1
 
 
 if __name__ == "__main__":
