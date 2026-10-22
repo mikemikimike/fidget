@@ -15,6 +15,7 @@ const ENV = {
   tuning: TUNING,
   lines: ["Beep.", "Hello there."],
   sayMs: () => 3000,
+  margin: () => 0,
 };
 
 function run(state, events, env = ENV) {
@@ -32,17 +33,28 @@ function run(state, events, env = ENV) {
 const ticks = (from, count, dt = 0.05, rand = 0.9) =>
   Array.from({ length: count }, (_, i) => ({ type: "tick", now: from + (i + 1) * dt * 1000, dt, rand }));
 const view = (play, blocked = false) => ({ type: "view", play, blocked });
-const fresh = (options = {}) => start({ now: 0, rand: 0.5, width: 1200, margin: 0, spriteW: 90, ...options });
+const fresh = (options = {}) => start({ now: 0, rand: 0.5, width: 1200, ...options });
 const onPage = () => run(fresh(), [view(false), ...ticks(0, 30)]).state;
 
 test("it enters in the margin beside the content column, on a side the visit rolls, facing the page", () => {
-  const left = start({ now: 0, rand: 0.2, width: 1512, margin: 228, spriteW: 90 });
-  const right = start({ now: 0, rand: 0.8, width: 1512, margin: 228, spriteW: 90 });
-  assert.deepEqual([left.sprite.x, left.sprite.facing, right.sprite.x, right.sprite.facing], [114, 1, 1398, -1]);
-  const narrow = start({ now: 0, rand: 0.2, width: 390, margin: 16, spriteW: 90 });
-  assert.equal(narrow.sprite.x, 45, "with no margin to fit in, it enters against the edge");
-  const entered = run(left, [view(false), ...ticks(0, 30)]).state;
-  assert.deepEqual(feet(entered.sprite, ENV.world), { x: 114, y: 800 });
+  const wide = { ...ENV, world: { ...ENV.world, width: 1512 }, margin: () => 228 };
+  const enter = (rand, env) => run(start({ now: 0, rand, width: env.world.width }), [view(false), ...ticks(0, 30)], env).state;
+  const left = enter(0.2, wide);
+  const right = enter(0.8, wide);
+  assert.deepEqual([feet(left.sprite, wide.world), left.sprite.facing], [{ x: 114, y: 800 }, 1]);
+  assert.deepEqual([feet(right.sprite, wide.world).x, right.sprite.facing], [1398, -1]);
+  const phone = { ...ENV, world: { ...ENV.world, width: 390 }, margin: () => 16 };
+  assert.equal(feet(enter(0.2, phone).sprite, phone.world).x, 45, "with no margin to fit in, it enters against the edge");
+});
+
+test("every return to the page walks up in a margin, on the side nearer where it left", () => {
+  const env = { ...ENV, world: { ...ENV.world, width: 1512 }, margin: () => 228 };
+  const leftMidPage = { ...start({ now: 0, rand: 0.2, width: 1512 }),
+    phase: "lent", sprite: { mode: "away", x: 900, facing: -1 } };
+  const back = run(leftMidPage, [view(false), ...ticks(0, 30)], env).state;
+  assert.deepEqual([feet(back.sprite, env.world).x, back.sprite.facing], [1398, -1]);
+  const leftSide = run({ ...leftMidPage, sprite: { mode: "away", x: 500, facing: 1 } }, [view(false), ...ticks(0, 30)], env).state;
+  assert.deepEqual([feet(leftSide.sprite, env.world).x, leftSide.sprite.facing], [114, 1]);
 });
 
 test("the playground keeps the character until the page knows where it is scrolled", () => {

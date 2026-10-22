@@ -19,20 +19,24 @@ const span = ([low, high], roll) => low + (high - low) * roll;
 //   lent: the playground;
 //   hidden: nobody, as the visitor hid it.
 // The playground starts with it, and view stays null until the page knows
-// whether the playground is in sight. It first walks up in the `margin` beside
-// the content column, on a side the visit rolls, or against that edge when the
-// margin is narrower than it is, and faces the page.
-export function start({ now, rand, width, margin, spriteW, hidden = false, still = false }) {
-  const inset = Math.max(margin, spriteW) / 2;
-  const left = rand < 0.5;
+// whether the playground is in sight. It first walks up on a side the visit
+// rolls.
+export function start({ now, rand, width, hidden = false, still = false }) {
   return {
     phase: hidden ? "hidden" : "lent",
-    sprite: { mode: "away", x: left ? inset : width - inset, facing: left ? 1 : -1 },
+    sprite: { mode: "away", x: rand < 0.5 ? 0 : width, facing: rand < 0.5 ? 1 : -1 },
     still,
     view: null,
     speech: null,
     nextLine: now + span(LINES.first, rand),
   };
+}
+
+// It walks up in the `margin` beside the content column, or against the edge
+// when the margin is narrower than it is, facing the page: never over text.
+function inMargin(sprite, left, width, margin, spriteW) {
+  const inset = Math.max(margin, spriteW) / 2;
+  return { ...sprite, x: left ? inset : width - inset, facing: left ? 1 : -1 };
 }
 
 const speaking = (state, now) => state.speech !== null && now < state.speech.until;
@@ -73,7 +77,11 @@ function tick(state, event, env) {
     next = { ...next, phase: "lent" };
     handoff = "arrive";
   } else if (wanted === "enter") {
-    next = { ...next, phase: "page", sprite: move(next.sprite, { type: "enter" }) };
+    const { width, sprite } = env.world;
+    const from = next.sprite.mode === "away"
+      ? inMargin(next.sprite, next.sprite.x < width / 2, width, env.margin(), sprite.w)
+      : next.sprite;
+    next = { ...next, phase: "page", sprite: move(from, { type: "enter" }) };
     handoff = state.phase === "lent" ? "depart" : null;
   }
   if (next.phase === "page" && !speaking(next, now) && now >= next.nextLine && talkable(next.sprite)) {
@@ -142,7 +150,9 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   layer.hidden = false;
 
   const world = () => ({ width: doc.documentElement.clientWidth, height: innerHeight, sprite: { w, h }, windows: [] });
-  const env = () => ({ world: world(), tuning: data.tuning, lines: me.lines, sayMs: bubble.bubbleDuration });
+  const column = doc.querySelector(".wrap");
+  const margin = () => column.getBoundingClientRect().left + parseFloat(getComputedStyle(column).paddingLeft);
+  const env = () => ({ world: world(), tuning: data.tuning, lines: me.lines, sayMs: bubble.bubbleDuration, margin });
   const feetNow = () => feet(state.sprite, world());
   const io = cue.cueIo(doc.getElementById("fidget-cues"), () => {
     const f = feetNow();
@@ -150,9 +160,7 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   });
   // Visual only, as on the desk.
   const cues = cue.createCueMachine({ draw: io.draw, sound: () => () => {} });
-  const column = doc.querySelector(".wrap");
-  const margin = column.getBoundingClientRect().left + parseFloat(getComputedStyle(column).paddingLeft);
-  let state = start({ now: performance.now(), rand: Math.random(), width: world().width, margin, spriteW: w,
+  let state = start({ now: performance.now(), rand: Math.random(), width: world().width,
     hidden: hiddenBefore(), still });
   back.hidden = state.phase !== "hidden";
   let pending = 0;
