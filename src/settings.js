@@ -566,10 +566,6 @@ export function copyRunForPress(payload) {
 
 // --- The tab shell ---------------------------------------------------------
 
-export function tabTitles(form) {
-  return form.tabs.map((tab) => tab.title);
-}
-
 // Which tab a title selects. A title the form does not carry selects the first
 // tab rather than nothing: a renamed tab would otherwise leave the page with a
 // tablist and no panel.

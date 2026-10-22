@@ -707,7 +707,7 @@ struct Placed {
     owner: Option<usize>,
     /// The open quick-message draft, carried to the bubble owner like `dialogue`.
     qm: Option<fidget_core::quick_message::QmDraft>,
-    #[allow(dead_code)]
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     mask: fidget_core::overlay::AlphaMask,
 }
 
