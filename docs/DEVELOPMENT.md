@@ -63,6 +63,10 @@ pre-commit install
 
 Covers whitespace, YAML/JSON/TOML, spelling, shell (shfmt + shellcheck), `cargo fmt`, and `cargo clippy --workspace --all-targets -- -D warnings`, as CI runs it. The toolchain is pinned in `rust-toolchain.toml`. The webview modules in `src/*.js` also lint under oxlint's official pre-commit hook for undeclared globals (`no-undef`, `no-global-assign`, set in `.oxlintrc.json`). pre-commit installs the pinned oxlint into its own cache with the system node, so nothing enters `node_modules`.
 
+## Dependency Audits
+
+The Security workflow (`.github/workflows/security.yml`) runs `cargo audit` and `npm audit` on every pull request, on `main`, and nightly. The nightly run catches a new advisory against a dependency nobody touched.
+
 ## Secret Scanning
 
 The Secret Scanning workflow (`.github/workflows/secret-scanning.yml`) runs two scanners on every pull request and on `main`. detect-secrets 1.5.0 scans every tracked file, Markdown included. A false positive goes on its line as a `pragma: allowlist secret` comment. Where a comment can't go, as in JSON, the hit is recorded in [`.secrets.baseline`](../.secrets.baseline) instead. A hit inside a YAML block such as a workflow's `run: |` covers the whole block, whether a pragma or the baseline allows it, so move the value into the step's `env:` until the block has none. Quoting it doesn't help: the scanner keeps only a block's first match and then drops the quoted value, which hides every hit below it. A baselined hit that moves lines only warns, since the baseline matches by hash; `detect-secrets scan --baseline .secrets.baseline` refreshes it. TruffleHog scans the new commits and fails only on secrets it verifies against their issuer.
@@ -416,10 +420,10 @@ cd src-tauri && FIDGET_INSTANCES="buddy-bot:One,buddy-bot:Two,nim:Nim" cargo run
 
 ## Importing Pets
 
-Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), or [Shimeji Shop](https://shimejishop.com/) packs to Character Packages. `scripts/import-pet.py` needs Python 3.11 or newer and Pillow. Set it up once, from the repository root:
+Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), or [Shimeji Shop](https://shimejishop.com/) packs to Character Packages. `scripts/import-pet.py` needs Python 3.11 or newer, Pillow and defusedxml. Set it up once, from the repository root:
 
 ```sh
-uv venv --python 3.11 && uv pip install pillow
+uv venv --python 3.11 && uv pip install -r scripts/requirements-import.txt
 ```
 
 The importer writes the frames and a `character.manifest` to the `-o` directory, and `--force` replaces one that exists. It then runs `character::load` on the output and fails if the loader rejects it. It prints the pack's license and warns when none is declared.

@@ -374,22 +374,14 @@ fn read_archive(path: &Path) -> Result<PackageBytes, String> {
         // Charged against the size the archive advertises, before a byte is
         // decompressed, so a small archive claiming a huge entry is refused
         // rather than allocated for.
-        let allowed = budget.charge(entry.size())?;
+        budget.charge(entry.size())?;
 
-        // Read under that same cap: the header is the archive's own claim.
-        // An entry declaring one byte and inflating to a gigabyte is a zip bomb,
-        // and `read_to_end` would follow it all the way down.
+        // zip 9 errors once an entry inflates past its declared size, so a
+        // zip bomb stops at what was charged; the zip-bomb test pins that.
         let mut bytes = Vec::new();
         entry
-            .by_ref()
-            .take(allowed + 1)
             .read_to_end(&mut bytes)
             .map_err(|e| format!("{name} could not be read: {e}"))?;
-        if bytes.len() as u64 > allowed {
-            return Err(format!(
-                "{name} decompresses to more than the {allowed} bytes it declares"
-            ));
-        }
         files.insert(name, bytes);
     }
 
@@ -420,9 +412,7 @@ impl Budget {
     }
 
     /// Charge one file of `size` bytes, or refuse the package.
-    ///
-    /// Returns how many bytes remain so a reader that cannot trust an archive header can cap decompression.
-    fn charge(&mut self, size: u64) -> Result<u64, String> {
+    fn charge(&mut self, size: u64) -> Result<(), String> {
         if self.files == 0 {
             return Err(format!(
                 "the package holds more than {MAX_PACKAGE_FILES} files"
@@ -436,7 +426,7 @@ impl Budget {
         }
         self.files -= 1;
         self.bytes -= size;
-        Ok(size)
+        Ok(())
     }
 }
 
@@ -736,7 +726,7 @@ mod tests {
     fn write_archive(path: &Path, root_name: &str, macos_litter: bool) {
         let file = fs::File::create(path).expect("archive is creatable");
         let mut zip = zip::ZipWriter::new(file);
-        let stored: zip::write::FileOptions<'_, ()> =
+        let stored: zip::write::FileOptions<'_, '_, ()> =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
         let mut write = |name: String, bytes: &[u8]| {
@@ -905,8 +895,8 @@ mod tests {
     }
 
     /// A zip bomb: an entry whose header declares almost nothing and whose
-    /// stream inflates to far more. The header is the archive's claim about
-    /// itself, so the reader has to cap the read rather than believe it.
+    /// stream inflates to far more. The budget trusts the header, so this pins
+    /// zip's own refusal to read past it; a zip that stops checking fails here.
     #[test]
     fn an_archive_entry_that_inflates_past_what_it_declares_is_refused() {
         let dir = TempDir::new("zip-bomb");
@@ -917,7 +907,7 @@ mod tests {
             let mut zip = zip::ZipWriter::new(file);
             zip.start_file(
                 CHARACTER_MANIFEST_FILE,
-                zip::write::FileOptions::<'_, ()>::default()
+                zip::write::FileOptions::<'_, '_, ()>::default()
                     .compression_method(zip::CompressionMethod::Deflated),
             )
             .expect("archive entry is startable");
@@ -942,7 +932,7 @@ mod tests {
             ReadError::Unreadable { path, why } => {
                 assert_eq!(path, archive);
                 assert!(
-                    why.contains("declares"),
+                    why.contains("declared"),
                     "the refusal says the entry outgrew its header: {why}"
                 );
             }

@@ -3,8 +3,8 @@
 
 A one-time authoring tool, not a build step: it translates a pet once and the
 output is ours to review and hand-tune. Unlike the make-*-characters scripts
-this one needs Pillow — the petscodex ecosystem ships webp sprite sheets, and
-decoding webp rules out the standard library. It is the one script allowed to.
+this one needs Pillow and defusedxml — petscodex ships webp sprite sheets, and
+Shimeji packs ship untrusted actions.xml. It is the one script allowed to.
 
     python3 scripts/import-pet.py ~/.codex/pets/cat --format petscodex -o characters/cat
     python3 scripts/import-pet.py --self-test
@@ -708,7 +708,8 @@ def read_shimeji(source, name=None):
     come from actions.xml, whose Action elements name Pose sequences — a
     richer source than frame numbering alone. Shimeji art walks left, so
     every frame is mirrored to head right, the engine's default (#96)."""
-    import xml.etree.ElementTree as ET
+    from defusedxml import DefusedXmlException
+    from defusedxml import ElementTree as ET
 
     from PIL import Image, ImageOps
 
@@ -725,16 +726,10 @@ def read_shimeji(source, name=None):
         actions = dict(SHIMEJI_DEFAULT_ACTIONS)
     else:
         # A pack is a download from the internet, so its actions.xml is
-        # untrusted. expat caps entity amplification only since 2.4, and no pack
-        # has a reason to declare an entity, so the declaration itself is refused.
-        #
-        # ponytail: a scan for the literal token rather than a parser-level
-        # handler, because CPython's C XMLParser exposes no handler to install
-        # one on. `<!ENTITY` is spelled exactly this way in XML, so the only
-        # false positive is a pack that writes it inside a comment or text,
-        # which is refused too. Take the defusedxml dependency if a real pack
-        # ever trips that.
-        if b"<!ENTITY" in actions_file.read_bytes():
+        # untrusted: defusedxml refuses entity declarations in any encoding.
+        try:
+            tree = ET.parse(actions_file)
+        except DefusedXmlException:
             sys.exit(f"{actions_file}: declares an XML entity - refusing to parse")
 
         # Tags are namespaced ({http://www.group-finity.com/Mascot}Action);
@@ -744,7 +739,7 @@ def read_shimeji(source, name=None):
             return tag.rsplit("}", 1)[-1]
 
         actions = {}
-        for element in ET.parse(actions_file).iter():
+        for element in tree.iter():
             if local(element.tag) != "Action":
                 continue
             poses = [
@@ -852,10 +847,12 @@ def emit(pet, out, validate=True, stand=None):
                     # Resample premultiplied: with straight alpha, the RGB
                     # of invisible pixels bleeds into the resampled edge.
                     resized.append(
-                        frame.convert("RGBa").resize(size, Image.LANCZOS).convert("RGBA")
+                        frame.convert("RGBa")
+                        .resize(size, Image.Resampling.LANCZOS)
+                        .convert("RGBA")
                     )
                 else:
-                    resized.append(frame.resize(size, Image.NEAREST))
+                    resized.append(frame.resize(size, Image.Resampling.NEAREST))
             spec["frames"] = resized
         if mode == "pixelated":
             # The ADR-0006 quantisation pass: a resample drifts the palette,
@@ -1111,7 +1108,7 @@ def self_test():
             "spritesheetPath": "sheet.png",
         }))
         # detect_atlas refuses square cells; stretch to the canonical grid.
-        tall = sheet.resize((ATLAS_COLUMNS * 192, 9 * 208), Image.NEAREST)
+        tall = sheet.resize((ATLAS_COLUMNS * 192, 9 * 208), Image.Resampling.NEAREST)
         tall.save(source / "sheet.png")
 
         pet = read_petscodex(source)
@@ -1231,17 +1228,22 @@ def self_test():
         assert (out / "frames" / "walk-2.png").exists()
         assert not (out / "frames" / "walk-3.png").exists()
 
-        # Untrusted pack XML: an entity declaration is refused, not expanded.
-        (tmp / "conf" / "actions.xml").write_text(
-            '<?xml version="1.0"?><!DOCTYPE Mascot [<!ENTITY a "aa">]>'
-            '<Mascot><ActionList/></Mascot>'
+        # Untrusted pack XML: an entity declaration is refused, not expanded,
+        # in UTF-16 too, where a scan for the ASCII bytes would miss it.
+        bomb = (
+            '<!DOCTYPE Mascot [<!ENTITY a "aa">]>'
+            '<Mascot><ActionList><Action Name="&a;"/></ActionList></Mascot>'
         )
-        try:
-            read_shimeji(tmp, "Bomb")
-        except SystemExit as refused:
-            assert "entity" in str(refused), refused
-        else:
-            raise AssertionError("an entity declaration was parsed")
+        for encoding in ("utf-8", "utf-16"):
+            (tmp / "conf" / "actions.xml").write_bytes(
+                f'<?xml version="1.0" encoding="{encoding}"?>{bomb}'.encode(encoding)
+            )
+            try:
+                read_shimeji(tmp, "Bomb")
+            except SystemExit as refused:
+                assert "entity" in str(refused), refused
+            else:
+                raise AssertionError(f"a {encoding} entity declaration was parsed")
 
     # A pack of bare shime PNGs and no actions.xml — shimejishop distributes
     # these — rides Shimeji-ee's standard conf instead.

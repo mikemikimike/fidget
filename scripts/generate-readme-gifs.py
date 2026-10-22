@@ -58,7 +58,7 @@ def scale_frame(img, target_height):
         return img
     aspect_ratio = img.width / img.height
     new_width = int(target_height * aspect_ratio)
-    return img.resize((new_width, target_height), Image.NEAREST)
+    return img.resize((new_width, target_height), Image.Resampling.NEAREST)
 
 
 def save_gif(images, output_path, fps):
@@ -105,7 +105,7 @@ def create_looping_gif(frames, output_path, fps, scale=1, target_height=None):
         if target_height:
             img = scale_frame(img, target_height)
         elif scale > 1:
-            img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
+            img = img.resize((img.width * scale, img.height * scale), Image.Resampling.NEAREST)
         images.append(binarize_alpha(img))
 
     save_gif(images, output_path, fps)

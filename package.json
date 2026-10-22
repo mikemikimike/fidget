@@ -1,4 +1,8 @@
 {
+  "name": "fidget",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "marked": "18.0.13"
+  }
 }
