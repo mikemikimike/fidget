@@ -164,9 +164,16 @@ test("the root is the landing page and every design page stays reachable", () =>
 // #1538: the README links Fidget Cues, so the landing page does too.
 test("the landing page links the published Fidget Cues page", () => {
   const root = published("index.html");
-  assert.match(root, /<a href="cues\.html">Try the gestures in your browser<\/a>/);
   assert.match(root, /<a href="cues\.html">Fidget Cues<\/a>/);
   assert.ok(existsSync(join(site, "cues.html")), "cues.html is published");
+});
+
+// The Live Playground sits right under What it does, so the page invites the
+// visitor there in plain words instead of linking away to cues.html.
+test("the playground, not a link, invites the visitor to try the gestures", () => {
+  const root = published("index.html");
+  assert.ok(!root.includes("Try the gestures in your browser</a>"), "no link carries the invitation");
+  assert.match(root, /<h2>Live Playground<\/h2>\s*<p class="sub">Try the gestures in your browser\.<\/p>/);
 });
 
 test("the root carries a description and an Open Graph image the site publishes", () => {
