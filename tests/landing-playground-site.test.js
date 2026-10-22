@@ -16,7 +16,10 @@ import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsol
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const PROBE_MS = 13000;
 
+// The page character is hidden, so the desk keeps its Character the whole run.
+// tests/landing-walker-site.test.js plays the handover.
 const helpers = `
+  localStorage.setItem("fidget.hidden", "1");
   const errors = [];
   window.addEventListener("error", (e) => errors.push(e.message));
   const frame = () => new Promise(requestAnimationFrame);

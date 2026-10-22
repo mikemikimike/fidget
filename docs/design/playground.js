@@ -280,6 +280,54 @@ export function step(state, event, world, tuning) {
   return unchanged;
 }
 
+// The frame a loop shows `elapsed` ms after it started: a `once` loop holds
+// its last frame, any other wraps.
+export function frameOf(loop, elapsed) {
+  const index = Math.floor((elapsed * loop.fps) / 1000);
+  return loop.frames[loop.once ? Math.min(index, loop.frames.length - 1) : index % loop.frames.length];
+}
+
+// The same press decoding as input.rs: a press becomes a Grab once it moves
+// dragThreshold or is held dragDelayMs, and a press released before either is
+// a Poke. A drag keeps the press's offset from the feet, so nothing jumps.
+// Returns whether a press is under way.
+export function decodePresses(target, tuning, { local, feetNow, apply, grabbable = () => true, onPress = () => {} }) {
+  let press = null;
+  const grab = () => {
+    if (!press || press.held) return;
+    clearTimeout(press.timer);
+    const at = feetNow();
+    press = { ...press, held: true, dx: at.x - press.last.x, dy: at.y - press.last.y };
+    apply({ type: "grab", now: performance.now() });
+  };
+  target.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    target.setPointerCapture(event.pointerId);
+    const at = local(event);
+    press = { from: at, last: at, held: false, timer: grabbable() ? setTimeout(grab, tuning.dragDelayMs) : 0 };
+    onPress();
+  });
+  target.addEventListener("pointermove", (event) => {
+    if (!press) return;
+    press.last = local(event);
+    const moved = Math.hypot(press.last.x - press.from.x, press.last.y - press.from.y);
+    if (!press.held && grabbable() && moved >= tuning.dragThreshold) grab();
+    if (press.held) apply({ type: "drag", x: press.last.x + press.dx, y: press.last.y + press.dy, now: performance.now() });
+  });
+  const letGo = (poke) => {
+    if (!press) return;
+    clearTimeout(press.timer);
+    if (press.held) apply({ type: "release", now: performance.now() });
+    else if (poke) apply({ type: "poke", now: performance.now(), rand: Math.random() });
+    press = null;
+  };
+  target.addEventListener("pointerup", () => letGo(true));
+  target.addEventListener("pointercancel", () => letGo(false));
+  target.addEventListener("contextmenu", (event) => event.preventDefault());
+  return () => press !== null;
+}
+
 // The page half: pointer events in, frames and cues out. `cue` is the app's
 // own src/cue.js, which the site publishes beside this file.
 export function mount(section, data, cue) {
@@ -370,7 +418,7 @@ export function mount(section, data, cue) {
     field.blur();
   }
   sprite.addEventListener("pointerenter", (event) => {
-    if (event.pointerType !== "mouse" || pillUp || press) return;
+    if (event.pointerType !== "mouse" || pillUp || pressing()) return;
     clearTimeout(dwell);
     dwell = setTimeout(showPill, tuning.hoverDelayMs);
   });
@@ -401,45 +449,16 @@ export function mount(section, data, cue) {
     }
   });
 
-  // The same press decoding as input.rs: a press becomes a Grab once it moves
-  // dragThreshold or is held dragDelayMs, and a press released before either is a Poke.
-  let press = null;
-  const grab = () => {
-    if (!press || press.held) return;
-    clearTimeout(press.timer);
-    hidePill();
-    const at = feetNow();
-    press = { ...press, held: true, dx: at.x - press.last.x, dy: at.y - press.last.y };
-    apply({ type: "grab", now: performance.now() });
-    hint.classList.add("tried");
-  };
-  sprite.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    clearTimeout(dwell);
-    sprite.setPointerCapture(event.pointerId);
-    const at = local(event);
-    press = { from: at, last: at, held: false, timer: setTimeout(grab, tuning.dragDelayMs) };
+  const pressing = decodePresses(sprite, tuning, {
+    local,
+    feetNow,
+    onPress: () => clearTimeout(dwell),
+    apply: (event) => {
+      if (event.type === "grab") hidePill();
+      if (event.type === "grab" || event.type === "poke") hint.classList.add("tried");
+      apply(event);
+    },
   });
-  sprite.addEventListener("pointermove", (event) => {
-    if (!press) return;
-    press.last = local(event);
-    if (!press.held && Math.hypot(press.last.x - press.from.x, press.last.y - press.from.y) >= tuning.dragThreshold) grab();
-    if (press.held) apply({ type: "drag", x: press.last.x + press.dx, y: press.last.y + press.dy, now: performance.now() });
-  });
-  const letGo = (poke) => {
-    if (!press) return;
-    clearTimeout(press.timer);
-    if (press.held) apply({ type: "release", now: performance.now() });
-    else if (poke) {
-      apply({ type: "poke", now: performance.now() });
-      hint.classList.add("tried");
-    }
-    press = null;
-  };
-  sprite.addEventListener("pointerup", () => letGo(true));
-  sprite.addEventListener("pointercancel", () => letGo(false));
-  sprite.addEventListener("contextmenu", (event) => event.preventDefault());
 
   const placeWindow = (win) => {
     win.el.style.left = `${edgeOf(win).x0}px`;
@@ -511,10 +530,10 @@ export function mount(section, data, cue) {
       playing = name;
       since = now;
     }
-    const loop = loops[name];
-    const index = Math.floor(((now - since) * loop.fps) / 1000);
-    const src = loop.frames[loop.once ? Math.min(index, loop.frames.length - 1) : index % loop.frames.length];
+    const src = frameOf(loops[name], now - since);
     if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+    const away = state.mode === "away";
+    if (sprite.hidden !== away) sprite.hidden = away;
     const at = feetNow();
     sprite.style.transform = `translate(${at.x - w / 2}px, ${at.y - h}px)${state.facing < 0 ? " scaleX(-1)" : ""}`;
     if (pillUp) placePill();
@@ -531,4 +550,15 @@ export function mount(section, data, cue) {
       pending = 0;
     }
   }).observe(desk);
+
+  // The page character hands the Character over while the desk is in view: it
+  // walks up from under the desk's floor. It leaves out of sight, at once, and
+  // hides here because a desk out of view draws no frame to hide it.
+  return {
+    arrive: () => apply({ type: "enter", now: performance.now() }),
+    depart: () => {
+      apply({ type: "away", now: performance.now() });
+      sprite.hidden = true;
+    },
+  };
 }

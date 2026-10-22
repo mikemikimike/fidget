@@ -143,6 +143,9 @@ PLAY_TUNING = {
     "doubleClickMs": ("input.rs", "with_double_click_ms"),
     "hoverDelayMs": ("main.rs", "HOVER_DELAY_MS"),
 }
+# The overlay's speech bubble, which the page character speaks in.
+BUBBLE_RULES = (".bubble", ".bubble.visible", ".bubble::before", ".bubble::after", ".bubble.inverted::before",
+                ".bubble.inverted::after", ".bubble-content")
 PLAY_DATA = re.compile(r'<script type="application/json" id="play-data">(.*?)</script>', re.S)
 
 _spec = importlib.util.spec_from_file_location("gallery", ROOT / "scripts" / "make-character-gallery.py")
@@ -577,6 +580,23 @@ def chat_css(css, shared, wanted=CHAT_RULES):
     return "\n".join(kept) + "\n"
 
 
+def bubble_css(css, shared, wanted=BUBBLE_RULES):
+    """The overlay's speech bubble from src/main.css, so the page character
+    speaks in the app's own bubble. The shared tokens it reads are scoped to
+    `.bubble`, as the chat mock's are to `.play-chat-ui`."""
+    kept = [f".bubble {{{body}}}" for prelude, body in top_level_rules(shared) if prelude == ":root"]
+    found = set()
+    for prelude, body in top_level_rules(css):
+        selectors = [part.strip() for part in prelude.split(",")]
+        if all(part in wanted for part in selectors):
+            found.update(selectors)
+            kept.append(f"{prelude} {{{body}}}")
+    missing = [rule for rule in wanted if rule not in found]
+    if missing:
+        raise Malformed(f"{CUES.name} holds no {', '.join(missing)} rule for the page character's bubble")
+    return "\n".join(kept) + "\n"
+
+
 def play_data(page):
     return json.loads(PLAY_DATA.search(page).group(1))
 
@@ -724,6 +744,7 @@ def render(readme_text, characters_root, rust_source, shell, release=None, engin
                        ' id="hero-sprite" aria-describedby="hero-say"'),
         **how_slots(words["how"], shell),
         "cue_css": cue_css(CUES.read_text(encoding="utf-8")),
+        "bubble_css": bubble_css(CUES.read_text(encoding="utf-8"), CHAT_SHARED.read_text(encoding="utf-8")),
         "chat_css": chat_css(CHAT_UI.read_text(encoding="utf-8"), CHAT_SHARED.read_text(encoding="utf-8")),
         "play_tiles": play_tiles(characters_root, defaults["fps"]),
         "play_name": html.escape(hero["name"]),
@@ -949,6 +970,16 @@ def self_check():
         fixture("cat", "Cat", without=("fall",))
         assert "cat: declares no fall" in (fails(readme, scratch) or ""), "a tile with no art built a page"
 
+    assert bubble_css(".bubble { color: red; }\n.bubble.visible, .cue { opacity: 1; }\n.bubble-content { a: b; }\n",
+                      ":root { --shared-ink: #fff; }\n", wanted=(".bubble", ".bubble-content")) == (
+        ".bubble { --shared-ink: #fff; }\n.bubble { color: red; }\n.bubble-content { a: b; }\n"), \
+        "the bubble lifted a rule shared with something else, or lost its shared tokens"
+    try:
+        bubble_css(".bubble { color: red; }", "")
+    except Malformed:
+        pass
+    else:
+        raise AssertionError("a main.css with no bubble tail built a page")
     assert cue_css(":root { --cue-ink: #000; }\n.bubble { color: red; }\n.cue-ring { opacity: 1; }\n"
                    "@keyframes cue-poke { to { opacity: 0; } }\n@media (x) { .cue { a: b; } }\n") == (
         ":root { --cue-ink: #000; }\n.cue-ring { opacity: 1; }\n@keyframes cue-poke { to { opacity: 0; } }\n"), \
