@@ -194,7 +194,8 @@ function enter(state, event, world) {
 // play. A picker is its one writer; until a pick, `fallback` plays. Session
 // storage, as a pick lasts the visit.
 const CHARACTER_KEY = "fidget.character";
-let current = null;
+// Storage is read once: the page character asks every frame.
+let current;
 
 export function pick(id) {
   current = id;
@@ -206,15 +207,15 @@ export function pick(id) {
 }
 
 export function character(cast, fallback) {
-  let picked = current;
-  if (picked === null) {
+  if (current === undefined) {
     try {
-      picked = sessionStorage.getItem(CHARACTER_KEY);
+      current = sessionStorage.getItem(CHARACTER_KEY);
     } catch {
       // Storage is off: nothing was picked.
+      current = null;
     }
   }
-  return picked !== null && Object.hasOwn(cast, picked) ? picked : fallback;
+  return current !== null && Object.hasOwn(cast, current) ? current : fallback;
 }
 
 export function animationOf(state) {

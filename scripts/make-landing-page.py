@@ -888,7 +888,7 @@ def self_check():
                                                        "once": True}, "the desk's land loop is not the manifest's"
         assert desk["cast"][HERO]["lines"] == ["Hello there.", "Beep."], \
             "the lines are not the quotes after heard to say:, up to the blank line"
-        assert list(desk["cast"]) == [HERO, *sorted({name for _, name, _ in PLAY_TILES} - {HERO})], \
+        assert list(desk["cast"]) == [HERO, *sorted(p.name for p in scratch.iterdir() if p.name != HERO)], \
             "the picker's cast is not every Character, the hero first"
         unthrowable = dict(engine)
         unthrowable["input.rs"] = re.sub(r"const THROW_MIN_SPEED:[^\n]*\n", "", engine["input.rs"])

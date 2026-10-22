@@ -278,7 +278,7 @@ const perches = `
         document.querySelector('#play-picker button[data-id="' + id + '"]').click();
         const perched = {};
         for (const name of ["light", "dark"]) {
-          // The last landing's puff would answer this drop's wait before it lands.
+          // The last landing's puff would end this drop's wait early.
           await until("the last puff gone", () => !layer.querySelector(".cue-puff"), 3000);
           await until("it standing", () => playing("idle") || playing("sit"), 2000);
           const win = document.querySelector('[data-win="' + name + '"]').getBoundingClientRect();
@@ -325,7 +325,7 @@ async function play(flags = [], script = probe, size = "1280,900") {
     // The page plays from file://. The README's video, fetched from GitHub, can
     // take seconds under load and hold up a reload, so nothing goes to the network.
     await blockURLs(["http://*", "https://*"]);
-    // A probe's tap(x, y) sends a real touch, which a synthetic event is not.
+    // A probe's tapAt sends a real touch, which a synthetic event is not.
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 }, sessionId);
     await cdp.send("Runtime.addBinding", { name: "tapAt" }, sessionId);
     cdp.on(sessionId, "Runtime.bindingCalled", async ({ name, payload }) => {

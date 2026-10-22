@@ -98,9 +98,9 @@ test("every frame the page names is in the assembled site", () => {
   }
 });
 
-// The playground and the page character share one blob. Each Character, as
-// the picker offers every one, carries every loop both play, at its own size, and the lines its
-// personality.txt quotes after "heard to say:" or "known to say:".
+// The playground and the page character share one blob. The picker offers
+// every Character, so each carries both players' loops, its size, and the
+// lines its personality.txt quotes after "heard to say:" or "known to say:".
 test("the playground data carries every Character, Buddy Bot first, each with its loops and its own lines", () => {
   const data = JSON.parse(published(PAGE).match(/<script type="application\/json" id="play-data">([\s\S]*?)<\/script>/)[1]);
   const ids = readdirSync(join(ROOT, "characters")).filter((id) => existsSync(join(ROOT, "characters", id, "character.manifest")));
