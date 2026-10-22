@@ -290,7 +290,10 @@ async function play(flags = [], script = probe, size = "1280,900") {
     ...flags,
   ]);
   try {
-    const { sessionId, navigate } = await createPageTarget(cdp);
+    const { sessionId, navigate, blockURLs } = await createPageTarget(cdp);
+    // The page plays from file://. The README's video, fetched from GitHub, can
+    // take seconds under load and hold up a reload, so nothing goes to the network.
+    await blockURLs(["http://*", "https://*"]);
     return await captureConsoleLog(cdp, sessionId, "__PROBE_RESULT__", PROBE_MS, () => navigate(pathToFileURL(page).href));
   } finally {
     await cleanupChrome(cdp);

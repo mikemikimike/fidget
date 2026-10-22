@@ -15,7 +15,9 @@ import { after, before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const PROBE_MS = 30000;
+// The run takes about 12 s alone. Beside the other Chrome tests on a busy
+// machine, its reload alone has been measured at 36 s.
+const PROBE_MS = 90000;
 
 const helpers = `
   const errors = [];
@@ -95,8 +97,15 @@ const probe = `
       const data = JSON.parse(document.getElementById("play-data").textContent);
       const member = Object.values(data.cast).find((one) => one.name === img.alt);
       const feetY = () => sprite.getBoundingClientRect().bottom;
-      // Exactly on the floor: within a px can still be the last step of the walk up.
-      const onPage = () => !at.hidden && Math.abs(feetY() - innerHeight) < 0.01;
+      // On the floor and still for a frame: the walk up moves it every frame,
+      // and its last step can end a hair above the floor.
+      let lastSpot = null;
+      const onPage = () => {
+        const spot = at.style.transform;
+        const still = spot === lastSpot;
+        lastSpot = spot;
+        return !at.hidden && still && Math.abs(feetY() - innerHeight) < 1;
+      };
       const center = () => { const box = sprite.getBoundingClientRect(); return [box.left + box.width / 2, box.top + box.height / 2]; };
 
       // The hero's stage shows its own fidget, so the page's waits below it.
@@ -138,7 +147,6 @@ const probe = `
       await until("the walk back onto the page", () => { watch(); return onPage(); }, 2000);
       const handoff = { both, arrived };
 
-      // A reader's slow scroll down from the top past the hero, a step a frame.
       window.scrollTo(0, 0);
       // The Hide chip a press showed goes on a timer, not a frame.
       await until("the walk off at the top", () => at.hidden && !at.classList.contains("touched"), 2000);
@@ -157,7 +165,9 @@ const probe = `
       let crossings = 0;
       let [wasReacting, wasAway] = [false, at.hidden];
       const stage = document.querySelector(".stage");
-      for (let i = 0, past = 0; i < 1000 && past < 90; i++) {
+      // A reader's slow scroll past the hero, a step a frame, from 200px short of its end.
+      window.scrollTo(0, scrollY + stage.getBoundingClientRect().bottom - 200);
+      for (let i = 0, past = 0; i < 200 && past < 90; i++) {
         window.scrollBy(0, 4);
         if (stage.getBoundingClientRect().bottom < 0) past++;
         await frame();
@@ -301,7 +311,13 @@ const phone = `
       const at = document.getElementById("fidget-at");
       const sprite = document.getElementById("fidget-sprite");
       document.getElementById("characters").scrollIntoView({ block: "start" });
-      await until("the end of the walk up", () => !at.hidden && Math.abs(sprite.getBoundingClientRect().bottom - innerHeight) < 0.01, 2000);
+      let lastSpot = null;
+      await until("the end of the walk up", () => {
+        const spot = at.style.transform;
+        const still = spot === lastSpot;
+        lastSpot = spot;
+        return !at.hidden && still && Math.abs(sprite.getBoundingClientRect().bottom - innerHeight) < 1;
+      }, 2000);
       const touch = (type, x, y) => sprite.dispatchEvent(new PointerEvent(type, {
         bubbles: true, button: 0, pointerId: 1, pointerType: "touch", isPrimary: true, clientX: x, clientY: y,
       }));
@@ -345,7 +361,10 @@ async function play(script, flags = [], viewport = null) {
     ...flags,
   ]);
   try {
-    const { sessionId, navigate } = await createPageTarget(cdp);
+    const { sessionId, navigate, blockURLs } = await createPageTarget(cdp);
+    // The page plays from file://. The README's video, fetched from GitHub, can
+    // take seconds under load and hold up a reload, so nothing goes to the network.
+    await blockURLs(["http://*", "https://*"]);
     // A window narrower than 500px is clamped, so a phone's is emulated.
     if (viewport) await cdp.send("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: false }, sessionId);
     // A probe's pressKey(name) sends a real key, which a synthetic event is not.
@@ -362,7 +381,7 @@ async function play(script, flags = [], viewport = null) {
   }
 }
 
-test("the page character walks on, reacts, lands a throw, hands over to the playground and back, and Hide survives a reload", { skip: chromeSkip }, async () => {
+test("the page character walks on, reacts, lands a throw, hands over to the playground and back, and Hide survives a reload", { skip: chromeSkip, timeout: PROBE_MS + 10000 }, async () => {
   const result = await play(probe);
   assert.deepEqual(result.errors, [], "the page threw nothing");
   assert.equal(result.alt, "Buddy Bot", "with no pick, Buddy Bot plays");
