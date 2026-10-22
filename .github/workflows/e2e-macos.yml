@@ -53,7 +53,7 @@ jobs:
         # A fresh runner draws Fidget's first frame seconds late, past a leaf's
         # 3 s launch wait. One launch here takes that cold start, which ran past
         # 3 s itself on macOS, so this one wait gets 30 s.
-        run: | # pragma: allowlist secret
+        run: |
           root=$PWD log="$RUNNER_TEMP/warmup.log"
           . scripts/scenarios/helpers/wait-helpers.mac.sh
           seed_tour_shown "$RUNNER_TEMP/warmup/home"
