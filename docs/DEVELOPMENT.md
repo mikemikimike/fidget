@@ -63,6 +63,14 @@ pre-commit install
 
 Covers whitespace, YAML/JSON/TOML, spelling, shell (shfmt + shellcheck), `cargo fmt`, and `cargo clippy --workspace --all-targets -- -D warnings`, as CI runs it. The toolchain is pinned in `rust-toolchain.toml`. The webview modules in `src/*.js` also lint under oxlint's official pre-commit hook for undeclared globals (`no-undef`, `no-global-assign`, set in `.oxlintrc.json`). pre-commit installs the pinned oxlint into its own cache with the system node, so nothing enters `node_modules`.
 
+## Dependency Audits
+
+The Security workflow (`.github/workflows/security.yml`) runs `cargo audit` and `npm audit` on every pull request, on `main`, and nightly. The nightly run catches a new advisory against a dependency nobody touched.
+
+## Secret Scanning
+
+The Secret Scanning workflow (`.github/workflows/secret-scanning.yml`) runs two scanners on every pull request and on `main`. detect-secrets 1.5.0 scans every tracked file, Markdown included. A false positive goes on its line as a `pragma: allowlist secret` comment. Where a comment can't go, as in JSON, the hit is recorded in [`.secrets.baseline`](../.secrets.baseline) instead. A hit inside a YAML block such as a workflow's `run: |` covers the whole block, whether a pragma or the baseline allows it, so move the value into the step's `env:` until the block has none. Quoting it doesn't help: the scanner keeps only a block's first match and then drops the quoted value, which hides every hit below it. A baselined hit that moves lines only warns, since the baseline matches by hash; `detect-secrets scan --baseline .secrets.baseline` refreshes it. TruffleHog scans the new commits and fails only on secrets it verifies against their issuer.
+
 ## Trace Variables
 
 All off by default. Switches take `1`/`on`/`true`/`yes` or `0`/`off`/`false`/`no`, in any case.
@@ -418,8 +426,6 @@ Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), o
 uv venv --python 3.11 && uv pip install -r scripts/requirements-import.txt
 ```
 
-The Security workflow (`.github/workflows/security.yml`) runs `cargo audit` and `npm audit` on every pull request, on `main`, and nightly. The nightly run catches a new advisory against a dependency nobody touched.
-
 The importer writes the frames and a `character.manifest` to the `-o` directory, and `--force` replaces one that exists. It then runs `character::load` on the output and fails if the loader rejects it. It prints the pack's license and warns when none is declared.
 
 The result is a naive but valid Character Package. It loads and plays, but it is not yet the character. Tune it by hand:
@@ -501,6 +507,14 @@ The default branch requires a pull request. The job pushes the cask commit when 
 A `workflow_dispatch` package build leaves the tap alone. To reconcile a tag that is already published, dispatch the Release workflow and set the sync tap tag input to that tag, for example `v0.1.0`. That run skips the package build. The tag has to be the latest stable Release, because verify refuses any other pin. Re-running the homebrew job on a Release run reconciles the same way.
 
 `scripts/bump-homebrew-cask.sh` and a hand copy into the tap are for when that job cannot run. The bump reads that tag's Apple Silicon `.dmg`. The cask depends on arm64 because that is the only macOS disk image the Release ships.
+
+## itch.io
+
+A stable Release also goes to [itch.io](https://omesser.itch.io/fidget). After the packages attach, the Release workflow calls `.github/workflows/itch.yml`, which downloads that tag's four Release assets and pushes each one with [butler](https://itch.io/docs/butler/) to its own channel: `mac`, `windows`, `linux-appimage` and `linux-deb`. The channel name sets itch's platform tag, and `--userversion` is the tag without its `v`. A prerelease is not pushed.
+
+The push needs the `BUTLER_API_KEY` repo secret, an API key from [itch.io's API keys page](https://itch.io/user/settings/api-keys). Without it the job skips with a notice. An itch failure never touches the GitHub Release: no job waits on the push, and a Release run stays green with the failed job marked.
+
+To push a tag that is already published, dispatch the itch.io workflow with that tag, for example `v0.6.3`. A failure there shows red.
 
 ## Release Notes
 
