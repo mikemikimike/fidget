@@ -211,8 +211,7 @@ export function mount(doc, data, { cue, bubble, play, still }) {
     remember(true);
     back.hidden = false;
   });
-  back.addEventListener("click", (event) => {
-    event.preventDefault();
+  back.addEventListener("click", () => {
     apply({ type: "show" });
     remember(false);
     back.hidden = true;

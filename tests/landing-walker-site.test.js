@@ -65,8 +65,18 @@ const probe = `
     const back = document.getElementById("fidget-back");
     if (sessionStorage.getItem("probe-first")) {
       await frame(); await frame();
-      done({ ...JSON.parse(sessionStorage.getItem("probe-first")),
-        reloaded: { hidden: at.hidden, back: !back.hidden, layerEmpty: !document.querySelector("#fidget-say.visible") } });
+      const reloaded = { hidden: at.hidden, back: !back.hidden, layerEmpty: !document.querySelector("#fidget-say.visible") };
+      const spot = back.getBoundingClientRect();
+      const backInView = spot.width > 0 && spot.top >= 0 && spot.bottom <= innerHeight;
+      document.getElementById("characters").scrollIntoView({ block: "start" });
+      back.click();
+      let returned = true;
+      try {
+        await until("the walk back on after Bring back", () => !at.hidden, 3000);
+      } catch {
+        returned = false;
+      }
+      done({ ...JSON.parse(sessionStorage.getItem("probe-first")), reloaded, backInView, returned, backAfter: !back.hidden });
       return;
     }
     try {
@@ -236,6 +246,8 @@ test("the page character walks on, reacts, lands a throw, hands over to the play
   assert.deepEqual(result.bounce, { flips: 0, stayed: true }, "resting at the threshold does not bounce it");
   assert.deepEqual(result.hid, { hidden: true, back: true, stored: "1" });
   assert.deepEqual(result.reloaded, { hidden: true, back: true, layerEmpty: true }, "Hide is remembered across a reload");
+  assert.equal(result.backInView, true, "Bring back shows at the top of the page, not only in the footer");
+  assert.deepEqual([result.returned, result.backAfter], [true, false], "Bring back walks it on again and hides the link");
 });
 
 test("under reduced motion the page character stays put on its first frame, and a poke still shows a bubble", { skip: chromeSkip }, async () => {

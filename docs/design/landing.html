@@ -278,6 +278,11 @@
   .fidget-hide { position: absolute; right: 0; top: 0; padding: .1rem .5rem; border: 1px solid var(--line);
     border-radius: 999px; background: var(--paper); color: var(--ink-2); font: inherit; font-size: .75rem;
     cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  /* In a corner of the viewport, so a reader who hid it finds the way back. */
+  .fidget-back { position: absolute; right: 12px; bottom: 12px; padding: .2rem .7rem; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--paper); color: var(--ink-2); font: inherit; font-size: .8rem;
+    cursor: pointer; pointer-events: auto; }
+  .fidget-back[hidden] { display: none; }
   .fidget-at:hover .fidget-hide, .fidget-at.touched .fidget-hide, .fidget-hide:focus-visible {
     opacity: 1; pointer-events: auto; }
   .fidget .bubble { left: 0; top: 0; }
@@ -525,7 +530,6 @@
     <a href="characters.html">Character gallery</a>
     <a href="cues.html">Fidget Cues</a>
     <a href="design.html">Design pages</a>
-    <a href="#" id="fidget-back" hidden>Bring back the fidget</a>
     <span>Generated from README.md and characters/ at deploy</span>
   </footer>
 </div>
@@ -537,6 +541,7 @@
   </div>
   <div class="bubble" id="fidget-say" data-mode="speech" title="A line from its personality file."><span class="bubble-content"></span></div>
   <div class="cue-layer" id="fidget-cues"></div>
+  <button type="button" class="fidget-back" id="fidget-back" hidden>Bring back the fidget</button>
 </div>
 
 <script>
