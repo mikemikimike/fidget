@@ -5068,9 +5068,9 @@ fn main() {
             }
 
             let secrets: Arc<dyn SecretStore> = Arc::new(KeyringStore::new());
-            // Before `director_settings` and `config_from`, both of which ask
-            // whether a Harness is attached. Resolving the key first is what
-            // made a Harness launch prompt for one it would never send.
+            // The Harness attaches before `director_settings` and `config_from`, which
+            // both ask whether one is attached, so a launch never prompts for a key it
+            // would not send.
             app.manage(PendingAsks(Mutex::new(Pending::default())));
             app.manage(MinimizedChats::default());
             app.manage(Mutex::new(session_log::Log::new()));
