@@ -4356,6 +4356,9 @@ mod windows_job {
         use windows_sys::Win32::System::Diagnostics::ToolHelp::{
             CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
         };
+        use windows_sys::Win32::System::Threading::{
+            GetProcessIdOfThread, THREAD_QUERY_LIMITED_INFORMATION,
+        };
 
         unsafe {
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
@@ -4370,9 +4373,11 @@ mod windows_job {
             let mut more = Thread32First(snapshot, &mut entry) != 0;
             while more {
                 if entry.th32OwnerProcessID == pid {
-                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                    let access = THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION;
+                    let thread = OpenThread(access, 0, entry.th32ThreadID);
                     if !thread.is_null() && thread != INVALID_HANDLE_VALUE {
-                        if ResumeThread(thread) != u32::MAX {
+                        // Thread IDs can be reused after the snapshot; recheck the owner.
+                        if GetProcessIdOfThread(thread) == pid && ResumeThread(thread) != u32::MAX {
                             resumed += 1;
                         }
                         CloseHandle(thread);
@@ -4433,10 +4438,6 @@ mod windows_job {
         fn test_terminate_job_missing_pid_is_noop() {
             terminate_job(0xFFFF_FFFE);
         }
-
-        // Job assignment failure paths must resume the suspended child
-        // before returning Ok. A child left suspended hangs later tests
-        // waiting for stdio.
 
         /// #1671: a second suspended thread owned by the child must resume too.
         /// It calls `RtlExitUserProcess(42)`, so exit code 42 proves it ran.
