@@ -177,10 +177,12 @@ pub struct SettingsView {
     /// The raw token for Hermes interactive paste. Empty when snippet already
     /// embeds the token (Claude, Codex, Grok, OpenCode, Pi).
     pub byo_token: String,
-    /// The Development switches and every text row a variable can own, by form
-    /// row id: the exported variable's value where it owns the row, else the
-    /// file's. Keyed, so a new row needs no new field or binding.
+    /// The Development switches by form row id: the exported variable's value
+    /// where it owns the row, else the file's. Keyed, so a new row needs no new
+    /// field or binding.
     pub development_switches: HashMap<String, bool>,
+    /// Every text row a variable can own, by form row id: the exported
+    /// variable's value where it owns the row, else the file's.
     pub variable_texts: HashMap<String, String>,
     /// Live OS grants, not a file field. The window rereads them on become-key.
     pub consent: Vec<ConsentRow>,
