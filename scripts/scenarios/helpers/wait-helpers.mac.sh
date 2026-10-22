@@ -4,10 +4,16 @@
 # shellcheck source=wait-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wait-helpers.sh"
 
-# True when an Accessibility dump of a window matches a pattern.
-ax_dump_matches() { # <pid> <window title> <pattern>
-  # shellcheck disable=SC2154
-  "$tools/ax" dump "$1" "$2" 2> /dev/null | grep -qE "$3"
+# True when an Accessibility dump of a window matches a pattern. Given a file,
+# each dump lands there, so a wait that matched leaves the matching dump.
+ax_dump_matches() { # <pid> <window title> <pattern> [<file>]
+  if [ -n "${4:-}" ]; then
+    # shellcheck disable=SC2154
+    "$tools/ax" dump "$1" "$2" > "$4" 2>&1
+    grep -qE "$3" "$4"
+  else
+    "$tools/ax" dump "$1" "$2" 2> /dev/null | grep -qE "$3"
+  fi
 }
 
 # Run an Accessibility check now and again on each AXObserver notification
@@ -31,8 +37,8 @@ build_ax_events() {
 ax_events() { exec "$tools/ax-events" "$ax_events_pid" 2> /dev/null; }
 
 # Wait for an Accessibility dump of a window to match a pattern.
-wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern>
-  wait_for_ax "$1" "$2" ax_dump_matches "$2" "$3" "$4"
+wait_for_ax_dump() { # <seconds> <pid> <window title> <pattern> [<file>]
+  wait_for_ax "$1" "$2" ax_dump_matches "$2" "$3" "$4" ${5:+"$5"}
 }
 
 # Answer a permission ask by pressing its button (Allow or Reject) in Chat,

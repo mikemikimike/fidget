@@ -63,10 +63,9 @@ trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT IN
 # The first row is the turn that thought; the ask turn before it has none.
 capture() { # <name> <glyph the first Thinking row starts with>
   local id row
-  # Chat draws the row after the mark that triggers it, so wait for the glyph.
-  # The dump goes first: the row it reads changes when the reply lands.
-  wait_for_ax_dump 3 "$pid" BMO "^AXButton\|$2 " || true
-  "$tools/ax" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1 || fail "$1: AX dump failed; see $out/$1.ax.txt"
+  # Chat draws the row after the mark that triggers it, so wait for the glyph
+  # and keep the dump that showed it.
+  wait_for_ax_dump 3 "$pid" BMO "^AXButton\|$2 " "$out/$1.ax.txt" || true
   id=$("$tools/window-id" "$pid" BMO) || fail "$1: no Chat window"
   screencapture -x -o -l "$id" "$out/$1.png"
   row=$(grep -iEm1 '^AXButton\|(▸|▾) thinking' "$out/$1.ax.txt") || fail "$1: no Thinking row in $out/$1.ax.txt"
