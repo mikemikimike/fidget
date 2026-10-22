@@ -2,7 +2,6 @@ name: Security
 
 # Advisory databases change under an untouched lockfile, so the nightly run is
 # what surfaces a new advisory; pull requests and main get the same audits.
-# Secret scanning is its own workflow, secret-scanning.yml.
 
 on:
   pull_request:

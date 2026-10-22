@@ -418,7 +418,7 @@ Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), o
 uv venv --python 3.11 && uv pip install -r scripts/requirements-import.txt
 ```
 
-The Security workflow (`.github/workflows/security.yml`) runs `cargo audit` and `npm audit` on every pull request, on `main`, and nightly. The nightly run catches a new advisory against a dependency nobody touched. The Secret Scanning workflow (`.github/workflows/secret-scanning.yml`) runs TruffleHog on every pull request and on `main`. It scans the new commits and fails only on secrets it verifies against their issuer. detect-secrets 1.5.0 is a pre-commit hook, so PR Tests' pre-commit step scans the whole tree with it. A false positive goes on its line as a `pragma: allowlist secret` comment. Where a comment can't go, as in JSON, the hit is recorded in [`.secrets.baseline`](../.secrets.baseline) instead. A hit inside a YAML block such as a workflow's `run: |` covers the whole block, whether a pragma or the baseline allows it, so move the value into the step's `env:` until the block has none. Quoting it doesn't help: the scanner keeps only a block's first match and then drops the quoted value, which hides every hit below it. The hook keeps that file's line numbers current, so commit its rewrites.
+The Security workflow (`.github/workflows/security.yml`) runs `cargo audit` and `npm audit` on every pull request, on `main`, and nightly. The nightly run catches a new advisory against a dependency nobody touched.
 
 The importer writes the frames and a `character.manifest` to the `-o` directory, and `--force` replaces one that exists. It then runs `character::load` on the output and fails if the loader rejects it. It prints the pack's license and warns when none is declared.
 

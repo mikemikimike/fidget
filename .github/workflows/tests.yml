@@ -182,8 +182,8 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run pre-commit
-        # Runs on docs-only changes too; SKIP drops the hooks whose toolchain
-        # was not installed. macOS-only hooks check uname themselves.
+        # Runs on docs-only changes too; SKIP drops only the hooks whose
+        # toolchain was not installed. macOS-only hooks check uname themselves.
         env:
           SKIP: ${{ steps.changes.outputs.code == 'false' && 'cargo-fmt,cargo-clippy,shfmt,shellcheck' || '' }}
         run: |
