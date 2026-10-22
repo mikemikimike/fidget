@@ -183,10 +183,9 @@ jobs:
 
       - name: Run pre-commit
         # Runs on docs-only changes too; SKIP drops the hooks whose toolchain
-        # was not installed, and detect-secrets, which secret-scanning.yml owns.
-        # macOS-only hooks check uname themselves.
+        # was not installed. macOS-only hooks check uname themselves.
         env:
-          SKIP: ${{ steps.changes.outputs.code == 'false' && 'detect-secrets,cargo-fmt,cargo-clippy,shfmt,shellcheck' || 'detect-secrets' }}
+          SKIP: ${{ steps.changes.outputs.code == 'false' && 'cargo-fmt,cargo-clippy,shfmt,shellcheck' || '' }}
         run: |
           pip install pre-commit
           pre-commit run --all-files --show-diff-on-failure
