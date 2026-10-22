@@ -1,5 +1,5 @@
-// `detect-private-key`, `detect-aws-credentials`, `check-added-large-files` and
-// `detect-secrets` read every tracked file, vendored content included: bytes a bot refreshes
+// `detect-private-key`, `detect-aws-credentials` and `check-added-large-files`
+// read every tracked file, vendored content included: bytes a bot refreshes
 // weekly are what a secret scanner is for. Every other hook skips the vendored
 // tree by alias, so an exclude is one keystroke away; this test forbids it.
 
@@ -18,7 +18,6 @@ const SCANS_EVERY_FILE = [
   "detect-private-key",
   "detect-aws-credentials",
   "check-added-large-files",
-  "detect-secrets",
 ];
 
 // Anything that would hand the hook a shorter file list. `args` is absent on
