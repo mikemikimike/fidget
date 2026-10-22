@@ -205,6 +205,15 @@
     letter-spacing: .01em; color: var(--ink); background: linear-gradient(var(--title-a), var(--title-b));
     border-bottom: 1px solid var(--bevel-lo); box-shadow: inset 0 1px 0 rgb(255 255 255 / .35); }
   .play-panel .play-desk { border: 0; border-radius: 0 0 12px 12px; }
+  .play-picker { display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem; padding: .35rem .6rem;
+    background: var(--title-b); border-bottom: 1px solid var(--bevel-lo); }
+  .play-picker button { width: 44px; height: 44px; padding: 4px; border: 2px solid transparent; border-radius: 10px;
+    background: transparent; cursor: pointer; }
+  .play-picker button:hover { background: var(--title-a); }
+  .play-picker button[aria-pressed="true"] { border-color: var(--accent); background: var(--title-a); }
+  .play-picker button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .play-picker img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .play-picker img.pixel { image-rendering: pixelated; }
   /* Gestures left of the panel once .wrap is at its full 68rem, so the desk keeps ~750px.
      The DOM stays panel then gestures, so the stacked layout keeps that order. */
   @media (min-width: 70rem) {
@@ -368,6 +377,7 @@
     <div class="play-row">
     <div class="play-panel" id="play-panel">
     <p class="play-title">Try it here</p>
+    <div class="play-picker" id="play-picker" role="group" aria-label="Pick a character"></div>
     <div class="play-desk" id="play-desk" hidden>
       <p class="play-hint" id="play-hint">Poke it. Drag it. Throw it.</p>
       <div class="play-win dark" data-win="dark" data-at="0.5 0.45">

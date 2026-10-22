@@ -2,11 +2,11 @@
 // `_site/`, played with in headless Chrome: a throw lands with the hard puff,
 // a slow drop perches on the window, the desk stops painting while scrolled out
 // of view, reduced motion keeps the still tiles, a double-click opens the chat
-// mock, and hovering opens the quick-message pill.
+// mock, hovering opens the quick-message pill, and the picker swaps the sprite.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -68,7 +68,8 @@ const probe = `
       const sprite = document.getElementById("play-sprite");
       const layer = document.getElementById("play-cues");
       if (desk.hidden) {
-        console.log("__PROBE_RESULT__" + JSON.stringify({ errors, tiles: !document.getElementById("play-tiles").hidden }));
+        console.log("__PROBE_RESULT__" + JSON.stringify({ errors, tiles: !document.getElementById("play-tiles").hidden,
+          picker: document.getElementById("play-picker").getClientRects().length > 0 }));
         return;
       }
       desk.scrollIntoView({ block: "center" });
@@ -213,6 +214,39 @@ const gestures = `
   });
 </script>`;
 
+// A finger taps Nim in the picker, with the desk in view: the desk wears Nim
+// before the next frame, the pick is stored, and the desk then animates Nim.
+const picker = `
+<script>${helpers}
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const data = JSON.parse(document.getElementById("play-data").textContent);
+      const desk = document.getElementById("play-desk");
+      const sprite = document.getElementById("play-sprite");
+      const img = sprite.querySelector("img");
+      const buttons = [...document.querySelectorAll("#play-picker button")];
+      const pressed = () => buttons.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.id);
+      desk.scrollIntoView({ block: "center" });
+      await until("Buddy Bot standing", () => playing("idle"), 2000);
+      const before = { names: buttons.map((b) => b.getAttribute("aria-label")), pressed: pressed() };
+      const nim = buttons.find((b) => b.dataset.id === "nim").getBoundingClientRect();
+      const tapped = new Promise((resolve) => buttons.find((b) => b.dataset.id === "nim")
+        .addEventListener("click", () => resolve({ alt: img.alt, width: sprite.style.width,
+          idle: data.cast.nim.loops.idle.frames.includes(img.getAttribute("src")) }), { once: true }));
+      tapAt(JSON.stringify([nim.left + nim.width / 2, nim.top + nim.height / 2]));
+      const swapped = await tapped;
+      await frame(); await frame();
+      const after = { pressed: pressed(), stored: sessionStorage.getItem("fidget.character"),
+        nimFrame: Object.values(data.cast.nim.loops).some((loop) => loop.frames.includes(img.getAttribute("src"))) };
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, before, swapped, after,
+        cast: Object.values(data.cast).map((one) => one.name), nimWidth: data.cast.nim.size[0] + "px" }));
+    } catch (err) {
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
+    }
+  });
+</script>`;
+
 let dir;
 let site;
 
@@ -225,54 +259,51 @@ before(() => {
 
 after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
 
-// Each cast Character in turn, one reload apiece, is dragged from wherever it
-// stands to just above a window's top edge and let go slowly.
+// Each cast Character in turn, picked in the picker, is dragged from wherever
+// it stands to just above a window's top edge and let go slowly.
 const perches = `
 <script>${helpers}
-  sessionStorage.setItem("fidget.character", sessionStorage.getItem("probe-next") ?? "buddy-bot");
   window.addEventListener("load", async () => {
     console.log("__PROBE_READY__");
     try {
       const ids = Object.keys(JSON.parse(document.getElementById("play-data").textContent).cast);
-      const id = sessionStorage.getItem("fidget.character");
       const desk = document.getElementById("play-desk");
       const sprite = document.getElementById("play-sprite");
       const layer = document.getElementById("play-cues");
       const painting = written(sprite, 1000);
       desk.scrollIntoView({ block: "center" });
       await painting;
-      const perched = {};
-      for (const name of ["light", "dark"]) {
-        await until("it standing", () => playing("idle") || playing("sit"), 2000);
-        const win = document.querySelector('[data-win="' + name + '"]').getBoundingClientRect();
-        const box = sprite.getBoundingClientRect();
-        let x = box.left + box.width / 2;
-        let y = box.top + box.height / 2;
-        pointer(sprite, "pointerdown", x, y);
-        pointer(sprite, "pointermove", x, y - 5);
-        const from = { x, y: y - 5 };
-        const goal = { x: win.left + win.width * 0.75, y: win.top - 20 - box.height / 2 };
-        for (let i = 1; i <= 10; i++) {
+      const all = {};
+      for (const id of ids) {
+        document.querySelector('#play-picker button[data-id="' + id + '"]').click();
+        const perched = {};
+        for (const name of ["light", "dark"]) {
+          // The last landing's puff would answer this drop's wait before it lands.
+          await until("the last puff gone", () => !layer.querySelector(".cue-puff"), 3000);
+          await until("it standing", () => playing("idle") || playing("sit"), 2000);
+          const win = document.querySelector('[data-win="' + name + '"]').getBoundingClientRect();
+          const box = sprite.getBoundingClientRect();
+          let x = box.left + box.width / 2;
+          let y = box.top + box.height / 2;
+          pointer(sprite, "pointerdown", x, y);
+          pointer(sprite, "pointermove", x, y - 5);
+          const from = { x, y: y - 5 };
+          const goal = { x: win.left + win.width * 0.75, y: win.top - 20 - box.height / 2 };
+          for (let i = 1; i <= 10; i++) {
+            await frame();
+            x = from.x + (goal.x - from.x) * i / 10;
+            y = from.y + (goal.y - from.y) * i / 10;
+            pointer(sprite, "pointermove", x, y);
+          }
+          // A pointer still past velocityWindowMs lets go with no speed: a drop, not a throw.
+          await wait(200);
+          const soft = cueIn(layer, ".cue-puff:not(.hard)");
+          pointer(sprite, "pointerup", x, y);
+          await soft;
           await frame();
-          x = from.x + (goal.x - from.x) * i / 10;
-          y = from.y + (goal.y - from.y) * i / 10;
-          pointer(sprite, "pointermove", x, y);
+          perched[name] = Math.round(sprite.getBoundingClientRect().bottom - win.top);
         }
-        // A pointer still past velocityWindowMs lets go with no speed: a drop, not a throw.
-        await wait(200);
-        const soft = cueIn(layer, ".cue-puff:not(.hard)");
-        pointer(sprite, "pointerup", x, y);
-        await soft;
-        await frame();
-        perched[name] = Math.round(sprite.getBoundingClientRect().bottom - win.top);
-      }
-      const all = { ...JSON.parse(sessionStorage.getItem("probe-perches") ?? "{}"), [id]: perched };
-      const next = ids[ids.indexOf(id) + 1];
-      if (next) {
-        sessionStorage.setItem("probe-perches", JSON.stringify(all));
-        sessionStorage.setItem("probe-next", next);
-        location.reload();
-        return;
+        all[id] = perched;
       }
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors, perched: all, desk: desk.clientHeight }));
     } catch (err) {
@@ -294,6 +325,15 @@ async function play(flags = [], script = probe, size = "1280,900") {
     // The page plays from file://. The README's video, fetched from GitHub, can
     // take seconds under load and hold up a reload, so nothing goes to the network.
     await blockURLs(["http://*", "https://*"]);
+    // A probe's tap(x, y) sends a real touch, which a synthetic event is not.
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 }, sessionId);
+    await cdp.send("Runtime.addBinding", { name: "tapAt" }, sessionId);
+    cdp.on(sessionId, "Runtime.bindingCalled", async ({ name, payload }) => {
+      if (name !== "tapAt") return;
+      const [x, y] = JSON.parse(payload);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] }, sessionId);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }, sessionId);
+    });
     return await captureConsoleLog(cdp, sessionId, "__PROBE_RESULT__", PROBE_MS, () => navigate(pathToFileURL(page).href));
   } finally {
     await cleanupChrome(cdp);
@@ -315,7 +355,7 @@ test("the desk replaces the still tiles: a throw lands with the hard puff, a slo
   assert.ok(Math.abs(result.dropped.feetY - result.dropped.windowTop) < 1, `perched on the window: ${JSON.stringify(result.dropped)}`);
   assert.equal(result.paused.offscreen, 0, `scrolled out of view, the desk painted nothing: ${JSON.stringify(result.paused)}`);
   assert.ok(result.paused.back > 0, `scrolled back, the desk animates again: ${JSON.stringify(result.paused)}`);
-  assert.deepEqual(await play(["--force-prefers-reduced-motion"]), { errors: [], tiles: true });
+  assert.deepEqual(await play(["--force-prefers-reduced-motion"]), { errors: [], tiles: true, picker: false });
 });
 
 test("a double-click opens the chat mock, which moves by its bar and closes; a hover opens the pill, which takes typing; a window drags to the desk top", { skip: chromeSkip }, async () => {
@@ -335,12 +375,22 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
   assert.equal(result.pushedRight, 0, "beside the gestures, a window drags right up to the narrower desk's right edge");
 });
 
+test("a tap on a Character in the picker swaps the desk's sprite at once, and the pick is stored", { skip: chromeSkip }, async () => {
+  const result = await play([], picker);
+  assert.deepEqual(result.errors, [], "the page threw nothing");
+  assert.deepEqual(result.before, { names: result.cast, pressed: ["buddy-bot"] },
+    "the picker lists every cast Character, Buddy Bot pressed");
+  assert.deepEqual(result.swapped, { alt: "Nim", width: result.nimWidth, idle: true }, "the tap swapped the desk to Nim before any frame");
+  assert.deepEqual(result.after, { pressed: ["nim"], stored: "nim", nimFrame: true }, "Nim stays pressed, stored and animating");
+});
+
 for (const size of ["1512,945", "1280,800"]) {
   test(`at ${size}, every cast Character drags onto both windows' top edges and perches`, { skip: chromeSkip }, async () => {
     const result = await play([], perches, size);
     assert.deepEqual(result.errors, [], "the page threw nothing");
     const flat = { light: 0, dark: 0 };
-    assert.deepEqual(result.perched, { "buddy-bot": flat, nim: flat, "timber-wolf": flat },
+    const ids = readdirSync(join(ROOT, "characters")).filter((id) => existsSync(join(ROOT, "characters", id, "character.manifest")));
+    assert.deepEqual(result.perched, Object.fromEntries(ids.map((id) => [id, flat])),
       `each Character's feet rest on each window's top edge, in a ${result.desk}px desk`);
   });
 }
@@ -348,8 +398,8 @@ for (const size of ["1512,945", "1280,800"]) {
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
   const page = readFileSync(join(site, "index.html"), "utf8");
   const play = page.match(/<section id="play">([\s\S]*?)<\/section>/)[1];
-  assert.match(play, /<div class="play-panel" id="play-panel">\s*<p class="play-title">Try it here<\/p>\s*<div class="play-desk" id="play-desk"/,
-    "the desk sits in a panel whose title bar is the invite, with no period, outside the desk the physics bounds");
+  assert.match(play, /<div class="play-panel" id="play-panel">\s*<p class="play-title">Try it here<\/p>\s*<div class="play-picker" id="play-picker"[^>]*><\/div>\s*<div class="play-desk" id="play-desk"/,
+    "the desk sits in a panel whose title bar is the invite, with no period, then the picker, both outside the desk the physics bounds");
   const order = ['id="play-desk"', '<h3 class="play-sub">Fidget gestures</h3>\n    <ul class="play-how">', 'class="play-get"']
     .map((mark) => play.indexOf(mark));
   assert.ok(order.every((at, i) => at > (order[i - 1] ?? play.indexOf('class="play-title"'))),

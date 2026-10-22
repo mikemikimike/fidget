@@ -338,18 +338,41 @@ export function mount(section, data, cue) {
   const hint = section.querySelector("#play-hint");
   const pill = section.querySelector("#play-qm");
   const field = pill.querySelector("input");
+  const picker = section.querySelector("#play-picker");
   const { tuning } = data;
-  const me = data.cast[character(data.cast, data.hero)];
-  const { loops } = me;
-  const [w, h] = me.size;
+  let me, loops, w, h;
+  let playing = null;
+  const wear = (id) => {
+    me = data.cast[id];
+    ({ loops } = me);
+    [w, h] = me.size;
+    playing = null;
+    sprite.style.width = `${w}px`;
+    sprite.style.height = `${h}px`;
+    Object.assign(img, { src: loops.idle.frames[0], alt: me.name, width: w, height: h });
+    img.classList.toggle("pixel", me.pixel);
+    section.querySelector("#play-chat .composer textarea").placeholder = `Ask ${me.name}…`;
+    Object.values(loops).flatMap((loop) => loop.frames).forEach((src) => { new Image().src = src; });
+    for (const button of picker.children) button.setAttribute("aria-pressed", String(button.dataset.id === id));
+  };
+  for (const [id, member] of Object.entries(data.cast)) {
+    const button = document.createElement("button");
+    Object.assign(button, { type: "button", title: member.name });
+    button.dataset.id = id;
+    button.setAttribute("aria-label", member.name);
+    const face = new Image();
+    Object.assign(face, { src: member.loops.idle.frames[0], alt: "" });
+    face.classList.toggle("pixel", member.pixel);
+    button.append(face);
+    button.addEventListener("click", () => {
+      pick(id);
+      wear(id);
+    });
+    picker.append(button);
+  }
+  wear(character(data.cast, data.hero));
   section.querySelector("#play-tiles").hidden = true;
   desk.hidden = false;
-  sprite.style.width = `${w}px`;
-  sprite.style.height = `${h}px`;
-  Object.assign(img, { src: loops.idle.frames[0], alt: me.name, width: w, height: h });
-  img.classList.toggle("pixel", me.pixel);
-  section.querySelector("#play-chat .composer textarea").placeholder = `Ask ${me.name}…`;
-  Object.values(loops).flatMap((loop) => loop.frames).forEach((src) => { new Image().src = src; });
 
   // Each window keeps its top-left corner as a share of the desk, so a resize
   // keeps it in view.
@@ -518,7 +541,6 @@ export function mount(section, data, cue) {
     placeWindow(win);
   }
 
-  let playing = null;
   let since = 0;
   let last = null;
   let pending = 0;
