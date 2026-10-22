@@ -48,6 +48,9 @@ repos:
     hooks:
       - id: detect-secrets
         args: [--baseline, .secrets.baseline]
+        # Parallel batches each rewrite the baseline and undo each other's
+        # line-number updates.
+        require_serial: true
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.3.0
