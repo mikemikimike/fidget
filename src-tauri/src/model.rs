@@ -3960,7 +3960,7 @@ pub(crate) mod tests {
             "https://api.openai.com"
         );
         assert_eq!(
-            origin("https://user:sk-secret@api.x.ai/v1/responses"),
+            origin("https://user:sk-secret@api.x.ai/v1/responses"), // pragma: allowlist secret
             "https://api.x.ai"
         );
         assert_eq!(
@@ -3994,7 +3994,7 @@ pub(crate) mod tests {
         assert_eq!(host_of("http://localhost:8000"), "localhost:8000");
         assert_eq!(host_of("http://[fd00::1]:8080"), "[fd00::1]:8080");
         assert_eq!(
-            host_of("https://user:sk-secret@api.openai.com/v1"),
+            host_of("https://user:sk-secret@api.openai.com/v1"), // pragma: allowlist secret
             "api.openai.com",
             "neither half of the userinfo is drawn"
         );
