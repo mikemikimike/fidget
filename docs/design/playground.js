@@ -50,9 +50,9 @@ function walk(state, dt, world, tuning) {
   return edge ? settle(walked, { x: state.x, y: edge.y }, world) : walked;
 }
 
-function feet(state, world) {
+export function feet(state, world) {
   if (state.mode !== "standing") return { x: state.x, y: state.y };
-  return { x: state.x, y: state.on === "floor" ? world.height : windowOf(world, state.on).y };
+  return { x: state.x, y: state.on === "floor" ? world.height + (state.sunk ?? 0) : windowOf(world, state.on).y };
 }
 
 // world.windows is frontmost first, as the Engine's snapshot is, and these
@@ -156,14 +156,51 @@ function startle(state, now, tuning) {
   return { ...awake, act: "react", until: now + tuning.primitiveMs, startledAt: now };
 }
 
+// Leaving walks in place down past the floor until out of sight, and entering
+// walks back up. The page character hands over to the playground this way, as
+// the playground's desk and the viewport both clip below their floor.
+const passing = (state) => state.act === "leave" || state.act === "enter";
+
+const arrived = (state, now) => {
+  const { sunk, ...standing } = state;
+  return { ...standing, act: "idle", until: now + WANDER.idle[0] };
+};
+
+function pass(state, event, world, tuning) {
+  const sunk = state.sunk + (state.act === "leave" ? 1 : -1) * tuning.walkSpeed * Math.min(event.dt, MAX_DT);
+  if (sunk >= world.sprite.h) return { mode: "away", x: state.x, facing: state.facing };
+  return sunk <= 0 ? arrived(state, event.now) : { ...state, sunk };
+}
+
+function leave(state, event) {
+  if (state.mode !== "standing" || state.on !== "floor" || state.act === "leave") return state;
+  if (event.still) return { mode: "away", x: state.x, facing: state.facing };
+  return { ...state, act: "leave", sunk: state.sunk ?? 0, until: Infinity };
+}
+
+function enter(state, event, world) {
+  if (state.mode === "away") {
+    const below = { mode: "standing", on: "floor", x: state.x, facing: state.facing, act: "enter", sunk: world.sprite.h,
+      until: Infinity, quietSince: event.now };
+    return event.still ? arrived(below, event.now) : below;
+  }
+  return state.act === "leave" ? { ...state, act: "enter" } : state;
+}
+
 export function animationOf(state) {
   if (state.mode === "held") return "hold";
   if (state.mode === "falling") return "fall";
+  if (state.mode === "away" || passing(state)) return "walk";
   return state.act;
 }
 
 export function step(state, event, world, tuning) {
   const unchanged = { state, cue: null };
+  if (event.type === "away") return { state: { mode: "away", x: state.x, facing: state.facing }, cue: null };
+  if (event.type === "leave") return { state: leave(state, event), cue: null };
+  if (event.type === "enter") return { state: enter(state, event, world), cue: null };
+  if (state.mode === "away") return unchanged;
+  if (passing(state)) return event.type === "tick" ? { state: pass(state, event, world, tuning), cue: null } : unchanged;
   if (event.type === "poke") {
     if (state.mode !== "standing") return unchanged;
     return poke(state, event.now, tuning);
