@@ -5,22 +5,30 @@
 // numbers: in the app the Director picks what comes next.
 const WANDER = { idle: [1500, 4000], walk: [1200, 3500] };
 
+// Nobody has poked, thrown or scrolled for `after` ms: sit for `sit` ms, then
+// sleep until woken. Page numbers too, shorter than the app's auto-sleep so a
+// reader sees it.
+const NAP = { after: 20000, sit: 4000 };
+
 // A tab that was away for seconds comes back one short step later, not teleported.
 const MAX_DT = 0.05;
 
 const span = ([low, high], roll) => low + (high - low) * roll;
 
-function wander(state, now, rand) {
-  if (state.act === "idle") {
+function wander(state, now, rand, still) {
+  if (state.act === "idle" && !still) {
     return { ...state, act: "walk", facing: rand < 0.5 ? -1 : 1, until: now + span(WANDER.walk, (rand * 2) % 1) };
   }
   return { ...state, act: "idle", until: now + span(WANDER.idle, rand) };
 }
 
-function timeUp(state, now, rand, tuning) {
+function timeUp(state, now, rand, tuning, still) {
   if (state.act === "react") return { ...state, act: "idle", until: now + tuning.pokeCooldownMs - tuning.primitiveMs };
   if (state.act === "land" && state.on !== "floor") return { ...state, act: "sit", until: now + tuning.perchedIdleAfterMs };
-  return wander(state, now, rand);
+  if (now - (state.quietSince ?? now) >= NAP.after) {
+    return state.act === "sit" ? { ...state, act: "sleep", until: Infinity } : { ...state, act: "sit", until: now + NAP.sit };
+  }
+  return wander(state, now, rand, still);
 }
 
 function clampX(x, world) {
@@ -106,7 +114,8 @@ function fall(state, event, world, tuning) {
   }
   const on = vy > 0 ? ledgeCrossed(world, x, state.y, y) : null;
   if (on) {
-    const landed = { mode: "standing", on, x, facing: state.facing, act: "land", until: event.now + tuning.primitiveMs };
+    const landed = { mode: "standing", on, x, facing: state.facing, act: "land", until: event.now + tuning.primitiveMs,
+      quietSince: event.now };
     return { state: landed, cue: state.landing };
   }
   return { state: { ...state, x, y, vx, vy }, cue: null };
@@ -131,12 +140,20 @@ function carry(state, event, world, tuning) {
 // third starts a new pair, as input.rs decodes them. Both play react.
 function poke(state, now, tuning) {
   const summon = now - (state.pokedAt ?? -Infinity) <= tuning.doubleClickMs && !state.summoned;
-  const reacting = { ...state, act: "react", until: now + tuning.primitiveMs, pokedAt: now, summoned: summon };
+  const reacting = { ...state, act: "react", until: now + tuning.primitiveMs, pokedAt: now, summoned: summon, quietSince: now };
   return { state: reacting, cue: summon ? "summon" : "poke" };
 }
 
 function start(world, now) {
-  return { mode: "standing", on: "floor", x: world.width / 2, facing: 1, act: "idle", until: now + WANDER.idle[0] };
+  return { mode: "standing", on: "floor", x: world.width / 2, facing: 1, act: "idle", until: now + WANDER.idle[0], quietSince: now };
+}
+
+// A scroll is not a click: it plays react with no cue, never pairs into a
+// Summon, and reacts at most once per poke cooldown. Every one keeps it awake.
+function startle(state, now, tuning) {
+  const awake = { ...state, quietSince: now };
+  if (now - (state.startledAt ?? -Infinity) < tuning.pokeCooldownMs) return awake;
+  return { ...awake, act: "react", until: now + tuning.primitiveMs, startledAt: now };
 }
 
 export function animationOf(state) {
@@ -150,6 +167,9 @@ export function step(state, event, world, tuning) {
   if (event.type === "poke") {
     if (state.mode !== "standing") return unchanged;
     return poke(state, event.now, tuning);
+  }
+  if (event.type === "startle") {
+    return state.mode === "standing" ? { state: startle(state, event.now, tuning), cue: null } : unchanged;
   }
   if (event.type === "grab") {
     const at = feet(state, world);
@@ -189,7 +209,7 @@ export function step(state, event, world, tuning) {
       const settled = settle(state, feet(state, world), world);
       if (settled !== state) return { state: settled, cue: null };
     }
-    if (event.now >= state.until) return { state: timeUp(state, event.now, event.rand, tuning), cue: null };
+    if (event.now >= state.until) return { state: timeUp(state, event.now, event.rand, tuning, event.still), cue: null };
     if (state.act === "walk") return { state: walk(state, Math.min(event.dt, MAX_DT), world, tuning), cue: null };
   }
   return unchanged;

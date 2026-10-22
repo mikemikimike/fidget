@@ -115,7 +115,7 @@ CHAT_RULES = (".log", ".empty", ".empty > div", ".empty p", ".empty p b", ".comp
               ".composer button:disabled", ".composer textarea:focus-visible", ".composer button:focus-visible")
 # The playground desk plays these, so a Character
 # lacking one fails the build instead of freezing on the page.
-PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit")
+PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit", "sleep")
 # The still tiles no-JavaScript and reduced-motion visitors get: the gesture,
 # the Character, and the Animation whose first frame shows it.
 PLAY_TILES = (("Poke", "bmo", "react"), ("Pick up", "timber-wolf", "hold"), ("Throw", "cat", "fall"),

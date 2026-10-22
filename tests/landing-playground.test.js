@@ -166,3 +166,40 @@ test("a window dragged up too close to the desk top to stand on drops the charac
   const moved = run(standing("light", 250, "sit"), [{ type: "carry", id: "light", dx: 0, dy: -90, vx: 0, vy: -300, now: 1000 }], high);
   assert.equal(moved.state.mode, "falling");
 });
+
+test("a character nobody touches for the nap delay sits, then sleeps until a poke wakes it", () => {
+  const quiet = { ...standing("floor", 300, "idle", 20_000), quietSince: 0 };
+  const sat = run(quiet, [{ type: "tick", now: 20_001, dt: 0.016, rand: 0 }]);
+  assert.equal(animationOf(sat.state), "sit");
+  const asleep = run(sat.state, [{ type: "tick", now: 30_000, dt: 0.016, rand: 0 }, { type: "tick", now: 900_000, dt: 0.016, rand: 0 }]);
+  assert.equal(animationOf(asleep.state), "sleep");
+  const woken = run(asleep.state, [{ type: "poke", now: 900_001 }]);
+  assert.deepEqual([animationOf(woken.state), woken.cues], ["react", ["poke"]]);
+});
+
+test("a recent touch keeps the character wandering instead of napping", () => {
+  const touched = { ...standing("floor", 300, "idle", 20_000), quietSince: 15_000 };
+  assert.equal(animationOf(run(touched, [{ type: "tick", now: 20_001, dt: 0.016, rand: 0 }]).state), "walk");
+});
+
+test("a scroll startles a sleeper into react with no cue, at most once per poke cooldown, and never pairs into a summon", () => {
+  const asleep = { ...standing("floor", 300, "sleep"), quietSince: 0 };
+  const startled = run(asleep, [{ type: "startle", now: 1000 }]);
+  assert.deepEqual([animationOf(startled.state), startled.cues], ["react", []]);
+  const calm = run(startled.state, [{ type: "tick", now: 1601, dt: 0.016, rand: 0.9 }, { type: "startle", now: 2000 }]);
+  assert.equal(animationOf(calm.state), "idle");
+  assert.equal(animationOf(run(calm.state, [{ type: "startle", now: 3600 }]).state), "react");
+  assert.deepEqual(run(asleep, [{ type: "startle", now: 1000 }, { type: "poke", now: 1200 }]).cues, ["poke"]);
+});
+
+test("a scroll keeps the character awake for another nap delay", () => {
+  const quiet = { ...standing("floor", 300, "idle", 20_000), quietSince: 0 };
+  const scrolled = run(quiet, [{ type: "startle", now: 19_000 }, { type: "tick", now: 25_000, dt: 0.016, rand: 0.9 }]);
+  assert.notEqual(animationOf(scrolled.state), "sit");
+});
+
+test("a still tick, for reduced motion, idles instead of walking and still naps", () => {
+  const idle = { ...standing("floor", 300, "idle", 1000), quietSince: 0 };
+  assert.equal(animationOf(run(idle, [{ type: "tick", now: 1001, dt: 0.016, rand: 0.9, still: true }]).state), "idle");
+  assert.equal(animationOf(run(idle, [{ type: "tick", now: 20_001, dt: 0.016, rand: 0.9, still: true }]).state), "sit");
+});
