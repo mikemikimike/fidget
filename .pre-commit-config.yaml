@@ -41,6 +41,16 @@ repos:
         args: ['--allow-missing-credentials']
       - id: check-added-large-files
 
+  # Rewrites `.secrets.baseline` when a known hit moves; commit the rewrite.
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        # Parallel batches each rewrite the baseline and undo each other's
+        # line-number updates.
+        require_serial: true
+
   - repo: https://github.com/codespell-project/codespell
     rev: v2.3.0
     hooks:

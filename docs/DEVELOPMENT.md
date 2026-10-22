@@ -63,6 +63,8 @@ pre-commit install
 
 Covers whitespace, YAML/JSON/TOML, spelling, shell (shfmt + shellcheck), `cargo fmt`, and `cargo clippy --workspace --all-targets -- -D warnings`, as CI runs it. The toolchain is pinned in `rust-toolchain.toml`. The webview modules in `src/*.js` also lint under oxlint's official pre-commit hook for undeclared globals (`no-undef`, `no-global-assign`, set in `.oxlintrc.json`). pre-commit installs the pinned oxlint into its own cache with the system node, so nothing enters `node_modules`.
 
+detect-secrets 1.5.0 scans every tracked file, Markdown included, here and in PR Tests' pre-commit step. A false positive goes on its line as a `pragma: allowlist secret` comment. Where a comment can't go, as in JSON, the hit is recorded in [`.secrets.baseline`](../.secrets.baseline) instead. A hit inside a YAML block such as a workflow's `run: |` covers the whole block, whether a pragma or the baseline allows it, so move the value into the step's `env:` until the block has none. Quoting it doesn't help: the scanner keeps only a block's first match and then drops the quoted value, which hides every hit below it. The hook keeps the baseline's line numbers current, so commit its rewrites. The Secret Scanning workflow (`.github/workflows/secret-scanning.yml`) adds TruffleHog on every pull request and on `main`: it scans the new commits and fails only on secrets it verifies against their issuer.
+
 ## Trace Variables
 
 All off by default. Switches take `1`/`on`/`true`/`yes` or `0`/`off`/`false`/`no`, in any case.
