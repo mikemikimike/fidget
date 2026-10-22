@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { animationOf, step } from "../docs/design/playground.js";
+import { animationOf, character, feet, pick, step } from "../docs/design/playground.js";
 
 const TUNING = {
   gravity: 3600, walkSpeed: 120, primitiveMs: 600, pokeCooldownMs: 2500, perchedIdleAfterMs: 4000,
@@ -165,4 +165,113 @@ test("a window dragged up too close to the desk top to stand on drops the charac
   const high = { ...WORLD, windows: [{ ...LIGHT, y: 60 }] };
   const moved = run(standing("light", 250, "sit"), [{ type: "carry", id: "light", dx: 0, dy: -90, vx: 0, vy: -300, now: 1000 }], high);
   assert.equal(moved.state.mode, "falling");
+});
+
+test("a character nobody touches for the nap delay sits, then sleeps until a poke wakes it", () => {
+  const quiet = { ...standing("floor", 300, "idle", 20_000), quietSince: 0 };
+  const sat = run(quiet, [{ type: "tick", now: 20_001, dt: 0.016, rand: 0 }]);
+  assert.equal(animationOf(sat.state), "sit");
+  const asleep = run(sat.state, [{ type: "tick", now: 30_000, dt: 0.016, rand: 0 }, { type: "tick", now: 900_000, dt: 0.016, rand: 0 }]);
+  assert.equal(animationOf(asleep.state), "sleep");
+  const woken = run(asleep.state, [{ type: "poke", now: 900_001 }]);
+  assert.deepEqual([animationOf(woken.state), woken.cues], ["react", ["poke"]]);
+});
+
+test("a recent touch keeps the character wandering instead of napping", () => {
+  const touched = { ...standing("floor", 300, "idle", 20_000), quietSince: 15_000 };
+  assert.equal(animationOf(run(touched, [{ type: "tick", now: 20_001, dt: 0.016, rand: 0 }]).state), "walk");
+});
+
+test("a scroll startles a napping character into react with no cue, and never pairs into a summon", () => {
+  const asleep = { ...standing("floor", 300, "sleep"), quietSince: 0 };
+  const startled = run(asleep, [{ type: "startle", now: 1000 }]);
+  assert.deepEqual([animationOf(startled.state), startled.cues], ["react", []]);
+  const sitting = { ...standing("floor", 300, "sit", 5000), quietSince: 0 };
+  assert.equal(animationOf(run(sitting, [{ type: "startle", now: 1000 }]).state), "react");
+  assert.deepEqual(run(asleep, [{ type: "startle", now: 1000 }, { type: "poke", now: 1200 }]).cues, ["poke"]);
+});
+
+test("a long scroll past an awake character never startles it, so it keeps idling and walking", () => {
+  const scrolls = (from, ms) => Array.from({ length: ms / 16 }, (_, i) => [
+    { type: "startle", now: from + i * 16 }, { type: "tick", now: from + i * 16, dt: 0.016, rand: 0.9 }]).flat();
+  for (const act of ["idle", "walk"]) {
+    const awake = { ...standing("floor", 300, act, 2000), quietSince: 0 };
+    const seen = new Set();
+    let state = awake;
+    for (const event of scrolls(0, 10_000)) {
+      state = step(state, event, WORLD, TUNING).state;
+      seen.add(animationOf(state));
+    }
+    assert.ok(!seen.has("react"), `scrolling past a character that is ${act} played ${[...seen]}`);
+  }
+});
+
+test("a scroll keeps the character awake for another nap delay", () => {
+  const quiet = { ...standing("floor", 300, "idle", 20_000), quietSince: 0 };
+  const scrolled = run(quiet, [{ type: "startle", now: 19_000 }, { type: "tick", now: 25_000, dt: 0.016, rand: 0.9 }]);
+  assert.notEqual(animationOf(scrolled.state), "sit");
+});
+
+test("a still tick, for reduced motion, idles instead of walking and still naps", () => {
+  const idle = { ...standing("floor", 300, "idle", 1000), quietSince: 0 };
+  assert.equal(animationOf(run(idle, [{ type: "tick", now: 1001, dt: 0.016, rand: 0.9, still: true }]).state), "idle");
+  assert.equal(animationOf(run(idle, [{ type: "tick", now: 20_001, dt: 0.016, rand: 0.9, still: true }]).state), "sit");
+});
+
+// The page character hands over to the playground by walking down past the
+// floor, and comes back the same way. A floor-only world, as the page's.
+const PAGE = { width: 1200, height: 800, sprite: { w: 90, h: 90 }, windows: [] };
+
+test("leaving walks down past the floor at walk speed and ends away, where nothing reaches it", () => {
+  const leaving = run(standing("floor", 300, "walk"), [{ type: "leave", now: 0 }], PAGE);
+  assert.equal(animationOf(leaving.state), "walk");
+  const sinking = run(leaving.state, ticks(0, 5, 0.05), PAGE);
+  assert.deepEqual([feet(sinking.state, PAGE).y, feet(sinking.state, PAGE).x], [830, 300], "walks in place, 30px under the floor");
+  const away = run(sinking.state, ticks(250, 20, 0.05), PAGE);
+  assert.equal(away.state.mode, "away");
+  const ignored = run(away.state, [{ type: "poke", now: 2000 }, { type: "grab", now: 2001 }, { type: "startle", now: 2002 },
+    ...ticks(2002, 3)], PAGE);
+  assert.deepEqual([ignored.state, ignored.cues], [away.state, []]);
+});
+
+test("entering walks up from under the floor where it left, then idles awake", () => {
+  const entering = run({ mode: "away", x: 300, facing: -1 }, [{ type: "enter", now: 0 }], PAGE);
+  assert.deepEqual([animationOf(entering.state), feet(entering.state, PAGE).y], ["walk", 890]);
+  const up = run(entering.state, ticks(0, 20, 0.05), PAGE);
+  assert.deepEqual([animationOf(up.state), feet(up.state, PAGE).y, up.state.x], ["idle", 800, 300]);
+});
+
+test("a character passing the floor shrugs off pokes, grabs and scrolls, and an enter turns a leave around", () => {
+  const leaving = run(standing("floor", 300), [{ type: "leave", now: 0 }, ...ticks(0, 5, 0.05)], PAGE);
+  const poked = run(leaving.state, [{ type: "poke", now: 300 }, { type: "grab", now: 301 }, { type: "startle", now: 302 }], PAGE);
+  assert.deepEqual([poked.state, poked.cues], [leaving.state, []]);
+  const back = run(leaving.state, [{ type: "enter", now: 300 }, ...ticks(300, 10, 0.05)], PAGE);
+  assert.deepEqual([animationOf(back.state), feet(back.state, PAGE).y], ["idle", 800]);
+});
+
+test("a held, falling or perched character does not leave until it stands on the floor", () => {
+  const held = run(standing("floor", 300), [{ type: "grab", now: 0 }, { type: "leave", now: 1 }], PAGE);
+  assert.equal(held.state.mode, "held");
+  assert.equal(run(standing("light", 250, "sit"), [{ type: "leave", now: 1 }]).state.act, "sit");
+});
+
+test("under reduced motion, leaving and entering skip the walk", () => {
+  assert.equal(run(standing("floor", 300), [{ type: "leave", now: 0, still: true }], PAGE).state.mode, "away");
+  const back = run({ mode: "away", x: 300, facing: 1 }, [{ type: "enter", now: 0, still: true }], PAGE);
+  assert.deepEqual([animationOf(back.state), feet(back.state, PAGE).y], ["idle", 800]);
+});
+
+test("away puts any character out of sight at once, wherever it was", () => {
+  const held = run(standing("floor", 300), [{ type: "grab", now: 0 }, { type: "away", now: 1 }]);
+  assert.deepEqual(held.state, { mode: "away", x: 300, facing: 1 });
+});
+
+test("Buddy Bot plays until a pick, with no random draw, and every reader gets the pick", () => {
+  const cast = { "buddy-bot": {}, nim: {}, "timber-wolf": {} };
+  assert.equal(character(cast, "buddy-bot"), "buddy-bot");
+  assert.equal(character(cast, "buddy-bot"), "buddy-bot", "a second reader gets the same Character");
+  pick("timber-wolf");
+  assert.equal(character(cast, "buddy-bot"), "timber-wolf");
+  pick("not-in-the-cast");
+  assert.equal(character(cast, "buddy-bot"), "buddy-bot", "a pick the cast lacks falls back to Buddy Bot");
 });

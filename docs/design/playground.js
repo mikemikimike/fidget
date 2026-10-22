@@ -5,22 +5,30 @@
 // numbers: in the app the Director picks what comes next.
 const WANDER = { idle: [1500, 4000], walk: [1200, 3500] };
 
+// Nobody has poked, thrown or scrolled for `after` ms: sit for `sit` ms, then
+// sleep until woken. Page numbers too, shorter than the app's auto-sleep so a
+// reader sees it.
+const NAP = { after: 20000, sit: 4000 };
+
 // A tab that was away for seconds comes back one short step later, not teleported.
 const MAX_DT = 0.05;
 
 const span = ([low, high], roll) => low + (high - low) * roll;
 
-function wander(state, now, rand) {
-  if (state.act === "idle") {
+function wander(state, now, rand, still) {
+  if (state.act === "idle" && !still) {
     return { ...state, act: "walk", facing: rand < 0.5 ? -1 : 1, until: now + span(WANDER.walk, (rand * 2) % 1) };
   }
   return { ...state, act: "idle", until: now + span(WANDER.idle, rand) };
 }
 
-function timeUp(state, now, rand, tuning) {
+function timeUp(state, now, rand, tuning, still) {
   if (state.act === "react") return { ...state, act: "idle", until: now + tuning.pokeCooldownMs - tuning.primitiveMs };
   if (state.act === "land" && state.on !== "floor") return { ...state, act: "sit", until: now + tuning.perchedIdleAfterMs };
-  return wander(state, now, rand);
+  if (now - (state.quietSince ?? now) >= NAP.after) {
+    return state.act === "sit" ? { ...state, act: "sleep", until: Infinity } : { ...state, act: "sit", until: now + NAP.sit };
+  }
+  return wander(state, now, rand, still);
 }
 
 function clampX(x, world) {
@@ -42,9 +50,9 @@ function walk(state, dt, world, tuning) {
   return edge ? settle(walked, { x: state.x, y: edge.y }, world) : walked;
 }
 
-function feet(state, world) {
+export function feet(state, world) {
   if (state.mode !== "standing") return { x: state.x, y: state.y };
-  return { x: state.x, y: state.on === "floor" ? world.height : windowOf(world, state.on).y };
+  return { x: state.x, y: state.on === "floor" ? world.height + (state.sunk ?? 0) : windowOf(world, state.on).y };
 }
 
 // world.windows is frontmost first, as the Engine's snapshot is, and these
@@ -106,7 +114,8 @@ function fall(state, event, world, tuning) {
   }
   const on = vy > 0 ? ledgeCrossed(world, x, state.y, y) : null;
   if (on) {
-    const landed = { mode: "standing", on, x, facing: state.facing, act: "land", until: event.now + tuning.primitiveMs };
+    const landed = { mode: "standing", on, x, facing: state.facing, act: "land", until: event.now + tuning.primitiveMs,
+      quietSince: event.now };
     return { state: landed, cue: state.landing };
   }
   return { state: { ...state, x, y, vx, vy }, cue: null };
@@ -131,25 +140,103 @@ function carry(state, event, world, tuning) {
 // third starts a new pair, as input.rs decodes them. Both play react.
 function poke(state, now, tuning) {
   const summon = now - (state.pokedAt ?? -Infinity) <= tuning.doubleClickMs && !state.summoned;
-  const reacting = { ...state, act: "react", until: now + tuning.primitiveMs, pokedAt: now, summoned: summon };
+  const reacting = { ...state, act: "react", until: now + tuning.primitiveMs, pokedAt: now, summoned: summon, quietSince: now };
   return { state: reacting, cue: summon ? "summon" : "poke" };
 }
 
 function start(world, now) {
-  return { mode: "standing", on: "floor", x: world.width / 2, facing: 1, act: "idle", until: now + WANDER.idle[0] };
+  return { mode: "standing", on: "floor", x: world.width / 2, facing: 1, act: "idle", until: now + WANDER.idle[0], quietSince: now };
+}
+
+// A scroll is not a click: it plays react with no cue and never pairs into a
+// Summon. Only a napping character startles, as a reader scrolls for seconds
+// and a react every cooldown reads as a twitch. Every scroll keeps it awake.
+function startle(state, now, tuning) {
+  const awake = { ...state, quietSince: now };
+  if (state.act !== "sit" && state.act !== "sleep") return awake;
+  return { ...awake, act: "react", until: now + tuning.primitiveMs };
+}
+
+export const away = ({ x, facing }) => ({ mode: "away", x, facing });
+
+// Leaving walks in place down past the floor until out of sight, and entering
+// walks back up. The page character hands over to the playground this way, as
+// the playground's desk and the viewport both clip below their floor.
+const passing = (state) => state.act === "leave" || state.act === "enter";
+
+const arrived = (state, now) => {
+  const { sunk, ...standing } = state;
+  return { ...standing, act: "idle", until: now + WANDER.idle[0] };
+};
+
+function pass(state, event, world, tuning) {
+  const sunk = state.sunk + (state.act === "leave" ? 1 : -1) * tuning.walkSpeed * Math.min(event.dt, MAX_DT);
+  if (sunk >= world.sprite.h) return away(state);
+  return sunk <= 0 ? arrived(state, event.now) : { ...state, sunk };
+}
+
+function leave(state, event) {
+  if (state.mode !== "standing" || state.on !== "floor" || state.act === "leave") return state;
+  if (event.still) return away(state);
+  return { ...state, act: "leave", sunk: state.sunk ?? 0, until: Infinity };
+}
+
+function enter(state, event, world) {
+  if (state.mode === "away") {
+    const below = { mode: "standing", on: "floor", x: state.x, facing: state.facing, act: "enter", sunk: world.sprite.h,
+      until: Infinity, quietSince: event.now };
+    return event.still ? arrived(below, event.now) : below;
+  }
+  return state.act === "leave" ? { ...state, act: "enter" } : state;
+}
+
+// The visit's Character, which the playground and the page character both
+// play. A picker is its one writer; until a pick, `fallback` plays. Session
+// storage, as a pick lasts the visit.
+const CHARACTER_KEY = "fidget.character";
+let current = null;
+
+export function pick(id) {
+  current = id;
+  try {
+    sessionStorage.setItem(CHARACTER_KEY, id);
+  } catch {
+    // Storage is off: the pick still holds for this page.
+  }
+}
+
+export function character(cast, fallback) {
+  let picked = current;
+  if (picked === null) {
+    try {
+      picked = sessionStorage.getItem(CHARACTER_KEY);
+    } catch {
+      // Storage is off: nothing was picked.
+    }
+  }
+  return picked !== null && Object.hasOwn(cast, picked) ? picked : fallback;
 }
 
 export function animationOf(state) {
   if (state.mode === "held") return "hold";
   if (state.mode === "falling") return "fall";
+  if (state.mode === "away" || passing(state)) return "walk";
   return state.act;
 }
 
 export function step(state, event, world, tuning) {
   const unchanged = { state, cue: null };
+  if (event.type === "away") return { state: away(state), cue: null };
+  if (event.type === "leave") return { state: leave(state, event), cue: null };
+  if (event.type === "enter") return { state: enter(state, event, world), cue: null };
+  if (state.mode === "away") return unchanged;
+  if (passing(state)) return event.type === "tick" ? { state: pass(state, event, world, tuning), cue: null } : unchanged;
   if (event.type === "poke") {
     if (state.mode !== "standing") return unchanged;
     return poke(state, event.now, tuning);
+  }
+  if (event.type === "startle") {
+    return state.mode === "standing" ? { state: startle(state, event.now, tuning), cue: null } : unchanged;
   }
   if (event.type === "grab") {
     const at = feet(state, world);
@@ -189,10 +276,57 @@ export function step(state, event, world, tuning) {
       const settled = settle(state, feet(state, world), world);
       if (settled !== state) return { state: settled, cue: null };
     }
-    if (event.now >= state.until) return { state: timeUp(state, event.now, event.rand, tuning), cue: null };
+    if (event.now >= state.until) return { state: timeUp(state, event.now, event.rand, tuning, event.still), cue: null };
     if (state.act === "walk") return { state: walk(state, Math.min(event.dt, MAX_DT), world, tuning), cue: null };
   }
   return unchanged;
+}
+
+// The frame a loop shows `elapsed` ms after it started: a `once` loop holds
+// its last frame, any other wraps.
+export function frameOf(loop, elapsed) {
+  const index = Math.floor((elapsed * loop.fps) / 1000);
+  return loop.frames[loop.once ? Math.min(index, loop.frames.length - 1) : index % loop.frames.length];
+}
+
+// Press decoding as in input.rs: a Grab once a press moves dragThreshold or
+// is held dragDelayMs, else a Poke on release. A drag keeps the press's offset
+// from the feet, so nothing jumps. Returns a check for a press under way.
+export function decodePresses(target, tuning, { local, feetNow, apply, grabbable = () => true, onPress = () => {} }) {
+  let press = null;
+  const grab = () => {
+    if (!press || press.held) return;
+    clearTimeout(press.timer);
+    const at = feetNow();
+    press = { ...press, held: true, dx: at.x - press.last.x, dy: at.y - press.last.y };
+    apply({ type: "grab", now: performance.now() });
+  };
+  target.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    target.setPointerCapture(event.pointerId);
+    const at = local(event);
+    press = { from: at, last: at, held: false, timer: grabbable() ? setTimeout(grab, tuning.dragDelayMs) : 0 };
+    onPress();
+  });
+  target.addEventListener("pointermove", (event) => {
+    if (!press) return;
+    press.last = local(event);
+    const moved = Math.hypot(press.last.x - press.from.x, press.last.y - press.from.y);
+    if (!press.held && grabbable() && moved >= tuning.dragThreshold) grab();
+    if (press.held) apply({ type: "drag", x: press.last.x + press.dx, y: press.last.y + press.dy, now: performance.now() });
+  });
+  const letGo = (poke) => {
+    if (!press) return;
+    clearTimeout(press.timer);
+    if (press.held) apply({ type: "release", now: performance.now() });
+    else if (poke) apply({ type: "poke", now: performance.now(), rand: Math.random() });
+    press = null;
+  };
+  target.addEventListener("pointerup", () => letGo(true));
+  target.addEventListener("pointercancel", () => letGo(false));
+  target.addEventListener("contextmenu", (event) => event.preventDefault());
+  return () => press !== null;
 }
 
 // The page half: pointer events in, frames and cues out. `cue` is the app's
@@ -204,12 +338,17 @@ export function mount(section, data, cue) {
   const hint = section.querySelector("#play-hint");
   const pill = section.querySelector("#play-qm");
   const field = pill.querySelector("input");
-  const { loops, tuning } = data;
-  const [w, h] = data.size;
+  const { tuning } = data;
+  const me = data.cast[character(data.cast, data.hero)];
+  const { loops } = me;
+  const [w, h] = me.size;
   section.querySelector("#play-tiles").hidden = true;
   desk.hidden = false;
   sprite.style.width = `${w}px`;
   sprite.style.height = `${h}px`;
+  Object.assign(img, { src: loops.idle.frames[0], alt: me.name, width: w, height: h });
+  img.classList.toggle("pixel", me.pixel);
+  section.querySelector("#play-chat .composer textarea").placeholder = `Ask ${me.name}…`;
   Object.values(loops).flatMap((loop) => loop.frames).forEach((src) => { new Image().src = src; });
 
   // Each window keeps its top-left corner as a share of the desk, so a resize
@@ -280,7 +419,7 @@ export function mount(section, data, cue) {
     field.blur();
   }
   sprite.addEventListener("pointerenter", (event) => {
-    if (event.pointerType !== "mouse" || pillUp || press) return;
+    if (event.pointerType !== "mouse" || pillUp || pressing()) return;
     clearTimeout(dwell);
     dwell = setTimeout(showPill, tuning.hoverDelayMs);
   });
@@ -311,45 +450,16 @@ export function mount(section, data, cue) {
     }
   });
 
-  // The same press decoding as input.rs: a press becomes a Grab once it moves
-  // dragThreshold or is held dragDelayMs, and a press released before either is a Poke.
-  let press = null;
-  const grab = () => {
-    if (!press || press.held) return;
-    clearTimeout(press.timer);
-    hidePill();
-    const at = feetNow();
-    press = { ...press, held: true, dx: at.x - press.last.x, dy: at.y - press.last.y };
-    apply({ type: "grab", now: performance.now() });
-    hint.classList.add("tried");
-  };
-  sprite.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    clearTimeout(dwell);
-    sprite.setPointerCapture(event.pointerId);
-    const at = local(event);
-    press = { from: at, last: at, held: false, timer: setTimeout(grab, tuning.dragDelayMs) };
+  const pressing = decodePresses(sprite, tuning, {
+    local,
+    feetNow,
+    onPress: () => clearTimeout(dwell),
+    apply: (event) => {
+      if (event.type === "grab") hidePill();
+      if (event.type === "grab" || event.type === "poke") hint.classList.add("tried");
+      apply(event);
+    },
   });
-  sprite.addEventListener("pointermove", (event) => {
-    if (!press) return;
-    press.last = local(event);
-    if (!press.held && Math.hypot(press.last.x - press.from.x, press.last.y - press.from.y) >= tuning.dragThreshold) grab();
-    if (press.held) apply({ type: "drag", x: press.last.x + press.dx, y: press.last.y + press.dy, now: performance.now() });
-  });
-  const letGo = (poke) => {
-    if (!press) return;
-    clearTimeout(press.timer);
-    if (press.held) apply({ type: "release", now: performance.now() });
-    else if (poke) {
-      apply({ type: "poke", now: performance.now() });
-      hint.classList.add("tried");
-    }
-    press = null;
-  };
-  sprite.addEventListener("pointerup", () => letGo(true));
-  sprite.addEventListener("pointercancel", () => letGo(false));
-  sprite.addEventListener("contextmenu", (event) => event.preventDefault());
 
   const placeWindow = (win) => {
     win.el.style.left = `${edgeOf(win).x0}px`;
@@ -421,10 +531,10 @@ export function mount(section, data, cue) {
       playing = name;
       since = now;
     }
-    const loop = loops[name];
-    const index = Math.floor(((now - since) * loop.fps) / 1000);
-    const src = loop.frames[loop.once ? Math.min(index, loop.frames.length - 1) : index % loop.frames.length];
+    const src = frameOf(loops[name], now - since);
     if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+    const gone = state.mode === "away";
+    if (sprite.hidden !== gone) sprite.hidden = gone;
     const at = feetNow();
     sprite.style.transform = `translate(${at.x - w / 2}px, ${at.y - h}px)${state.facing < 0 ? " scaleX(-1)" : ""}`;
     if (pillUp) placePill();
@@ -441,4 +551,15 @@ export function mount(section, data, cue) {
       pending = 0;
     }
   }).observe(desk);
+
+  // The page character hands the Character over while the desk is in view: it
+  // walks up from under the desk's floor. It leaves out of sight, at once, and
+  // hides here because a desk out of view draws no frame to hide it.
+  return {
+    arrive: () => apply({ type: "enter", now: performance.now() }),
+    depart: () => {
+      apply({ type: "away", now: performance.now() });
+      sprite.hidden = true;
+    },
+  };
 }

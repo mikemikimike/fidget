@@ -214,17 +214,19 @@
     .play-row .play-gestures { grid-area: gestures; }
     .play-gestures .play-sub { margin-top: 0; }
   }
-  .play-desk { position: relative; height: 340px; border-radius: 14px; overflow: hidden;
+  /* Sized to the viewport, so the tallest Character (160px) has room to be held
+     above every window's top edge, which sits at least 0.45 of the way down. */
+  .play-desk { position: relative; height: clamp(420px, 60vh, 640px); border-radius: 14px; overflow: hidden;
     background: linear-gradient(135deg, var(--desk-a), var(--desk-b)); border: 1px solid var(--line);
     user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-  .play-win { position: absolute; width: 46%; height: 70%; background: var(--win); border-radius: 10px;
+  .play-win { position: absolute; width: 46%; height: 40%; background: var(--win); border-radius: 10px;
     border: 1px solid var(--line); box-shadow: 0 18px 40px rgb(0 0 0 / .18); }
   .play-win .bar { height: 28px; border-bottom: 1px solid var(--line); display: flex; gap: 6px;
     align-items: center; padding: 0 10px; cursor: grab; touch-action: none; }
   .play-win .bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
   .play-win .drag-me { flex: 1; text-align: center; font-size: .72rem; letter-spacing: .04em; color: #a3aab8;
     pointer-events: none; }
-  .play-win.dark { width: 40%; height: 52%; background: #1d212b; border-color: #2c3240; }
+  .play-win.dark { width: 40%; height: 48%; background: #1d212b; border-color: #2c3240; }
   .play-win.dark .bar { border-color: #2c3240; }
   .play-win.dark .bar i { background: #3a4152; }
   .play-win.dark .drag-me { color: #e8ebf2; }
@@ -263,7 +265,30 @@
   .play-hint { position: absolute; left: 12px; top: 10px; margin: 0; font-size: .85rem; color: var(--ink-2);
     transition: opacity .6s; pointer-events: none; }
   .play-hint.tried { opacity: 0; }
+  /* The page character: a layer over the viewport that takes no pointer, so
+     only the sprite, its Hide chip and its bubble do. */
+  .fidget { position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none; }
+  .fidget[hidden], .fidget-at[hidden] { display: none; }
+  .fidget-at { position: absolute; left: 0; top: 0; }
+  .fidget-sprite { pointer-events: auto; cursor: grab; }
+  .fidget-sprite img { display: block; width: 100%; height: 100%; pointer-events: none; }
+  .fidget-sprite img.pixel { image-rendering: pixelated; }
+  /* Narrower, a finger on the sprite scrolls the page; it is poke only there. */
+  @media (min-width: 481px) { .fidget-sprite { touch-action: none; } }
+  .fidget-hide { position: absolute; right: 0; top: 0; padding: .1rem .5rem; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--paper); color: var(--ink-2); font: inherit; font-size: .75rem;
+    cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  /* In a corner of the viewport, so a reader who hid it finds the way back. */
+  .fidget-back { position: absolute; right: 12px; bottom: 12px; padding: .2rem .7rem; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--paper); color: var(--ink-2); font: inherit; font-size: .8rem;
+    cursor: pointer; pointer-events: auto; }
+  .fidget-back[hidden] { display: none; }
+  .fidget-at:hover .fidget-hide, .fidget-at.touched .fidget-hide, .fidget-hide:focus-visible {
+    opacity: 1; pointer-events: auto; }
+  .fidget .bubble { left: 0; top: 0; }
+  .fidget .bubble.visible { pointer-events: auto; cursor: default; }
 {{cue_css}}
+{{bubble_css}}
 {{chat_css}}
   @media (max-width: 760px) {
     .play-tiles { grid-template-columns: repeat(3, 1fr); }
@@ -345,15 +370,15 @@
     <p class="play-title">Try it here</p>
     <div class="play-desk" id="play-desk" hidden>
       <p class="play-hint" id="play-hint">Poke it. Drag it. Throw it.</p>
-      <div class="play-win dark" data-win="dark" data-at="0.5 0.28">
+      <div class="play-win dark" data-win="dark" data-at="0.5 0.45">
         <div class="bar"><i></i><i></i><i></i><span class="drag-me">drag me</span></div>
         <div class="lines"><div style="width:64%"></div><div style="width:82%"></div><div style="width:46%"></div></div>
       </div>
-      <div class="play-win" data-win="light" data-at="0.06 0.42">
+      <div class="play-win" data-win="light" data-at="0.06 0.58">
         <div class="bar"><i></i><i></i><i></i><span class="drag-me">drag me</span></div>
         <div class="lines"><div style="width:72%"></div><div style="width:54%"></div><div style="width:81%"></div><div style="width:38%"></div></div>
       </div>
-      <div class="play-win dark chat play-chat-ui" data-win="chat" data-at="0.54 0.3" id="play-chat" hidden>
+      <div class="play-win dark chat play-chat-ui" data-win="chat" data-at="0.54 0.36" id="play-chat" hidden>
         <div class="bar"><button class="close" type="button" aria-label="Close chat">&times;</button><i></i><i></i><span class="drag-me">drag me</span></div>
         <div class="log">
           <div class="empty"><div>
@@ -509,6 +534,16 @@
   </footer>
 </div>
 
+<div class="fidget" id="fidget" hidden>
+  <div class="fidget-at" id="fidget-at" hidden>
+    <div class="fidget-sprite" id="fidget-sprite"><img alt=""></div>
+    <button type="button" class="fidget-hide" id="fidget-hide">Hide</button>
+  </div>
+  <div class="bubble" id="fidget-say" data-mode="speech" title="A line from its personality file."><span class="bubble-content"></span></div>
+  <div class="cue-layer" id="fidget-cues"></div>
+  <button type="button" class="fidget-back" id="fidget-back" hidden>Bring back the fidget</button>
+</div>
+
 <script>
   // Every sprite carries its manifest loop. Reduced motion keeps the first
   // frame, and a hidden tab stops every timer until it is shown again.
@@ -605,12 +640,16 @@
   }
 </script>
 <script type="module">
-  // No JavaScript and reduced motion keep the still tiles the page loads with.
+  // No JavaScript and reduced motion keep the playground's still tiles. The
+  // page character stays under reduced motion, still.
+  import * as bubble from "./bubble.js";
   import * as cue from "./cue.js";
   import { mount } from "./playground.js";
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    mount(document.getElementById("play"), JSON.parse(document.getElementById("play-data").textContent), cue);
-  }
+  import { mount as mountWalker } from "./walker.js";
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const data = JSON.parse(document.getElementById("play-data").textContent);
+  const play = still ? null : mount(document.getElementById("play"), data, cue);
+  mountWalker(document, data, { cue, bubble, play, still });
 </script>
 </body>
 </html>

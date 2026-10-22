@@ -14,9 +14,12 @@ import { after, before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const PROBE_MS = 13000;
+const PROBE_MS = 30000;
 
+// The page character is hidden, so the desk keeps its Character the whole run.
+// tests/landing-walker-site.test.js plays the handover.
 const helpers = `
+  localStorage.setItem("fidget.hidden", "1");
   const errors = [];
   window.addEventListener("error", (e) => errors.push(e.message));
   const frame = () => new Promise(requestAnimationFrame);
@@ -31,6 +34,25 @@ const helpers = `
     }).observe(layer, { childList: true, subtree: true });
   });
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const until = async (what, check, ms) => {
+    const end = performance.now() + ms;
+    while (!check()) {
+      if (performance.now() > end) throw new Error("timed out waiting for " + what);
+      await frame();
+    }
+  };
+  // Resolves with the first attribute write under target, or 0 after ms.
+  const written = (target, ms) => new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(0), ms);
+    new MutationObserver((records, observer) => {
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve(records.length);
+    }).observe(target, { attributes: true, subtree: true });
+  });
+  const castLoops = () => Object.values(JSON.parse(document.getElementById("play-data").textContent).cast)
+    .find((one) => one.name === document.querySelector("#play-sprite img").alt).loops;
+  const playing = (name) => castLoops()[name].frames.includes(document.querySelector("#play-sprite img").getAttribute("src"));
   const pointer = (target, type, x, y) => target.dispatchEvent(new PointerEvent(type, {
     bubbles: true, button: 0, pointerId: 1, pointerType: "mouse", isPrimary: true, clientX: x, clientY: y,
   }));
@@ -64,7 +86,7 @@ const probe = `
       await hard;
       const thrown = { feetY: feetY(), floor: desk.clientHeight };
 
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await until("the end of land", () => !playing("land"), 1000);
       const win = document.querySelector('[data-win="light"]').getBoundingClientRect();
       const windowTop = win.top - inner().y;
       press();
@@ -72,7 +94,8 @@ const probe = `
       const goal = { x: win.left + win.width / 2, y: win.top - 40 - box.height / 2 };
       const start = { x, y };
       for (let i = 1; i <= 10; i++) { await frame(); x = start.x + (goal.x - start.x) * i / 10; y = start.y + (goal.y - start.y) * i / 10; fire("pointermove"); }
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // A pointer still past velocityWindowMs lets go with no speed: a drop, not a throw.
+      await wait(200);
       const soft = cueIn(layer, ".cue-puff:not(.hard)");
       fire("pointerup");
       await soft;
@@ -89,9 +112,10 @@ const probe = `
       window.scrollTo(0, 0);
       await frame(); await frame();
       const before = feetY();
+      // Waits for something that must not happen: a repaint out of view.
       const offscreen = await repaints(1000);
       desk.scrollIntoView({ block: "center" });
-      const back = await repaints(1000);
+      const back = await written(sprite, 1000);
       const paused = { offscreen, back, moved: Math.abs(feetY() - before) };
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors, tiles: false, thrown, dropped, paused }));
     } catch (err) {
@@ -145,24 +169,24 @@ const gestures = `
       chat.querySelector(".close").click();
       const chatResult = { closedAtFirst, opened, rings, moved: [to.left - from.left, to.top - from.top], closed: chat.hidden, look, talk };
 
-      await wait(tuning.pokeCooldownMs);
       sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
+      // Waits for something that must not happen: the pill before hoverDelayMs.
       await wait(tuning.hoverDelayMs - 300);
       const early = pill.classList.contains("visible");
-      await wait(600);
-      const shown = pill.classList.contains("visible") && document.activeElement === field;
+      await until("the pill", () => pill.classList.contains("visible"), 1000);
+      const shown = document.activeElement === field;
       document.execCommand("insertText", false, "hello there");
       const typed = field.value;
       const box = desk.getBoundingClientRect();
       pointer(desk, "pointerdown", box.right - 10, box.bottom - 10);
       const dismissed = !pill.classList.contains("visible");
       sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
-      await wait(tuning.hoverDelayMs + 300);
+      await until("the pill again", () => pill.classList.contains("visible"), tuning.hoverDelayMs + 1000);
       const again = pill.classList.contains("visible");
       field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
       const sent = !pill.classList.contains("visible") && field.value === "";
       sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
-      await wait(tuning.hoverDelayMs + 300);
+      await until("the pill a third time", () => pill.classList.contains("visible"), tuning.hoverDelayMs + 1000);
       document.execCommand("insertText", false, "never mind");
       field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       const escaped = !pill.classList.contains("visible") && field.value === "";
@@ -201,16 +225,75 @@ before(() => {
 
 after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
 
-async function play(flags = [], script = probe) {
+// Each cast Character in turn, one reload apiece, is dragged from wherever it
+// stands to just above a window's top edge and let go slowly.
+const perches = `
+<script>${helpers}
+  sessionStorage.setItem("fidget.character", sessionStorage.getItem("probe-next") ?? "buddy-bot");
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const ids = Object.keys(JSON.parse(document.getElementById("play-data").textContent).cast);
+      const id = sessionStorage.getItem("fidget.character");
+      const desk = document.getElementById("play-desk");
+      const sprite = document.getElementById("play-sprite");
+      const layer = document.getElementById("play-cues");
+      const painting = written(sprite, 1000);
+      desk.scrollIntoView({ block: "center" });
+      await painting;
+      const perched = {};
+      for (const name of ["light", "dark"]) {
+        await until("it standing", () => playing("idle") || playing("sit"), 2000);
+        const win = document.querySelector('[data-win="' + name + '"]').getBoundingClientRect();
+        const box = sprite.getBoundingClientRect();
+        let x = box.left + box.width / 2;
+        let y = box.top + box.height / 2;
+        pointer(sprite, "pointerdown", x, y);
+        pointer(sprite, "pointermove", x, y - 5);
+        const from = { x, y: y - 5 };
+        const goal = { x: win.left + win.width * 0.75, y: win.top - 20 - box.height / 2 };
+        for (let i = 1; i <= 10; i++) {
+          await frame();
+          x = from.x + (goal.x - from.x) * i / 10;
+          y = from.y + (goal.y - from.y) * i / 10;
+          pointer(sprite, "pointermove", x, y);
+        }
+        // A pointer still past velocityWindowMs lets go with no speed: a drop, not a throw.
+        await wait(200);
+        const soft = cueIn(layer, ".cue-puff:not(.hard)");
+        pointer(sprite, "pointerup", x, y);
+        await soft;
+        await frame();
+        perched[name] = Math.round(sprite.getBoundingClientRect().bottom - win.top);
+      }
+      const all = { ...JSON.parse(sessionStorage.getItem("probe-perches") ?? "{}"), [id]: perched };
+      const next = ids[ids.indexOf(id) + 1];
+      if (next) {
+        sessionStorage.setItem("probe-perches", JSON.stringify(all));
+        sessionStorage.setItem("probe-next", next);
+        location.reload();
+        return;
+      }
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, perched: all, desk: desk.clientHeight }));
+    } catch (err) {
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
+    }
+  });
+</script>`;
+
+async function play(flags = [], script = probe, size = "1280,900") {
   const page = join(site, "probe.html");
   writeFileSync(page, readFileSync(join(site, "index.html"), "utf8").replace("<head>", `<head>${script}`));
   const cdp = launchWithPipe(chromePath, [
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--mute-audio",
-    `--user-data-dir=${mkdtempSync(join(dir, "profile-"))}`, "--allow-file-access-from-files", "--window-size=1280,900",
+    `--user-data-dir=${mkdtempSync(join(dir, "profile-"))}`, "--allow-file-access-from-files", `--window-size=${size}`,
     ...flags,
   ]);
   try {
-    const { sessionId, navigate } = await createPageTarget(cdp);
+    const { sessionId, navigate, blockURLs } = await createPageTarget(cdp);
+    // The page plays from file://. The README's video, fetched from GitHub, can
+    // take seconds under load and hold up a reload, so nothing goes to the network.
+    await blockURLs(["http://*", "https://*"]);
     return await captureConsoleLog(cdp, sessionId, "__PROBE_RESULT__", PROBE_MS, () => navigate(pathToFileURL(page).href));
   } finally {
     await cleanupChrome(cdp);
@@ -220,7 +303,7 @@ async function play(flags = [], script = probe) {
 test("every frame the desk plays is in the assembled site", () => {
   const page = readFileSync(join(site, "index.html"), "utf8");
   const desk = JSON.parse(page.match(/<script type="application\/json" id="play-data">([\s\S]*?)<\/script>/)[1]);
-  const frames = Object.values(desk.loops).flatMap((loop) => loop.frames);
+  const frames = Object.values(desk.cast).flatMap((member) => Object.values(member.loops)).flatMap((loop) => loop.frames);
   assert.ok(frames.length > 7, `the desk plays ${frames.length} frames`);
   for (const frame of frames) assert.ok(existsSync(join(site, frame)), `${frame} is published`);
 });
@@ -238,6 +321,7 @@ test("the desk replaces the still tiles: a throw lands with the hard puff, a slo
 test("a double-click opens the chat mock, which moves by its bar and closes; a hover opens the pill, which takes typing; a window drags to the desk top", { skip: chromeSkip }, async () => {
   const result = await play([], gestures);
   assert.deepEqual(result.errors, [], "the page threw nothing");
+  assert.equal(result.name, "Buddy Bot", "with no pick, the desk plays Buddy Bot");
   const hex = readFileSync(join(ROOT, "src/chat-shared.css"), "utf8").match(/--shared-panel: #(\w{6});/)[1];
   const panel = `rgb(${hex.match(/../g).map((pair) => parseInt(pair, 16)).join(", ")})`;
   assert.deepEqual(result.chat, { closedAtFirst: true, opened: true, rings: { summon: 2, poke: 0 }, moved: [-60, 30], closed: true,
@@ -250,6 +334,16 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
   assert.ok(result.beside, "at 1280px the gestures sit to the left of the panel, top-aligned with it");
   assert.equal(result.pushedRight, 0, "beside the gestures, a window drags right up to the narrower desk's right edge");
 });
+
+for (const size of ["1512,945", "1280,800"]) {
+  test(`at ${size}, every cast Character drags onto both windows' top edges and perches`, { skip: chromeSkip }, async () => {
+    const result = await play([], perches, size);
+    assert.deepEqual(result.errors, [], "the page threw nothing");
+    const flat = { light: 0, dark: 0 };
+    assert.deepEqual(result.perched, { "buddy-bot": flat, nim: flat, "timber-wolf": flat },
+      `each Character's feet rest on each window's top edge, in a ${result.desk}px desk`);
+  });
+}
 
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
   const page = readFileSync(join(site, "index.html"), "utf8");
