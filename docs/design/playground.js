@@ -148,12 +148,13 @@ function start(world, now) {
   return { mode: "standing", on: "floor", x: world.width / 2, facing: 1, act: "idle", until: now + WANDER.idle[0], quietSince: now };
 }
 
-// A scroll is not a click: it plays react with no cue, never pairs into a
-// Summon, and reacts at most once per poke cooldown. Every one keeps it awake.
+// A scroll is not a click: it plays react with no cue and never pairs into a
+// Summon. Only a napping character startles, as a reader scrolls for seconds
+// and a react every cooldown reads as a twitch. Every scroll keeps it awake.
 function startle(state, now, tuning) {
   const awake = { ...state, quietSince: now };
-  if (now - (state.startledAt ?? -Infinity) < tuning.pokeCooldownMs) return awake;
-  return { ...awake, act: "react", until: now + tuning.primitiveMs, startledAt: now };
+  if (state.act !== "sit" && state.act !== "sleep") return awake;
+  return { ...awake, act: "react", until: now + tuning.primitiveMs };
 }
 
 // Leaving walks in place down past the floor until out of sight, and entering

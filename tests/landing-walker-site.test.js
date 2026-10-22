@@ -112,6 +112,20 @@ const probe = `
       await until("the walk back onto the page", () => { watch(); return onPage(); }, 6000);
       const handoff = { both, arrived };
 
+      // A reader's slow scroll down past the download buttons, a step a frame.
+      const reacting = () => !at.hidden && member.loops.react.frames.includes(img.getAttribute("src"));
+      let reacts = 0;
+      let crossings = 0;
+      let [wasReacting, wasAway] = [false, at.hidden];
+      for (let i = 0; i < 400; i++) {
+        window.scrollBy(0, 2);
+        await frame();
+        if (reacting() && !wasReacting) reacts++;
+        if (at.hidden !== wasAway) crossings++;
+        [wasReacting, wasAway] = [reacting(), at.hidden];
+      }
+      const read = { reacts, crossings };
+
       // Most of the way to the threshold and back over it, a few px at a time.
       const edge = window.scrollY + desk.getBoundingClientRect().top - innerHeight + desk.offsetHeight * 0.4;
       let flips = 0;
@@ -126,7 +140,7 @@ const probe = `
       document.getElementById("fidget-hide").click();
       await frame(); await frame();
       const hid = { hidden: at.hidden, back: !back.hidden, stored: localStorage.getItem("fidget.hidden") };
-      sessionStorage.setItem("probe-first", JSON.stringify({ alt: img.alt, entered, poke, thrown, handoff, bounce, hid }));
+      sessionStorage.setItem("probe-first", JSON.stringify({ alt: img.alt, entered, poke, thrown, handoff, read, bounce, hid }));
       location.reload();
     } catch (err) {
       done({ errors: [...errors, String(err)] });
@@ -202,6 +216,8 @@ test("the page character walks on, reacts, lands a throw, hands over to the play
   assert.equal(result.handoff.both, 0, "the page never showed two at once");
   assert.ok(Math.abs(result.handoff.arrived.playFeet - result.handoff.arrived.deskFloor) < 1,
     `the playground's Character walked up onto the desk floor: ${JSON.stringify(result.handoff.arrived)}`);
+  assert.ok(result.read.reacts === 0 && result.read.crossings <= 2,
+    `a slow scroll never startles the awake character, and the download buttons send it off and back at most once: ${JSON.stringify(result.read)}`);
   assert.deepEqual(result.bounce, { flips: 0, stayed: true }, "resting at the threshold does not bounce it");
   assert.deepEqual(result.hid, { hidden: true, back: true, stored: "1" });
   assert.deepEqual(result.reloaded, { hidden: true, back: true, layerEmpty: true }, "Hide is remembered across a reload");

@@ -182,14 +182,28 @@ test("a recent touch keeps the character wandering instead of napping", () => {
   assert.equal(animationOf(run(touched, [{ type: "tick", now: 20_001, dt: 0.016, rand: 0 }]).state), "walk");
 });
 
-test("a scroll startles a sleeper into react with no cue, at most once per poke cooldown, and never pairs into a summon", () => {
+test("a scroll startles a napping character into react with no cue, and never pairs into a summon", () => {
   const asleep = { ...standing("floor", 300, "sleep"), quietSince: 0 };
   const startled = run(asleep, [{ type: "startle", now: 1000 }]);
   assert.deepEqual([animationOf(startled.state), startled.cues], ["react", []]);
-  const calm = run(startled.state, [{ type: "tick", now: 1601, dt: 0.016, rand: 0.9 }, { type: "startle", now: 2000 }]);
-  assert.equal(animationOf(calm.state), "idle");
-  assert.equal(animationOf(run(calm.state, [{ type: "startle", now: 3600 }]).state), "react");
+  const sitting = { ...standing("floor", 300, "sit", 5000), quietSince: 0 };
+  assert.equal(animationOf(run(sitting, [{ type: "startle", now: 1000 }]).state), "react");
   assert.deepEqual(run(asleep, [{ type: "startle", now: 1000 }, { type: "poke", now: 1200 }]).cues, ["poke"]);
+});
+
+test("a long scroll past an awake character never startles it, so it keeps idling and walking", () => {
+  const scrolls = (from, ms) => Array.from({ length: ms / 16 }, (_, i) => [
+    { type: "startle", now: from + i * 16 }, { type: "tick", now: from + i * 16, dt: 0.016, rand: 0.9 }]).flat();
+  for (const act of ["idle", "walk"]) {
+    const awake = { ...standing("floor", 300, act, 2000), quietSince: 0 };
+    const seen = new Set();
+    let state = awake;
+    for (const event of scrolls(0, 10_000)) {
+      state = step(state, event, WORLD, TUNING).state;
+      seen.add(animationOf(state));
+    }
+    assert.ok(!seen.has("react"), `scrolling past a character that is ${act} played ${[...seen]}`);
+  }
 });
 
 test("a scroll keeps the character awake for another nap delay", () => {
