@@ -1,7 +1,8 @@
 name: Security
 
 # Advisory databases change under an untouched lockfile, so the nightly run is
-# what surfaces a new advisory; pull requests and main get the same three scans.
+# what surfaces a new advisory; pull requests and main get the same audits.
+# Secret scanning is its own workflow, secret-scanning.yml.
 
 on:
   pull_request:
@@ -72,33 +73,3 @@ jobs:
 
       - name: npm audit
         run: npm audit --audit-level=high
-
-  # Every pull request, Markdown included: a pasted key is as live in a doc.
-  # Known false positives sit in `.secrets.baseline` or carry
-  # `pragma: allowlist secret`; only a hit in neither fails the job.
-  secrets:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-
-      - name: Scan for secrets
-        # The hook exits 1 on a new secret and 3 when it only moved a known
-        # hit's line number, which the local pre-commit hook commits.
-        run: | # pragma: allowlist secret
-          pip install detect-secrets==1.5.0
-          mapfile -d '' files < <(git ls-files -z)
-          status=0
-          detect-secrets-hook --baseline .secrets.baseline "${files[@]}" || status=$?
-          if [ "$status" -eq 3 ]; then
-            echo "::warning::.secrets.baseline has stale line numbers; run pre-commit locally to refresh it"
-          elif [ "$status" -ne 0 ]; then
-            exit "$status"
-          fi
