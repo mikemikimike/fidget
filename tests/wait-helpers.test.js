@@ -94,6 +94,13 @@ test("stop_fidget kills Fidget and the processes under it", () => {
   assert.strictEqual(r.code, 0, r.out);
 });
 
+test("stop_fidget kills a tree that ignores TERM within about 3 s", () => {
+  const r = run(`bash -c 'trap "" TERM; sleep 30 & wait' & pid=$!; sleep 0.2; child=$(pgrep -P "$pid"); stop_fidget
+! kill -0 "$pid" 2> /dev/null && ! kill -0 "$child" 2> /dev/null`);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(r.ms >= 2900 && r.ms < 4500, `took ${r.ms} ms`);
+});
+
 for (const leaf of ["mac", "x11"]) {
   test(`wait-helpers.${leaf}.sh loads the shared core`, () => {
     const r = run(`for f in wait_for_trace wait_for_marks wait_for_file wait_until wait_for_count stop_fidget in_state wait_for_ax_dump answer_permission; do declare -F "$f" > /dev/null || { echo "missing $f"; exit 1; }; done`, path.join(scenarios, `wait-helpers.${leaf}.sh`));

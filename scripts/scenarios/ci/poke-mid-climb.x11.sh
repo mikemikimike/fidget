@@ -96,8 +96,9 @@ click_at() { # <x> <y>
 start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
   FIDGET_CHARACTERS="$root/characters" "$bin" > "$log" 2>&1 &
+# shellcheck disable=SC2034 # read by stop_fidget
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true' EXIT INT TERM
+trap 'stop_fidget' EXIT INT TERM
 wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 wait_for_rest "$trace" || fail "the sprite never came to rest; see $trace"
@@ -168,8 +169,7 @@ wait_for_trace 3 "$trace" 'frame: .* Climbing .* react#[0-9]' || fail "sprite di
 # stopping Fidget sooner cuts those frames off.
 cooldown_traced() { python3 "$root/scripts/scenarios/helpers/poke-mid-climb-check.py" "$trace" 2> /dev/null; }
 wait_until 3 cooldown_traced || true
-kill "$pid" 2> /dev/null || true
-wait "$pid" 2> /dev/null || true
+stop_fidget
 
 check "$trace"
 elapsed_ms=$(($(date +%s%N) / 1000000 - start_ms))

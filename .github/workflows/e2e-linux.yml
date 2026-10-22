@@ -94,10 +94,7 @@ jobs:
             pid=$!
             drew=0
             wait_for_trace 3 "$log" '^frame: ' || drew=$?
-            stop_fidget || true
-            { sleep 3 && process_tree "$pid" | xargs kill -9; } > /dev/null 2>&1 &
-            wait "$pid" 2> /dev/null || true
-            kill "$!" 2> /dev/null || true
+            stop_fidget
             if [ "$drew" != 0 ]; then
               echo "::error::the warm-up drew no frame in 3 s; see warmup.log in the evidence"
               exit 1
