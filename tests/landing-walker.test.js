@@ -90,7 +90,7 @@ test("a view that flips back before the character is gone turns it around with n
   assert.deepEqual([bounced.state.phase, bounced.handoffs, feet(bounced.state.sprite, ENV.world).y], ["page", [], 800]);
 });
 
-test("download buttons in its band send the character off without lending it, and it returns once they scroll away", () => {
+test("the hero's stage on screen sends the character off without lending it, and it returns once the stage scrolls away", () => {
   const off = run(onPage(), [view(false, true), ...ticks(1500, 30)]);
   assert.deepEqual([off.state.phase, off.handoffs], ["away", []]);
   const lent = run(off.state, [view(true, true), ...ticks(3000, 1)]);

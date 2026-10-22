@@ -1,8 +1,9 @@
 // The page character on the published landing page, played in headless
 // Chrome: it walks up onto the page in a margin, a poke plays react with a ring and a line,
 // a throw lands on the bottom edge, it hands over to the playground and back
-// without two on screen, resting at the threshold does not bounce it, Hide
-// survives a reload, and reduced motion keeps it still.
+// without two on screen, resting at the threshold does not bounce it, it draws
+// no frames while away, Hide survives a reload and moves focus, a phone pokes
+// rather than grabs, and reduced motion keeps it still.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -45,6 +46,12 @@ const helpers = `
 
 const probe = `
 <script>${helpers}
+  let walkerFrames = 0;
+  const raf = requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (callback) => {
+    if (/walker\.js/.test(new Error().stack)) walkerFrames++;
+    return raf(callback);
+  };
   // Where it first shows, before load: load waits on every image, by when it may have walked.
   const entry = new Promise((resolve) => {
     const look = () => {
@@ -72,7 +79,7 @@ const probe = `
       back.click();
       let returned = true;
       try {
-        await until("the walk back on after Bring back", () => !at.hidden, 3000);
+        await until("the walk back on after Bring back", () => !at.hidden, 2000);
       } catch {
         returned = false;
       }
@@ -88,18 +95,18 @@ const probe = `
       const data = JSON.parse(document.getElementById("play-data").textContent);
       const member = Object.values(data.cast).find((one) => one.name === img.alt);
       const feetY = () => sprite.getBoundingClientRect().bottom;
-      const onPage = () => !at.hidden && Math.abs(feetY() - innerHeight) < 1;
+      // Exactly on the floor: within a px can still be the last step of the walk up.
+      const onPage = () => !at.hidden && Math.abs(feetY() - innerHeight) < 0.01;
       const center = () => { const box = sprite.getBoundingClientRect(); return [box.left + box.width / 2, box.top + box.height / 2]; };
 
       // The hero's stage shows its own fidget, so the page's waits below it.
       // The cast section is below the stage and clear of the playground too.
       const belowStage = () => document.getElementById("characters").scrollIntoView({ block: "start" });
-      await wait(700);
+      // Waits for something that must not happen: it walking on at the top.
+      await wait(500);
       const atTop = at.hidden;
       belowStage();
-      await until("the walk onto the page", onPage, 4000);
-      // Feet within a px of the floor can still be the last step of the walk up.
-      await wait(200);
+      await until("the walk onto the page", onPage, 2000);
       const entered = await entry;
       const ring = cueIn(layer, ".cue-ring");
       pointer(sprite, "pointerdown", ...center());
@@ -110,7 +117,7 @@ const probe = `
       await until("the bubble", () => say.classList.contains("visible"), 1000);
       const poke = { reacted, said: member.lines.includes(say.textContent), title: say.title };
 
-      await wait(700);
+      await until("the end of react", () => !member.loops.react.frames.includes(img.getAttribute("src")), 1000);
       let [x, y] = center();
       pointer(sprite, "pointerdown", x, y);
       for (const [dx, dy] of [[10, -10], [40, -60], [40, -60], [40, -60]]) { await frame(); x += dx; y += dy; pointer(sprite, "pointermove", x, y); }
@@ -123,16 +130,28 @@ const probe = `
       const deskShows = () => { const box = desk.getBoundingClientRect(); return box.bottom > 0 && box.top < innerHeight; };
       const watch = () => { if (!at.hidden && !playSprite.hidden && deskShows()) both++; };
       desk.scrollIntoView({ block: "center" });
-      await until("the playground's Character", () => { watch(); return at.hidden && !playSprite.hidden; }, 6000);
-      await wait(1500);
-      const arrived = { playFeet: playSprite.getBoundingClientRect().bottom, deskFloor: desk.getBoundingClientRect().top + desk.clientTop + desk.clientHeight };
+      await until("the playground's Character", () => { watch(); return at.hidden && !playSprite.hidden; }, 2000);
+      const deskFloor = () => desk.getBoundingClientRect().top + desk.clientTop + desk.clientHeight;
+      await until("the walk up onto the desk floor", () => Math.abs(playSprite.getBoundingClientRect().bottom - deskFloor()) < 1, 2000);
+      const arrived = { playFeet: playSprite.getBoundingClientRect().bottom, deskFloor: deskFloor() };
       belowStage();
-      await until("the walk back onto the page", () => { watch(); return onPage(); }, 6000);
+      await until("the walk back onto the page", () => { watch(); return onPage(); }, 2000);
       const handoff = { both, arrived };
 
       // A reader's slow scroll down from the top past the hero, a step a frame.
       window.scrollTo(0, 0);
-      await until("the walk off at the top", () => at.hidden, 4000);
+      // The Hide chip a press showed goes on a timer, not a frame.
+      await until("the walk off at the top", () => at.hidden && !at.classList.contains("touched"), 2000);
+      await frame();
+      const writes = [];
+      const quiet = new MutationObserver((records) => writes.push(...records.map((r) => r.attributeName)));
+      quiet.observe(document.getElementById("fidget"), { attributes: true, subtree: true });
+      const framesBefore = walkerFrames;
+      // Waits for something that must not happen: a frame or a write while it is away.
+      await wait(1000);
+      quiet.disconnect();
+      const idle = { writes, frames: walkerFrames - framesBefore };
+      const framesAway = walkerFrames;
       const reacting = () => !at.hidden && member.loops.react.frames.includes(img.getAttribute("src"));
       let reacts = 0;
       let crossings = 0;
@@ -147,6 +166,7 @@ const probe = `
         [wasReacting, wasAway] = [reacting(), at.hidden];
       }
       const read = { reacts, crossings };
+      idle.resumed = walkerFrames > framesAway;
 
       // Most of the way to the threshold and back over it, a few px at a time.
       const edge = window.scrollY + desk.getBoundingClientRect().top - innerHeight + desk.offsetHeight * 0.4;
@@ -154,6 +174,7 @@ const probe = `
       let wasHidden = at.hidden;
       for (let i = 0; i < 40; i++) {
         window.scrollTo(0, edge + (i % 2 ? 30 : -30));
+        // Waits for something that must not happen: a flip at the threshold.
         await wait(50);
         if (at.hidden !== wasHidden) { flips++; wasHidden = at.hidden; }
       }
@@ -162,7 +183,7 @@ const probe = `
       document.getElementById("fidget-hide").click();
       await frame(); await frame();
       const hid = { hidden: at.hidden, back: !back.hidden, stored: localStorage.getItem("fidget.hidden") };
-      sessionStorage.setItem("probe-first", JSON.stringify({ alt: img.alt, atTop, entered, poke, thrown, handoff, read, bounce, hid }));
+      sessionStorage.setItem("probe-first", JSON.stringify({ alt: img.alt, atTop, entered, poke, thrown, handoff, read, idle, bounce, hid }));
       location.reload();
     } catch (err) {
       done({ errors: [...errors, String(err)] });
@@ -186,7 +207,8 @@ const still = `
       let changes = 0;
       const observer = new MutationObserver((records) => { changes += records.length; });
       observer.observe(at, { attributes: true, subtree: true });
-      await wait(1500);
+      // Waits for something that must not happen: a step or a new frame.
+      await wait(1000);
       observer.disconnect();
       const box = sprite.getBoundingClientRect();
       pointer(sprite, "pointerdown", box.left + box.width / 2, box.top + box.height / 2);
@@ -195,6 +217,107 @@ const still = `
       done({ changes, moved: sprite.getBoundingClientRect().left - first.left, tiles: !document.getElementById("play-tiles").hidden,
         idle: Object.values(JSON.parse(document.getElementById("play-data").textContent).cast)
           .some((one) => one.name === img.alt && one.loops.idle.frames[0] === first.src) });
+    } catch (err) {
+      done({ errors: [...errors, String(err)] });
+    }
+  });
+</script>`;
+
+// A reload restored mid-page: the desk is in sight, but under the 0.6 that
+// counts it in view, before either observer first reports.
+const midway = `
+<script>${helpers}
+  const firsts = [];
+  window.IntersectionObserver = class extends IntersectionObserver {
+    constructor(callback, options) {
+      super((entries, observer) => {
+        for (const entry of entries) if (entry.target.id === "play-desk") firsts.push(entry.intersectionRatio);
+        callback(entries, observer);
+      }, options);
+    }
+    observe(target) {
+      if (target.id === "play-desk" && !firsts.scrolled) {
+        firsts.scrolled = true;
+        window.scrollTo(0, scrollY + target.getBoundingClientRect().top - innerHeight + target.offsetHeight * 0.3);
+      }
+      super.observe(target);
+    }
+  };
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const at = document.getElementById("fidget-at");
+      await until("the walk onto the page", () => !at.hidden, 2000);
+      done({ first: firsts[0], stageGone: document.querySelector(".stage").getBoundingClientRect().bottom < 0 });
+    } catch (err) {
+      done({ errors: [...errors, String(err)], first: firsts[0] });
+    }
+  });
+</script>`;
+
+// Hide and Bring back pressed with real keys, which the page asks for by name.
+const keys = `
+<script>${helpers}
+  const focused = () => document.activeElement.id || document.activeElement.tagName;
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const at = document.getElementById("fidget-at");
+      const back = document.getElementById("fidget-back");
+      document.getElementById("characters").scrollIntoView({ block: "start" });
+      await until("the walk onto the page", () => !at.hidden, 2000);
+      document.getElementById("fidget-hide").focus();
+      pressKey("Enter");
+      await until("Hide", () => !back.hidden && at.hidden, 1000);
+      const hid = focused();
+      pressKey("Enter");
+      await until("the walk back on", () => !at.hidden, 1000);
+      await frame();
+      const returned = focused();
+      pressKey("Enter");
+      await until("Hide again", () => !back.hidden && at.hidden, 1000);
+      window.scrollTo(0, 0);
+      await frame(); await frame();
+      pressKey("Enter");
+      await until("Bring back at the top", () => back.hidden, 1000);
+      await frame();
+      const heldOff = { focused: focused(), away: at.hidden };
+      pressKey("Tab");
+      await until("a Tab", () => document.activeElement !== document.body, 1000);
+      done({ hid, returned, heldOff, tabbedToTop: document.activeElement === document.querySelector("a[href]") });
+    } catch (err) {
+      done({ errors: [...errors, String(err)] });
+    }
+  });
+</script>`;
+
+// A phone: a finger pressed on the sprite and moved scrolls the page there, so
+// the sprite must not take the press as a grab.
+const phone = `
+<script>${helpers}
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const at = document.getElementById("fidget-at");
+      const sprite = document.getElementById("fidget-sprite");
+      document.getElementById("characters").scrollIntoView({ block: "start" });
+      await until("the end of the walk up", () => !at.hidden && Math.abs(sprite.getBoundingClientRect().bottom - innerHeight) < 0.01, 2000);
+      const touch = (type, x, y) => sprite.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, button: 0, pointerId: 1, pointerType: "touch", isPrimary: true, clientX: x, clientY: y,
+      }));
+      const box = sprite.getBoundingClientRect();
+      const x = box.left + box.width / 2;
+      let y = box.top + box.height / 2;
+      const ring = cueIn(document.getElementById("fidget-cues"), ".cue-ring");
+      touch("pointerdown", x, y);
+      for (let i = 0; i < 4; i++) { await frame(); y -= 20; touch("pointermove", x, y); }
+      // Waits for something that must not happen: past dragDelayMs, a press held this long grabs.
+      await wait(250);
+      const lifted = innerHeight - sprite.getBoundingClientRect().bottom;
+      touch("pointerup", x, y);
+      await ring;
+      done({ narrow: matchMedia("(max-width: 480px)").matches, lifted: Math.round(lifted),
+        touchAction: getComputedStyle(sprite).touchAction });
     } catch (err) {
       done({ errors: [...errors, String(err)] });
     }
@@ -213,7 +336,7 @@ before(() => {
 
 after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
 
-async function play(script, flags = []) {
+async function play(script, flags = [], viewport = null) {
   const page = join(site, "probe.html");
   writeFileSync(page, readFileSync(join(site, "index.html"), "utf8").replace("<head>", `<head>${script}`));
   const cdp = launchWithPipe(chromePath, [
@@ -223,6 +346,16 @@ async function play(script, flags = []) {
   ]);
   try {
     const { sessionId, navigate } = await createPageTarget(cdp);
+    // A window narrower than 500px is clamped, so a phone's is emulated.
+    if (viewport) await cdp.send("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: false }, sessionId);
+    // A probe's pressKey(name) sends a real key, which a synthetic event is not.
+    await cdp.send("Runtime.addBinding", { name: "pressKey" }, sessionId);
+    cdp.on(sessionId, "Runtime.bindingCalled", ({ payload }) => {
+      const [code, text] = { Enter: [13, "\r"], Tab: [9, ""] }[payload];
+      const key = { key: payload, code: payload, windowsVirtualKeyCode: code };
+      cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...key, text }, sessionId)
+        .then(() => cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...key }, sessionId));
+    });
     return await captureConsoleLog(cdp, sessionId, "__PROBE_RESULT__", PROBE_MS, () => navigate(pathToFileURL(page).href));
   } finally {
     await cleanupChrome(cdp);
@@ -243,14 +376,33 @@ test("the page character walks on, reacts, lands a throw, hands over to the play
     `the playground's Character walked up onto the desk floor: ${JSON.stringify(result.handoff.arrived)}`);
   assert.ok(result.read.reacts === 0 && result.read.crossings === 1,
     `a slow scroll never startles the awake character, and it walks on once, past the hero: ${JSON.stringify(result.read)}`);
+  assert.deepEqual(result.idle, { writes: [], frames: 0, resumed: true },
+    "while it is away the page draws no frames and writes nothing, and frames resume when it walks back on");
   assert.deepEqual(result.bounce, { flips: 0, stayed: true }, "resting at the threshold does not bounce it");
   assert.deepEqual(result.hid, { hidden: true, back: true, stored: "1" });
   assert.deepEqual(result.reloaded, { hidden: true, back: true, layerEmpty: true }, "Hide is remembered across a reload");
-  assert.equal(result.backInView, true, "Bring back shows at the top of the page, not only in the footer");
+  assert.equal(result.backInView, true, "Bring back shows in a corner of the viewport");
   assert.deepEqual([result.returned, result.backAfter], [true, false], "Bring back walks it on again and hides the link");
 });
 
 test("under reduced motion the page character stays put on its first frame, and a poke still shows a bubble", { skip: chromeSkip }, async () => {
   const result = await play(still, ["--force-prefers-reduced-motion"]);
   assert.deepEqual(result, { errors: [], changes: 0, moved: 0, tiles: true, idle: true });
+});
+
+test("a page loaded with the desk partly in sight counts it out of view, so the page character walks on", { skip: chromeSkip }, async () => {
+  const result = await play(midway);
+  assert.ok(result.first > 0 && result.first < 0.6, `the first report saw the desk partly: ${result.first}`);
+  assert.deepEqual(result, { errors: [], first: result.first, stageGone: true });
+});
+
+test("Hide moves focus to Bring back, and Bring back to the sprite's Hide, or to the page when it cannot walk on", { skip: chromeSkip }, async () => {
+  const result = await play(keys);
+  assert.deepEqual(result, { errors: [], hid: "fidget-back", returned: "fidget-hide", heldOff: { focused: "BODY", away: true },
+    tabbedToTop: true }, "held off the page, focus goes to the page, whose next Tab starts at the top");
+});
+
+test("on a phone a press moved across the page character pokes it rather than grabbing it", { skip: chromeSkip }, async () => {
+  const result = await play(phone, [], { width: 390, height: 844 });
+  assert.deepEqual(result, { errors: [], narrow: true, lifted: 0, touchAction: "auto" });
 });

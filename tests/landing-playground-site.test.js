@@ -34,6 +34,25 @@ const helpers = `
     }).observe(layer, { childList: true, subtree: true });
   });
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const until = async (what, check, ms) => {
+    const end = performance.now() + ms;
+    while (!check()) {
+      if (performance.now() > end) throw new Error("timed out waiting for " + what);
+      await frame();
+    }
+  };
+  // Resolves with the first attribute write under target, or 0 after ms.
+  const written = (target, ms) => new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(0), ms);
+    new MutationObserver((records, observer) => {
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve(records.length);
+    }).observe(target, { attributes: true, subtree: true });
+  });
+  const castLoops = () => Object.values(JSON.parse(document.getElementById("play-data").textContent).cast)
+    .find((one) => one.name === document.querySelector("#play-sprite img").alt).loops;
+  const playing = (name) => castLoops()[name].frames.includes(document.querySelector("#play-sprite img").getAttribute("src"));
   const pointer = (target, type, x, y) => target.dispatchEvent(new PointerEvent(type, {
     bubbles: true, button: 0, pointerId: 1, pointerType: "mouse", isPrimary: true, clientX: x, clientY: y,
   }));
@@ -67,7 +86,7 @@ const probe = `
       await hard;
       const thrown = { feetY: feetY(), floor: desk.clientHeight };
 
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await until("the end of land", () => !playing("land"), 1000);
       const win = document.querySelector('[data-win="light"]').getBoundingClientRect();
       const windowTop = win.top - inner().y;
       press();
@@ -75,7 +94,8 @@ const probe = `
       const goal = { x: win.left + win.width / 2, y: win.top - 40 - box.height / 2 };
       const start = { x, y };
       for (let i = 1; i <= 10; i++) { await frame(); x = start.x + (goal.x - start.x) * i / 10; y = start.y + (goal.y - start.y) * i / 10; fire("pointermove"); }
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // A pointer still past velocityWindowMs lets go with no speed: a drop, not a throw.
+      await wait(200);
       const soft = cueIn(layer, ".cue-puff:not(.hard)");
       fire("pointerup");
       await soft;
@@ -92,9 +112,10 @@ const probe = `
       window.scrollTo(0, 0);
       await frame(); await frame();
       const before = feetY();
+      // Waits for something that must not happen: a repaint out of view.
       const offscreen = await repaints(1000);
       desk.scrollIntoView({ block: "center" });
-      const back = await repaints(1000);
+      const back = await written(sprite, 1000);
       const paused = { offscreen, back, moved: Math.abs(feetY() - before) };
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors, tiles: false, thrown, dropped, paused }));
     } catch (err) {
@@ -148,24 +169,24 @@ const gestures = `
       chat.querySelector(".close").click();
       const chatResult = { closedAtFirst, opened, rings, moved: [to.left - from.left, to.top - from.top], closed: chat.hidden, look, talk };
 
-      await wait(tuning.pokeCooldownMs);
       sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
+      // Waits for something that must not happen: the pill before hoverDelayMs.
       await wait(tuning.hoverDelayMs - 300);
       const early = pill.classList.contains("visible");
-      await wait(600);
-      const shown = pill.classList.contains("visible") && document.activeElement === field;
+      await until("the pill", () => pill.classList.contains("visible"), 1000);
+      const shown = document.activeElement === field;
       document.execCommand("insertText", false, "hello there");
       const typed = field.value;
       const box = desk.getBoundingClientRect();
       pointer(desk, "pointerdown", box.right - 10, box.bottom - 10);
       const dismissed = !pill.classList.contains("visible");
       sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
-      await wait(tuning.hoverDelayMs + 300);
+      await until("the pill again", () => pill.classList.contains("visible"), tuning.hoverDelayMs + 1000);
       const again = pill.classList.contains("visible");
       field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
       const sent = !pill.classList.contains("visible") && field.value === "";
       sprite.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", pointerId: 1 }));
-      await wait(tuning.hoverDelayMs + 300);
+      await until("the pill a third time", () => pill.classList.contains("visible"), tuning.hoverDelayMs + 1000);
       document.execCommand("insertText", false, "never mind");
       field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       const escaped = !pill.classList.contains("visible") && field.value === "";
@@ -217,11 +238,12 @@ const perches = `
       const desk = document.getElementById("play-desk");
       const sprite = document.getElementById("play-sprite");
       const layer = document.getElementById("play-cues");
+      const painting = written(sprite, 1000);
       desk.scrollIntoView({ block: "center" });
-      await frame(); await frame();
+      await painting;
       const perched = {};
       for (const name of ["light", "dark"]) {
-        await wait(700);
+        await until("it standing", () => playing("idle") || playing("sit"), 2000);
         const win = document.querySelector('[data-win="' + name + '"]').getBoundingClientRect();
         const box = sprite.getBoundingClientRect();
         let x = box.left + box.width / 2;
@@ -236,6 +258,7 @@ const perches = `
           y = from.y + (goal.y - from.y) * i / 10;
           pointer(sprite, "pointermove", x, y);
         }
+        // A pointer still past velocityWindowMs lets go with no speed: a drop, not a throw.
         await wait(200);
         const soft = cueIn(layer, ".cue-puff:not(.hard)");
         pointer(sprite, "pointerup", x, y);
