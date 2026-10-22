@@ -5068,9 +5068,6 @@ fn main() {
             }
 
             let secrets: Arc<dyn SecretStore> = Arc::new(KeyringStore::new());
-            // The Harness attaches before `director_settings` and `config_from`, which
-            // both ask whether one is attached, so a launch never prompts for a key it
-            // would not send.
             app.manage(PendingAsks(Mutex::new(Pending::default())));
             app.manage(MinimizedChats::default());
             app.manage(Mutex::new(session_log::Log::new()));
@@ -5087,6 +5084,9 @@ fn main() {
             #[cfg(windows)]
             drop(spawned_ctrl_c);
             quit_harness_on_interrupt(app.handle().clone());
+            // The Harness attaches before `director_settings` and `config_from`, which
+            // both ask whether one is attached, so a launch never prompts for a key it
+            // would not send.
             harness::attach(
                 harness::Target::from_settings(
                     settings.harness_source().as_deref(),

@@ -4425,6 +4425,7 @@ pub(crate) mod tests {
     ///
     /// `FIDGET_BENCH_WAKES` sets the sample size (default 40).
     /// `FIDGET_BENCH_FRAMING` is `today` (default), `framed`, or `after`.
+    /// The run also reports how much of its prose quoted a sample line back.
     #[test]
     #[ignore]
     fn measure_the_reply_contract_failure_rate() {
