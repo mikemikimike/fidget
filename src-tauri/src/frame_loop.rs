@@ -275,8 +275,8 @@ pub(crate) fn run_frame_loop(
         // and so the only place that knows when this is true again.
         let covered = Arc::new(Mutex::new(covered));
 
-        // Spawn XI2 input event listener on X11. When available, the frame loop
-        // blocks on this channel when idle instead of polling at 16ms.
+        // An XI2 listener lets the frame loop block when idle instead of polling at
+        // 16ms.
         #[cfg(all(unix, not(target_os = "macos")))]
         let mut input_events = platform::spawn_xi2_listener();
         // macOS: the same channel, fed by a mouse event tap once Input Monitoring is
@@ -294,7 +294,6 @@ pub(crate) fn run_frame_loop(
         // FIDGET_TRACE_FRAMES off and its per-tick print ruled out as the cause.
         let counting_ticks = crate::tracing_cadence();
 
-        // Log DND state at startup when TRACE_BUBBLE is on.
         if dev_flags::TRACE_BUBBLE.is_on() {
             let dnd = settings
                 .lock()
@@ -642,8 +641,8 @@ pub(crate) fn run_frame_loop(
             } else {
                 platform::overlay_passes_clicks_through();
             }
-            // A consuming read — once per tick, nowhere else. A second read
-            // eats the edge.
+            // A consuming read, once per tick and nowhere else. A second read eats the
+            // edge.
             let buttons = platform::buttons_down();
             let held = buttons.primary;
             let secondary_held = buttons.secondary;
@@ -848,8 +847,7 @@ pub(crate) fn run_frame_loop(
                         config.enabled = enabled;
                         config.proactive_allowed = proactive_allowed;
                         config.configured = configured;
-                        // If we lost configuration, clear the pending message since
-                        // nothing can answer anymore.
+                        // Nothing can answer anymore, so no first connection is pending.
                         if lost_configuration {
                             pending_first_connection_message = false;
                         }
@@ -1446,8 +1444,7 @@ pub(crate) fn run_frame_loop(
                 fullscreen: fullscreen_displays(&rects, &displays.frames),
             };
 
-            // Visibility before instance ticks so scheduler::mode gets the
-            // real answer, not hardcoded true.
+            // Visibility before instance ticks, so scheduler::mode gets the real answer.
             let (presence, hide_in_fullscreen) = rules
                 .lock()
                 .map(|mut rules| {
@@ -1876,7 +1873,7 @@ pub(crate) fn run_frame_loop(
                                     inspect.last_payload = Some(payload);
                                     inspect.wake_secs = live.pace.wait().as_secs();
                                 }
-                                // Starting a call cancels the one before it (ADR-0016). Tell a
+                                // A new call cancels the one before it (ADR-0016). Tell a
                                 // typed line on the wire its caret was cancelled, and by which wake.
                                 if let Some(note) = caret {
                                     let _ = app.emit_to(chat_label(&live.id), CHAT_EVENT, note);

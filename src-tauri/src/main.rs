@@ -2409,8 +2409,8 @@ fn build_overlay(
     #[cfg(windows)]
     platform::configure_overlay(&window)?;
 
-    // Show the window. On Linux/GTK this realizes the widget and creates the
-    // X11 window ID that configure_overlay needs.
+    // On Linux/GTK this realizes the widget and creates the X11 window ID that
+    // configure_overlay needs.
     window.show()?;
 
     // Linux: configure_overlay after show. May fail if the widget is not yet
