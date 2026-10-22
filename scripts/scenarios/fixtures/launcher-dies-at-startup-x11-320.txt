@@ -1,0 +1,41 @@
+frame|BMO|1066,140,320,560
+filler||1061,111,320,560
+filler||1061,111,320,560
+filler||1061,111,320,560
+scroll-area||1061,111,320,560
+web-area|Fidget|1061,111,320,560
+landmark||1061,111,320,90
+label|BMO|1079,125,39,16
+label|BMO|1124,126,36,17
+label|/opt/fidget/scripts/scenarios/fixture-harness.sh · failed to start|1185,128,178,65
+page-tab-list||1061,201,320,32
+page-tab|Chat|1075,201,58,31
+page-tab|Prompt|1137,201,78,31
+section|HARNESS ERROR\nHarness couldn't start\n\nIt exited before initialize, signal: 6 (SIGABRT) (core dumped). This is what it printed:\nError output\ndyld[0]: Library not loaded: /opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib\n\nrunning 1 test\ntest harness::tests::fake_acp_agent ...\nCommand\n/opt/fidget/scripts/scenarios/fixture-harness.sh /opt/fidget/target/debug/deps/fidget-0 script=abort-first count=/tmp/harness.log\nFix the error above, then pick it again, or pick a different Harness below.\n￼￼￼￼￼￼￼￼￼￼\n￼\n|1061,233,320,340
+paragraph|HARNESS ERROR|1097,275,248,18
+heading|Harness couldn't start|1097,306,248,19
+paragraph|It exited before initialize, signal: 6 (SIGABRT) (core dumped). This is what it printed:|1097,344,248,57
+heading|Error output|1097,424,248,14
+section|dyld[0]: Library not loaded: /opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib\n\nrunning 1 test\ntest harness::tests::fake_acp_agent ...|1097,442,248,160
+heading|Command|1097,614,248,14
+section|/opt/fidget/scripts/scenarios/fixture-harness.sh /opt/fidget/target/debug/deps/fidget-0 script=abort-first count=/tmp/harness.log|1097,632,248,164
+paragraph|Fix the error above, then pick it again, or pick a different Harness below.|1097,819,248,38
+button|Claude Code|1097,888,119,94
+button|Codex|1226,888,119,94
+button|GitHub Copilot|1097,992,119,108
+button|Cursor|1226,992,119,108
+button|Goose|1097,1110,119,94
+button|Grok|1226,1110,119,94
+button|Hermes|1097,1214,119,94
+button|OpenCode|1226,1214,119,94
+button|Pi|1097,1318,119,94
+button|Antigravity|1226,1318,119,94
+button|More options in Settings|1097,1435,248,42
+form||1061,572,320,71
+entry|Nothing can answer yet|1077,584,211,43
+button|Send|1297,584,68,43
+landmark||1061,642,320,29
+unknown||1302,650,63,12
+section|Advanced|1302,650,63,12
+unknown|▸ Advanced|1302,650,63,12
+section|▸|1302,650,7,12

@@ -17,7 +17,7 @@ func die(_ message: String) -> Never {
 
 guard args.count >= 2, let pid = pid_t(args[1]) else {
     die(
-        "usage: ax-settings <open|tab|pick|dump|frame|popup-frame|open-popup|type-select|move|size|key|type|value|focused|focus-window|menus|press-button> <pid> [args]"
+        "usage: ax-settings <open|tab|pick|dump|frame|popup-frame|open-popup|type-select|move|size|key|type|value|role|focused|focus-window|menus|press-button> <pid> [args]"
     )
 }
 
@@ -277,17 +277,16 @@ case "open":
     }
     guard let item = children(extras).first else { die("the app has no status item") }
     // A real click, not AXPress: tray-icon 0.25 attaches the menu only in its
-    // mouse-down handler, so AXPress on the item opens nothing.
-    guard click(item) else { die("the status item has no frame to click") }
-    guard
-        let row = waitFor(
-            5,
-            {
-                find(extras) { string($0, kAXTitleAttribute)?.hasPrefix(rowPrefix) == true }
-            })
-    else {
-        die("the tray menu has no \(rowPrefix) row")
+    // mouse-down handler, so AXPress on the item opens nothing. A click that
+    // lands before the icon settles opens nothing too, so it is sent again.
+    var found: AXUIElement?
+    for _ in 1...3 where found == nil {
+        guard click(item) else { die("the status item has no frame to click") }
+        found = waitFor(2) {
+            find(extras) { string($0, kAXTitleAttribute)?.hasPrefix(rowPrefix) == true }
+        }
     }
+    guard let row = found else { die("the tray menu has no \(rowPrefix) row") }
     guard press(row) else { die("could not press \(rowPrefix)…") }
     guard waitFor(10, { window(titled: windowTitle) }) != nil else {
         die("\(windowTitle) did not open within 10s")
@@ -469,6 +468,20 @@ case "key":
 case "type":
     guard args.count >= 3 else { die("usage: ax-settings type <pid> <text>") }
     typeText(args[2])
+
+case "role":
+    // The focused element's role in any app. TextEdit only takes typing when
+    // its AXTextArea, not its window, is focused.
+    var roleRef: CFTypeRef?
+    let roleErr = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &roleRef)
+    guard roleErr == .success, let roleElement = roleRef, CFGetTypeID(roleElement) == AXUIElementGetTypeID()
+    else {
+        die("no focused element")
+    }
+    guard let role = string(roleElement as! AXUIElement, kAXRoleAttribute) else {
+        die("the focused element has no role")
+    }
+    print(role)
 
 case "value":
     // The focused element's text in any app, read through Accessibility: no

@@ -54,7 +54,7 @@ enum Commands {
     Poke,
     /// Double-click the sprite for real; assert `verbs:.*Summon`.
     Summon,
-    /// Run one `scripts/scenarios` leaf for this host. Without `--go`, print
+    /// Run one `scripts/scenarios/{ci,manual-only}` leaf for this host. Without `--go`, print
     /// its takeover header and skip.
     Scenario {
         /// Scenario name. macOS is `<name>.sh`, X11 `<name>.x11.sh`, Windows `<name>.win.ps1`.

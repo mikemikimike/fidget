@@ -8,7 +8,7 @@ import { test } from "node:test";
 
 import { resolvePwsh } from "./pwsh-resolve.js";
 
-const script = join(import.meta.dirname, "..", "scripts", "scenarios", "landing-link-click.win.ps1");
+const script = join(import.meta.dirname, "..", "scripts", "scenarios", "ci", "landing-link-click.win.ps1");
 const resolved = resolvePwsh();
 const skip = resolved.kind === "ready" ? false : resolved.reason;
 

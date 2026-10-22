@@ -6,7 +6,9 @@ names, text, states, new windows), and exits 0 on the first match or 1 when
 SECONDS pass. Nothing polls: the GLib main loop sleeps until an event.
 
 Usage:
-  ax-wait-linux.py PID TITLE SECONDS PATTERN
+  ax-wait-linux.py PID TITLE SECONDS PATTERN [OUT]
+
+With OUT, the dump that matched is written there.
 
 Exit 2 when pyatspi is missing.
 """
@@ -38,7 +40,7 @@ def load_dumper():
 
 
 def main(argv):
-    if len(argv) != 5:
+    if len(argv) not in (5, 6):
         print(__doc__, file=sys.stderr)
         return 2
     pid, title, seconds, pattern = int(argv[1]), argv[2], float(argv[3]), re.compile(argv[4])
@@ -58,7 +60,12 @@ def main(argv):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             ax.dump(window, False)
-        return any(pattern.search(line) for line in out.getvalue().splitlines())
+        if not any(pattern.search(line) for line in out.getvalue().splitlines()):
+            return False
+        if len(argv) == 6:
+            with open(argv[5], "w") as f:
+                f.write(out.getvalue())
+        return True
 
     if matches():
         return 0

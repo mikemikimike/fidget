@@ -107,11 +107,21 @@ const ENGINE_TICK: Duration = Duration::from_millis(16);
 /// calls the sprite's physics have no use for.
 const SENSE_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Prefix of every overlay window label. Chat and Settings use other prefixes.
+const OVERLAY_PREFIX: &str = "overlay-";
+
 /// The overlay covering the display at `index`. The index is both the name
 /// and how the frame loop finds it; `capabilities/overlay.json` grants every
 /// `overlay-*` the same permissions.
 fn overlay_label(index: usize) -> String {
-    format!("overlay-{index}")
+    format!("{OVERLAY_PREFIX}{index}")
+}
+
+/// Whether `label` names an overlay window. Both keyboard hand-backs use
+/// this, so a label-scheme change cannot skip overlays on one platform only.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub(crate) fn is_overlay_label(label: &str) -> bool {
+    label.starts_with(OVERLAY_PREFIX)
 }
 
 /// The Chat surface belonging to `id`. Outside `overlay-` on purpose:
@@ -129,15 +139,6 @@ fn draws_in(owner: &Owner, label: &str) -> bool {
         Owner::Instance(instance) => label == chat_label(instance),
         Owner::EveryChat => label.starts_with("chat-"),
     }
-}
-
-/// Whether `id` has a Chat window the user has not minimized.
-fn chat_is_up(app: &tauri::AppHandle, id: &str) -> bool {
-    let label = chat_label(id);
-    app.get_webview_window(&label).is_some()
-        && !app
-            .try_state::<MinimizedChats>()
-            .is_some_and(|chats| chats.hides(&label))
 }
 
 /// Deliver `chat-opening` to Chat and to each open overlay, in index order.
@@ -309,8 +310,8 @@ fn route_attach_notice(
 
 struct PendingAsks(Mutex<Pending>);
 
-/// Chats the user minimized, by label. Each Chat's window events and, on macOS,
-/// its miniaturize notifications keep it, so the frame loop never asks a window.
+/// Chats the user minimized, by label, so each minimize and restore logs once
+/// (`chat-level.sh` counts them) and a focus change can settle the window level.
 #[derive(Default)]
 struct MinimizedChats(Mutex<HashSet<String>>);
 
@@ -348,10 +349,6 @@ impl MinimizedChats {
                 eprintln!("chat: {label} is not minimized");
             }
         }
-    }
-
-    fn hides(&self, label: &str) -> bool {
-        self.0.lock().is_ok_and(|hidden| hidden.contains(label))
     }
 }
 
@@ -572,9 +569,6 @@ struct SpritePlacement<'a> {
     /// On this tick only: a touch was dropped because a question waits on the
     /// user (ADR-0016), so the bubble points at Chat. False off the bubble owner.
     asking: bool,
-    /// Whether this Instance has a Chat window that is not minimized. Sent to
-    /// every overlay, because the pill that must stay down can open on any of them.
-    chatting: bool,
     /// The cursor hovers this Instance, by `AlphaMask::hovers`: :hover misses
     /// it once Chat has closed (#1565). Bubble owner only, like the pill.
     hovered: bool,
@@ -622,7 +616,6 @@ impl<'a> SpritePlacement<'a> {
             dialogue: instance.dialogue.as_ref().filter(|_| bubble).cloned(),
             thinking: bubble && instance.thinking,
             asking: bubble && instance.asking,
-            chatting: instance.chatting,
             hovered: bubble && instance.hovered,
             bubble,
             cue: instance.cue.filter(|_| bubble).map(Cue::name),
@@ -705,7 +698,6 @@ struct Placed {
     dialogue: Option<String>,
     thinking: bool,
     asking: bool,
-    chatting: bool,
     hovered: bool,
     cue: Option<Cue>,
     /// Where this tick's landing touched, in the space every display shares.
@@ -814,7 +806,7 @@ fn settings_snapshot(app: tauri::AppHandle) -> Result<SettingsSnapshot, String> 
     // status is a store read and the package list is the view's; the view has
     // the key status from the cache that keeps become-key off Keychain. #875, #921.
     let cwd = view
-        .development_texts
+        .variable_texts
         .get(settings::form::HARNESS_CWD_ID)
         .map(String::as_str)
         .unwrap_or("");
@@ -1557,7 +1549,7 @@ fn shortcut_event(
     view: &settings::SettingsView,
 ) -> settings::controller::Event {
     let current = view
-        .development_texts
+        .variable_texts
         .get(&fills.row)
         .map(|s| s.as_str())
         .or_else(|| {
@@ -2068,12 +2060,20 @@ fn overlay_report_qm_draft(
     payload: Option<fidget_core::quick_message::QmDraft>,
 ) {
     // An overlay takes the keyboard while it has an open pill (#1565) and
-    // hands it back when its last one closes. Counted per window, since a
-    // pill can move; a removed Character sends a closed draft from each.
-    let flips = pill_focus::shared()
+    // hands it back when the last one in the process closes. Counted per
+    // window, since a pill can move, but one remembered app serves them all:
+    // a pill close on one display may be handing the keyboard to its own move
+    // to another, so only a close that empties the process hands it
+    // back, and the hand re-checks on the main thread against the pill that
+    // reported after it.
+    let (flips, process_empty) = pill_focus::shared()
         .lock()
-        .map(|mut pills| pills.note(window.label(), &instance, payload.is_some()))
-        .unwrap_or_default();
+        .map(|mut pills| {
+            let flips = pills.note(window.label(), &instance, payload.is_some());
+            let clear = !pills.any_open();
+            (flips, clear)
+        })
+        .unwrap_or((Vec::new(), true));
     for (label, open) in flips {
         let Some(overlay) = window.app_handle().get_webview_window(&label) else {
             continue;
@@ -2083,9 +2083,16 @@ fn overlay_report_qm_draft(
                 eprintln!("overlay: {label} could not set its key state: {why}");
             }
         }
-        if !open {
+        if !open && process_empty {
             let handed = overlay.clone();
             let _ = overlay.run_on_main_thread(move || {
+                if pill_focus::shared()
+                    .lock()
+                    .map(|pills| pills.any_open())
+                    .unwrap_or(false)
+                {
+                    return;
+                }
                 if let Err(why) = platform::hand_back_keyboard(&handed) {
                     eprintln!("overlay: {why}");
                 }
@@ -2272,7 +2279,18 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
             // Win32 for live windows, and any attach is undone before returning.
             unsafe {
                 let foreground = GetForegroundWindow();
-                platform::remember_foreground(foreground);
+                let mut overlays: Vec<HWND> = window
+                    .app_handle()
+                    .webview_windows()
+                    .into_iter()
+                    .filter(|(label, _)| is_overlay_label(label))
+                    .filter_map(|(_, overlay)| overlay.hwnd().ok().map(|handle| handle.0 as HWND))
+                    .collect();
+                // The caller is an overlay even when its label was not listed.
+                if !overlays.contains(&hwnd) {
+                    overlays.push(hwnd);
+                }
+                platform::remember_foreground(foreground, &overlays);
                 let mut attached = None;
                 if !foreground.is_null() {
                     let foreground_thread =
@@ -5403,6 +5421,14 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_overlay_label_is_the_prefix_chat_and_settings_do_not_share() {
+        assert!(super::is_overlay_label(&super::overlay_label(0)));
+        assert!(super::is_overlay_label(&super::overlay_label(1)));
+        assert!(!super::is_overlay_label(&super::chat_label("bmo")));
+        assert!(!super::is_overlay_label("settings"));
+    }
+
     /// Production change that would fail this: `chat_ready` dropping a kept
     /// turn's error, so Chat shows the typed line waiting forever (#1510).
     #[test]
@@ -5589,35 +5615,6 @@ mod tests {
             None,
             "a resize leaves the level"
         );
-    }
-
-    /// A minimized Chat lets the pill back. No event says "minimized": blur
-    /// carries it on macOS, a resize to nothing on Windows.
-    #[test]
-    fn a_minimized_chat_stops_hiding_the_pill_until_it_comes_back() {
-        let chats = MinimizedChats::default();
-        chats.note("chat-a", &tauri::WindowEvent::Focused(false), || true);
-        assert!(chats.hides("chat-a"));
-        assert!(!chats.hides("chat-b"), "only the minimized Chat");
-        chats.note("chat-a", &tauri::WindowEvent::Focused(true), || false);
-        assert!(!chats.hides("chat-a"), "unminimized");
-
-        let gone = tauri::WindowEvent::Resized(tauri::PhysicalSize::new(0, 0));
-        chats.note("chat-a", &gone, || true);
-        assert!(chats.hides("chat-a"));
-        chats.note("chat-a", &tauri::WindowEvent::Destroyed, || true);
-        assert!(!chats.hides("chat-a"), "a reopened Chat starts open");
-    }
-
-    /// A Chat minimized behind another app gets no window event. AppKit's
-    /// miniaturize notification sets it directly.
-    #[test]
-    fn a_chat_minimized_without_focus_lets_the_pill_back() {
-        let chats = MinimizedChats::default();
-        chats.set("chat-a", true);
-        assert!(chats.hides("chat-a"));
-        chats.set("chat-a", false);
-        assert!(!chats.hides("chat-a"), "deminiaturized");
     }
 
     fn owners() -> (Owner, Owner) {
@@ -6850,7 +6847,6 @@ mod tests {
             dialogue: Some("Yare yare daze.".to_string()),
             thinking: true,
             asking: true,
-            chatting: true,
             hovered: true,
             cue: Some(Cue::Drop),
             contact: Some(fidget_core::engine::RippleContact {
@@ -6899,10 +6895,6 @@ mod tests {
             ),
             (None, None, None),
             "and its ripple is drawn once"
-        );
-        assert!(
-            owner.chatting && elsewhere.chatting,
-            "the pill can open on any overlay, so each one hears that Chat is up"
         );
         assert!(
             owner.hovered,
@@ -6956,7 +6948,6 @@ mod tests {
             dialogue: None,
             thinking: false,
             asking: false,
-            chatting: false,
             hovered: false,
             cue: None,
             contact: None,

@@ -64,7 +64,7 @@ public class AnchorVerify {
 
 # The shared waits wake on each line of the app's piped stderr; a dead app
 # fails them ($script:proc).
-. (Join-Path $Root "scripts\scenarios\wait-helpers.win.ps1")
+. (Join-Path $Root "scripts\scenarios\helpers\wait-helpers.win.ps1")
 $env:FIDGET_TRACE_FRAMES = "1"
 $script:AppProc = Start-FidgetPiped $Bin @() (Join-Path $Out "app.out") $Log
 Info "pid $($script:AppProc.Id) log $Log"
@@ -87,6 +87,8 @@ function Test-AnchorOnDesktop($win, $monitors) {
   # loop: a visible 16x16 window at the origin that draws nothing. Not the anchor.
   if ($win.Class -eq "Tao Thread Event Target") { return $false }
   if ($win.Title -eq "Settings") { return $false }
+  # Chat, titled with the character's name; a first launch with no AI source opens it.
+  if ($script:Character -and $win.Title -ceq $script:Character) { return $false }
   $w = $win.Right - $win.Left
   $h = $win.Bottom - $win.Top
   $onMonitor = $false
@@ -98,6 +100,9 @@ function Test-AnchorOnDesktop($win, $monitors) {
   }
   return $onMonitor
 }
+
+$characterLine = Select-String -LiteralPath $Log -Pattern '^character: (.+) from ' | Select-Object -First 1
+$script:Character = if ($characterLine) { $characterLine.Matches[0].Groups[1].Value } else { $null }
 
 $monitors = [AnchorVerify]::Monitors()
 if ($monitors.Count -eq 0) { Fail "no monitors" }

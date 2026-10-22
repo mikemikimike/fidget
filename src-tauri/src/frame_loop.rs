@@ -27,8 +27,8 @@ use super::chat_surface::{CHAT_APPEARANCE_EVENT, CHAT_EVENT, CHAT_STATUS_EVENT, 
 use super::session_log;
 use super::settings::{ChatAppearance, SettingsOp};
 use super::{
-    apply_menu_action, bring_roster_off_fullscreen, cancelled_caret, chat_is_up, chat_label,
-    close_chat, completer, describe_menu, dev_flags, harness, mcp_http, mcp_resources, menu, model,
+    apply_menu_action, bring_roster_off_fullscreen, cancelled_caret, chat_label, close_chat,
+    completer, describe_menu, dev_flags, harness, mcp_http, mcp_resources, menu, model,
     note_happened, open_chat, overlay_label, paced, place_overlays, platform, publish_instances,
     push_chat_opening, push_chat_openings, remember_instances, spawn_live, sprite_width,
     switch_instance, tray, ChatMsg, ChatReply, ChatStatus, ChatStatusPush, DirectorRun, Drawn,
@@ -2145,7 +2145,6 @@ pub(crate) fn run_frame_loop(
                     dialogue,
                     thinking,
                     asking,
-                    chatting: chat_is_up(&app, &live.id),
                     hovered: live.hovering,
                     cue: frame.cue,
                     contact: frame.contact,

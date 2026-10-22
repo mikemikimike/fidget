@@ -1,0 +1,146 @@
+name: e2e-macos
+
+# Live runs of the macOS leaves in `scripts/scenarios/ci/` on a hosted runner's
+# desktop. Too heavy for every pull request: it runs on dispatch or the
+# `e2e-macos` label only.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Space-separated ci/ leaf names; empty runs them all
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per label: another label's `labeled` run skips its job, and must not cancel
+  # an e2e run in flight. Re-adding e2e-macos replaces it.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ github.event.label.name }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-macos:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'e2e-macos'
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: .
+          key: e2e-macos
+          cache-on-failure: true
+
+      - name: Build the app, the test binary and fidget-verify
+        # Built here so no leaf spends its 3 min cap compiling.
+        run: |
+          cargo build -p fidget
+          cargo build -p fidget-verify
+          cargo test -p fidget --no-run
+
+      - name: Warm up WebKit
+        # A fresh runner draws Fidget's first frame seconds late, past a leaf's
+        # 3 s launch wait. One launch here takes that cold start, which ran past
+        # 3 s itself on macOS, so this one wait gets 30 s.
+        run: |
+          root=$PWD log="$RUNNER_TEMP/warmup.log"
+          . scripts/scenarios/helpers/wait-helpers.mac.sh
+          seed_tour_shown "$RUNNER_TEMP/warmup/home"
+          HOME="$RUNNER_TEMP/warmup/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
+            target/debug/fidget > "$log" 2>&1 &
+          pid=$!
+          drew=0
+          wait_for_trace 30 "$log" '^frame: ' || drew=$?
+          stop_fidget || true
+          { sleep 3 && process_tree "$pid" | xargs kill -9; } > /dev/null 2>&1 &
+          wait "$pid" 2> /dev/null || true
+          kill "$!" 2> /dev/null || true
+          wait "$!" 2> /dev/null || true
+          if [ "$drew" != 0 ]; then
+            cat "$log"
+            echo "::error::the warm-up drew no frame in 30 s; see the log above"
+            exit 1
+          fi
+
+      - name: Run the scenarios
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+        run: |
+          # The leaves write evidence under $TMPDIR; keep it in one folder.
+          export TMPDIR="$RUNNER_TEMP/evidence"
+          mkdir -p "$TMPDIR"
+          if [ -n "$SCENARIOS" ]; then
+            read -ra names <<< "$SCENARIOS"
+          else
+            names=()
+            for leaf in scripts/scenarios/ci/*.sh; do
+              case $leaf in *.x11.sh) continue ;; esac
+              names+=("$(basename "$leaf" .sh)")
+            done
+          fi
+          [ "${#names[@]}" -gt 0 ] || { echo "no leaf to run"; exit 1; }
+          # A leaf that blocks would hold the job to its timeout; 3 min is well
+          # past the slowest leaf's own limit. Its own process group lets the
+          # cap stop Fidget and the helpers too; TERM first, so traps clean up.
+          bounded() {
+            local leaf timer code
+            rm -f "$RUNNER_TEMP/timed-out"
+            set -m
+            "$@" &
+            leaf=$!
+            set +m
+            {
+              sleep 180 && touch "$RUNNER_TEMP/timed-out" && echo "timed out after 3 min" &&
+                kill -TERM -"$leaf" && sleep 3 && kill -KILL -"$leaf"
+            } 2> /dev/null &
+            timer=$!
+            wait "$leaf" && code=0 || code=$?
+            pkill -P "$timer" 2> /dev/null || true
+            kill "$timer" 2> /dev/null || true
+            wait "$timer" 2> /dev/null || true
+            [ ! -e "$RUNNER_TEMP/timed-out" ] || code=124
+            return "$code"
+          }
+          summary=""
+          failed=0
+          for name in "${names[@]}"; do
+            echo "::group::scenario $name"
+            bounded cargo run -q -p fidget-verify -- scenario "$name" --go && code=0 || code=$?
+            echo "::endgroup::"
+            # A SKIP fails the job: the runner could not prove the leaf.
+            case $code in
+              0) verdict=PASS ;;
+              2) verdict=SKIP ;;
+              *) verdict="FAIL ($code)" ;;
+            esac
+            [ "$code" -eq 0 ] || failed=1
+            summary+=$(printf '%-28s %s' "$name" "$verdict")$'\n'
+          done
+          printf '%s' "$summary"
+          printf '```\n%s```\n' "$summary" >> "$GITHUB_STEP_SUMMARY"
+          exit "$failed"
+
+      - name: Gather evidence
+        if: always()
+        # Each leaf's private HOME holds WebKit caches and no evidence; the
+        # Swift tools are build output.
+        run: rsync -a --exclude home --exclude fidget-scenario-tools "$RUNNER_TEMP/evidence/" "$RUNNER_TEMP/upload/" || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-macos-evidence
+          path: ${{ runner.temp }}/upload
+          if-no-files-found: warn
