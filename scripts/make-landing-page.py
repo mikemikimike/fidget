@@ -116,8 +116,8 @@ CHAT_RULES = (".log", ".empty", ".empty > div", ".empty p", ".empty p b", ".comp
 # The playground desk and the page character play these, so a Character
 # lacking one fails the build instead of freezing on the page.
 PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit", "sleep", "talk")
-# The project's own Characters, one of which plays until a visitor picks. The
-# fan art waits for the picker.
+# The project's own Characters, for a picker to choose from. The hero plays
+# until a pick, and the fan art waits for the picker.
 PAGE_CAST = (HERO, "nim", "timber-wolf")
 # A personality.txt introduces its quoted lines this way, up to a blank line.
 SAYS = re.compile(r"(?:heard|known) to say:(.*?)(?:\n[ \t]*\n|\Z)", re.S)
@@ -710,7 +710,7 @@ def render(readme_text, characters_root, rust_source, shell, release=None, engin
     _, defaults = gallery.from_rust(rust_source)
     cast, players = read_cast(characters_root, defaults)
     hero = players[HERO]
-    desk = {"cast": players, "tuning": play_tuning(engine or read_engine())}
+    desk = {"cast": players, "hero": HERO, "tuning": play_tuning(engine or read_engine())}
 
     figures = "\n".join(
         f'<figure><div class="art">'

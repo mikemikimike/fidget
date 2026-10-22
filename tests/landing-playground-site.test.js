@@ -295,6 +295,7 @@ test("the desk replaces the still tiles: a throw lands with the hard puff, a slo
 test("a double-click opens the chat mock, which moves by its bar and closes; a hover opens the pill, which takes typing; a window drags to the desk top", { skip: chromeSkip }, async () => {
   const result = await play([], gestures);
   assert.deepEqual(result.errors, [], "the page threw nothing");
+  assert.equal(result.name, "Buddy Bot", "with no pick, the desk plays Buddy Bot");
   const hex = readFileSync(join(ROOT, "src/chat-shared.css"), "utf8").match(/--shared-panel: #(\w{6});/)[1];
   const panel = `rgb(${hex.match(/../g).map((pair) => parseInt(pair, 16)).join(", ")})`;
   assert.deepEqual(result.chat, { closedAtFirst: true, opened: true, rings: { summon: 2, poke: 0 }, moved: [-60, 30], closed: true,

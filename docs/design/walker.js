@@ -127,7 +127,7 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   const back = doc.getElementById("fidget-back");
   const get = doc.getElementById("get");
   const narrow = matchMedia("(max-width: 480px)");
-  const me = data.cast[character(data.cast)];
+  const me = data.cast[character(data.cast, data.hero)];
   const { loops } = me;
   const [w, h] = me.size;
   Object.assign(img, { alt: me.name, width: w, height: h });

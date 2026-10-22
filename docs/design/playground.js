@@ -188,8 +188,8 @@ function enter(state, event, world) {
 }
 
 // The visit's Character, which the playground and the page character both
-// play. The picker is its one writer. Until a pick, one Character from the cast
-// plays for the whole visit. Session storage, as a pick lasts the visit.
+// play. A picker is its one writer; until a pick, `fallback` plays. Session
+// storage, as a pick lasts the visit.
 const CHARACTER_KEY = "fidget.character";
 let current = null;
 
@@ -202,17 +202,16 @@ export function pick(id) {
   }
 }
 
-export function character(cast, rand = Math.random) {
-  if (current !== null && Object.hasOwn(cast, current)) return current;
-  let stored = null;
-  try {
-    stored = sessionStorage.getItem(CHARACTER_KEY);
-  } catch {
-    // Storage is off: choose below.
+export function character(cast, fallback) {
+  let picked = current;
+  if (picked === null) {
+    try {
+      picked = sessionStorage.getItem(CHARACTER_KEY);
+    } catch {
+      // Storage is off: nothing was picked.
+    }
   }
-  const ids = Object.keys(cast);
-  pick(stored !== null && Object.hasOwn(cast, stored) ? stored : ids[Math.floor(rand() * ids.length)]);
-  return current;
+  return picked !== null && Object.hasOwn(cast, picked) ? picked : fallback;
 }
 
 export function animationOf(state) {
@@ -338,7 +337,7 @@ export function mount(section, data, cue) {
   const pill = section.querySelector("#play-qm");
   const field = pill.querySelector("input");
   const { tuning } = data;
-  const me = data.cast[character(data.cast)];
+  const me = data.cast[character(data.cast, data.hero)];
   const { loops } = me;
   const [w, h] = me.size;
   section.querySelector("#play-tiles").hidden = true;

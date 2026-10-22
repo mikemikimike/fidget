@@ -180,7 +180,7 @@ async function play(script, flags = []) {
 test("the page character walks on, reacts, lands a throw, hands over to the playground and back, and Hide survives a reload", { skip: chromeSkip }, async () => {
   const result = await play(probe);
   assert.deepEqual(result.errors, [], "the page threw nothing");
-  assert.ok(["Buddy Bot", "Nim", "Timber Wolf"].includes(result.alt), `one of the project's own plays: ${result.alt}`);
+  assert.equal(result.alt, "Buddy Bot", "with no pick, Buddy Bot plays");
   assert.deepEqual(result.poke, { reacted: true, said: true, title: "A line from its personality file." },
     "a poke plays react and says a line from the Character's personality.txt");
   assert.ok(Math.abs(result.thrown.feetY - result.thrown.floor) < 1, `landed on the bottom edge: ${JSON.stringify(result.thrown)}`);

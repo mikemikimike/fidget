@@ -252,11 +252,12 @@ test("away puts any character out of sight at once, wherever it was", () => {
   assert.deepEqual(held.state, { mode: "away", x: 300, facing: 1 });
 });
 
-test("one Character plays for the whole visit until a pick, and every reader gets the pick", () => {
+test("Buddy Bot plays until a pick, with no random draw, and every reader gets the pick", () => {
   const cast = { "buddy-bot": {}, nim: {}, "timber-wolf": {} };
-  const first = character(cast, () => 0.5);
-  assert.equal(first, "nim");
-  assert.equal(character(cast, () => 0.99), first, "a second reader gets the same Character, with no rotation");
+  assert.equal(character(cast, "buddy-bot"), "buddy-bot");
+  assert.equal(character(cast, "buddy-bot"), "buddy-bot", "a second reader gets the same Character");
   pick("timber-wolf");
-  assert.equal(character(cast, () => 0), "timber-wolf");
+  assert.equal(character(cast, "buddy-bot"), "timber-wolf");
+  pick("not-in-the-cast");
+  assert.equal(character(cast, "buddy-bot"), "buddy-bot", "a pick the cast lacks falls back to Buddy Bot");
 });
