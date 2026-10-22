@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { animationOf, character, feet, pick, step } from "../docs/design/playground.js";
+import { animationOf, character, decodePresses, feet, pick, step } from "../docs/design/playground.js";
 
 const TUNING = {
   gravity: 3600, walkSpeed: 120, primitiveMs: 600, pokeCooldownMs: 2500, perchedIdleAfterMs: 4000,
@@ -274,4 +274,18 @@ test("Buddy Bot plays until a pick, with no random draw, and every reader gets t
   assert.equal(character(cast, "buddy-bot"), "timber-wolf");
   pick("not-in-the-cast");
   assert.equal(character(cast, "buddy-bot"), "buddy-bot", "a pick the cast lacks falls back to Buddy Bot");
+});
+
+test("a drag keeps the offset from the feet taken at pointerdown, not after the first move", () => {
+  const handlers = {};
+  const target = { addEventListener: (type, fn) => { handlers[type] = fn; }, setPointerCapture() {} };
+  const events = [];
+  const press = (type, x, y, extra = {}) => handlers[type]({ button: 0, pointerId: 1, clientX: x, clientY: y, preventDefault() {}, ...extra });
+  decodePresses(target, { dragDelayMs: 10_000, dragThreshold: 6 }, {
+    local: (e) => ({ x: e.clientX, y: e.clientY }), feetNow: () => ({ x: 100, y: 200 }), apply: (e) => events.push(e),
+  });
+  press("pointerdown", 110, 150);
+  press("pointermove", 110, 100);
+  assert.deepEqual(events.map((e) => [e.type, e.x, e.y]), [["grab", undefined, undefined], ["drag", 100, 150]]);
+  press("pointerup", 110, 100);
 });

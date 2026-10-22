@@ -297,8 +297,7 @@ export function decodePresses(target, tuning, { local, feetNow, apply, grabbable
   const grab = () => {
     if (!press || press.held) return;
     clearTimeout(press.timer);
-    const at = feetNow();
-    press = { ...press, held: true, dx: at.x - press.last.x, dy: at.y - press.last.y };
+    press.held = true;
     apply({ type: "grab", now: performance.now() });
   };
   target.addEventListener("pointerdown", (event) => {
@@ -306,7 +305,9 @@ export function decodePresses(target, tuning, { local, feetNow, apply, grabbable
     event.preventDefault();
     target.setPointerCapture(event.pointerId);
     const at = local(event);
-    press = { from: at, last: at, held: false, timer: grabbable() ? setTimeout(grab, tuning.dragDelayMs) : 0 };
+    const feet0 = feetNow();
+    const timer = grabbable() ? setTimeout(grab, tuning.dragDelayMs) : 0;
+    press = { from: at, last: at, dx: feet0.x - at.x, dy: feet0.y - at.y, held: false, timer };
     onPress();
   });
   target.addEventListener("pointermove", (event) => {

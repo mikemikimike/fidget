@@ -249,8 +249,7 @@ const perches = `
         let x = box.left + box.width / 2;
         let y = box.top + box.height / 2;
         pointer(sprite, "pointerdown", x, y);
-        pointer(sprite, "pointermove", x, y - 5);
-        const from = { x, y: y - 5 };
+        const from = { x, y };
         const goal = { x: win.left + win.width * 0.75, y: win.top - 20 - box.height / 2 };
         for (let i = 1; i <= 10; i++) {
           await frame();
