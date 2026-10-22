@@ -276,7 +276,7 @@ pub(crate) fn run_frame_loop(
         let covered = Arc::new(Mutex::new(covered));
 
         // Spawn XI2 input event listener on X11. When available, the frame loop
-        // blocks on this channel when idle instead of polling at 16ms. #183.
+        // blocks on this channel when idle instead of polling at 16ms.
         #[cfg(all(unix, not(target_os = "macos")))]
         let mut input_events = platform::spawn_xi2_listener();
         // macOS: the same channel, fed by a mouse event tap once Input Monitoring is
@@ -319,9 +319,9 @@ pub(crate) fn run_frame_loop(
         let mut last_sprite_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
 
         loop {
-            // The tap follows the setting: checked and granted, it starts here
-            // and the arms below block on it; unchecked, Drop stops the tap
-            // thread, back to the Stage 2b back-off (#721).
+            // The tap follows the setting: checked and granted, it starts here and the
+            // arms below block on it; unchecked, Drop stops the tap thread, back to
+            // polling with back-off.
             #[cfg(target_os = "macos")]
             {
                 let wanted = crate::consent::wanted(crate::consent::CapabilityId::InputMonitoring);
@@ -393,9 +393,8 @@ pub(crate) fn run_frame_loop(
                     thread::sleep(deadline);
                 }
                 _ => {
-                    // No listener: poll with back-off. That is Windows always,
-                    // Wayland always, and macOS until the user grants Input
-                    // Monitoring (#183 Stage 2b).
+                    // No listener: poll with back-off. That is Windows always, Wayland
+                    // always, and macOS until the user grants Input Monitoring.
                     match (schedule_mode, was_visible) {
                         (scheduler::ScheduleMode::Active, _) => {
                             let now = Instant::now();
@@ -406,8 +405,7 @@ pub(crate) fn run_frame_loop(
                                 now,
                                 moving,
                             );
-                            // Still ticks keep the coalesced sleep, the slower
-                            // rate #183 relies on.
+                            // Still ticks keep the coalesced sleep and its slower rate.
                             if moving {
                                 platform::sleep_precisely(tick_deadline - now);
                             } else {
@@ -596,7 +594,7 @@ pub(crate) fn run_frame_loop(
             // can see is not there to press, so the click reaches the window underneath.
             let visible = rules.lock().is_ok_and(|rules| rules.presence().visible);
 
-            // Hover is told to the overlays (#1565) and outlasts a frame that
+            // Hover is told to the overlays and outlasts a frame that
             // drops the pixel under a still cursor. A press needs the pixel.
             let pressed: Vec<bool> = lives
                 .iter_mut()
@@ -645,7 +643,7 @@ pub(crate) fn run_frame_loop(
                 platform::overlay_passes_clicks_through();
             }
             // A consuming read — once per tick, nowhere else. A second read
-            // eats the edge (#182).
+            // eats the edge.
             let buttons = platform::buttons_down();
             let held = buttons.primary;
             let secondary_held = buttons.secondary;
@@ -766,7 +764,7 @@ pub(crate) fn run_frame_loop(
                 }
             }
             if menu_acted {
-                // Sprite and tray share this persist so a rename survives restart (#375).
+                // Sprite and tray share this persist so a rename survives restart.
                 remember_instances(&roster, &settings, &settings_path);
             }
 
@@ -861,7 +859,7 @@ pub(crate) fn run_frame_loop(
                             inspect.proactive_wakes = config.proactive_allowed;
                             // A Retarget is how the endpoint moves, so it is
                             // also how the Chat header stops naming the old
-                            // one (#474).
+                            // one.
                             inspect.model = director.model.clone();
                             inspect.host = model::host_of(&director.base_url);
                         }
@@ -903,7 +901,7 @@ pub(crate) fn run_frame_loop(
                         for live in &mut lives {
                             // Same Completer, same Character, same Blank AI:
                             // the only thing thrown away is the conversation
-                            // the Instance is in (#679).
+                            // the Instance is in.
                             replace_session(&mut slots, live, &director, config.configured);
                             session_log::new_session(&app, &live.id, "a new session was started");
                         }
@@ -928,7 +926,7 @@ pub(crate) fn run_frame_loop(
             publish_instances(&roster, &instance_rows);
             // After publish so the Settings roster reads the post-switch
             // InstanceRow, not the one from last tick. Menu-driven switches
-            // never set `settings_ops`. #375.
+            // never set `settings_ops`.
             if settings_ops || menu_acted {
                 let handle = app.clone();
                 let _ = app.run_on_main_thread(move || {
@@ -998,9 +996,9 @@ pub(crate) fn run_frame_loop(
                             replace_session(&mut slots, live, &director, config.configured);
                         }
 
-                        // Same session replacement a Character switch uses:
-                        // the held turns go, the open surface is told, and
-                        // the Action Log keeps the boundary (#476, ADR-0012).
+                        // Same session replacement a Character switch uses: the held turns
+                        // go, the open surface is told, and the Action Log keeps the boundary
+                        // (ADR-0012).
                         session_log::new_session(
                             &app,
                             &written.instance,
@@ -1008,7 +1006,7 @@ pub(crate) fn run_frame_loop(
                         );
                         // A prompt layer changing is exactly what a user needs
                         // to find later. `chars` rather than the body, as the
-                        // `prompt` event already does (#435).
+                        // `prompt` event already does.
                         crate::action_log::append(
                             &fidget_core::memory::data_dir(),
                             "instance-prompt",
@@ -1140,9 +1138,8 @@ pub(crate) fn run_frame_loop(
                 live.happened = Happened::Chat(line.text);
             }
 
-            // A `tools/call` from the attached Harness. Here because this is
-            // where the `Roster` and `ExpressionHandle` are — the seam #470
-            // was missing. A queued proposal reaches the screen on the next tick.
+            // A `tools/call` from the attached Harness, here because the `Roster` and
+            // `ExpressionHandle` are. A queued proposal reaches the screen next tick.
             while let Ok(call) = mcp.try_recv() {
                 let excluded = settings
                     .lock()
@@ -1253,7 +1250,7 @@ pub(crate) fn run_frame_loop(
 
             // Asked for here, posted after this tick's frames are emitted.
             // The Menu cue is a one-tick pulse, and `popup_menu_at` shares the
-            // main thread the webview needs — asking first starves the pulse (#507).
+            // main thread the webview needs — asking first starves the pulse.
             let mut pending_menus = Vec::new();
 
             for (index, live) in lives.iter_mut().enumerate() {
@@ -1340,7 +1337,7 @@ pub(crate) fn run_frame_loop(
                     note_happened(&mut live.happened, what);
                 }
 
-                // #17: opening the surface is all the Shell adds to a Summon;
+                // Opening the surface is all the Shell adds to a Summon;
                 // the verb stays on `live` for the Engine. Here because
                 // `std::mem::take` empties the vec below.
                 if live.verbs.iter().any(|verb| matches!(verb, Verb::Summon)) {
@@ -1450,7 +1447,7 @@ pub(crate) fn run_frame_loop(
             };
 
             // Visibility before instance ticks so scheduler::mode gets the
-            // real answer, not hardcoded true (#183).
+            // real answer, not hardcoded true.
             let (presence, hide_in_fullscreen) = rules
                 .lock()
                 .map(|mut rules| {
@@ -1497,7 +1494,7 @@ pub(crate) fn run_frame_loop(
             let mut riding = false;
 
             // Idle means all visible instances are grounded/perched with no
-            // behavior playing, asleep, or hidden (#183).
+            // behavior playing, asleep, or hidden.
             let mut any_needs_active = false;
             let mut any_moving = false;
 
@@ -1569,7 +1566,7 @@ pub(crate) fn run_frame_loop(
 
                 // Beside the words rather than in them: a mark written into
                 // the line would be spoken as the model's own and pushed back
-                // into the session as its last turn (#610, `bubble.js`).
+                // into the session as its last turn (`bubble.js`).
                 let mut truncated = false;
                 let mut parsed_dialogue = None;
                 if let Some(completer::Answered {
@@ -1703,7 +1700,7 @@ pub(crate) fn run_frame_loop(
                 }
                 let unasked = responded && !answering_chat && frame.dialogue.is_some();
                 // A failed wake is not a Director with nothing to propose,
-                // and the Chat surface said it was (#514). Read here because
+                // and the Chat surface said it was. Read here because
                 // `note_parsed` already logged the same words.
                 let error = (applied && !responded).then(harness::last_error).flatten();
                 let failure = (applied && !responded)
@@ -1713,7 +1710,7 @@ pub(crate) fn run_frame_loop(
                     let reacting_to = unasked.then(|| reacting_to.clone()).flatten();
                     // The mark goes into the logged line once, here:
                     // the Chat surface draws the record. The bubble keeps
-                    // the model's words; the parser has already read them (#610).
+                    // the model's words; the parser has already read them.
                     let dialogue =
                         chat_dialogue(parsed_dialogue.as_deref(), frame.dialogue.as_deref());
                     let logged = dialogue.map(|line| director::marked(line, truncated));
@@ -1765,7 +1762,7 @@ pub(crate) fn run_frame_loop(
                 live.last_position = frame.position;
 
                 // Stay Active while moving, a multi-frame animation still
-                // advancing, or idle_ms accruing toward sleep (#183).
+                // advancing, or idle_ms accruing toward sleep.
                 let behavior_playing = frame.playing_behavior.is_some();
                 let needs_active_for_motion =
                     scheduler::mode(&frame, presence.visible, behavior_playing)
@@ -1873,15 +1870,14 @@ pub(crate) fn run_frame_loop(
                                 false
                             }
                             completer::Woke::Started => {
-                                // One panel for however many Instances are running,
-                                // so the newest call is what it shows. #18 owns the
-                                // panel; until then, last payload sent is the honest answer.
+                                // One panel for however many Instances are running, so it shows
+                                // the newest call, and the last payload sent is the honest answer.
                                 if let Ok(mut inspect) = inspect.lock() {
                                     inspect.last_payload = Some(payload);
                                     inspect.wake_secs = live.pace.wait().as_secs();
                                 }
-                                // Starting a call cancels the one before it (ADR-0016). Tell a typed
-                                // line on the wire its caret was cancelled, and by which wake.
+                                // Starting a call cancels the one before it (ADR-0016). Tell a
+                                // typed line on the wire its caret was cancelled, and by which wake.
                                 if let Some(note) = caret {
                                     let _ = app.emit_to(chat_label(&live.id), CHAT_EVENT, note);
                                 }
@@ -1949,7 +1945,7 @@ pub(crate) fn run_frame_loop(
 
                 // A Behavior the State gate refused. Under the Director flag,
                 // beside the near-miss line. Names the State, not the reason:
-                // the Poke cooldown also refuses, on the sprite's feet (#374).
+                // the Poke cooldown also refuses, on the sprite's feet.
                 if let Some(refused) = &frame.refused {
                     if model::tracing() {
                         eprintln!(
@@ -2161,7 +2157,7 @@ pub(crate) fn run_frame_loop(
             // art would drop the sprite in the user's hand.
             let holding = lives.iter().any(|live| live.pointer.grabbing());
 
-            // Second exception: the speech bubble's "Open chat" control (#547),
+            // Second exception: the speech bubble's "Open chat" control,
             // drawn where the mask says no art. `cursor_at` is shared space;
             // the renderer reports overlay coordinates (plus the display origin).
             let over_control = on_overlay.is_some_and(|index| {
@@ -2271,7 +2267,7 @@ pub(crate) fn run_frame_loop(
                     hover_delay_ms: crate::hover_delay_ms(),
                 };
 
-                // Skip a repeated instruction (#741): Tauri emit is JS eval
+                // Skip a repeated instruction: Tauri emit is JS eval
                 // (CPU), not an interrupt; rAF in src/main.js is the wakeup half.
                 // Resent after FRAME_RESEND so a webview that just began listening hears `visible`.
                 let next = serde_json::to_string(&placement).ok();
@@ -2285,7 +2281,7 @@ pub(crate) fn run_frame_loop(
                     let _ = window.emit_to(&label, FRAME_EVENT, placement);
                 }
 
-                // Hidden sprites always idle. Track visibility for XI2 wake policy (#183).
+                // Hidden sprites always idle. Track visibility for XI2 wake policy.
                 if index == 0 {
                     schedule_mode = if !presence.visible || !any_needs_active {
                         scheduler::ScheduleMode::Idle
@@ -2543,7 +2539,7 @@ pub(crate) fn run_frame_loop(
                             })
                             .unwrap_or_default();
                         // A bubble rides with its sprite, so it is kept over the
-                        // same trail the sprite's ink is swept over (#1568).
+                        // same trail the sprite's ink is swept over.
                         let rects = fidget_core::overlay_region::follow_placements(
                             &platform::overlay_rects_for(&label),
                             |id| {
@@ -2852,9 +2848,9 @@ pub(crate) fn run_frame_loop(
     });
 }
 
-/// Throw this Instance's conversation away and leave it ready to open a new
-/// one on the same Completer. Both halves or neither (ADR-0012, #679). Action
-/// Log and Chat stay with the caller: only it knows why the session was replaced.
+/// Throw this Instance's conversation away and leave it ready to open a new one
+/// on the same Completer. Both halves or neither (ADR-0012). Action Log and Chat
+/// stay with the caller: only it knows why the session was replaced.
 fn replace_session(
     slots: &mut completer::Slots,
     live: &mut InstanceState,
@@ -2875,9 +2871,8 @@ fn replace_session(
     }
 }
 
-/// Dispatch one `tools/call` against the live Instances and answer it.
-/// The seam #470 was missing: the MCP stub had no roster and no
-/// `ExpressionHandle`, so `speak` came back `success: true` and changed nothing.
+/// Dispatch one `tools/call` against the live Instances, not stubs, and answer
+/// it, so a `speak` changes what the bubble draws.
 fn answer_tool_call(
     call: mcp_http::Call,
     roster: &mut Roster,
@@ -3077,9 +3072,8 @@ mod tests {
         }
     }
 
-    /// The wiring #470 was missing: `answer_tool_call` builds context from
-    /// the running app's Instances rather than stubs, so a `speak` from a
-    /// Harness ends up on the Frame the bubble draws.
+    /// `answer_tool_call` builds context from the running app's Instances rather
+    /// than stubs, so a `speak` from a Harness ends up on the Frame the bubble draws.
     #[test]
     fn a_tool_call_speaks_through_the_live_roster_onto_the_next_frame() {
         let dir = std::env::temp_dir().join(format!("fidget-mcp-{}", uuid::Uuid::new_v4()));

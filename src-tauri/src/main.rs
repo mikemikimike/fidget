@@ -133,7 +133,7 @@ fn chat_label(id: &str) -> String {
 
 /// Whether the window labelled `label` is a Chat that draws a row `owner`
 /// owns. A row no Instance owns, as a sign-in link before any turn, goes to
-/// every Chat so whichever one is open can answer it (#1422).
+/// every Chat so whichever one is open can answer it.
 fn draws_in(owner: &Owner, label: &str) -> bool {
     match owner {
         Owner::Instance(instance) => label == chat_label(instance),
@@ -415,7 +415,7 @@ struct InstanceState {
     happened: Happened,
     pointer: Pointer,
     /// The last line spoken and which overlay showed it, so a crossing
-    /// carries it (#178). See `carry_line`.
+    /// carries it. See `carry_line`.
     spoken: Option<Spoken>,
     speech: SpeechBubble,
     drawn_last: Option<Drawn>,
@@ -553,30 +553,30 @@ struct SpritePlacement<'a> {
     animation: &'a str,
     frame_index: usize,
     /// -1 to mirror, 1 as authored. `Character::draw`'s answer, not the
-    /// heading (#345): a left-strip Character already faces that way, and
+    /// heading: a left-strip Character already faces that way, and
     /// mirroring would turn it back round. Hit-test uses the same answer.
     mirror: i8,
     /// A line to speak on this tick only. Dialogue is an event, not a state.
-    /// #119: the webview latches it and owns display duration. `None` on every
+    /// The webview latches it and owns display duration. `None` on every
     /// overlay but the bubble owner's.
     dialogue: Option<String>,
-    /// Whether to show the thinking ellipsis. Derived from what the Instance
-    /// has on the wire. #119: grace and min-hold are in the webview so the
-    /// Engine stays tick-pure. False on every overlay but the bubble owner's.
+    /// Whether to show the thinking ellipsis, from what the Instance has on the
+    /// wire. Grace and min-hold live in the webview so the Engine stays tick-pure.
+    /// False on every overlay but the bubble owner's.
     thinking: bool,
     /// On this tick only: a touch was dropped because a question waits on the
     /// user (ADR-0016), so the bubble points at Chat. False off the bubble owner.
     asking: bool,
     /// The cursor hovers this Instance, by `AlphaMask::hovers`: :hover misses
-    /// it once Chat has closed (#1565). Bubble owner only, like the pill.
+    /// it once Chat has closed. Bubble owner only, like the pill.
     hovered: bool,
-    /// Whether this overlay draws this Instance's bubble (#178, `bubble_owner`).
+    /// Whether this overlay draws this Instance's bubble (`bubble_owner`).
     /// Still sent to the overlays that lost, which drop the bubble they were
     /// showing on the tick the answer changes.
     bubble: bool,
     /// Cue to play this tick only, by the name the webview keys visual and
     /// sound by. `None` on every overlay but the bubble owner's: every overlay
-    /// draws the art, so a cue from all of them is one sound per display. #277
+    /// draws the art, so a cue from all of them is one sound per display.
     cue: Option<&'static str>,
     /// Where a landing touched, in this overlay's coordinates, and the normal of
     /// what it touched, which the webview turns into the ripple's inset and
@@ -629,12 +629,12 @@ impl<'a> SpritePlacement<'a> {
 struct Placement<'a> {
     sprites: Vec<SpritePlacement<'a>>,
     /// Hide-rules visibility, on every frame: the first tick fires before the
-    /// webview is listening, and a repeated frame is not sent (#741), so
+    /// webview is listening, and a repeated frame is not sent, so
     /// `FRAME_RESEND` is what keeps a hidden-at-launch Character from staying on top.
     visible: bool,
     fade_ms: u32,
     /// Whether a cue this frame may be heard as well as seen. Decided in
-    /// Settings, where Do Not Disturb takes part (#277); the webview only
+    /// Settings, where Do Not Disturb takes part; the webview only
     /// obeys.
     sound: bool,
     /// How long a hover waits before the quick message pill opens, in ms. On
@@ -655,7 +655,7 @@ const CARRY_WINDOW: Duration = Duration::from_secs(8);
 
 /// Dialogue this tick: the Engine's new line, or the last one re-pulsed to a
 /// new owner. Only the overlay that owns the bubble latches the one-tick
-/// pulse, so a seam crossing mid-line would otherwise lose it (#178).
+/// pulse, so a seam crossing mid-line would otherwise lose it.
 fn carry_line(
     spoken: &mut Option<Spoken>,
     said: Option<&str>,
@@ -698,7 +698,7 @@ struct Placed {
     /// Where this tick's landing touched, in the space every display shares.
     contact: Option<fidget_core::engine::RippleContact>,
     /// The overlay that draws the bubble, decided once from the feet
-    /// (#178, `bubble_owner`); `None` while the feet are on no display.
+    /// (`bubble_owner`); `None` while the feet are on no display.
     owner: Option<usize>,
     /// The open quick-message draft, carried to the bubble owner like `dialogue`.
     qm: Option<fidget_core::quick_message::QmDraft>,
@@ -756,7 +756,7 @@ fn character(art: tauri::State<'_, ArtUrls>) -> ArtUrls {
 
 /// The Settings window's handle on the running app. `SettingsSession::apply`
 /// is the one path that persists a setting and acts on it; any other writer
-/// takes this rather than the file (#654).
+/// takes this rather than the file.
 fn settings_session(app: &tauri::AppHandle, state: &SettingsState) -> SettingsSession {
     SettingsSession {
         settings: Arc::clone(&state.settings),
@@ -780,7 +780,7 @@ fn settings_session(app: &tauri::AppHandle, state: &SettingsState) -> SettingsSe
 #[derive(serde::Serialize)]
 struct SettingsSnapshot {
     form: settings::form::FormDescription,
-    /// Keyed by form row id, which is what `src/settings.js` indexes (#875).
+    /// Keyed by form row id, which is what `src/settings.js` indexes.
     view: std::collections::BTreeMap<String, settings::RowValue>,
     /// One shot, cleared by this read. Absent when nothing asked to point.
     reveal: Option<settings::form::RevealTarget>,
@@ -835,7 +835,7 @@ enum SettingsEventPayload {
         press: String,
         #[serde(default)]
         draft: Option<settings::DraftRows>,
-        /// New reads the name and Character beside it from here (#875).
+        /// New reads the name and Character beside it from here.
         #[serde(default)]
         fields: std::collections::HashMap<String, String>,
     },
@@ -1066,7 +1066,7 @@ mod settings_event_tests {
         std::collections::HashMap::new()
     }
 
-    /// A press handed to the page reaches nothing that acts on it. #875.
+    /// A press handed to the page reaches nothing that acts on it.
     #[test]
     fn opening_and_wiping_memory_run_here_and_do_not_cross_to_the_page() {
         use settings::form::RowOperation;
@@ -1084,7 +1084,7 @@ mod settings_event_tests {
     }
 
     /// `AiDraft` carries neither the name nor the Character, so they
-    /// ride the Composite's own fields. #875.
+    /// ride the Composite's own fields.
     #[test]
     fn new_spawns_under_the_name_and_character_the_page_shows() {
         use settings::form::RowOperation;
@@ -1124,7 +1124,7 @@ mod settings_event_tests {
     }
 
     /// The clipboard is the page's, because WebKit gives `writeText` the
-    /// click's own turn and this command has already spent it (#855).
+    /// click's own turn and this command has already spent it.
     #[test]
     fn the_clipboard_operations_still_cross_to_the_page() {
         use settings::form::RowOperation;
@@ -2097,9 +2097,9 @@ fn overlay_secondary(down: bool) {
     platform::set_overlay_secondary(down);
 }
 
-/// Whether reporting an off-art rectangle would actually win the click (#547).
-/// Replaces a UA sniff that said "macOS" when the question is hotspot hit-testing.
-/// Those agree today and would part the moment X11 or Windows unions off-art rects into its input region.
+/// Whether reporting an off-art rectangle would actually win the click. Asked
+/// directly rather than by sniffing for macOS, which agrees only until X11 or
+/// Windows unions off-art rects into its input region.
 #[tauri::command]
 fn overlay_hit_tests_hotspots() -> bool {
     platform::hotspots_hit_tested()
@@ -2182,7 +2182,7 @@ fn instance_title(rows: &[InstanceRow], id: &str) -> String {
 }
 
 /// Open Chat from the bubble control, not as a Summon: the Engine hears
-/// nothing. `async` is load-bearing on Windows (#588): a sync command runs on
+/// nothing. `async` is load-bearing on Windows: a sync command runs on
 /// WebView2's pump thread and building a second webview there deadlocks.
 #[tauri::command]
 async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
@@ -2203,8 +2203,8 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
 }
 
 /// Whether this overlay is the foreground window, asked once per page blur:
-/// WebView2 fires one while SetForegroundWindow activates the overlay (#1577).
-/// False off Windows, so a blur closes the pill there as before.
+/// WebView2 fires one while SetForegroundWindow activates the overlay. False
+/// off Windows, so a blur closes the pill there.
 #[tauri::command]
 fn overlay_has_foreground(window: tauri::Window) -> bool {
     #[cfg(target_os = "windows")]
@@ -2302,7 +2302,7 @@ fn overlay_request_focus(window: tauri::Window) -> Result<(), String> {
     {
         // macOS and X11: the overlay refuses focus until now. On macOS, making
         // it key is what routes keys to the pill once the app is already
-        // active (#1565); on X11 the window manager skips it otherwise (#1699).
+        // active; on X11 the window manager skips it otherwise.
         if platform::overlay_focus_follows_pill() {
             window.set_focusable(true).map_err(|e| e.to_string())?;
         }
@@ -2560,7 +2560,7 @@ fn open_chat(app: &tauri::AppHandle, id: &InstanceId, title: String, feet: Optio
         let window = match handle.get_webview_window(&label) {
             Some(window) => {
                 // The title is the Instance name, which a Character switch can
-                // change without this window being rebuilt. #375.
+                // change without this window being rebuilt.
                 if let Err(why) = window.set_title(&title) {
                     eprintln!("chat: {label} could not be retitled: {why}");
                 }
@@ -2680,7 +2680,7 @@ fn forward_form(app: &tauri::AppHandle, owner: Owner, form: harness::Elicitation
 }
 
 /// Show the thought so far in the thinking Instance's Chat surface, from
-/// either Completer lane (#611). The session log holds it until that
+/// either Completer lane. The session log holds it until that
 /// Instance's wake files it (ADR-0034).
 fn show_thought(app: &tauri::AppHandle, instance: &str, line: String) {
     session_log::think(app, instance, &line, SystemTime::now());
@@ -2841,7 +2841,7 @@ struct ChatOpening {
     /// Whether the switch is on as well. Configured and switched off is a
     /// different sentence from never configured, and the surface says which.
     enabled: bool,
-    /// Which mind answers here, or would (#474): the Harness that was named,
+    /// Which mind answers here, or would: the Harness that was named,
     /// whether the child is up, and the session that proves it. `None` when
     /// none was named, and the HTTP rows below are the answer instead.
     harness: Option<ChatHarness>,
@@ -2869,10 +2869,10 @@ struct ChatOpening {
     instructions: String,
     /// The Character's frozen Personality Prompt, for the Prompt tab
     /// (ADR-0012). Empty when the package shipped none, and empty under
-    /// Blank AI: the flag empties the layer rather than hiding the tab (#680).
+    /// Blank AI: the flag empties the layer rather than hiding the tab.
     personality: String,
     /// This Instance's own layer, as it stands. Empty by default. Still sent
-    /// under Blank AI, so a control run can iterate a prompt (#680).
+    /// under Blank AI, so a control run can iterate a prompt.
     instance_prompt: String,
     /// What the tab may not exceed, so the box can say so before the save
     /// surface has to.
@@ -3333,7 +3333,7 @@ struct ChatReply {
     at: Option<u64>,
     /// What the Harness answered with when it answered with an error. `said`
     /// is `None` because static weights took the turn, but "no answer" is
-    /// wrong when one named a version this CLI will not serve (#514).
+    /// wrong when one named a version this CLI will not serve.
     error: Option<String>,
     /// The Harness's own words when it failed the turn. Chat draws them as a
     /// Harness error rather than a note, because they are the diagnosis.
@@ -3385,7 +3385,7 @@ struct ChatStatus {
     /// What drove the last wake, in `happened_cell`'s word for it.
     happened: Option<&'static str>,
     /// -1 heading left, 1 heading right. The heading itself, and not
-    /// `SpritePlacement::mirror`'s answer about the art (#345): the bar says
+    /// `SpritePlacement::mirror`'s answer about the art: the bar says
     /// which way the sprite is walking, which a left strip does not change.
     facing: i8,
     /// A turn is on the wire, and the character is not waiting on the user.
@@ -4229,7 +4229,7 @@ fn describe_menu(
 }
 
 /// Chat's landing opens by itself on a first launch with no AI source, so a
-/// new user is pointed at connecting one (#1730). Every OS: it is onboarding.
+/// new user is pointed at connecting one. Every OS: it is onboarding.
 fn opens_first_run_chat(first_launch: bool, source_configured: bool) -> bool {
     first_launch && !source_configured
 }
@@ -5070,7 +5070,7 @@ fn main() {
             let secrets: Arc<dyn SecretStore> = Arc::new(KeyringStore::new());
             // Before `director_settings` and `config_from`, both of which ask
             // whether a Harness is attached. Resolving the key first is what
-            // made a Harness launch prompt for one it would never send (#290).
+            // made a Harness launch prompt for one it would never send.
             app.manage(PendingAsks(Mutex::new(Pending::default())));
             app.manage(MinimizedChats::default());
             app.manage(Mutex::new(session_log::Log::new()));
@@ -5391,7 +5391,7 @@ mod tests {
     }
 
     /// Production change that would fail this: `chat_ready` dropping a kept
-    /// turn's error, so Chat shows the typed line waiting forever (#1510).
+    /// turn's error, so Chat shows the typed line waiting forever.
     #[test]
     fn a_replayed_failed_turn_reaches_chat_with_its_error() {
         let mut log = session_log::Log::new();
@@ -5500,7 +5500,7 @@ mod tests {
         settings::settings_path(&dir)
     }
 
-    /// #1730: a first launch with no AI source opens Chat's landing.
+    /// A first launch with no AI source opens Chat's landing.
     #[test]
     fn a_first_launch_with_no_source_opens_chat() {
         let (_, first_launch) = Settings::load_launch(&unwritten_settings("a"));
@@ -5658,7 +5658,7 @@ mod tests {
     }
 
     /// A Chat that opens after the rows arrived replays only its own Instance's
-    /// ask and form, plus a sign-in link no Instance owns (#1422).
+    /// ask and form, plus a sign-in link no Instance owns.
     #[test]
     fn a_chat_that_opens_later_replays_only_its_own_asks_and_forms() {
         let (a, _) = owners();
@@ -5754,7 +5754,7 @@ mod tests {
         }
     }
 
-    /// A two-display Mac, the arrangement #868 was reported on.
+    /// A two-display Mac.
     const PRIMARY: Rect = Rect {
         x: 0.0,
         y: 0.0,
@@ -5854,7 +5854,7 @@ mod tests {
     }
 
     /// Production change that would fail this: opening Settings on WA_ACTIVE (1)
-    /// or WA_INACTIVE (0) in addition to WA_CLICKACTIVE (2). #767.
+    /// or WA_INACTIVE (0) in addition to WA_CLICKACTIVE (2).
     #[cfg(target_os = "windows")]
     mod windows_anchor_tests {
         #[test]
@@ -5930,7 +5930,7 @@ mod tests {
     }
 
     /// Production change that would fail this: an opening whose enabled bit
-    /// still matches the pre-toggle inspect. #473.
+    /// still matches the pre-toggle inspect.
     #[test]
     fn chat_opening_from_inspect_carries_configured_and_enabled() {
         let mut roster = Roster::new();
@@ -5952,7 +5952,7 @@ mod tests {
 
     /// Production change that would fail this: an opening that says a Harness
     /// is there without carrying whether it is up, which is the difference
-    /// between the header naming a mind and naming a hope (#474).
+    /// between the header naming a mind and naming a hope.
     #[test]
     fn chat_opening_carries_the_harness_facts_the_header_names() {
         let mut roster = Roster::new();
@@ -5979,7 +5979,7 @@ mod tests {
         assert_eq!(harness.missing, None);
     }
 
-    /// #726: Settings already names a missing launcher. Chat has to carry
+    /// Settings already names a missing launcher. Chat has to carry
     /// the same fact or the header can only say `not running`.
     #[test]
     fn chat_opening_carries_a_missing_launcher() {
@@ -6189,7 +6189,7 @@ mod tests {
         );
     }
 
-    /// #680: Blank AI empties the built-in Personality Prompt on the opening
+    /// Blank AI empties the built-in Personality Prompt on the opening
     /// the tab draws. The Instance Prompt stays, so a control run can still
     /// iterate one.
     #[test]
@@ -6240,7 +6240,7 @@ mod tests {
         });
     }
 
-    /// #17: losing a line that is waiting in `happened` would answer a question
+    /// Losing a line that is waiting in `happened` would answer a question
     /// the user never asked and drop the one they are waiting on.
     #[test]
     fn a_waiting_typed_line_survives_everything_else_that_happens() {
@@ -6707,7 +6707,7 @@ mod tests {
         );
     }
 
-    /// #178: a line said on one display and carried across the seam is said
+    /// A line said on one display and carried across the seam is said
     /// again to the new owner, once, while it could still be showing — and
     /// never to the owner that already heard it.
     #[test]
@@ -6780,7 +6780,7 @@ mod tests {
         );
     }
 
-    /// #178 and #277: every overlay is told about every Instance, and only the
+    /// Every overlay is told about every Instance, and only the
     /// one that owns the bubble is told the line, the indicator and the cue.
     #[test]
     fn only_the_bubble_owner_is_told_the_line_the_indicator_and_the_cue() {
@@ -6947,7 +6947,7 @@ mod tests {
     #[test]
     fn instance_title_falls_back_to_the_id_when_the_row_is_gone() {
         // A Character switch can drop the row between the click and this
-        // lookup; the id is a title the window can still open under. #588.
+        // lookup; the id is a title the window can still open under.
         let rows = vec![instance_row("a", "Beemo")];
         assert_eq!(
             instance_title(&rows, "orphan"),
@@ -6962,7 +6962,7 @@ mod tests {
     }
 
     /// Pins `overlay_open_chat` as `async`. On Windows a sync command builds
-    /// the Chat webview on WebView2's pump thread and deadlocks (#588). A
+    /// the Chat webview on WebView2's pump thread and deadlocks. A
     /// compile-time witness; the body only has to type-check.
     #[test]
     fn overlay_open_chat_is_async_so_windows_keeps_chat_off_the_webview_pump() {
@@ -7141,7 +7141,7 @@ mod tests {
 
     /// Asserted on the serialized payload, because the webview reads the wire
     /// shape and not the struct. Production change that would fail this:
-    /// sending a bare flag again, so the surface cannot name the cause (#890).
+    /// sending a bare flag again, so the surface cannot name the cause.
     #[test]
     fn a_preempted_typed_question_carries_the_wake_that_took_its_slot() {
         let poked = serde_json::to_value(cancelled_caret(true, &Happened::Poke).unwrap())

@@ -84,7 +84,7 @@ const THINK_CEILING: u32 = 8192;
 #[cfg(test)]
 const DEFAULT_EFFORT: &str = "low";
 
-/// Last user turn and the config that produced it. #18 displays this.
+/// Last user turn and the config that produced it.
 #[derive(Clone, Debug, Serialize)]
 pub struct DirectorInspect {
     pub enabled: bool,
@@ -426,7 +426,7 @@ fn is_local(base: &str) -> bool {
 
 fn timeout_for() -> Duration {
     // `dev_flags` holds the value the variable or the file settled on, so the
-    // precedence is not re-decided here (#273).
+    // precedence is not re-decided here.
     crate::dev_flags::director_timeout_secs().map_or(TIMEOUT, Duration::from_secs)
 }
 
@@ -845,8 +845,8 @@ impl Endpoint {
                 "{url}: streamed reply had no text content"
             ))),
             Streamed::Truncated(what) => {
-                // Parseable is the one #606 row that is still Speech: a full
-                // Behavior / sayable line, marked. The other three are Unsent.
+                // Parseable is the one `Truncation` that is still Speech: a full Behavior
+                // / sayable line, marked. The other three are Unsent.
                 if let Truncation::Parseable(content) = what {
                     Ok(Reply::truncated(content))
                 } else {
@@ -863,7 +863,7 @@ impl Endpoint {
     }
 
     /// Action Log copy for a capped turn. Names the model, the cap, and the
-    /// setting that moves it. The four #606 rows call for different settings.
+    /// setting that moves it, which differs per `Truncation`.
     fn out_of_budget(&self, url: &str, what: &Truncation) -> String {
         // The number this turn was actually sent, which is the ceiling on a
         // host that marks and `max_tokens` on every other. Naming the field
@@ -1382,7 +1382,7 @@ enum Unsent {
     Cut(String),
     /// The model reached the token cap. Never worth a retry, because the same
     /// question at the same cap gets the same nothing. The text names the cap,
-    /// the model, and which #606 row it was.
+    /// the model, and the `Truncation`.
     Truncated(String),
     /// Superseded while the tokens were arriving. No error is composed here: the
     /// frame loop tells a waiting caret, naming the wake that cancelled it.
@@ -1419,9 +1419,9 @@ impl Unsent {
     }
 }
 
-/// What arrived when the Completer hit the token cap. One variant per #606
-/// table row, so Speech policy is a match, not a pile of emptiness checks.
-/// Marked reasoning is routed later; nothing here dumps thinking into Speech.
+/// What arrived when the Completer hit the token cap. A variant per outcome, so
+/// Speech policy is a match, not a pile of emptiness checks. Marked reasoning
+/// is routed later; nothing here dumps thinking into Speech.
 #[derive(Debug, PartialEq, Eq)]
 enum Truncation {
     /// Marked reasoning, no answer text. Action Log only. Never Speech.
@@ -1429,7 +1429,7 @@ enum Truncation {
     /// Answer text that still parses to a Behavior / sayable line. Spoken
     /// and marked. The other three rows are refused.
     Parseable(String),
-    /// Answer started but will not parse. #302: do not speak or half-parse.
+    /// Answer started but will not parse, so it is neither spoken nor half-parsed.
     MidSentence(String),
     /// Bytes in `content` with no reasoning mark. Not Speech. No v1
     /// heuristic onto the Thinking row.
@@ -1706,9 +1706,9 @@ fn truncated_body(body: &str) -> bool {
         || value["stop_reason"] == "max_tokens"
 }
 
-/// Whether the body marked reasoning apart from the answer. Used only to
-/// pick a #606 row: marked + no text is ThinkingOnly, unmarked prose is
-/// Unmarked. Not a thought-strip route.
+/// Whether the body marked reasoning apart from the answer. Used only to pick a
+/// `Truncation`: marked + no text is ThinkingOnly, unmarked prose is Unmarked.
+/// Not a thought-strip route.
 fn thought_in_body(body: &str) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
         return false;
@@ -1732,7 +1732,7 @@ fn thought_in_body(body: &str) -> bool {
     false
 }
 
-/// Pick the #606 table row from what the cap-ended turn actually held.
+/// Pick the `Truncation` from what the cap-ended turn actually held.
 /// `parse_proposal` is the contract, not a thought heuristic: a first word
 /// like `Okay` still parses, and v1 does not second-guess that.
 fn classify_truncation(content: &str, marked_thought: bool) -> Truncation {
@@ -2947,8 +2947,8 @@ pub(crate) mod tests {
         );
     }
 
-    /// Best effort is the #606 table, not "any nonempty string". Thinking-only
-    /// and unparsable cuts stay Unsent. A parseable Behavior is spoken and
+    /// Best effort is the `Truncation` table, not "any nonempty string". Thinking
+    /// only and unparsable cuts stay Unsent. A parseable Behavior is spoken and
     /// marked. Unmarked content is not Speech and is not heuristically split.
     #[test]
     fn a_truncation_follows_the_best_effort_table() {
@@ -3013,7 +3013,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// The four #606 rows are a classification, not a content-emptiness check.
+    /// The four `Truncation` variants are a classification, not an emptiness check.
     #[test]
     fn classify_truncation_picks_the_table_row() {
         assert_eq!(

@@ -23,7 +23,7 @@ pub(crate) const CHAT_SESSION_EVENT: &str = "chat-session";
 
 /// What a loaded session said before this run, as the lines the window
 /// draws above its log. Not `CHAT_EVENT`: these answer no question the window
-/// is waiting on, and are not a wake (#1393).
+/// is waiting on, and are not a wake.
 pub(crate) const CHAT_RESTORED_EVENT: &str = "chat-restored";
 
 /// Forwarded `session/request_permission` to the Chat surface of the Instance
