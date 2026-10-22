@@ -14,7 +14,7 @@ import { after, before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const PROBE_MS = 13000;
+const PROBE_MS = 30000;
 
 // The page character is hidden, so the desk keeps its Character the whole run.
 // tests/landing-walker-site.test.js plays the handover.
@@ -204,12 +204,66 @@ before(() => {
 
 after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
 
-async function play(flags = [], script = probe) {
+// Each cast Character in turn, one reload apiece, is dragged from wherever it
+// stands to just above a window's top edge and let go slowly.
+const perches = `
+<script>${helpers}
+  sessionStorage.setItem("fidget.character", sessionStorage.getItem("probe-next") ?? "buddy-bot");
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const ids = Object.keys(JSON.parse(document.getElementById("play-data").textContent).cast);
+      const id = sessionStorage.getItem("fidget.character");
+      const desk = document.getElementById("play-desk");
+      const sprite = document.getElementById("play-sprite");
+      const layer = document.getElementById("play-cues");
+      desk.scrollIntoView({ block: "center" });
+      await frame(); await frame();
+      const perched = {};
+      for (const name of ["light", "dark"]) {
+        await wait(700);
+        const win = document.querySelector('[data-win="' + name + '"]').getBoundingClientRect();
+        const box = sprite.getBoundingClientRect();
+        let x = box.left + box.width / 2;
+        let y = box.top + box.height / 2;
+        pointer(sprite, "pointerdown", x, y);
+        pointer(sprite, "pointermove", x, y - 5);
+        const from = { x, y: y - 5 };
+        const goal = { x: win.left + win.width * 0.75, y: win.top - 20 - box.height / 2 };
+        for (let i = 1; i <= 10; i++) {
+          await frame();
+          x = from.x + (goal.x - from.x) * i / 10;
+          y = from.y + (goal.y - from.y) * i / 10;
+          pointer(sprite, "pointermove", x, y);
+        }
+        await wait(200);
+        const soft = cueIn(layer, ".cue-puff:not(.hard)");
+        pointer(sprite, "pointerup", x, y);
+        await soft;
+        await frame();
+        perched[name] = Math.round(sprite.getBoundingClientRect().bottom - win.top);
+      }
+      const all = { ...JSON.parse(sessionStorage.getItem("probe-perches") ?? "{}"), [id]: perched };
+      const next = ids[ids.indexOf(id) + 1];
+      if (next) {
+        sessionStorage.setItem("probe-perches", JSON.stringify(all));
+        sessionStorage.setItem("probe-next", next);
+        location.reload();
+        return;
+      }
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, perched: all, desk: desk.clientHeight }));
+    } catch (err) {
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
+    }
+  });
+</script>`;
+
+async function play(flags = [], script = probe, size = "1280,900") {
   const page = join(site, "probe.html");
   writeFileSync(page, readFileSync(join(site, "index.html"), "utf8").replace("<head>", `<head>${script}`));
   const cdp = launchWithPipe(chromePath, [
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--mute-audio",
-    `--user-data-dir=${mkdtempSync(join(dir, "profile-"))}`, "--allow-file-access-from-files", "--window-size=1280,900",
+    `--user-data-dir=${mkdtempSync(join(dir, "profile-"))}`, "--allow-file-access-from-files", `--window-size=${size}`,
     ...flags,
   ]);
   try {
@@ -253,6 +307,16 @@ test("a double-click opens the chat mock, which moves by its bar and closes; a h
   assert.ok(result.beside, "at 1280px the gestures sit to the left of the panel, top-aligned with it");
   assert.equal(result.pushedRight, 0, "beside the gestures, a window drags right up to the narrower desk's right edge");
 });
+
+for (const size of ["1512,945", "1280,800"]) {
+  test(`at ${size}, every cast Character drags onto both windows' top edges and perches`, { skip: chromeSkip }, async () => {
+    const result = await play([], perches, size);
+    assert.deepEqual(result.errors, [], "the page threw nothing");
+    const flat = { light: 0, dark: 0 };
+    assert.deepEqual(result.perched, { "buddy-bot": flat, nim: flat, "timber-wolf": flat },
+      `each Character's feet rest on each window's top edge, in a ${result.desk}px desk`);
+  });
+}
 
 test("the playground reads as Oded asked: its title and gestures, two windows that say drag me, Download below the desk, then the sections in order", () => {
   const page = readFileSync(join(site, "index.html"), "utf8");
