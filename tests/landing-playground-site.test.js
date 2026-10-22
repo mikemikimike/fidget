@@ -332,7 +332,8 @@ async function play(flags = [], script = probe, size = "1280,900") {
       if (name !== "tapAt") return;
       const [x, y] = JSON.parse(payload);
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] }, sessionId);
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }, sessionId);
+      // A probe can finish on the touchStart, and Chrome close before its touchEnd.
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }, sessionId).catch(() => {});
     });
     return await captureConsoleLog(cdp, sessionId, "__PROBE_RESULT__", PROBE_MS, () => navigate(pathToFileURL(page).href));
   } finally {

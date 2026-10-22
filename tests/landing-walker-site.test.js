@@ -409,7 +409,9 @@ async function play(script, flags = [], viewport = null) {
       const [code, text] = { Enter: [13, "\r"], Tab: [9, ""] }[payload];
       const key = { key: payload, code: payload, windowsVirtualKeyCode: code };
       cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...key, text }, sessionId)
-        .then(() => cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...key }, sessionId));
+        .then(() => cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...key }, sessionId))
+        // A probe can finish on the keyDown, and Chrome close before its keyUp.
+        .catch(() => {});
     });
     return await captureConsoleLog(cdp, sessionId, "__PROBE_RESULT__", PROBE_MS, () => navigate(pathToFileURL(page).href));
   } finally {
