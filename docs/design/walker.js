@@ -2,7 +2,7 @@
 // the playground's Character too, handed over while the playground is in view.
 // update() decides and touches no DOM, so node tests it; step() moves it.
 
-import { animationOf, character, decodePresses, feet, frameOf, step } from "./playground.js";
+import { animationOf, away, character, decodePresses, feet, frameOf, step } from "./playground.js";
 
 // The page origin is shared with other Pages sites, hence the prefix.
 const HIDDEN_KEY = "fidget.hidden";
@@ -13,18 +13,13 @@ const LINES = { first: [6000, 15000], gap: [60000, 120000] };
 
 const span = ([low, high], roll) => low + (high - low) * roll;
 
-// phase is who has the Character:
-//   page: the page, walking on and off below the bottom edge included;
-//   away: nobody, as the hero's stage, with its own fidget, is on screen;
-//   lent: the playground;
-//   hidden: nobody, as the visitor hid it.
-// The playground starts with it, and view stays null until the page knows
-// whether the playground is in sight. It first walks up on a side the visit
-// rolls.
+// phase is who has the Character: page, lent (the playground), away (nobody,
+// as the hero's stage shows its own) or hidden (the visitor hid it). view is
+// null until the page knows whether the playground is in sight.
 export function start({ now, rand, width, hidden = false, still = false }) {
   return {
     phase: hidden ? "hidden" : "lent",
-    sprite: { mode: "away", x: rand < 0.5 ? 0 : width, facing: rand < 0.5 ? 1 : -1 },
+    sprite: away({ x: rand < 0.5 ? 0 : width, facing: rand < 0.5 ? 1 : -1 }),
     still,
     view: null,
     speech: null,
@@ -95,7 +90,7 @@ export function update(state, event, env) {
   if (event.type === "view") return { ...unchanged, state: { ...state, view: { play: event.play, blocked: event.blocked } } };
   if (event.type === "hide") {
     const lend = state.phase === "page" || state.phase === "away";
-    const hidden = { ...state, phase: "hidden", speech: null, sprite: { mode: "away", x: state.sprite.x, facing: state.sprite.facing } };
+    const hidden = { ...state, phase: "hidden", speech: null, sprite: away(state.sprite) };
     return { state: hidden, cue: null, handoff: lend ? "arrive" : null };
   }
   if (event.type === "show") return state.phase === "hidden" ? { ...unchanged, state: { ...state, phase: "lent" } } : unchanged;
@@ -135,7 +130,7 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   const at = doc.getElementById("fidget-at");
   const sprite = doc.getElementById("fidget-sprite");
   const img = sprite.querySelector("img");
-  const say = doc.getElementById("fidget-say");
+  const balloon = doc.getElementById("fidget-say");
   const back = doc.getElementById("fidget-back");
   const stage = doc.querySelector(".stage");
   const narrow = matchMedia("(max-width: 480px)");
@@ -224,18 +219,18 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   let shown = null;
   let size = null;
   function draw(now) {
-    const away = state.sprite.mode === "away";
-    if (at.hidden !== away) at.hidden = away;
+    const gone = state.sprite.mode === "away";
+    if (at.hidden !== gone) at.hidden = gone;
     const line = state.speech?.line ?? null;
     if (line !== shown) {
       shown = line;
-      say.classList.toggle("visible", line !== null);
+      balloon.classList.toggle("visible", line !== null);
       if (line !== null) {
-        say.querySelector(".bubble-content").textContent = line;
-        size = { width: say.offsetWidth, height: say.offsetHeight };
+        balloon.querySelector(".bubble-content").textContent = line;
+        size = { width: balloon.offsetWidth, height: balloon.offsetHeight };
       }
     }
-    if (away) return;
+    if (gone) return;
     const name = animation(state, now);
     if (name !== playing) {
       playing = name;
@@ -254,9 +249,9 @@ export function mount(doc, data, { cue, bubble, play, still }) {
       const room = world();
       const spot = bubble.placeBubble({ x: f.x - w / 2, y: f.y - h, width: w, height: h }, size,
         { x: 0, y: 0, width: room.width, height: room.height });
-      say.style.transform = `translate(${spot.x}px, ${spot.y}px)`;
-      say.style.setProperty("--tail-offset", `${spot.tailOffset}px`);
-      say.classList.toggle("inverted", spot.inverted);
+      balloon.style.transform = `translate(${spot.x}px, ${spot.y}px)`;
+      balloon.style.setProperty("--tail-offset", `${spot.tailOffset}px`);
+      balloon.classList.toggle("inverted", spot.inverted);
     }
   }
   function frame(now) {

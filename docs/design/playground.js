@@ -157,6 +157,8 @@ function startle(state, now, tuning) {
   return { ...awake, act: "react", until: now + tuning.primitiveMs };
 }
 
+export const away = ({ x, facing }) => ({ mode: "away", x, facing });
+
 // Leaving walks in place down past the floor until out of sight, and entering
 // walks back up. The page character hands over to the playground this way, as
 // the playground's desk and the viewport both clip below their floor.
@@ -169,13 +171,13 @@ const arrived = (state, now) => {
 
 function pass(state, event, world, tuning) {
   const sunk = state.sunk + (state.act === "leave" ? 1 : -1) * tuning.walkSpeed * Math.min(event.dt, MAX_DT);
-  if (sunk >= world.sprite.h) return { mode: "away", x: state.x, facing: state.facing };
+  if (sunk >= world.sprite.h) return away(state);
   return sunk <= 0 ? arrived(state, event.now) : { ...state, sunk };
 }
 
 function leave(state, event) {
   if (state.mode !== "standing" || state.on !== "floor" || state.act === "leave") return state;
-  if (event.still) return { mode: "away", x: state.x, facing: state.facing };
+  if (event.still) return away(state);
   return { ...state, act: "leave", sunk: state.sunk ?? 0, until: Infinity };
 }
 
@@ -224,7 +226,7 @@ export function animationOf(state) {
 
 export function step(state, event, world, tuning) {
   const unchanged = { state, cue: null };
-  if (event.type === "away") return { state: { mode: "away", x: state.x, facing: state.facing }, cue: null };
+  if (event.type === "away") return { state: away(state), cue: null };
   if (event.type === "leave") return { state: leave(state, event), cue: null };
   if (event.type === "enter") return { state: enter(state, event, world), cue: null };
   if (state.mode === "away") return unchanged;
@@ -287,10 +289,9 @@ export function frameOf(loop, elapsed) {
   return loop.frames[loop.once ? Math.min(index, loop.frames.length - 1) : index % loop.frames.length];
 }
 
-// The same press decoding as input.rs: a press becomes a Grab once it moves
-// dragThreshold or is held dragDelayMs, and a press released before either is
-// a Poke. A drag keeps the press's offset from the feet, so nothing jumps.
-// Returns whether a press is under way.
+// Press decoding as in input.rs: a Grab once a press moves dragThreshold or
+// is held dragDelayMs, else a Poke on release. A drag keeps the press's offset
+// from the feet, so nothing jumps. Returns a check for a press under way.
 export function decodePresses(target, tuning, { local, feetNow, apply, grabbable = () => true, onPress = () => {} }) {
   let press = null;
   const grab = () => {
@@ -532,8 +533,8 @@ export function mount(section, data, cue) {
     }
     const src = frameOf(loops[name], now - since);
     if (img.getAttribute("src") !== src) img.setAttribute("src", src);
-    const away = state.mode === "away";
-    if (sprite.hidden !== away) sprite.hidden = away;
+    const gone = state.mode === "away";
+    if (sprite.hidden !== gone) sprite.hidden = gone;
     const at = feetNow();
     sprite.style.transform = `translate(${at.x - w / 2}px, ${at.y - h}px)${state.facing < 0 ? " scaleX(-1)" : ""}`;
     if (pillUp) placePill();
