@@ -105,6 +105,14 @@ export function update(state, event, env) {
   return { state: next, cue, handoff: null };
 }
 
+// Whether a tick would change nothing: off the page, with nowhere to go.
+export function idle(state) {
+  if (state.sprite.mode !== "away" || state.phase === "page") return false;
+  if (state.phase === "hidden" || state.view === null) return true;
+  const { play, blocked } = state.view;
+  return state.phase === "lent" ? play || blocked : blocked && !play;
+}
+
 function remember(hidden) {
   try {
     if (hidden) localStorage.setItem(HIDDEN_KEY, "1");
@@ -158,28 +166,41 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   let state = start({ now: performance.now(), rolls: [Math.random(), Math.random()], width: world().width,
     hidden: hiddenBefore(), still });
   back.hidden = state.phase !== "hidden";
+  // Frames run only while a tick could change something, so a Character off
+  // the page costs nothing; every event that could need one wakes the loop.
   let pending = 0;
+  const wake = () => {
+    if (!pending && !idle(state)) pending = requestAnimationFrame(frame);
+  };
   const apply = (event) => {
     const out = update(state, event, env());
     state = out.state;
     if (out.cue) cues.event({ cue: out.cue, visible: true, sound: false });
     if (out.handoff === "arrive") play?.arrive();
     if (out.handoff === "depart") play?.depart();
+    wake();
   };
 
   // Where the playground and the hero's stage are. Without a playground it is
-  // never in view. The stage counts until it is scrolled away above, so the
-  // page's fidget first shows below it and never beside the hero's.
-  const view = { play: play ? null : false, blocked: false };
+  // never in view. While any of the stage shows, the page's fidget stays off,
+  // never beside the hero's.
+  const view = { play: play ? null : false, blocked: stage ? null : false };
   const report = () => {
-    if (view.play !== null) apply({ type: "view", ...view });
+    if (view.play !== null && view.blocked !== null) apply({ type: "view", ...view });
   };
+  if (stage) {
+    new IntersectionObserver(([entry]) => {
+      view.blocked = entry.isIntersecting;
+      report();
+    }).observe(stage);
+  }
   const desk = doc.getElementById("play-desk");
   if (play && desk) {
     // In once most of the desk shows, out only once none does: between the two
-    // nothing changes, so a reader resting at the edge does not bounce it.
+    // nothing changes, so a reader resting at the edge does not bounce it. The
+    // first report decides either way, as a reload can restore mid-desk.
     new IntersectionObserver(([entry]) => {
-      const next = entry.intersectionRatio >= 0.6 ? true : entry.isIntersecting ? view.play : false;
+      const next = entry.intersectionRatio >= 0.6 || (entry.isIntersecting && view.play === true);
       if (next === view.play) return;
       view.play = next;
       report();
@@ -201,16 +222,22 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   });
   addEventListener("scroll", () => apply({ type: "startle", now: performance.now() }), { passive: true });
 
-  doc.getElementById("fidget-hide").addEventListener("click", () => {
+  // Each button hides itself, so focus moves on: Hide to Bring back, and Bring
+  // back to Hide once the sprite shows, or to the page when it cannot walk on.
+  const hide = doc.getElementById("fidget-hide");
+  let refocus = false;
+  hide.addEventListener("click", () => {
     apply({ type: "hide" });
     remember(true);
     back.hidden = false;
+    back.focus({ preventScroll: true });
   });
   back.addEventListener("click", () => {
     apply({ type: "show" });
     remember(false);
+    refocus = !idle(state);
+    if (!refocus) back.blur();
     back.hidden = true;
-    if (!pending) pending = requestAnimationFrame(frame);
   });
 
   let playing = null;
@@ -221,6 +248,10 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   function draw(now) {
     const gone = state.sprite.mode === "away";
     if (at.hidden !== gone) at.hidden = gone;
+    if (refocus && !gone) {
+      refocus = false;
+      hide.focus({ preventScroll: true });
+    }
     const line = state.speech?.line ?? null;
     if (line !== shown) {
       shown = line;
@@ -255,19 +286,10 @@ export function mount(doc, data, { cue, bubble, play, still }) {
     }
   }
   function frame(now) {
-    if (stage) {
-      const blocked = stage.getBoundingClientRect().bottom > 0;
-      if (blocked !== view.blocked) {
-        view.blocked = blocked;
-        report();
-      }
-    }
+    pending = 0;
     apply({ type: "tick", now, dt: last === null ? 0 : (now - last) / 1000, rand: Math.random() });
-    last = now;
     draw(now);
-    // A hidden Character needs no frames until it is brought back.
-    pending = state.phase === "hidden" ? 0 : requestAnimationFrame(frame);
+    last = pending ? now : null;
   }
   report();
-  pending = requestAnimationFrame(frame);
 }
