@@ -81,7 +81,15 @@ const probe = `
       const onPage = () => !at.hidden && Math.abs(feetY() - innerHeight) < 1;
       const center = () => { const box = sprite.getBoundingClientRect(); return [box.left + box.width / 2, box.top + box.height / 2]; };
 
+      // The hero's stage shows its own fidget, so the page's waits below it.
+      // The cast section is below the stage and clear of the playground too.
+      const belowStage = () => document.getElementById("characters").scrollIntoView({ block: "start" });
+      await wait(700);
+      const atTop = at.hidden;
+      belowStage();
       await until("the walk onto the page", onPage, 4000);
+      // Feet within a px of the floor can still be the last step of the walk up.
+      await wait(200);
       const entered = await entry;
       const ring = cueIn(layer, ".cue-ring");
       pointer(sprite, "pointerdown", ...center());
@@ -108,17 +116,21 @@ const probe = `
       await until("the playground's Character", () => { watch(); return at.hidden && !playSprite.hidden; }, 6000);
       await wait(1500);
       const arrived = { playFeet: playSprite.getBoundingClientRect().bottom, deskFloor: desk.getBoundingClientRect().top + desk.clientTop + desk.clientHeight };
-      window.scrollTo(0, 0);
+      belowStage();
       await until("the walk back onto the page", () => { watch(); return onPage(); }, 6000);
       const handoff = { both, arrived };
 
-      // A reader's slow scroll down past the download buttons, a step a frame.
+      // A reader's slow scroll down from the top past the hero, a step a frame.
+      window.scrollTo(0, 0);
+      await until("the walk off at the top", () => at.hidden, 4000);
       const reacting = () => !at.hidden && member.loops.react.frames.includes(img.getAttribute("src"));
       let reacts = 0;
       let crossings = 0;
       let [wasReacting, wasAway] = [false, at.hidden];
-      for (let i = 0; i < 400; i++) {
-        window.scrollBy(0, 2);
+      const stage = document.querySelector(".stage");
+      for (let i = 0, past = 0; i < 1000 && past < 90; i++) {
+        window.scrollBy(0, 4);
+        if (stage.getBoundingClientRect().bottom < 0) past++;
         await frame();
         if (reacting() && !wasReacting) reacts++;
         if (at.hidden !== wasAway) crossings++;
@@ -140,7 +152,7 @@ const probe = `
       document.getElementById("fidget-hide").click();
       await frame(); await frame();
       const hid = { hidden: at.hidden, back: !back.hidden, stored: localStorage.getItem("fidget.hidden") };
-      sessionStorage.setItem("probe-first", JSON.stringify({ alt: img.alt, entered, poke, thrown, handoff, read, bounce, hid }));
+      sessionStorage.setItem("probe-first", JSON.stringify({ alt: img.alt, atTop, entered, poke, thrown, handoff, read, bounce, hid }));
       location.reload();
     } catch (err) {
       done({ errors: [...errors, String(err)] });
@@ -157,6 +169,8 @@ const still = `
       const sprite = document.getElementById("fidget-sprite");
       const img = sprite.querySelector("img");
       const say = document.getElementById("fidget-say");
+      const stage = document.querySelector(".stage");
+      window.scrollTo(0, stage.getBoundingClientRect().bottom + 1);
       await until("the Character on the page", () => !at.hidden, 1000);
       const first = { src: img.getAttribute("src"), left: sprite.getBoundingClientRect().left };
       let changes = 0;
@@ -209,6 +223,7 @@ test("the page character walks on, reacts, lands a throw, hands over to the play
   const result = await play(probe);
   assert.deepEqual(result.errors, [], "the page threw nothing");
   assert.equal(result.alt, "Buddy Bot", "with no pick, Buddy Bot plays");
+  assert.equal(result.atTop, true, "it stays off the page while the hero's stage is on screen");
   assert.ok(result.entered.inMargin, `it walked up in a margin, clear of the content column: ${JSON.stringify(result.entered)}`);
   assert.deepEqual(result.poke, { reacted: true, said: true, title: "A line from its personality file." },
     "a poke plays react and says a line from the Character's personality.txt");
@@ -216,8 +231,8 @@ test("the page character walks on, reacts, lands a throw, hands over to the play
   assert.equal(result.handoff.both, 0, "the page never showed two at once");
   assert.ok(Math.abs(result.handoff.arrived.playFeet - result.handoff.arrived.deskFloor) < 1,
     `the playground's Character walked up onto the desk floor: ${JSON.stringify(result.handoff.arrived)}`);
-  assert.ok(result.read.reacts === 0 && result.read.crossings <= 2,
-    `a slow scroll never startles the awake character, and the download buttons send it off and back at most once: ${JSON.stringify(result.read)}`);
+  assert.ok(result.read.reacts === 0 && result.read.crossings === 1,
+    `a slow scroll never startles the awake character, and it walks on once, past the hero: ${JSON.stringify(result.read)}`);
   assert.deepEqual(result.bounce, { flips: 0, stayed: true }, "resting at the threshold does not bounce it");
   assert.deepEqual(result.hid, { hidden: true, back: true, stored: "1" });
   assert.deepEqual(result.reloaded, { hidden: true, back: true, layerEmpty: true }, "Hide is remembered across a reload");

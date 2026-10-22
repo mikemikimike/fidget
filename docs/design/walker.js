@@ -15,7 +15,7 @@ const span = ([low, high], roll) => low + (high - low) * roll;
 
 // phase is who has the Character:
 //   page: the page, walking on and off below the bottom edge included;
-//   away: nobody, as the download buttons sit in its band;
+//   away: nobody, as the hero's stage, with its own fidget, is on screen;
 //   lent: the playground;
 //   hidden: nobody, as the visitor hid it.
 // The playground starts with it, and view stays null until the page knows
@@ -53,7 +53,7 @@ function say(state, now, rand, env) {
 }
 
 // Each tick walks the Character toward where it is wanted: off the page while
-// the playground or the download buttons are in view, on it otherwise. The
+// the playground or the hero's stage is in view, on it otherwise. The
 // page hands it to the playground only once it is out of sight, so the page
 // never shows two.
 function tick(state, event, env) {
@@ -137,7 +137,7 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   const img = sprite.querySelector("img");
   const say = doc.getElementById("fidget-say");
   const back = doc.getElementById("fidget-back");
-  const get = doc.getElementById("get");
+  const stage = doc.querySelector(".stage");
   const narrow = matchMedia("(max-width: 480px)");
   const me = data.cast[character(data.cast, data.hero)];
   const { loops } = me;
@@ -172,9 +172,9 @@ export function mount(doc, data, { cue, bubble, play, still }) {
     if (out.handoff === "depart") play?.depart();
   };
 
-  // Where the playground and the download buttons are. Without a playground
-  // it is never in view. The download buttons count while any of them is in
-  // the sprite's band at the bottom of the viewport.
+  // Where the playground and the hero's stage are. Without a playground it is
+  // never in view. The stage counts until it is scrolled away above, so the
+  // page's fidget first shows below it and never beside the hero's.
   const view = { play: play ? null : false, blocked: false };
   const report = () => {
     if (view.play !== null) apply({ type: "view", ...view });
@@ -261,9 +261,8 @@ export function mount(doc, data, { cue, bubble, play, still }) {
     }
   }
   function frame(now) {
-    if (get) {
-      const box = get.getBoundingClientRect();
-      const blocked = box.bottom > innerHeight - h && box.top < innerHeight;
+    if (stage) {
+      const blocked = stage.getBoundingClientRect().bottom > 0;
       if (blocked !== view.blocked) {
         view.blocked = blocked;
         report();
