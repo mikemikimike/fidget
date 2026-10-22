@@ -276,14 +276,6 @@ pub fn key_fingerprint(key: &str) -> String {
     format!("len={n} last={last}")
 }
 
-/// Read Director config from the env. No API key means `StaticDirector`
-/// only, unless the server is on this machine or this LAN.
-/// Env-only wrapper. The overlay resolves from settings and the store.
-#[expect(dead_code)] // env-only wrapper; overlay call sites now use config_from
-pub fn config() -> DirectorConfig {
-    config_from(&resolve("", "", None))
-}
-
 /// One line for the mode, and a warning when a key was offered but unusable.
 /// Empty is almost always a `$VAR` that expanded to nothing, not a choice.
 pub fn startup_lines(config: &DirectorConfig) -> Vec<String> {
