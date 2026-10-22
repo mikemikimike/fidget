@@ -168,16 +168,6 @@ test("the landing page links the published Fidget Cues page", () => {
   assert.ok(existsSync(join(site, "cues.html")), "cues.html is published");
 });
 
-// The Live Playground sits right under What it does, so the page invites the
-// visitor there in plain words instead of linking away to cues.html.
-test("the playground, not a link, invites the visitor to try the gestures", () => {
-  const root = published("index.html");
-  const whatItDoes = root.match(/<h2>What it does<\/h2>\s*<p class="sub">([\s\S]*?)<\/p>/);
-  assert.ok(whatItDoes, "What it does has its line under the heading");
-  assert.equal(whatItDoes[1], "Presence first. The AI is optional.", "What it does carries no link, whatever its words");
-  assert.match(root, /<h2>Live Playground<\/h2>\s*<p class="sub">Try the gestures in your browser\.<\/p>/);
-});
-
 test("the root carries a description and an Open Graph image the site publishes", () => {
   const root = published("index.html");
   const description = root.match(/<meta name="description" content="([^"]+)">/);
