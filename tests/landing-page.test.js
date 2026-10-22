@@ -98,6 +98,27 @@ test("every frame the page names is in the assembled site", () => {
   }
 });
 
+// The playground and the page character share one blob. Each default
+// Character carries every loop both play, at its own size, and the lines its
+// personality.txt quotes after "heard to say:" or "known to say:".
+test("the playground data carries Buddy Bot, Nim and Timber Wolf, each with its loops and its own lines", () => {
+  const data = JSON.parse(published(PAGE).match(/<script type="application\/json" id="play-data">([\s\S]*?)<\/script>/)[1]);
+  assert.deepEqual(Object.keys(data.cast).sort(), ["buddy-bot", "nim", "timber-wolf"]);
+  for (const [pkg, member] of Object.entries(data.cast)) {
+    assert.deepEqual(Object.keys(member.loops).sort(),
+      ["fall", "hold", "idle", "land", "react", "sit", "sleep", "talk", "walk"], `${pkg} carries every loop`);
+    for (const frame of Object.values(member.loops).flatMap((loop) => loop.frames)) {
+      assert.ok(existsSync(join(site, frame)), `${frame} is published`);
+    }
+    assert.ok(member.size.every((side) => side > 0), `${pkg} has a size`);
+    const personality = readFileSync(join(ROOT, "characters", pkg, "personality.txt"), "utf8").replace(/\s+/g, " ");
+    assert.ok(member.lines.length > 0 && member.lines.every((line) => personality.includes(`"${line}"`)),
+      `${pkg}'s lines are quotes from its personality.txt: ${JSON.stringify(member.lines)}`);
+  }
+  assert.equal(data.cast["timber-wolf"].lines.includes("Mad Cat"), false, "a quote outside the lines paragraph is not a line");
+  assert.deepEqual(data.cast.nim.size, [128, 128], "a pixel Character scales by the default scale");
+});
+
 test("a fixture README reaches the page, and one with no H1 fails the build", () => {
   const readme = join(scratch, "README.md");
   const out = join(scratch, "fixture");

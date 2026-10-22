@@ -220,7 +220,7 @@ async function play(flags = [], script = probe) {
 test("every frame the desk plays is in the assembled site", () => {
   const page = readFileSync(join(site, "index.html"), "utf8");
   const desk = JSON.parse(page.match(/<script type="application\/json" id="play-data">([\s\S]*?)<\/script>/)[1]);
-  const frames = Object.values(desk.loops).flatMap((loop) => loop.frames);
+  const frames = Object.values(desk.cast).flatMap((member) => Object.values(member.loops)).flatMap((loop) => loop.frames);
   assert.ok(frames.length > 7, `the desk plays ${frames.length} frames`);
   for (const frame of frames) assert.ok(existsSync(join(site, frame)), `${frame} is published`);
 });

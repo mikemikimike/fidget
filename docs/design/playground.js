@@ -187,6 +187,34 @@ function enter(state, event, world) {
   return state.act === "leave" ? { ...state, act: "enter" } : state;
 }
 
+// The visit's Character, which the playground and the page character both
+// play. The picker is its one writer. Until a pick, one Character from the cast
+// plays for the whole visit. Session storage, as a pick lasts the visit.
+const CHARACTER_KEY = "fidget.character";
+let current = null;
+
+export function pick(id) {
+  current = id;
+  try {
+    sessionStorage.setItem(CHARACTER_KEY, id);
+  } catch {
+    // Storage is off: the pick still holds for this page.
+  }
+}
+
+export function character(cast, rand = Math.random) {
+  if (current !== null && Object.hasOwn(cast, current)) return current;
+  let stored = null;
+  try {
+    stored = sessionStorage.getItem(CHARACTER_KEY);
+  } catch {
+    // Storage is off: choose below.
+  }
+  const ids = Object.keys(cast);
+  pick(stored !== null && Object.hasOwn(cast, stored) ? stored : ids[Math.floor(rand() * ids.length)]);
+  return current;
+}
+
 export function animationOf(state) {
   if (state.mode === "held") return "hold";
   if (state.mode === "falling") return "fall";
@@ -261,12 +289,17 @@ export function mount(section, data, cue) {
   const hint = section.querySelector("#play-hint");
   const pill = section.querySelector("#play-qm");
   const field = pill.querySelector("input");
-  const { loops, tuning } = data;
-  const [w, h] = data.size;
+  const { tuning } = data;
+  const me = data.cast[character(data.cast)];
+  const { loops } = me;
+  const [w, h] = me.size;
   section.querySelector("#play-tiles").hidden = true;
   desk.hidden = false;
   sprite.style.width = `${w}px`;
   sprite.style.height = `${h}px`;
+  Object.assign(img, { src: loops.idle.frames[0], alt: me.name, width: w, height: h });
+  img.classList.toggle("pixel", me.pixel);
+  section.querySelector("#play-chat .composer textarea").placeholder = `Ask ${me.name}…`;
   Object.values(loops).flatMap((loop) => loop.frames).forEach((src) => { new Image().src = src; });
 
   // Each window keeps its top-left corner as a share of the desk, so a resize

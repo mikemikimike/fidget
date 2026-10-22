@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { animationOf, feet, step } from "../docs/design/playground.js";
+import { animationOf, character, feet, pick, step } from "../docs/design/playground.js";
 
 const TUNING = {
   gravity: 3600, walkSpeed: 120, primitiveMs: 600, pokeCooldownMs: 2500, perchedIdleAfterMs: 4000,
@@ -250,4 +250,13 @@ test("under reduced motion, leaving and entering skip the walk", () => {
 test("away puts any character out of sight at once, wherever it was", () => {
   const held = run(standing("floor", 300), [{ type: "grab", now: 0 }, { type: "away", now: 1 }]);
   assert.deepEqual(held.state, { mode: "away", x: 300, facing: 1 });
+});
+
+test("one Character plays for the whole visit until a pick, and every reader gets the pick", () => {
+  const cast = { "buddy-bot": {}, nim: {}, "timber-wolf": {} };
+  const first = character(cast, () => 0.5);
+  assert.equal(first, "nim");
+  assert.equal(character(cast, () => 0.99), first, "a second reader gets the same Character, with no rotation");
+  pick("timber-wolf");
+  assert.equal(character(cast, () => 0), "timber-wolf");
 });

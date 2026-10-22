@@ -113,9 +113,14 @@ CHAT_SHARED = ROOT / "src" / "chat-shared.css"
 CHAT_RULES = (".log", ".empty", ".empty > div", ".empty p", ".empty p b", ".composer", ".composer textarea",
               ".composer textarea::placeholder", ".composer textarea:disabled", ".composer button",
               ".composer button:disabled", ".composer textarea:focus-visible", ".composer button:focus-visible")
-# The playground desk plays these, so a Character
+# The playground desk and the page character play these, so a Character
 # lacking one fails the build instead of freezing on the page.
-PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit", "sleep")
+PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit", "sleep", "talk")
+# The project's own Characters, one of which plays until a visitor picks. The
+# fan art waits for the picker.
+PAGE_CAST = (HERO, "nim", "timber-wolf")
+# A personality.txt introduces its quoted lines this way, up to a blank line.
+SAYS = re.compile(r"(?:heard|known) to say:(.*?)(?:\n[ \t]*\n|\Z)", re.S)
 # The still tiles no-JavaScript and reduced-motion visitors get: the gesture,
 # the Character, and the Animation whose first frame shows it.
 PLAY_TILES = (("Poke", "bmo", "react"), ("Pick up", "timber-wolf", "hold"), ("Throw", "cat", "fall"),
@@ -439,6 +444,29 @@ def manifest(package):
         raise Malformed(f"{package.name}: character.manifest does not read as TOML — {broken}") from broken
 
 
+def said(package):
+    """The quotes personality.txt gives after "heard to say:" or "known to say:"."""
+    try:
+        text = (package / "personality.txt").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as missing:
+        raise Malformed(f"{package.name}: has no personality.txt to say lines from") from missing
+    found = SAYS.search(text)
+    lines = re.findall(r'"([^"]+)"', " ".join(found.group(1).split())) if found else []
+    if not lines:
+        raise Malformed(f'{package.name}: personality.txt quotes nothing after "heard to say:" or "known to say:"')
+    return lines
+
+
+def player(package, declared, member, defaults):
+    """What the playground and the page character need to play one Character."""
+    loops = {name: loop(package, declared, name, defaults["fps"]) for name in PLAY_LOOPS}
+    art = (package / declared["animations"]["idle"]["frames"][0]).read_bytes()
+    width, height = struct.unpack(">II", art[16:24])
+    scale = declared.get("scale", defaults["scale"])
+    return {"name": member["name"], "pixel": member["pixel"], "size": [width * scale, height * scale],
+            "loops": loops, "lines": said(package)}
+
+
 def read_cast(characters_root, defaults):
     packages = sorted(
         p for p in characters_root.iterdir()
@@ -446,7 +474,7 @@ def read_cast(characters_root, defaults):
     )
     if not packages:
         raise Malformed(f"{characters_root} holds no Character Package")
-    cast, hero = [], None
+    cast, players = [], {}
     for package in packages:
         declared = manifest(package)
         member = {
@@ -454,18 +482,16 @@ def read_cast(characters_root, defaults):
             "pixel": declared.get("render_mode") != "smooth",
             "walk": loop(package, declared, "walk", defaults["fps"]),
         }
+        if package.name in PAGE_CAST:
+            players[package.name] = player(package, declared, member, defaults)
         if package.name == HERO:
-            loops = {name: loop(package, declared, name, defaults["fps"]) for name in PLAY_LOOPS}
-            art = (package / declared["animations"]["idle"]["frames"][0]).read_bytes()
-            width, height = struct.unpack(">II", art[16:24])
-            scale = declared.get("scale", defaults["scale"])
-            hero = dict(member, **loops, size=[width * scale, height * scale])
             cast.insert(0, member)
         else:
             cast.append(member)
-    if hero is None:
-        raise Malformed(f"{characters_root} has no {HERO} package for the hero")
-    return cast, hero
+    missing = [name for name in PAGE_CAST if name not in players]
+    if missing:
+        raise Malformed(f"{characters_root} has no {', '.join(missing)} package for the playground")
+    return cast, players
 
 
 def play_tiles(characters_root, default_fps):
@@ -630,7 +656,7 @@ def whats_new(release):
 
 
 def site_nav(hero):
-    return NAV.read_text(encoding="utf-8").replace("{{brand}}", hero["idle"]["frames"][0])
+    return NAV.read_text(encoding="utf-8").replace("{{brand}}", hero["loops"]["idle"]["frames"][0])
 
 
 def stamp_nav(out, nav):
@@ -662,10 +688,9 @@ def stamp_counter(out):
 def render(readme_text, characters_root, rust_source, shell, release=None, engine=None):
     words = read_readme(readme_text)
     _, defaults = gallery.from_rust(rust_source)
-    cast, hero = read_cast(characters_root, defaults)
-    desk = {"name": hero["name"], "pixel": hero["pixel"], "size": hero["size"],
-            "loops": {name: hero[name] for name in PLAY_LOOPS},
-            "tuning": play_tuning(engine or read_engine())}
+    cast, players = read_cast(characters_root, defaults)
+    hero = players[HERO]
+    desk = {"cast": players, "tuning": play_tuning(engine or read_engine())}
 
     figures = "\n".join(
         f'<figure><div class="art">'
@@ -695,14 +720,14 @@ def render(readme_text, characters_root, rust_source, shell, release=None, engin
         **download_slots(release),
         "whats_new": whats_new(release),
         "nav": site_nav(hero),
-        "hero": sprite(hero["sit"], f'{hero["name"]}, perched on a window',
+        "hero": sprite(hero["loops"]["sit"], f'{hero["name"]}, perched on a window',
                        ' id="hero-sprite" aria-describedby="hero-say"'),
         **how_slots(words["how"], shell),
         "cue_css": cue_css(CUES.read_text(encoding="utf-8")),
         "chat_css": chat_css(CHAT_UI.read_text(encoding="utf-8"), CHAT_SHARED.read_text(encoding="utf-8")),
         "play_tiles": play_tiles(characters_root, defaults["fps"]),
         "play_name": html.escape(hero["name"]),
-        "play_sprite": (f'<img src="{hero["idle"]["frames"][0]}" alt="{html.escape(hero["name"])}" '
+        "play_sprite": (f'<img src="{hero["loops"]["idle"]["frames"][0]}" alt="{html.escape(hero["name"])}" '
                         f'width="{hero["size"][0]}" height="{hero["size"][1]}"'
                         + (' class="pixel"' if hero["pixel"] else "") + ">"),
         # Escaped so the JSON can never close the <script> element it sits in.
@@ -816,7 +841,8 @@ def self_check():
         art = (CHARACTERS / HERO / "frames" / "idle-0.png").read_bytes()
         played = set(PLAY_LOOPS) | {animation for _, _, animation in PLAY_TILES}
 
-        def fixture(name, title, walk="frames/idle-0.png", without=()):
+        def fixture(name, title, walk="frames/idle-0.png", without=(),
+                    personality='It has been heard to say: "Hello\nthere." — "Beep."\n\nA "Mad Cat" elsewhere.\n'):
             root = scratch / name
             (root / "frames").mkdir(parents=True, exist_ok=True)
             (root / "frames" / "idle-0.png").write_bytes(art)
@@ -824,6 +850,9 @@ def self_check():
                               for n in sorted(played - {"walk"} - set(without)))
             (root / "character.manifest").write_text(
                 f'name = "{title}"\n{loops}\n[animations.walk]\nframes = ["{walk}"]\n', encoding="utf-8")
+            (root / "personality.txt").unlink(missing_ok=True)
+            if personality is not None:
+                (root / "personality.txt").write_text(personality, encoding="utf-8")
             return root
 
         for _, name, _ in PLAY_TILES:
@@ -845,8 +874,11 @@ def self_check():
         timing = play_data(render(readme, scratch, rust, shell, engine=slow))["tuning"]
         assert (timing["doubleClickMs"], timing["hoverDelayMs"]) == (333, 2222), \
             "the desk's double-click or hover delay is not the app's"
-        assert desk["loops"]["land"] == {"frames": [f"characters/{HERO}/frames/idle-0.png"], "fps": 10, "once": True}, \
-            "the desk's land loop is not the manifest's"
+        assert desk["cast"][HERO]["loops"]["land"] == {"frames": [f"characters/{HERO}/frames/idle-0.png"], "fps": 10,
+                                                       "once": True}, "the desk's land loop is not the manifest's"
+        assert desk["cast"][HERO]["lines"] == ["Hello there.", "Beep."], \
+            "the lines are not the quotes after heard to say:, up to the blank line"
+        assert set(desk["cast"]) == set(PAGE_CAST), "the desk's cast is not the project's own Characters"
         unthrowable = dict(engine)
         unthrowable["input.rs"] = re.sub(r"const THROW_MIN_SPEED:[^\n]*\n", "", engine["input.rs"])
         assert "THROW_MIN_SPEED" in (fails(readme, scratch, engine=unthrowable) or ""), \
@@ -903,6 +935,17 @@ def self_check():
         fixture(HERO, "Solo", walk="frames/walk-0.png", without=("land",))
         assert "land" in (fails(readme, scratch) or ""), "a desk Character with no land loop built a page"
         fixture(HERO, "Solo", walk="frames/walk-0.png")
+        fixture("nim", "Nim", without=("talk",))
+        assert "nim: declares no talk" in (fails(readme, scratch) or ""), "a page Character with no talk loop built a page"
+        fixture("nim", "Nim", personality='Has been known to say: "BEHOLD." — "Fire." Warriors do not waste words.\n')
+        assert play_data(render(readme, scratch, rust, shell))["cast"]["nim"]["lines"] == ["BEHOLD.", "Fire."], \
+            "known to say: lost its quotes, or prose after them became a line"
+        fixture("nim", "Nim", personality=None)
+        assert "nim: has no personality.txt" in (fails(readme, scratch) or ""), "a page Character with no lines built a page"
+        fixture("nim", "Nim", personality='It says "hi" but never what it has been heard to.\n')
+        assert "nim: personality.txt quotes nothing" in (fails(readme, scratch) or ""), \
+            "a personality.txt with no heard to say: built a page"
+        fixture("nim", "Nim")
         fixture("cat", "Cat", without=("fall",))
         assert "cat: declares no fall" in (fails(readme, scratch) or ""), "a tile with no art built a page"
 
@@ -1033,8 +1076,8 @@ def main():
                       rust, SHELL.read_text(encoding="utf-8"), release)
         arguments.out.mkdir(parents=True, exist_ok=True)
         (arguments.out / PAGE).write_text(page, encoding="utf-8")
-        _, hero = read_cast(CHARACTERS, gallery.from_rust(rust)[1])
-        stamp_nav(arguments.out, site_nav(hero))
+        _, players = read_cast(CHARACTERS, gallery.from_rust(rust)[1])
+        stamp_nav(arguments.out, site_nav(players[HERO]))
         stamp_counter(arguments.out)
     except Malformed as broken:
         sys.exit(f"landing page: {broken}")
