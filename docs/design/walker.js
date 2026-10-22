@@ -16,14 +16,14 @@ const span = ([low, high], roll) => low + (high - low) * roll;
 // phase is who has the Character: page, lent (the playground), away (nobody,
 // as the hero's stage shows its own) or hidden (the visitor hid it). view is
 // null until the page knows whether the playground is in sight.
-export function start({ now, rand, width, hidden = false, still = false }) {
+export function start({ now, rolls: [side, wait], width, hidden = false, still = false }) {
   return {
     phase: hidden ? "hidden" : "lent",
-    sprite: away({ x: rand < 0.5 ? 0 : width, facing: rand < 0.5 ? 1 : -1 }),
+    sprite: away({ x: side < 0.5 ? 0 : width, facing: side < 0.5 ? 1 : -1 }),
     still,
     view: null,
     speech: null,
-    nextLine: now + span(LINES.first, rand),
+    nextLine: now + span(LINES.first, wait),
   };
 }
 
@@ -155,7 +155,7 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   });
   // Visual only, as on the desk.
   const cues = cue.createCueMachine({ draw: io.draw, sound: () => () => {} });
-  let state = start({ now: performance.now(), rand: Math.random(), width: world().width,
+  let state = start({ now: performance.now(), rolls: [Math.random(), Math.random()], width: world().width,
     hidden: hiddenBefore(), still });
   back.hidden = state.phase !== "hidden";
   let pending = 0;
