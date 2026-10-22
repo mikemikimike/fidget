@@ -32,8 +32,18 @@ function run(state, events, env = ENV) {
 const ticks = (from, count, dt = 0.05, rand = 0.9) =>
   Array.from({ length: count }, (_, i) => ({ type: "tick", now: from + (i + 1) * dt * 1000, dt, rand }));
 const view = (play, blocked = false) => ({ type: "view", play, blocked });
-const fresh = (options = {}) => start({ now: 0, rand: 0.5, width: 1200, ...options });
+const fresh = (options = {}) => start({ now: 0, rand: 0.5, width: 1200, margin: 0, spriteW: 90, ...options });
 const onPage = () => run(fresh(), [view(false), ...ticks(0, 30)]).state;
+
+test("it enters in the margin beside the content column, on a side the visit rolls, facing the page", () => {
+  const left = start({ now: 0, rand: 0.2, width: 1512, margin: 228, spriteW: 90 });
+  const right = start({ now: 0, rand: 0.8, width: 1512, margin: 228, spriteW: 90 });
+  assert.deepEqual([left.sprite.x, left.sprite.facing, right.sprite.x, right.sprite.facing], [114, 1, 1398, -1]);
+  const narrow = start({ now: 0, rand: 0.2, width: 390, margin: 16, spriteW: 90 });
+  assert.equal(narrow.sprite.x, 45, "with no margin to fit in, it enters against the edge");
+  const entered = run(left, [view(false), ...ticks(0, 30)]).state;
+  assert.deepEqual(feet(entered.sprite, ENV.world), { x: 114, y: 800 });
+});
 
 test("the playground keeps the character until the page knows where it is scrolled", () => {
   const waiting = run(fresh(), ticks(0, 30));
@@ -77,7 +87,7 @@ test("hiding lends the character to the playground and stays put; showing takes 
   assert.deepEqual([ignored.state.phase, ignored.cues], ["hidden", []]);
   const shown = run(hidden.state, [{ type: "show" }, view(false), ...ticks(3000, 1)]);
   assert.deepEqual([shown.state.phase, shown.handoffs], ["page", ["depart"]]);
-  assert.equal(start({ now: 0, rand: 0, width: 1200, hidden: true }).phase, "hidden");
+  assert.equal(fresh({ hidden: true }).phase, "hidden");
 });
 
 test("now and then it says a line from its personality, standing still with its talk loop", () => {
@@ -115,7 +125,7 @@ test("a scroll startles it awake, and a throw lands it on the bottom edge", () =
 });
 
 test("under reduced motion it stays where it is: no walking on, no wandering, and it still naps and talks on a poke", () => {
-  const still = run(start({ now: 0, rand: 0.5, width: 1200, still: true }), [view(false), ...ticks(0, 1)]);
+  const still = run(fresh({ still: true }), [view(false), ...ticks(0, 1)]);
   assert.equal(animation(still.state, 50), "idle", "it is on the page at once");
   const later = run(still.state, ticks(50, 100, 0.05, 0.9)).state;
   assert.equal(later.sprite.x, still.state.sprite.x);

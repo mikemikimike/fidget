@@ -1,5 +1,5 @@
 // The page character on the published landing page, played in headless
-// Chrome: it walks up onto the page, a poke plays react with a ring and a line,
+// Chrome: it walks up onto the page in a margin, a poke plays react with a ring and a line,
 // a throw lands on the bottom edge, it hands over to the playground and back
 // without two on screen, resting at the threshold does not bounce it, Hide
 // survives a reload, and reduced motion keeps it still.
@@ -45,6 +45,19 @@ const helpers = `
 
 const probe = `
 <script>${helpers}
+  // Where it first shows, before load: load waits on every image, by when it may have walked.
+  const entry = new Promise((resolve) => {
+    const look = () => {
+      const at = document.getElementById("fidget-at");
+      if (!at || at.hidden) return requestAnimationFrame(look);
+      const column = document.querySelector(".wrap");
+      const pad = parseFloat(getComputedStyle(column).paddingLeft);
+      const content = { left: column.getBoundingClientRect().left + pad, right: column.getBoundingClientRect().right - pad };
+      const box = at.querySelector("#fidget-sprite").getBoundingClientRect();
+      resolve({ inMargin: box.right <= content.left || box.left >= content.right, box: [box.left, box.right], content });
+    };
+    requestAnimationFrame(look);
+  });
   window.addEventListener("load", async () => {
     console.log("__PROBE_READY__");
     const at = document.getElementById("fidget-at");
@@ -69,6 +82,7 @@ const probe = `
       const center = () => { const box = sprite.getBoundingClientRect(); return [box.left + box.width / 2, box.top + box.height / 2]; };
 
       await until("the walk onto the page", onPage, 4000);
+      const entered = await entry;
       const ring = cueIn(layer, ".cue-ring");
       pointer(sprite, "pointerdown", ...center());
       pointer(sprite, "pointerup", ...center());
@@ -112,7 +126,7 @@ const probe = `
       document.getElementById("fidget-hide").click();
       await frame(); await frame();
       const hid = { hidden: at.hidden, back: !back.hidden, stored: localStorage.getItem("fidget.hidden") };
-      sessionStorage.setItem("probe-first", JSON.stringify({ alt: img.alt, poke, thrown, handoff, bounce, hid }));
+      sessionStorage.setItem("probe-first", JSON.stringify({ alt: img.alt, entered, poke, thrown, handoff, bounce, hid }));
       location.reload();
     } catch (err) {
       done({ errors: [...errors, String(err)] });
@@ -181,6 +195,7 @@ test("the page character walks on, reacts, lands a throw, hands over to the play
   const result = await play(probe);
   assert.deepEqual(result.errors, [], "the page threw nothing");
   assert.equal(result.alt, "Buddy Bot", "with no pick, Buddy Bot plays");
+  assert.ok(result.entered.inMargin, `it walked up in a margin, clear of the content column: ${JSON.stringify(result.entered)}`);
   assert.deepEqual(result.poke, { reacted: true, said: true, title: "A line from its personality file." },
     "a poke plays react and says a line from the Character's personality.txt");
   assert.ok(Math.abs(result.thrown.feetY - result.thrown.floor) < 1, `landed on the bottom edge: ${JSON.stringify(result.thrown)}`);

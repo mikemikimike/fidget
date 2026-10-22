@@ -19,11 +19,15 @@ const span = ([low, high], roll) => low + (high - low) * roll;
 //   lent: the playground;
 //   hidden: nobody, as the visitor hid it.
 // The playground starts with it, and view stays null until the page knows
-// whether the playground is in sight.
-export function start({ now, rand, width, hidden = false, still = false }) {
+// whether the playground is in sight. It first walks up in the `margin` beside
+// the content column, on a side the visit rolls, or against that edge when the
+// margin is narrower than it is, and faces the page.
+export function start({ now, rand, width, margin, spriteW, hidden = false, still = false }) {
+  const inset = Math.max(margin, spriteW) / 2;
+  const left = rand < 0.5;
   return {
     phase: hidden ? "hidden" : "lent",
-    sprite: { mode: "away", x: width * (0.2 + 0.6 * rand), facing: rand < 0.5 ? -1 : 1 },
+    sprite: { mode: "away", x: left ? inset : width - inset, facing: left ? 1 : -1 },
     still,
     view: null,
     speech: null,
@@ -146,7 +150,10 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   });
   // Visual only, as on the desk.
   const cues = cue.createCueMachine({ draw: io.draw, sound: () => () => {} });
-  let state = start({ now: performance.now(), rand: Math.random(), width: world().width, hidden: hiddenBefore(), still });
+  const column = doc.querySelector(".wrap");
+  const margin = column.getBoundingClientRect().left + parseFloat(getComputedStyle(column).paddingLeft);
+  let state = start({ now: performance.now(), rand: Math.random(), width: world().width, margin, spriteW: w,
+    hidden: hiddenBefore(), still });
   back.hidden = state.phase !== "hidden";
   let pending = 0;
   const apply = (event) => {
