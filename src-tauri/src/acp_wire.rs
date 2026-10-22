@@ -4302,7 +4302,7 @@ mod windows_job {
             if process.is_null() || process == INVALID_HANDLE_VALUE {
                 // Intentional leak. The job has `KILL_ON_JOB_CLOSE`. Closing it could kill the child.
                 eprintln!("harness: OpenProcess failed for pid {pid}; resuming without job");
-                if resume_primary_thread(pid).is_err() {
+                if resume_process_threads(pid).is_err() {
                     let _ = child.kill();
                     return Err(std::io::Error::other(format!(
                         "OpenProcess failed and resume failed for pid {pid}; child killed"
@@ -4319,14 +4319,14 @@ mod windows_job {
                 eprintln!(
                     "harness: AssignProcessToJobObject failed for pid {pid}; resuming without job"
                 );
-                if resume_primary_thread(pid).is_err() {
+                if resume_process_threads(pid).is_err() {
                     let _ = child.kill();
                     return Err(std::io::Error::other(format!("AssignProcessToJobObject failed and resume failed for pid {pid}; child killed")));
                 }
                 return Ok(child);
             }
 
-            if let Err(why) = resume_primary_thread(pid) {
+            if let Err(why) = resume_process_threads(pid) {
                 CloseHandle(job);
                 let _ = child.kill();
                 return Err(std::io::Error::other(format!(
@@ -4349,29 +4349,9 @@ mod windows_job {
         Ok(child)
     }
 
-    fn resume_primary_thread(pid: u32) -> Result<(), String> {
-        unsafe {
-            let tid = find_primary_thread(pid)?;
-            let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, tid);
-            if thread.is_null() || thread == INVALID_HANDLE_VALUE {
-                return Err("OpenThread failed".to_string());
-            }
-
-            let result = ResumeThread(thread);
-            CloseHandle(thread);
-
-            if result == u32::MAX {
-                return Err("ResumeThread failed".to_string());
-            }
-
-            Ok(())
-        }
-    }
-
-    fn find_primary_thread(pid: u32) -> Result<u32, String> {
-        // Assumes the first thread enumerated for the PID is the primary.
-        // A `CREATE_SUSPENDED` spawn keeps it suspended, so it is first.
-        // #1671 removes the assumption.
+    /// Resume every thread the child owns. `ResumeThread` on a running
+    /// thread changes nothing, so ToolHelp enumeration order doesn't matter.
+    fn resume_process_threads(pid: u32) -> Result<(), String> {
         use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::Diagnostics::ToolHelp::{
             CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
@@ -4386,25 +4366,26 @@ mod windows_job {
             let mut entry: THREADENTRY32 = std::mem::zeroed();
             entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
 
-            if Thread32First(snapshot, &mut entry) == 0 {
-                CloseHandle(snapshot);
-                return Err("Thread32First failed".to_string());
-            }
-
-            loop {
+            let mut resumed = 0;
+            let mut more = Thread32First(snapshot, &mut entry) != 0;
+            while more {
                 if entry.th32OwnerProcessID == pid {
-                    let tid = entry.th32ThreadID;
-                    CloseHandle(snapshot);
-                    return Ok(tid);
+                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                    if !thread.is_null() && thread != INVALID_HANDLE_VALUE {
+                        if ResumeThread(thread) != u32::MAX {
+                            resumed += 1;
+                        }
+                        CloseHandle(thread);
+                    }
                 }
-
-                if Thread32Next(snapshot, &mut entry) == 0 {
-                    break;
-                }
+                more = Thread32Next(snapshot, &mut entry) != 0;
             }
 
             CloseHandle(snapshot);
-            Err("No thread found for process".to_string())
+            if resumed == 0 {
+                return Err("No thread resumed for process".to_string());
+            }
+            Ok(())
         }
     }
 
@@ -4500,7 +4481,7 @@ mod windows_job {
             assert!(!thread.is_null(), "CreateRemoteThread failed");
             unsafe { CloseHandle(thread) };
 
-            resume_primary_thread(child.id()).expect("resume");
+            resume_process_threads(child.id()).expect("resume");
 
             let waited = unsafe { WaitForSingleObject(process, 3000) };
             if waited != WAIT_OBJECT_0 {
