@@ -52,6 +52,10 @@ touches Windows behavior. Remove and re-add it to run again.
 `scripts/scenarios/ci/*.x11.sh`, live on a hosted runner's Xvfb display. Add it
 when the diff touches Linux behavior. Remove and re-add it to run again.
 
+`e2e-macos` runs `.github/workflows/e2e-macos.yml`: every macOS leaf in
+`scripts/scenarios/ci/`, live on a hosted runner. Add it when the diff touches
+macOS behavior. Remove and re-add it to run again.
+
 | Label | When |
 |---|---|
 | `bug` | A `fix`. Shipped behavior misbehaves. |

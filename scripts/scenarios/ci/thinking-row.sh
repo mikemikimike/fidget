@@ -26,9 +26,10 @@ root=$(cd "$(dirname "$0")/../../.." && pwd)
 out="${TMPDIR:-/tmp}/fidget-scenario-thinking-row-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home/Library/Application Support/fidget" "$tools"
-log="$out/app.log" marks="$out/harness.log"
+log="$out/app.log" marks="$out/harness.log" hold="$out/hold"
 trace="$out/home/Library/Application Support/fidget/process.log"
 : > "$marks"
+mkfifo "$hold"
 
 cat > "$out/home/Library/Application Support/fidget/settings.json" << 'SETTINGS_EOF'
 {"first_run_tour_shown": true}
@@ -41,11 +42,12 @@ fail() {
 }
 
 [ -x "$tools/window-id" ] || swiftc -O "$root/scripts/scenarios/helpers/window-id.swift" -o "$tools/window-id"
-[ -x "$tools/ax" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+[ "$tools/ax" -nt "$root/scripts/ax-settings.swift" ] || swiftc -O "$root/scripts/ax-settings.swift" -o "$tools/ax"
+build_ax_events
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
-harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
-[ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
+harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-thinking count=$marks hold=$hold"
+[ "$(wc -w <<< "$harness")" -eq 5 ] || fail "a path in the Harness line holds a space: $harness"
 
 start_ms=$(now_ms)
 # TRACE_BUBBLE is what logs `chat: <label> is open`; nothing else says a fresh
@@ -62,9 +64,11 @@ trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT IN
 # The first row is the turn that thought; the ask turn before it has none.
 capture() { # <name> <glyph the first Thinking row starts with>
   local id row
+  # Chat draws the row after the mark that triggers it, so wait for the glyph
+  # and keep the dump that showed it.
+  wait_for_ax_dump 3 "$pid" BMO "^AXButton\|$2 " "$out/$1.ax.txt" || true
   id=$("$tools/window-id" "$pid" BMO) || fail "$1: no Chat window"
   screencapture -x -o -l "$id" "$out/$1.png"
-  "$tools/ax" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1 || fail "$1: AX dump failed; see $out/$1.ax.txt"
   row=$(grep -iEm1 '^AXButton\|(▸|▾) thinking' "$out/$1.ax.txt") || fail "$1: no Thinking row in $out/$1.ax.txt"
   [[ $row == "AXButton|$2"* ]] || fail "$1: Thinking row reads '$row', want it to start with $2"
   echo "ok: $1: $row"
@@ -78,6 +82,9 @@ wait_for_trace 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is open$' || fail "Chat neve
 [ -n "$("$tools/window-id" "$pid" BMO 2> /dev/null)" ] || fail "Chat did not open for the ask"
 wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought ▾
+# Opening the FIFO releases the Harness's held reply. Read-write never blocks,
+# even if the Harness is gone; the fd closes when the scenario exits.
+exec 3<> "$hold"
 wait_for_marks 3 "$marks" '^replied$' || fail "no reply; see $log"
 capture after-reply ▸
 elapsed_ms=$(($(now_ms) - start_ms))

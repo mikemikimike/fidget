@@ -9,15 +9,15 @@ run one: set up, post the prompt, and wait for a go-ahead for that run.
 
 | Folder | Holds |
 |---|---|
-| `ci/` | Leaves a CI job runs. The `e2e-windows` workflow runs every `ci/*.win.ps1` and `e2e-linux` every `ci/*.x11.sh`, each on a hosted runner. |
+| `ci/` | Leaves a CI job runs. The `e2e-windows` workflow runs every `ci/*.win.ps1`, `e2e-linux` every `ci/*.x11.sh` and `e2e-macos` every other `ci/*.sh`, each on a hosted runner. |
 | `manual-only/` | Every other leaf. Until a leaf passes in an automatic run, treat it as manual: some need a person or a second display, and the rest wait for a CI job on their platform. |
 | `helpers/` | Waits, the fixture Harness launcher, and the Swift and Python tools the leaves share. |
 | `fixtures/` | Saved dumps and traces for each leaf's fixture mode. |
 
-A scenario's leaves can sit in both leaf folders: `thinking-row.win.ps1` and
-`thinking-row.x11.sh` are in `ci/`, its macOS leaf in `manual-only/`.
-`fidget-verify scenario <name>` finds this host's leaf in either one. A
-follow-up that gets a leaf passing in a CI job moves it to `ci/`.
+A scenario's leaves can sit in both leaf folders: `chat-close-pill-type.x11.sh`
+is in `ci/`, its macOS and Windows leaves in `manual-only/`. `fidget-verify
+scenario <name>` finds this host's leaf in either one. A follow-up that gets a
+leaf passing in a CI job moves it to `ci/`.
 
 ## Run one
 

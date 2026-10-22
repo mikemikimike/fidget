@@ -66,15 +66,16 @@ python3 -c 'import pyatspi' > /dev/null 2>&1 || {
 test_bin=$(cd "$(dirname "$test_bin")" && pwd)/$(basename "$test_bin")
 out="${TMPDIR:-/tmp}/fidget-scenario-thinking-row-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out/home/.local/share/fidget"
-log="$out/app.log" marks="$out/harness.log"
+log="$out/app.log" marks="$out/harness.log" hold="$out/hold"
 : > "$marks"
+mkfifo "$hold"
 
 cat > "$out/home/.local/share/fidget/settings.json" << 'SETTINGS_EOF'
 {"first_run_tour_shown": true}
 SETTINGS_EOF
 
-harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-thinking count=$marks"
-[ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
+harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-thinking count=$marks hold=$hold"
+[ "$(wc -w <<< "$harness")" -eq 5 ] || fail "a path in the Harness line holds a space: $harness"
 
 start_ms=$(($(date +%s%N) / 1000000))
 env HOME="$out/home" \
@@ -96,11 +97,12 @@ dump() { # <name>
 wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $log"
 wait_for_marks 2 "$marks" '^thought 1$' || fail "no thinking turn; see $log"
 wait_for_marks 2 "$marks" '^thought 2$' || fail "no second thought; see $log"
-# The reply lands 0.9 s after thought 2, about what two AT-SPI clients take
-# to start, so the wait keeps the dump that showed the open row.
+# The wait keeps the dump that showed the open row. The Harness holds its
+# reply until the FIFO opens; read-write never blocks, even if it is gone.
 wait_for_ax_dump 2 "$pid" BMO '▾.*THINKING' "$out/mid-thought.ax.txt" ||
   fail "no open Thinking row in AX dump while the Harness thinks; see $log"
 assert_row "$out/mid-thought.ax.txt" ▾ mid-thought
+exec 3<> "$hold"
 wait_for_marks 2 "$marks" '^thought 3$' || fail "no third thought; see $log"
 wait_for_marks 2 "$marks" '^thought 4$' || fail "no fourth thought; see $log"
 wait_for_marks 2 "$marks" '^replied$' || fail "no reply; see $log"

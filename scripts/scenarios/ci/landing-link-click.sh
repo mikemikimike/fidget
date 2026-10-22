@@ -46,9 +46,14 @@ printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> %q\n' "$opened" > "$out/bin/open"
 chmod +x "$out/bin/open"
 path="$out/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 ! PATH=$path command -v npx > /dev/null || fail "npx is on $path, so Codex would launch"
+# Fidget adds the login shell's PATH, whose /etc/paths can hold npx (a hosted
+# runner's /usr/local/bin does). This shell runs the probe without a profile.
+# shellcheck disable=SC2016 # $4 is the stub's own argument.
+printf '#!/bin/sh\nexec /bin/sh -c "$4"\n' > "$out/bin/login-shell"
+chmod +x "$out/bin/login-shell"
 
 start_ms=$(now_ms)
-env HOME="$out/home" PATH="$path" \
+env HOME="$out/home" PATH="$path" SHELL="$out/bin/login-shell" \
   FIDGET_HARNESS=codex \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
@@ -58,7 +63,8 @@ pid=$!
 trap 'stop_fidget' EXIT INT TERM
 
 dump() { "$tools/ax" dump "$pid" BMO frames > "$out/$1.ax.txt" 2>&1; }
-landing() { dump "$1" && grep -qF '|Codex needs ' "$out/$1.ax.txt"; }
+# The header's status line lands after the landing itself; the checks read both.
+landing() { dump "$1" && grep -qF '|Codex needs ' "$out/$1.ax.txt" && grep -qF 'npx is not installed' "$out/$1.ax.txt"; }
 shot() { screencapture -x -o -l "$("$tools/window-id" "$pid" BMO)" "$out/$1.png"; }
 
 # Fidget draws the tray icon before its click handler and its place in the menu

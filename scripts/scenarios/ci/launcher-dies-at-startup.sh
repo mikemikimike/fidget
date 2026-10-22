@@ -81,7 +81,9 @@ reflowed() { # <width>
   local aw
   "$tools/ax" dump "$pid" BMO frames > "$out/$1.ax.txt" 2>&1 || return 1
   read -r _ _ aw _ <<< "$(rect "$(grep -m1 '^AXWebArea|' "$out/$1.ax.txt")")"
-  [ -n "$aw" ] && [ "$aw" -le "$1" ]
+  # The boxes are laid out after the page narrows; fits() reads both.
+  [ -n "$aw" ] && [ "$aw" -le "$1" ] && box "$dyld" "$out/$1.ax.txt" > /dev/null &&
+    box "|$harness|" "$out/$1.ax.txt" > /dev/null
 }
 name=$harness dyld="dyld[0]: Library not loaded"
 fits() { # <width>: both boxes end inside Chat, and Error output starts above the composer
@@ -105,6 +107,8 @@ fits() { # <width>: both boxes end inside Chat, and Error output starts above th
   echo "ok: $w: both boxes inside the window, Error output at y $y above the composer at $fold"
 }
 
+# The launch gets its own wait, so the first check keeps its whole budget.
+wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 wait_for_trace 3 "$log" 'exited before initialize' || fail "the launcher never died before initialize; see $log"
 [ "$(spawns)" -eq 1 ] || fail "want one spawn before Chat opens, the fixture saw $(spawns)"
 "$tools/ax" open "$pid" Chat BMO > "$out/open.txt" 2>&1 || fail "the menu's Chat row did not open Chat; see $out/open.txt"
