@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Reads Cargo.lock and `.cargo/audit.toml` only, so no Rust build or cache.
+  # Reads Cargo.lock and `.cargo/audit.toml` only, so the project is not built.
   cargo-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -28,20 +28,30 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install cargo-audit
-        # A pinned release binary, not `cargo install`: building it took two
-        # minutes, and the repo's Actions allowlist rules out install actions.
-        env:
-          VERSION: v0.22.2
-          SHA256: ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39 # pragma: allowlist secret
+      - name: Find the latest cargo-audit
+        id: cargo-audit
+        # Unpinned on purpose: each release is picked up without a bump, at the
+        # cost of no checksum. crates.io refuses requests without a User-Agent.
         run: |
-          archive="cargo-audit-x86_64-unknown-linux-gnu-$VERSION.tgz"
-          curl -fsSL -o "$RUNNER_TEMP/$archive" \
-            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/$VERSION/$archive"
-          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
-          mkdir "$RUNNER_TEMP/cargo-audit"
-          tar xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/cargo-audit"
-          install "$(find "$RUNNER_TEMP/cargo-audit" -type f -name cargo-audit)" "$HOME/.cargo/bin/"
+          version=$(curl -fsSL -A "fidget-ci (https://github.com/omesser/fidget)" \
+            https://crates.io/api/v1/crates/cargo-audit | jq -r '.crate.max_stable_version')
+          if [ -z "$version" ] || [ "$version" = null ]; then
+            echo "::error::crates.io returned no cargo-audit version"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cargo-audit
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-${{ steps.cargo-audit.outputs.version }}
+
+      - name: Install cargo-audit
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          VERSION: ${{ steps.cargo-audit.outputs.version }}
+        run: cargo install cargo-audit --locked --version "$VERSION"
 
       - name: Cargo audit
         run: cargo audit
