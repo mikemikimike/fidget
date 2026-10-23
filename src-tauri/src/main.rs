@@ -2083,7 +2083,7 @@ fn roster_specs(roster: &Roster) -> Vec<InstanceSpec> {
 
 /// The overlay heard the primary button. The frame loop polls a session
 /// query that can miss a click on this window; this is the other witness.
-#[tauri::command]
+#[tauri::command(async)]
 fn overlay_primary(down: bool, at: Option<f64>, queued: Option<f64>) {
     platform::set_overlay_primary(down);
     let now = SystemTime::now()
