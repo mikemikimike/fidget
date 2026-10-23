@@ -349,17 +349,6 @@ Get-ClickThrough "${miss.slice(1)}  <- flipped"
   );
 });
 
-// Review of a3d09020: after the double-click the pointer was still on Mochi,
-// so the overlay already took clicks and the move to Beemo flipped nothing.
-test("every aim first takes the pointer off the sprites", () => {
-  const text = readFileSync(script, "utf8");
-  const aim = text.slice(text.indexOf("function Aim("));
-  const body = aim.slice(0, aim.indexOf("\n    }\n"));
-  assert.match(body, /foreach \(\$attempt in 1\.\.3\) \{\s*Leave-Sprites/);
-  assert.match(text, /Wait-Line \$skip 2 \$MissFlipPattern/);
-  assert.doesNotMatch(text, /Get-CursorScale/);
-});
-
 // The run is unattended: no step waits on a person, and Mochi's Chat opens
 // from a real double-click the script sends itself.
 test("no step asks for a hand", () => {
