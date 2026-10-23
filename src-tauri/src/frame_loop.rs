@@ -28,14 +28,16 @@ use super::session_log;
 use super::settings::{ChatAppearance, SettingsOp};
 use super::{
     apply_menu_action, bring_roster_off_fullscreen, cancelled_caret, chat_label, close_chat,
-    completer, describe_menu, dev_flags, harness, mcp_http, mcp_resources, menu, model,
-    note_happened, open_chat, overlay_label, paced, place_overlays, platform, publish_instances,
-    push_chat_opening, push_chat_openings, remember_instances, spawn_live, sprite_width,
-    switch_instance, tray, ChatMsg, ChatReply, ChatStatus, ChatStatusPush, DirectorRun, Drawn,
-    FrameExtras, InstanceState, MenuChannel, MenuHold, MenuSignal, Placed, Placement,
-    SpritePlacement, Traced, TrayHandle, ENGINE_TICK, FRAME_EVENT, MENU_HOLD_TIMEOUT,
-    SENSE_INTERVAL,
+    completer, describe_menu, dev_flags, harness, mcp_http, mcp_resources, menu, menu_caffeinate,
+    model, note_caffeinate_view, note_happened, open_chat, overlay_label, paced, place_overlays,
+    platform, publish_instances, push_chat_opening, push_chat_openings, remember_instances,
+    spawn_live, sprite_width, switch_instance, tray, ChatMsg, ChatReply, ChatStatus,
+    ChatStatusPush, DirectorRun, Drawn, FrameExtras, InstanceState, MenuChannel, MenuHold,
+    MenuSignal, Placed, Placement, SpritePlacement, Traced, TrayHandle, ENGINE_TICK, FRAME_EVENT,
+    MENU_HOLD_TIMEOUT, SENSE_INTERVAL,
 };
+#[cfg(target_os = "macos")]
+use super::{caffeinate_frame, emit_chat_notice};
 
 /// How long an overlay may go without being told anything.
 /// A webview that begins listening mid-silence hears nothing until the sprite
@@ -183,7 +185,10 @@ pub(crate) fn run_frame_loop(
             ops,
             chat,
             mcp,
+            caffeinate: caffeinate_rx,
         } = extras;
+        #[cfg(target_os = "macos")]
+        let mut caffeinate_hold = crate::caffeinate_proc::Hold::new();
         let mut slots = completer::Slots::new();
         publish_instances(&roster, &instance_rows);
         let (mut tray_actions, mut last_menu) = {
@@ -205,9 +210,11 @@ pub(crate) fn run_frame_loop(
                 &id,
                 &settings_now,
                 rules_now.as_deref().unwrap_or(&HideRules::default()),
+                menu_caffeinate(&settings_now, None),
             );
             (description.actions.clone(), Some(description))
         };
+        let mut caffeinate_shown = None;
 
         // Read once for every Instance: there is one desktop and one user, and
         // asking AppKit how long they have been idle once per character would be
@@ -1138,13 +1145,66 @@ pub(crate) fn run_frame_loop(
 
             // A `tools/call` from the attached Harness, here because the `Roster` and
             // `ExpressionHandle` are. A queued proposal reaches the screen next tick.
+            #[cfg(target_os = "macos")]
+            let configured = settings
+                .lock()
+                .map(|settings| settings.caffeinate_flags())
+                .unwrap_or(Err(fidget_core::caffeinate::Empty));
+            #[cfg(target_os = "macos")]
+            caffeinate_hold.set_target(configured);
             while let Ok(call) = mcp.try_recv() {
                 let excluded = settings
                     .lock()
                     .map(|settings| settings.excluded_applications.clone())
                     .unwrap_or_default();
-                answer_tool_call(call, &mut roster, assembler.source(), excluded, &displays);
+                #[cfg(target_os = "macos")]
+                let hold: Option<
+                    &mut dyn fidget_core::caffeinate::CaffeinateHandle,
+                > = Some(&mut caffeinate_hold);
+                #[cfg(not(target_os = "macos"))]
+                let hold: Option<
+                    &mut dyn fidget_core::caffeinate::CaffeinateHandle,
+                > = None;
+                answer_tool_call(
+                    call,
+                    &mut roster,
+                    assembler.source(),
+                    excluded,
+                    &displays,
+                    hold,
+                );
             }
+            #[cfg(target_os = "macos")]
+            let (caffeinate_fact, caffeinate_drawn) = {
+                let mut requests = Vec::new();
+                while let Ok(request) = caffeinate_rx.try_recv() {
+                    requests.push(request);
+                }
+                let fact = caffeinate_hold.tick(&requests).fact;
+                let drawn = caffeinate_frame(fact, configured);
+                for note in caffeinate_hold.take_notes() {
+                    let text = note.text();
+                    for live in &lives {
+                        emit_chat_notice(&app, &live.id, text.clone());
+                    }
+                }
+                (Some(fact), Some(drawn))
+            };
+            // Off macOS nothing below names these types, so they are spelled out.
+            #[cfg(not(target_os = "macos"))]
+            let (caffeinate_fact, caffeinate_drawn): (
+                Option<fidget_core::caffeinate::Fact>,
+                Option<super::CaffeinateFrame>,
+            ) = {
+                while caffeinate_rx.try_recv().is_ok() {}
+                (None, None)
+            };
+            note_caffeinate_view(
+                &app,
+                lives.iter().map(|live| live.id.as_str()),
+                &mut caffeinate_shown,
+                caffeinate_drawn.clone(),
+            );
 
             {
                 let installed: Vec<String> = characters.keys().cloned().collect();
@@ -1166,6 +1226,7 @@ pub(crate) fn run_frame_loop(
                     &id,
                     &settings_now,
                     rules_now.as_deref().unwrap_or(&HideRules::default()),
+                    menu_caffeinate(&settings_now, caffeinate_drawn.as_ref()),
                 );
                 let notice = crate::names_hint::live();
                 if notice.armed() {
@@ -1295,6 +1356,7 @@ pub(crate) fn run_frame_loop(
                         &live.id,
                         &settings_now,
                         rules_now.as_deref().unwrap_or(&HideRules::default()),
+                        menu_caffeinate(&settings_now, caffeinate_drawn.as_ref()),
                     );
 
                     // The overlay the cursor is on, and where in it the cursor
@@ -1663,6 +1725,7 @@ pub(crate) fn run_frame_loop(
                                 standing: String::new(),
                                 front_title: None,
                                 lately: Lately::default(),
+                                caffeinate: caffeinate_fact,
                             });
                         }
                     }
@@ -1826,6 +1889,7 @@ pub(crate) fn run_frame_loop(
                                 .frontmost_application
                                 .as_deref()
                                 .and_then(|name| assembler.front_title(name)),
+                            caffeinate: caffeinate_fact,
                         };
                         let was_addressed = live.addressed;
                         if live.addressed {
@@ -2876,6 +2940,7 @@ fn answer_tool_call(
     source: &dyn WindowSource,
     excluded_applications: Vec<String>,
     displays: &platform::Displays,
+    caffeinate: Option<&mut dyn fidget_core::caffeinate::CaffeinateHandle>,
 ) {
     let watched = crate::names_hint::live().watching(source);
     let live: Vec<InstanceInfo> = roster
@@ -2909,6 +2974,7 @@ fn answer_tool_call(
             names: &displays.names,
             instances: &spots,
         },
+        caffeinate,
     };
     let _ = call
         .reply
@@ -3089,6 +3155,7 @@ mod tests {
             &EmptyDesktop,
             Vec::new(),
             &platform::Displays::default(),
+            None,
         );
         let result = answers
             .recv()
@@ -3150,6 +3217,7 @@ mod tests {
             &EmptyDesktop,
             Vec::new(),
             &displays,
+            None,
         );
         let result = answers
             .recv()

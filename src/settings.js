@@ -566,6 +566,13 @@ export function copyRunForPress(payload) {
 
 // --- The tab shell ---------------------------------------------------------
 
+// The bar lists every tab. Keep the buttons this build's form draws, in bar
+// order. Off macOS that drops Caffeinate.
+export function tabsTheFormDraws(buttons, form) {
+  const drawn = new Set(form.tabs.map((tab) => tab.title));
+  return buttons.filter((title) => drawn.has(title));
+}
+
 // Which tab a title selects. A title the form does not carry selects the first
 // tab rather than nothing: a renamed tab would otherwise leave the page with a
 // tablist and no panel.
@@ -661,6 +668,7 @@ if (typeof document !== "undefined") {
           applyChatAppearance(String(currentValues.chat_appearance).toLowerCase());
           applyPlatform(root, snapshot.platform);
           draft = pruneDraft(draft, currentValues);
+          applyTabBar();
           if (snapshot.reveal) {
             showReveal(snapshot.reveal);
           } else {
@@ -704,6 +712,32 @@ if (typeof document !== "undefined") {
     }
   }
 
+  // A hidden button in the middle shifts the bar's index off the form's, so
+  // tabs are matched by title.
+  function applyTabBar() {
+    if (!tablist || !currentForm) return;
+    const buttons = [...tablist.querySelectorAll('[role="tab"]')];
+    const drawn = new Set(
+      tabsTheFormDraws(
+        buttons.map((button) => button.textContent),
+        currentForm,
+      ),
+    );
+    for (const button of buttons) {
+      button.hidden = !drawn.has(button.textContent);
+    }
+    const selected = tablist.querySelector('[role="tab"][aria-selected="true"]');
+    if (selected && !selected.hidden) {
+      currentTabIndex = selectTab(currentForm, selected.textContent);
+      return;
+    }
+    currentTabIndex = 0;
+    const first = tablist.querySelector('[role="tab"]:not([hidden])');
+    for (const button of tablist.querySelectorAll('[role="tab"]')) {
+      button.setAttribute("aria-selected", String(button === first));
+    }
+  }
+
   function renderCurrentTab() {
     if (!currentForm || !currentValues || !panel) return;
     const tab = currentForm.tabs[currentTabIndex];
@@ -726,11 +760,12 @@ if (typeof document !== "undefined") {
     const tablist = document.querySelector('[role="tablist"]');
     const tabs = tablist ? Array.from(tablist.querySelectorAll('[role="tab"]')) : [];
     currentTabIndex = selectTab(currentForm, reveal.tab);
-    for (let j = 0; j < tabs.length; j++) {
-      tabs[j].setAttribute("aria-selected", String(j === currentTabIndex));
+    const chosen = tabs.find((button) => button.textContent === reveal.tab);
+    for (const button of tabs) {
+      button.setAttribute("aria-selected", String(button === chosen));
     }
-    if (tabs[currentTabIndex]) {
-      panel.setAttribute("aria-label", tabs[currentTabIndex].textContent);
+    if (chosen) {
+      panel.setAttribute("aria-label", chosen.textContent);
     }
     renderCurrentTab();
     const row = panel.querySelector(`[data-row="${reveal.row}"]`);
@@ -753,7 +788,9 @@ if (typeof document !== "undefined") {
       const tab = tabs[i];
       tab.addEventListener("click", () => {
         feedback = null;
-        currentTabIndex = i;
+        // By title. Off macOS a hidden Caffeinate button sits between Privacy
+        // and Development.
+        currentTabIndex = currentForm ? selectTab(currentForm, tab.textContent) : i;
         for (let j = 0; j < tabs.length; j++) {
           tabs[j].setAttribute("aria-selected", String(j === i));
         }

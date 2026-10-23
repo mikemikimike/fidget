@@ -2104,3 +2104,71 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Beats the theme's `.tb button` size. `[hidden]` needs its own rule, or a
+   later display rule would show the button off macOS. */
+.chat-ui-terminal .tb button.caffeinate,
+.chat-ui-glass .tb button.caffeinate,
+.tb button.caffeinate {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 3px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--chat-ink);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.tb button.caffeinate[hidden] {
+  display: none;
+}
+
+.tb button.caffeinate svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.tb button.caffeinate .cup-body {
+  fill: none;
+}
+
+/* Only the body fills, so the cup still reads against a tinted header. */
+.tb button.caffeinate.on .cup-body {
+  fill: #c4a484;
+}
+
+/* The label is out of flow, so the header keeps its height. The cup lifts
+   to make room for it. */
+.tb button.caffeinate.on svg {
+  transform: translateY(-4px);
+}
+
+.tb button.caffeinate .cup-label {
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  transform: translateX(-50%);
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #6f4e37;
+  font-size: 7.5px;
+  font-weight: 600;
+  line-height: 9px;
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tb button.caffeinate .cup-label[hidden] {
+  display: none;
+}
+
+.tb button.caffeinate:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

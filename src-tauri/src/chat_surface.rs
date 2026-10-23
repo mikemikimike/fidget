@@ -55,6 +55,10 @@ pub(crate) const CHAT_UI_EVENT: &str = "chat-ui";
 
 pub(crate) const CHAT_APPEARANCE_EVENT: &str = "chat-appearance";
 
+/// Repaints the caffeinate button in the Chat header. `None` hides it, which is
+/// every build but macOS.
+pub(crate) const CAFFEINATE_EVENT: &str = "caffeinate";
+
 /// Retires one forwarded request in every open Chat surface, by request id. An
 /// ask no Instance owes went to all of them, so the rest stop offering buttons
 /// once one takes the click. A window that never drew it ignores it.

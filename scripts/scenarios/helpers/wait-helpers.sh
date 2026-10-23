@@ -160,10 +160,21 @@ process_tree() { # <pid>
   echo "$1"
 }
 
-# Cleanup for an EXIT/INT/TERM trap: stop Fidget's whole tree.
+# Cleanup for an EXIT/INT/TERM trap: stop Fidget's whole tree. TERM first; a
+# process that ignores it is killed after 3 s, so the reap never hangs.
 stop_fidget() {
   [ -n "${pid:-}" ] || return 0
-  process_tree "$pid" | xargs kill 2> /dev/null || true
+  local tree timer
+  tree=$(process_tree "$pid")
+  # shellcheck disable=SC2086 # one word per pid
+  kill $tree 2> /dev/null || true
+  # shellcheck disable=SC2086
+  { sleep 3 && kill -9 $tree; } > /dev/null 2>&1 &
+  timer=$!
+  wait "$pid" 2> /dev/null || true
+  pkill -P "$timer" 2> /dev/null || true
+  kill "$timer" 2> /dev/null || true
+  wait "$timer" 2> /dev/null || true
 }
 
 # True when the newest five frame lines all show the sprite resting

@@ -688,6 +688,76 @@
       ]
     },
     {
+      "title": "Caffeinate",
+      "sections": [
+        {
+          "heading": "Awake",
+          "serves": null,
+          "rows": [
+            {
+              "type": "Checkbox",
+              "id": "caffeinate_display",
+              "label": "Display",
+              "writes": "CaffeinateDisplay",
+              "frozen": false,
+              "batched": false,
+              "help": "Keeps the display from sleeping.",
+              "comment": null,
+              "disclosure": null,
+              "status": null
+            },
+            {
+              "type": "Checkbox",
+              "id": "caffeinate_idle",
+              "label": "Idle",
+              "writes": "CaffeinateIdle",
+              "frozen": false,
+              "batched": false,
+              "help": "Keeps the Mac from sleeping when idle.",
+              "comment": null,
+              "disclosure": null,
+              "status": null
+            },
+            {
+              "type": "Checkbox",
+              "id": "caffeinate_disk",
+              "label": "Disk",
+              "writes": "CaffeinateDisk",
+              "frozen": false,
+              "batched": false,
+              "help": "Keeps the disk from sleeping when idle.",
+              "comment": null,
+              "disclosure": null,
+              "status": null
+            },
+            {
+              "type": "Checkbox",
+              "id": "caffeinate_system",
+              "label": "System",
+              "writes": "CaffeinateSystem",
+              "frozen": false,
+              "batched": false,
+              "help": "Keeps the Mac from sleeping while on AC power.",
+              "comment": null,
+              "disclosure": null,
+              "status": null
+            },
+            {
+              "type": "InspectBlock",
+              "id": "caffeinate_command",
+              "label": "Command",
+              "help": null,
+              "disclosure": null,
+              "status": null
+            }
+          ],
+          "comment": "Fidget can keep your Mac from sleeping. Turn it on with the coffee cup in the Chat header, or with Caffeinate in the right-click or tray menu. The flags below go to the macOS caffeinate command and pick which kinds of sleep it blocks.",
+          "disclosure": null,
+          "status": null
+        }
+      ]
+    },
+    {
       "title": "Development",
       "sections": [
         {

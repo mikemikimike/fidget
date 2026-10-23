@@ -62,7 +62,7 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
+trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
 
 at_layer() { [ "$("$tools/window-layer" "$pid" BMO)" = "$1" ]; }
 logged() { [ "$(grep -cE "^[0-9]+ chat: chat-[^ ]+ is $1\$" "$trace")" -ge "$2" ]; }

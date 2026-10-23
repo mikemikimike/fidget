@@ -19,6 +19,7 @@ import { MISSING_ANSWER, createChatTurns } from "./chat-settle.js";
 import { createComposerRecall } from "./chat-recall.js";
 import { createThinking } from "./chat-thinking.js";
 import { stampWhen } from "./chat-stamp.js";
+import { cupModel } from "./caffeinate-cup.js";
 import { mindLine, plainStatus, statusCells } from "./chat-status.js";
 import { STALL_MS, idlePhase, phaseLine, reducePhase } from "./turn-phase.js";
 import { appendReply, drawReply, drawThought, replaceReply, stripUnsafe } from "./markdown.js";
@@ -34,6 +35,8 @@ const chat = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 const instance = chat.label.replace(/^chat-/, "");
 
 const log = document.getElementById("log");
+const caffeinate = document.getElementById("caffeinate");
+const caffeinateLabel = document.getElementById("caffeinate-label");
 const recall = createComposerRecall(log);
 // New lines stay under the landing until this Harness can answer.
 let holdLogAtTop = false;
@@ -1079,6 +1082,29 @@ function restored(history) {
   log.scrollTop = holdLogAtTop ? 0 : log.scrollHeight;
 }
 
+// The hold lives in the shell. A click only asks, and the next event paints the
+// button, so the menu and the button always agree.
+function paintCaffeinate(field) {
+  const model = cupModel(field);
+  if (!model) {
+    caffeinate.hidden = true;
+    return;
+  }
+  caffeinate.hidden = false;
+  caffeinate.disabled = model.disabled;
+  caffeinate.title = model.title;
+  caffeinate.classList.toggle("on", model.on);
+  caffeinate.setAttribute("aria-pressed", model.on ? "true" : "false");
+  caffeinateLabel.textContent = model.label ?? "";
+  caffeinateLabel.hidden = !model.label;
+}
+
+caffeinate.addEventListener("click", () => {
+  invoke("toggle_caffeinate").catch((why) => {
+    console.error("chat: caffeinate could not be toggled:", why);
+  });
+});
+
 async function start() {
   // Addressed to this window's label. Not optional: a listener registered with
   // no target is an `Any` listener that hears every emit, so two Chat surfaces
@@ -1308,6 +1334,19 @@ async function start() {
     },
     { target: chat.label },
   );
+
+  await listen(
+    "caffeinate",
+    ({ payload }) => {
+      paintCaffeinate(payload);
+    },
+    { target: chat.label },
+  );
+  invoke("caffeinate_view")
+    .then(paintCaffeinate)
+    .catch((why) => {
+      console.error("chat: the caffeinate button could not read the hold:", why);
+    });
 
   // Both listeners are up, so the state as it stands can be asked for. The bar
   // is pushed on change and a window opened between two of them would sit at
