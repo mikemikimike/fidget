@@ -131,9 +131,15 @@ jobs:
 
       - name: Gather evidence
         if: always()
-        # Each leaf's private HOME holds WebKit caches and no evidence; the
-        # Swift tools are build output.
-        run: rsync -a --exclude home --exclude fidget-scenario-tools "$RUNNER_TEMP/evidence/" "$RUNNER_TEMP/upload/" || true
+        # Each leaf's private HOME holds WebKit caches; only its process.log is
+        # evidence, as it timestamps each line. The Swift tools are build output.
+        run: |
+          rsync -a --exclude home --exclude fidget-scenario-tools "$RUNNER_TEMP/evidence/" "$RUNNER_TEMP/upload/" || true
+          cd "$RUNNER_TEMP/evidence" || exit 0
+          for f in */home/Library/Application\ Support/fidget/process.log; do
+            [ -e "$f" ] && cp "$f" "$RUNNER_TEMP/upload/${f%%/*}/" || true
+          done
+          cp "$RUNNER_TEMP/warmup/home/Library/Application Support/fidget/process.log" "$RUNNER_TEMP/upload/warmup-process.log" || true
 
       - name: Upload evidence
         if: always()
