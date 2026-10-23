@@ -68,8 +68,7 @@ pub struct MenuSnapshot<'a> {
     pub hide_in_fullscreen: bool,
     /// Already in this machine's words — `settings::display_hotkey` printed it.
     pub hide_hotkey: &'a str,
-    /// `None` leaves the row out, which every build but macOS does.
-    pub caffeinate: Option<CaffeinateRow>,
+    pub caffeinate: CaffeinateRow,
 }
 
 /// The caffeinate row. `enabled` is false when every flag is off.
@@ -173,15 +172,13 @@ pub fn describe(snapshot: MenuSnapshot<'_>) -> MenuDescription {
     actions.insert(CHAT_ID.to_string(), MenuAction::Summon);
 
     // The same Caffeinate the Chat button toggles.
-    if let Some(row) = snapshot.caffeinate {
-        entries.push(MenuEntry::Check {
-            id: CAFFEINATE_ID.to_string(),
-            label: "Caffeinate".to_string(),
-            enabled: row.enabled,
-            checked: row.on,
-        });
-        actions.insert(CAFFEINATE_ID.to_string(), MenuAction::ToggleCaffeinate);
-    }
+    entries.push(MenuEntry::Check {
+        id: CAFFEINATE_ID.to_string(),
+        label: "Caffeinate".to_string(),
+        enabled: snapshot.caffeinate.enabled,
+        checked: snapshot.caffeinate.on,
+    });
+    actions.insert(CAFFEINATE_ID.to_string(), MenuAction::ToggleCaffeinate);
 
     // Omitted when nothing is installed rather than shown empty: an empty
     // submenu looks like a bug; no submenu says there is nothing to choose.
@@ -459,7 +456,10 @@ mod tests {
             hidden: false,
             hide_in_fullscreen: true,
             hide_hotkey: "Control-Option-Command-B",
-            caffeinate: None,
+            caffeinate: CaffeinateRow {
+                on: false,
+                enabled: true,
+            },
         }
     }
 
@@ -634,13 +634,8 @@ mod tests {
     }
 
     #[test]
-    fn caffeinate_is_a_tick_when_this_build_has_it() {
-        let mut off = snapshot(&[], "bmo", false);
-        off.caffeinate = Some(CaffeinateRow {
-            on: false,
-            enabled: true,
-        });
-        let description = describe(off);
+    fn caffeinate_is_a_tick() {
+        let description = describe(snapshot(&[], "bmo", false));
         assert_eq!(
             entry_with_id(&description, "caffeinate"),
             Some(&MenuEntry::Check {
@@ -656,20 +651,14 @@ mod tests {
         );
 
         let mut on = snapshot(&[], "bmo", false);
-        on.caffeinate = Some(CaffeinateRow {
+        on.caffeinate = CaffeinateRow {
             on: true,
             enabled: true,
-        });
+        };
         assert!(matches!(
             entry_with_id(&describe(on), "caffeinate"),
             Some(MenuEntry::Check { checked: true, .. })
         ));
-    }
-
-    #[test]
-    fn caffeinate_is_absent_where_the_build_has_none() {
-        let description = describe(snapshot(&[], "bmo", false));
-        assert!(entry_with_id(&description, "caffeinate").is_none());
     }
 
     /// Consent lives in settings, not here. A menu row would look like a prompt on right-click, which decision 9 refuses.

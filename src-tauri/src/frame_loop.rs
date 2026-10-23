@@ -1153,15 +1153,13 @@ pub(crate) fn run_frame_loop(
                     .lock()
                     .map(|settings| settings.excluded_applications.clone())
                     .unwrap_or_default();
-                let caffeinate_handle: Option<&mut dyn fidget_core::caffeinate::CaffeinateHandle> =
-                    Some(&mut caffeinate_switch);
                 answer_tool_call(
                     call,
                     &mut roster,
                     assembler.source(),
                     excluded,
                     &displays,
-                    caffeinate_handle,
+                    Some(&mut caffeinate_switch),
                 );
             }
             let (caffeinate_fact, caffeinate_drawn) = {

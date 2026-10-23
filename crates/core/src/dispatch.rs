@@ -515,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_returns_exactly_eight_tools() {
+    fn list_tools_returns_exactly_nine_tools() {
         let tools = list_tools();
 
         assert_eq!(tools.len(), 9);

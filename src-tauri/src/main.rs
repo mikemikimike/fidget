@@ -4305,11 +4305,8 @@ struct CaffeinateShown(Mutex<Option<CaffeinateFrame>>);
 
 /// The menu row for Caffeinate. Before the first tick it is off, and an empty
 /// flag set disables the row.
-fn menu_caffeinate(
-    settings: &Settings,
-    frame: Option<&CaffeinateFrame>,
-) -> Option<menu::CaffeinateRow> {
-    Some(match frame {
+fn menu_caffeinate(settings: &Settings, frame: Option<&CaffeinateFrame>) -> menu::CaffeinateRow {
+    match frame {
         Some(frame) => menu::CaffeinateRow {
             on: frame.on,
             enabled: frame.reason.is_none(),
@@ -4318,7 +4315,7 @@ fn menu_caffeinate(
             on: false,
             enabled: settings.caffeinate_flags().is_ok(),
         },
-    })
+    }
 }
 
 fn publish_instances(roster: &Roster, dest: &Arc<Mutex<Vec<InstanceRow>>>) {
@@ -4352,7 +4349,7 @@ fn describe_menu(
     instance_id: &str,
     settings: &Settings,
     rules: &HideRules,
-    caffeinate: Option<menu::CaffeinateRow>,
+    caffeinate: menu::CaffeinateRow,
 ) -> menu::MenuDescription {
     let instances = roster.list();
     let hide_hotkey = settings::display_hotkey(&settings.hide_hotkey);
