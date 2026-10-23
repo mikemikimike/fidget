@@ -4,6 +4,8 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -18,14 +20,14 @@ const script = join(
 const resolved = resolvePwsh();
 const skip = resolved.kind === "ready" ? false : resolved.reason;
 
-function run(body) {
+function run(body, env = {}) {
   const loader = `
 $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE_SCRIPT, [ref]$tokens, [ref]$errors)
 if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$FidgetReason' }, $true)
 Invoke-Expression $reason.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem" }, $true)) {
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem", "Get-PressPattern", "Get-UncaughtLines" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -39,7 +41,7 @@ ${body}`;
       loader,
     ],
     {
-      env: { ...process.env, CAFFEINATE_SCRIPT: script, TERM: "dumb" },
+      env: { ...process.env, CAFFEINATE_SCRIPT: script, TERM: "dumb", ...env },
       encoding: "utf8",
     },
   );
@@ -86,7 +88,9 @@ Test-FidgetRequest $lines 'DISPLAY'`),
 
 test("the reason alone names Fidget's power request", { skip }, () => {
   assert.deepEqual(
-    run(`Test-FidgetRequest @('SYSTEM:', '[SERVICE] \\Device\\x\\svchost.exe', 'Fidget: keep my computer awake') 'SYSTEM'`),
+    run(
+      `Test-FidgetRequest @('SYSTEM:', '[SERVICE] \\Device\\x\\svchost.exe', 'Fidget: keep my computer awake') 'SYSTEM'`,
+    ),
     ["True"],
   );
 });
@@ -139,3 +143,71 @@ Get-PeSubsystem ([byte[]](0x23, 0x21) * 40)`),
     ["3", "2", "0"],
   );
 });
+
+// WebView2 gives a toggle button such as the cup (`aria-pressed`) Toggle and
+// no Invoke, so pressing it through Invoke threw and ended the run with an
+// empty result.txt.
+test(
+  "a press picks Toggle, then Invoke, and neither when both are missing",
+  { skip },
+  () => {
+    assert.deepEqual(
+      run(`
+Get-PressPattern @('TogglePatternIdentifiers.Pattern', 'LegacyIAccessiblePatternIdentifiers.Pattern')
+Get-PressPattern @('InvokePatternIdentifiers.Pattern', 'TogglePatternIdentifiers.Pattern')
+Get-PressPattern @('InvokePatternIdentifiers.Pattern')
+"[$(Get-PressPattern @('LegacyIAccessiblePatternIdentifiers.Pattern'))]"
+"[$(Get-PressPattern @())]"`),
+      ["Toggle", "Toggle", "Invoke", "[]", "[]"],
+    );
+  },
+);
+
+test("no UI Automation call throws on a missing pattern", () => {
+  const text = readFileSync(script, "utf8");
+  assert.doesNotMatch(text, /[^y]GetCurrentPattern\(/);
+});
+
+// Runs the script's own top-level catch around a throw, so the check is on the
+// block the run uses, not a copy of it.
+test(
+  "an uncaught error lands in result.txt with its stack trace",
+  { skip },
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), "caffeinate-win-"));
+    const result = join(dir, "result.txt");
+    const out = spawnSync(
+      resolved.command,
+      [
+        ...(resolved.args ?? []),
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE_SCRIPT, [ref]$tokens, [ref]$errors)
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq "Get-UncaughtLines" }, $true)) {
+  Invoke-Expression $fn.Extent.Text
+}
+$main = @($ast.EndBlock.Statements)[-1]
+if ($main -isnot [System.Management.Automation.Language.TryStatementAst] -or $main.CatchClauses.Count -ne 1) { Write-Error "the script does not end in one try/catch"; exit 3 }
+$result = $env:RESULT; $out = $env:RESULT
+$ErrorActionPreference = "Stop"
+Invoke-Expression ("try { throw 'boom' } " + $main.CatchClauses[0].Extent.Text)`,
+      ],
+      {
+        env: {
+          ...process.env,
+          CAFFEINATE_SCRIPT: script,
+          RESULT: result,
+          TERM: "dumb",
+        },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(out.status, 1, out.stderr);
+    const lines = readFileSync(result, "utf8").trim().split(/\r?\n/);
+    assert.equal(lines[0], "FAIL: boom");
+    assert.match(lines[1], /^at /);
+  },
+);

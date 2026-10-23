@@ -86,6 +86,24 @@ function Get-PeSubsystem([byte[]]$Bytes) {
     [int][BitConverter]::ToUInt16($Bytes, $field)
 }
 
+# The UI Automation pattern that presses an element, from the names it
+# supports. A toggle button such as the cup (`aria-pressed`) has Toggle and no
+# Invoke under WebView2, so Toggle comes first. "" when it has neither.
+function Get-PressPattern([string[]]$Supported) {
+    $short = @($Supported | ForEach-Object { $_ -replace 'PatternIdentifiers\.Pattern$', '' })
+    foreach ($name in "Toggle", "Invoke") {
+        if ($short -contains $name) { return $name }
+    }
+    ""
+}
+
+# The result.txt lines for an error nothing else caught: the message, then
+# where it was thrown.
+function Get-UncaughtLines($ErrorRecord) {
+    "FAIL: $($ErrorRecord.Exception.Message)"
+    $ErrorRecord.ScriptStackTrace
+}
+
 if ($Go -ne "--go") {
     $header = @()
     foreach ($line in (Get-Content -LiteralPath $PSCommandPath | Select-Object -Skip 1)) {
@@ -139,263 +157,301 @@ function Pass([string]$Check, [string]$Detail) {
     Add-Content -LiteralPath $result -Value "$Check=pass $Detail"
     Write-Output "PASS $Check $Detail"
 }
-if (-not (Test-Path -LiteralPath $Bin)) { Fail "missing $Bin" }
-$stream = [System.IO.File]::OpenRead($Bin)
+# Everything from here runs inside one try, so an error nothing else catches
+# still lands in result.txt with its stack trace, and the script exits 1.
 try {
-    $head = New-Object byte[] 4096
-    $read = $stream.Read($head, 0, $head.Length)
-} finally {
-    $stream.Dispose()
-}
-$subsystem = Get-PeSubsystem $head[0..($read - 1)]
-if ($subsystem -ne 3) {
-    Fail "$Bin is not a console exe (PE subsystem $subsystem). The ctrl-c check needs the debug build: pass target\debug\fidget.exe, or no exe to build it."
-}
-
-# One powercfg snapshot, kept as evidence under `$Label`.
-function Requests([string]$Label) {
-    $lines = @(& powercfg /requests)
-    if ($LASTEXITCODE -ne 0) { Fail "powercfg /requests exited $LASTEXITCODE" }
-    $lines | Set-Content -LiteralPath (Join-Path $out "powercfg-$Label.txt") -Encoding utf8
-    $lines
-}
-function Expect-Requests([string]$Label, [bool]$System, [bool]$Display) {
-    $lines = Requests $Label
-    $got = "SYSTEM=$(Test-FidgetRequest $lines 'SYSTEM') DISPLAY=$(Test-FidgetRequest $lines 'DISPLAY')"
-    $want = "SYSTEM=$System DISPLAY=$Display"
-    if ($got -ne $want) { Fail "$Label wants $want, powercfg shows $got; see $out\powercfg-$Label.txt" }
-    Pass $Label $got
-}
-
-# Blocks on a tail of Fidget's stderr until a line matches `$Pattern`, or the
-# timeout. `Get-Content -Wait` delivers lines as they land.
-function Wait-Line([int]$Skip, [int]$Seconds, [string]$Pattern) {
-    $job = Start-Job -ArgumentList $stderr, $Skip, $Pattern -ScriptBlock {
-        param($File, $Skip, $Pattern)
-        Get-Content -LiteralPath $File -Wait | Select-Object -Skip $Skip |
-            Where-Object { $_ -match $Pattern } | Select-Object -First 1
-    }
+    if (-not (Test-Path -LiteralPath $Bin)) { Fail "missing $Bin" }
+    $stream = [System.IO.File]::OpenRead($Bin)
     try {
-        if (-not (Wait-Job -Job $job -Timeout $Seconds)) { return $null }
-        return Receive-Job -Job $job
+        $head = New-Object byte[] 4096
+        $read = $stream.Read($head, 0, $head.Length)
     } finally {
-        Remove-Job -Job $job -Force
+        $stream.Dispose()
     }
-}
-function Line-Count { @(Get-Content -LiteralPath $stderr).Count }
-
-Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-Add-Type -ReferencedAssemblies UIAutomationClient, UIAutomationTypes, WindowsBase @"
-using System;
-using System.Text;
-using System.Threading;
-using System.Runtime.InteropServices;
-using System.Windows.Automation;
-public static class CaffeinateWin {
-    public delegate bool Callback(IntPtr h, IntPtr l);
-    [DllImport("user32.dll")] static extern bool EnumWindows(Callback cb, IntPtr l);
-    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
-    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
-    [DllImport("kernel32.dll")] static extern bool GenerateConsoleCtrlEvent(uint ev, uint group);
-    [DllImport("kernel32.dll")] static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
-
-    // A visible top-level window of `pid` with this exact title.
-    public static IntPtr FindWindow(uint pid, string title) {
-        IntPtr found = IntPtr.Zero;
-        EnumWindows((h, l) => {
-            uint owner; GetWindowThreadProcessId(h, out owner);
-            if (owner != pid || !IsWindowVisible(h)) return true;
-            var sb = new StringBuilder(256); GetWindowText(h, sb, 256);
-            if (sb.ToString() == title) { found = h; return false; }
-            return true;
-        }, IntPtr.Zero);
-        return found;
+    $subsystem = Get-PeSubsystem $head[0..($read - 1)]
+    if ($subsystem -ne 3) {
+        Fail "$Bin is not a console exe (PE subsystem $subsystem). The ctrl-c check needs the debug build: pass target\debug\fidget.exe, or no exe to build it."
     }
 
-    static AutomationElement Find(AutomationElement root, ControlType type, string name) {
-        return root.FindFirst(TreeScope.Descendants, new AndCondition(
-            new PropertyCondition(AutomationElement.ControlTypeProperty, type),
-            new PropertyCondition(AutomationElement.NameProperty, name)));
+    # One powercfg snapshot, kept as evidence under `$Label`.
+    function Requests([string]$Label) {
+        $lines = @(& powercfg /requests)
+        if ($LASTEXITCODE -ne 0) { Fail "powercfg /requests exited $LASTEXITCODE" }
+        $lines | Set-Content -LiteralPath (Join-Path $out "powercfg-$Label.txt") -Encoding utf8
+        $lines
+    }
+    function Expect-Requests([string]$Label, [bool]$System, [bool]$Display) {
+        $lines = Requests $Label
+        $got = "SYSTEM=$(Test-FidgetRequest $lines 'SYSTEM') DISPLAY=$(Test-FidgetRequest $lines 'DISPLAY')"
+        $want = "SYSTEM=$System DISPLAY=$Display"
+        if ($got -ne $want) { Fail "$Label wants $want, powercfg shows $got; see $out\powercfg-$Label.txt" }
+        Pass $Label $got
     }
 
-    // Pages build their controls after load, and a hidden one is out of the
-    // tree. The handler wakes the wait each time the page's tree changes.
-    public static AutomationElement Wait(IntPtr hwnd, ControlType type, string name, int ms) {
-        var root = AutomationElement.FromHandle(hwnd);
-        var changed = new AutoResetEvent(false);
-        StructureChangedEventHandler handler = (s, e) => changed.Set();
-        Automation.AddStructureChangedEventHandler(root, TreeScope.Subtree, handler);
+    # Blocks on a tail of Fidget's stderr until a line matches `$Pattern`, or the
+    # timeout. `Get-Content -Wait` delivers lines as they land.
+    function Wait-Line([int]$Skip, [int]$Seconds, [string]$Pattern) {
+        $job = Start-Job -ArgumentList $stderr, $Skip, $Pattern -ScriptBlock {
+            param($File, $Skip, $Pattern)
+            Get-Content -LiteralPath $File -Wait | Select-Object -Skip $Skip |
+                Where-Object { $_ -match $Pattern } | Select-Object -First 1
+        }
         try {
-            var deadline = DateTime.UtcNow.AddMilliseconds(ms);
-            while (true) {
-                var found = Find(root, type, name);
-                var left = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
-                if (found != null || left <= 0) return found;
-                changed.WaitOne(left);
-            }
+            if (-not (Wait-Job -Job $job -Timeout $Seconds)) { return $null }
+            return Receive-Job -Job $job
         } finally {
-            Automation.RemoveStructureChangedEventHandler(root, handler);
+            Remove-Job -Job $job -Force
         }
     }
+    function Line-Count { @(Get-Content -LiteralPath $stderr).Count }
 
-    public static void Press(AutomationElement button) {
-        ((InvokePattern)button.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-    }
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    Add-Type -ReferencedAssemblies UIAutomationClient, UIAutomationTypes, WindowsBase @"
+    using System;
+    using System.Text;
+    using System.Threading;
+    using System.Runtime.InteropServices;
+    using System.Windows.Automation;
+    public static class CaffeinateWin {
+        public delegate bool Callback(IntPtr h, IntPtr l);
+        [DllImport("user32.dll")] static extern bool EnumWindows(Callback cb, IntPtr l);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+        [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+        [DllImport("kernel32.dll")] static extern bool GenerateConsoleCtrlEvent(uint ev, uint group);
+        [DllImport("kernel32.dll")] static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
 
-    public static void Select(AutomationElement tab) {
-        object pattern;
-        if (tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) {
+        // A visible top-level window of `pid` with this exact title.
+        public static IntPtr FindWindow(uint pid, string title) {
+            IntPtr found = IntPtr.Zero;
+            EnumWindows((h, l) => {
+                uint owner; GetWindowThreadProcessId(h, out owner);
+                if (owner != pid || !IsWindowVisible(h)) return true;
+                var sb = new StringBuilder(256); GetWindowText(h, sb, 256);
+                if (sb.ToString() == title) { found = h; return false; }
+                return true;
+            }, IntPtr.Zero);
+            return found;
+        }
+
+        static AutomationElement Find(AutomationElement root, ControlType type, string name) {
+            return root.FindFirst(TreeScope.Descendants, new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, type),
+                new PropertyCondition(AutomationElement.NameProperty, name)));
+        }
+
+        // Pages build their controls after load, and a hidden one is out of the
+        // tree. The handler wakes the wait each time the page's tree changes.
+        public static AutomationElement Wait(IntPtr hwnd, ControlType type, string name, int ms) {
+            var root = AutomationElement.FromHandle(hwnd);
+            var changed = new AutoResetEvent(false);
+            StructureChangedEventHandler handler = (s, e) => changed.Set();
+            Automation.AddStructureChangedEventHandler(root, TreeScope.Subtree, handler);
+            try {
+                var deadline = DateTime.UtcNow.AddMilliseconds(ms);
+                while (true) {
+                    var found = Find(root, type, name);
+                    var left = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+                    if (found != null || left <= 0) return found;
+                    changed.WaitOne(left);
+                }
+            } finally {
+                Automation.RemoveStructureChangedEventHandler(root, handler);
+            }
+        }
+
+        // The programmatic names of the patterns `element` supports.
+        public static string[] Patterns(AutomationElement element) {
+            var patterns = element.GetSupportedPatterns();
+            var names = new string[patterns.Length];
+            for (int i = 0; i < patterns.Length; i++) names[i] = patterns[i].ProgrammaticName;
+            return names;
+        }
+
+        // Each returns false, rather than throwing, when the element lacks the pattern.
+        public static bool Toggle(AutomationElement element) {
+            object pattern;
+            if (!element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) return false;
+            ((TogglePattern)pattern).Toggle();
+            return true;
+        }
+
+        public static bool Invoke(AutomationElement element) {
+            object pattern;
+            if (!element.TryGetCurrentPattern(InvokePattern.Pattern, out pattern)) return false;
+            ((InvokePattern)pattern).Invoke();
+            return true;
+        }
+
+        public static bool Select(AutomationElement tab) {
+            object pattern;
+            if (!tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) return false;
             ((SelectionItemPattern)pattern).Select();
-        } else {
-            Press(tab);
+            return true;
+        }
+
+        // The cup's aria-pressed, which WebView2 exposes as a toggle state.
+        public static string ToggleState(AutomationElement element) {
+            object pattern;
+            if (!element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) return "none";
+            return ((TogglePattern)pattern).Current.ToggleState.ToString();
+        }
+
+        // Ctrl+C to every process on this console. This process ignores it until
+        // `RestoreCtrlC`, so only Fidget, which shares the console, acts on it.
+        public static bool SendCtrlC() {
+            if (!SetConsoleCtrlHandler(IntPtr.Zero, true)) return false;
+            return GenerateConsoleCtrlEvent(0, 0);
+        }
+
+        public static void RestoreCtrlC() {
+            SetConsoleCtrlHandler(IntPtr.Zero, false);
         }
     }
-
-    public static void Toggle(AutomationElement box) {
-        ((TogglePattern)box.GetCurrentPattern(TogglePattern.Pattern)).Toggle();
-    }
-
-    // The cup's aria-pressed, which WebView2 exposes as a toggle state.
-    public static string ToggleState(AutomationElement element) {
-        object pattern;
-        if (!element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) return "none";
-        return ((TogglePattern)pattern).Current.ToggleState.ToString();
-    }
-
-    // Ctrl+C to every process on this console. This process ignores it until
-    // `RestoreCtrlC`, so only Fidget, which shares the console, acts on it.
-    public static bool SendCtrlC() {
-        if (!SetConsoleCtrlHandler(IntPtr.Zero, true)) return false;
-        return GenerateConsoleCtrlEvent(0, 0);
-    }
-
-    public static void RestoreCtrlC() {
-        SetConsoleCtrlHandler(IntPtr.Zero, false);
-    }
-}
 "@
 
-$utf8 = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText((Join-Path $data "settings.json"),
-    '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
-$env:FIDGET_DATA_DIR = $data
-$env:HOME = $homeDir
-$env:USERPROFILE = $homeDir
-$env:APPDATA = "$homeDir\AppData\Roaming"
-$env:LOCALAPPDATA = "$homeDir\AppData\Local"
-$env:TEMP = "$out\tmp"
-$env:TMP = "$out\tmp"
-$env:WEBVIEW2_USER_DATA_FOLDER = "$out\webview2"
-$env:FIDGET_INSTANCES = "bmo:Beemo,cat:Mochi"
-$env:FIDGET_CHARACTERS = Join-Path $root "characters"
-$env:FIDGET_OPEN_CHAT = "1"
-# Prints the "chat: ... is open" lines the waits block on.
-$env:FIDGET_TRACE_BUBBLE = "1"
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText((Join-Path $data "settings.json"),
+        '{"hide_in_fullscreen": false, "first_run_tour_shown": true}', $utf8)
+    $env:FIDGET_DATA_DIR = $data
+    $env:HOME = $homeDir
+    $env:USERPROFILE = $homeDir
+    $env:APPDATA = "$homeDir\AppData\Roaming"
+    $env:LOCALAPPDATA = "$homeDir\AppData\Local"
+    $env:TEMP = "$out\tmp"
+    $env:TMP = "$out\tmp"
+    $env:WEBVIEW2_USER_DATA_FOLDER = "$out\webview2"
+    $env:FIDGET_INSTANCES = "bmo:Beemo,cat:Mochi"
+    $env:FIDGET_CHARACTERS = Join-Path $root "characters"
+    $env:FIDGET_OPEN_CHAT = "1"
+    # Prints the "chat: ... is open" lines the waits block on.
+    $env:FIDGET_TRACE_BUBBLE = "1"
 
-# Starts Fidget on this console, with stderr in `<name>.err`, and returns once
-# Beemo's Chat is open. -NoNewWindow shares the console so Ctrl+C reaches it.
-function Launch([string]$Name) {
-    $script:stderr = Join-Path $out "$Name.err"
-    Set-Content -LiteralPath $script:stderr -Value "" -Encoding ascii
-    $script:proc = Start-Process -FilePath $Bin -WorkingDirectory $out -PassThru -NoNewWindow `
-        -RedirectStandardOutput (Join-Path $out "$Name.log") -RedirectStandardError $script:stderr
-    Add-Content -LiteralPath (Join-Path $out "run.txt") -Value "$Name pid=$($script:proc.Id)"
-    $line = Wait-Line 0 60 '^chat: \S+ is open$'
-    if (-not $line) { Fail "${Name}: Chat did not open; see $script:stderr" }
-    $line -replace '^chat: (\S+) is open$', '$1'
-}
-
-function Cup([string]$Title) {
-    $chat = [CaffeinateWin]::FindWindow([uint32]$proc.Id, $Title)
-    if ($chat -eq [IntPtr]::Zero) { Fail "no Chat window titled $Title" }
-    $cup = [CaffeinateWin]::Wait($chat, [System.Windows.Automation.ControlType]::Button, "Caffeinate", 30000)
-    if ($null -eq $cup) { Fail "$Title's Chat has no Caffeinate button" }
-    $cup
-}
-
-# Presses the cup and waits for the note it should cause.
-function Press-Cup($Cup, [string]$State) {
-    $skip = Line-Count
-    [CaffeinateWin]::Press($Cup)
-    if (-not (Wait-Line $skip 10 (Get-CaffeinatePattern $State))) { Fail "no 'Caffeinate $State' line; see $stderr" }
-}
-
-# Flips one Settings checkbox and waits for Caffeinate to turn on with the
-# power requests in `$Names`.
-function Flip-Flag($Box, [string]$Names) {
-    $skip = Line-Count
-    [CaffeinateWin]::Toggle($Box)
-    if (-not (Wait-Line $skip 10 (Get-OnPattern $Names))) { Fail "no 'caffeinate: on ($Names)' line; see $stderr" }
-}
-
-$before = Requests "before-launch"
-if ((Test-FidgetRequest $before "SYSTEM") -or (Test-FidgetRequest $before "DISPLAY")) {
-    Fail "a Fidget power request is already listed; quit the other Fidget first"
-}
-
-try {
-    # Launch 1: the cup, a flag change, a second Chat, then quit.
-    $env:FIDGET_OPEN_SETTINGS = "1"
-    $first = Launch "launch-1"
-    $cup = Cup "Beemo"
-    Press-Cup $cup "on"
-    Expect-Requests "on" $true $true
-    Press-Cup $cup "off"
-    Expect-Requests "off" $false $false
-    Press-Cup $cup "on"
-    Expect-Requests "on-again" $true $true
-
-    $settings = [CaffeinateWin]::FindWindow([uint32]$proc.Id, "Settings")
-    if ($settings -eq [IntPtr]::Zero) { Fail "no Settings window" }
-    $tab = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::TabItem, "Caffeinate", 30000)
-    if ($null -eq $tab) { Fail "Settings has no Caffeinate tab" }
-    [CaffeinateWin]::Select($tab)
-    $display = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::CheckBox, "Display", 10000)
-    if ($null -eq $display) { Fail "the Caffeinate tab has no Display checkbox" }
-    $disk = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::CheckBox, "Disk", 0)
-    if ($null -ne $disk) { Fail "the Caffeinate tab draws a Disk row" }
-    Pass "no-disk" "the Caffeinate tab has no Disk row"
-    Flip-Flag $display "SYSTEM"
-    Expect-Requests "flag-off" $true $false
-    Flip-Flag $display "DISPLAY, SYSTEM"
-    Expect-Requests "flag-on" $true $true
-
-    $skip = Line-Count
-    Write-Output "Double-click Mochi to open a second Chat. Waiting up to 5 minutes."
-    if (-not (Wait-Line $skip 300 (Get-OtherChatPattern $first))) { Fail "no second Chat opened" }
-    $state = [CaffeinateWin]::ToggleState((Cup "Mochi"))
-    if ($state -ne "On") { Fail "Mochi's new Chat shows the cup as $state, not pressed" }
-    Pass "second-cup" "Mochi's Chat opened with the cup pressed"
-    Expect-Requests "second" $true $true
-
-    if ($QuitByHand) {
-        Write-Output "Pick Quit in Fidget's tray menu now. Waiting up to 5 minutes."
-        Wait-Process -Id $proc.Id -Timeout 300 -ErrorAction SilentlyContinue
-        if (-not $proc.HasExited) { Fail "Fidget did not quit within 5 minutes" }
-    } else {
-        Stop-Process -Id $proc.Id -Force
-        Wait-Process -Id $proc.Id -Timeout 30 -ErrorAction SilentlyContinue
-        if (-not $proc.HasExited) { Fail "Fidget did not end" }
+    # Starts Fidget on this console, with stderr in `<name>.err`, and returns once
+    # Beemo's Chat is open. -NoNewWindow shares the console so Ctrl+C reaches it.
+    function Launch([string]$Name) {
+        $script:stderr = Join-Path $out "$Name.err"
+        Set-Content -LiteralPath $script:stderr -Value "" -Encoding ascii
+        $script:proc = Start-Process -FilePath $Bin -WorkingDirectory $out -PassThru -NoNewWindow `
+            -RedirectStandardOutput (Join-Path $out "$Name.log") -RedirectStandardError $script:stderr
+        Add-Content -LiteralPath (Join-Path $out "run.txt") -Value "$Name pid=$($script:proc.Id)"
+        $line = Wait-Line 0 60 '^chat: \S+ is open$'
+        if (-not $line) { Fail "${Name}: Chat did not open; see $script:stderr" }
+        $line -replace '^chat: (\S+) is open$', '$1'
     }
-    Expect-Requests "quit" $false $false
 
-    # Launch 2: each launch starts off; turn it on, then Ctrl+C.
-    Remove-Item Env:FIDGET_OPEN_SETTINGS
-    Launch "launch-2" | Out-Null
-    Expect-Requests "relaunch" $false $false
-    Press-Cup (Cup "Beemo") "on"
-    Expect-Requests "on-before-ctrl-c" $true $true
+    # Presses `$Element` through the pattern Get-PressPattern picks, or fails
+    # naming the patterns it does support.
+    function Press([System.Windows.Automation.AutomationElement]$Element, [string]$What) {
+        $supported = @([CaffeinateWin]::Patterns($Element))
+        $pattern = Get-PressPattern $supported
+        $pressed = switch ($pattern) {
+            "Toggle" { [CaffeinateWin]::Toggle($Element) }
+            "Invoke" { [CaffeinateWin]::Invoke($Element) }
+            default { $false }
+        }
+        if (-not $pressed) {
+            Fail "$What supports neither Toggle nor Invoke; it supports: $($supported -join ', ')"
+        }
+    }
+
+    function Cup([string]$Title) {
+        $chat = [CaffeinateWin]::FindWindow([uint32]$proc.Id, $Title)
+        if ($chat -eq [IntPtr]::Zero) { Fail "no Chat window titled $Title" }
+        $cup = [CaffeinateWin]::Wait($chat, [System.Windows.Automation.ControlType]::Button, "Caffeinate", 30000)
+        if ($null -eq $cup) { Fail "$Title's Chat has no Caffeinate button" }
+        $cup
+    }
+
+    # Presses the cup and waits for the note it should cause.
+    function Press-Cup($Cup, [string]$State) {
+        $skip = Line-Count
+        Press $Cup "the Caffeinate cup"
+        if (-not (Wait-Line $skip 10 (Get-CaffeinatePattern $State))) { Fail "no 'Caffeinate $State' line; see $stderr" }
+    }
+
+    # Flips one Settings checkbox and waits for Caffeinate to turn on with the
+    # power requests in `$Names`.
+    function Flip-Flag($Box, [string]$Names) {
+        $skip = Line-Count
+        Press $Box "the Display checkbox"
+        if (-not (Wait-Line $skip 10 (Get-OnPattern $Names))) { Fail "no 'caffeinate: on ($Names)' line; see $stderr" }
+    }
+
+    $before = Requests "before-launch"
+    if ((Test-FidgetRequest $before "SYSTEM") -or (Test-FidgetRequest $before "DISPLAY")) {
+        Fail "a Fidget power request is already listed; quit the other Fidget first"
+    }
+
     try {
-        if (-not [CaffeinateWin]::SendCtrlC()) { Fail "could not send Ctrl+C; run this from a console, not the ISE" }
-        Wait-Process -Id $proc.Id -Timeout 30 -ErrorAction SilentlyContinue
-    } finally {
-        [CaffeinateWin]::RestoreCtrlC()
-    }
-    if (-not $proc.HasExited) { Fail "Fidget did not exit on Ctrl+C" }
-    Expect-Requests "ctrl-c" $false $false
+        # Launch 1: the cup, a flag change, a second Chat, then quit.
+        $env:FIDGET_OPEN_SETTINGS = "1"
+        $first = Launch "launch-1"
+        $cup = Cup "Beemo"
+        Press-Cup $cup "on"
+        Expect-Requests "on" $true $true
+        Press-Cup $cup "off"
+        Expect-Requests "off" $false $false
+        Press-Cup $cup "on"
+        Expect-Requests "on-again" $true $true
 
-    Write-Output "PASS: every check passed; evidence in $out"
-} finally {
-    if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+        $settings = [CaffeinateWin]::FindWindow([uint32]$proc.Id, "Settings")
+        if ($settings -eq [IntPtr]::Zero) { Fail "no Settings window" }
+        $tab = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::TabItem, "Caffeinate", 30000)
+        if ($null -eq $tab) { Fail "Settings has no Caffeinate tab" }
+        if (-not [CaffeinateWin]::Select($tab)) { Press $tab "the Caffeinate tab" }
+        $display = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::CheckBox, "Display", 10000)
+        if ($null -eq $display) { Fail "the Caffeinate tab has no Display checkbox" }
+        $disk = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::CheckBox, "Disk", 0)
+        if ($null -ne $disk) { Fail "the Caffeinate tab draws a Disk row" }
+        Pass "no-disk" "the Caffeinate tab has no Disk row"
+        Flip-Flag $display "SYSTEM"
+        Expect-Requests "flag-off" $true $false
+        Flip-Flag $display "DISPLAY, SYSTEM"
+        Expect-Requests "flag-on" $true $true
+
+        $skip = Line-Count
+        Write-Output "Double-click Mochi to open a second Chat. Waiting up to 5 minutes."
+        if (-not (Wait-Line $skip 300 (Get-OtherChatPattern $first))) { Fail "no second Chat opened" }
+        $state = [CaffeinateWin]::ToggleState((Cup "Mochi"))
+        if ($state -ne "On") { Fail "Mochi's new Chat shows the cup as $state, not pressed" }
+        Pass "second-cup" "Mochi's Chat opened with the cup pressed"
+        Expect-Requests "second" $true $true
+
+        if ($QuitByHand) {
+            Write-Output "Pick Quit in Fidget's tray menu now. Waiting up to 5 minutes."
+            Wait-Process -Id $proc.Id -Timeout 300 -ErrorAction SilentlyContinue
+            if (-not $proc.HasExited) { Fail "Fidget did not quit within 5 minutes" }
+        } else {
+            Stop-Process -Id $proc.Id -Force
+            Wait-Process -Id $proc.Id -Timeout 30 -ErrorAction SilentlyContinue
+            if (-not $proc.HasExited) { Fail "Fidget did not end" }
+        }
+        Expect-Requests "quit" $false $false
+
+        # Launch 2: each launch starts off; turn it on, then Ctrl+C.
+        Remove-Item Env:FIDGET_OPEN_SETTINGS
+        Launch "launch-2" | Out-Null
+        Expect-Requests "relaunch" $false $false
+        Press-Cup (Cup "Beemo") "on"
+        Expect-Requests "on-before-ctrl-c" $true $true
+        try {
+            if (-not [CaffeinateWin]::SendCtrlC()) { Fail "could not send Ctrl+C; run this from a console, not the ISE" }
+            Wait-Process -Id $proc.Id -Timeout 30 -ErrorAction SilentlyContinue
+        } finally {
+            [CaffeinateWin]::RestoreCtrlC()
+        }
+        if (-not $proc.HasExited) { Fail "Fidget did not exit on Ctrl+C" }
+        Expect-Requests "ctrl-c" $false $false
+
+        Write-Output "PASS: every check passed; evidence in $out"
+    } finally {
+        if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    }
+} catch {
+    $lines = @(Get-UncaughtLines $_)
+    Add-Content -LiteralPath $result -Value $lines
+    foreach ($line in $lines) { [Console]::Error.WriteLine($line) }
+    [Console]::Error.WriteLine("Evidence: $out")
+    exit 1
 }
