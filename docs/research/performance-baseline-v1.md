@@ -24,17 +24,19 @@ GPU compositing of the transparent overlay, the other suspect in #423, measured 
 
 ## Where each child stands
 
+**Out of V1:** Linux GPU and Linux multi-monitor measurements need a bare-metal Linux machine with a GPU or multiple monitors, which isn't available. The box VM has no GPU and one output per display. Don't pick up or re-test those rows until one is. [#425](https://github.com/omesser/fidget/issues/425) and the Linux display seam in [#426](https://github.com/omesser/fidget/issues/426) are off the V1 milestone for this reason.
+
 | Issue | State | Result |
 | --- | --- | --- |
 | [#431](https://github.com/omesser/fidget/issues/431) macOS idle | Closed | Host 8.4% CPU and 179.8 interrupt wakeups/s perched, quiet machine. Detail in [macos-idle-wakeups.md](./macos-idle-wakeups.md). |
 | [#432](https://github.com/omesser/fidget/issues/432) Linux idle | Closed | Release idle, walking, hidden, Chat, and the pill on X11 are below, with idle and Chat on Wayland under headless weston. Hidden on Wayland is out of scope under ADR-0020. C-state residency and real-desktop powertop are out of scope as of 2026-10-23, because no bare-metal Linux desktop is available. |
 | [#429](https://github.com/omesser/fidget/issues/429) macOS GPU | Closed | Idle 0.6% GPU, 0.06 W. Section below, [#1034](https://github.com/omesser/fidget/pull/1034). |
 | [#430](https://github.com/omesser/fidget/issues/430) Windows GPU | Closed | Section below, [#1025](https://github.com/omesser/fidget/pull/1025). xperf frame time was not measured. |
-| [#425](https://github.com/omesser/fidget/issues/425) Linux GPU | Open | GPU% is won't-do until a bare-metal Linux desktop is available. This VM renders in software with llvmpipe, so its CPU numbers are not representative of a real desktop. As of 2026-10-23, the bench script covers xfwm4 with compositing on and off, picom, Mutter, KWin, and headless weston, and the [compositor run](#compositor-run-2026-10-23) below keeps their mask rates. Multi-monitor is not measured, because each test display has one output. |
+| [#425](https://github.com/omesser/fidget/issues/425) Linux GPU | Out of V1 | GPU% is won't-do until a bare-metal Linux desktop is available. This VM renders in software with llvmpipe, so its CPU numbers are not representative of a real desktop. As of 2026-10-23, the bench script covers xfwm4 with compositing on and off, picom, Mutter, KWin, and headless weston, and the [compositor run](#compositor-run-2026-10-23) below keeps their mask rates. Multi-monitor is not measured, because each test display has one output. |
 | [#427](https://github.com/omesser/fidget/issues/427) WindowSource | Closed | Section below, [#1042](https://github.com/omesser/fidget/pull/1042) and [#1128](https://github.com/omesser/fidget/pull/1128). |
 | [#428](https://github.com/omesser/fidget/issues/428) mask rebuild | Open | Desktop numbers in the mask docs. This VM adds release per-call times. No `perf` flamegraph. |
 | [#424](https://github.com/omesser/fidget/issues/424) RSS | Open | macOS footprint in [memory-rss-and-multi-monitor.md](./memory-rss-and-multi-monitor.md). This VM has one display. heaptrack was not installed. |
-| [#426](https://github.com/omesser/fidget/issues/426) frame cadence | Open | macOS, Linux release, Linux ride, Windows matrix, and a Windows dual-display seam ride are below. A display seam on Linux was not measured. |
+| [#426](https://github.com/omesser/fidget/issues/426) frame cadence | Out of V1 | macOS, Linux release, Linux ride, Windows matrix, and a Windows dual-display seam ride are below. A display seam on Linux was not measured. |
 
 ## How a frame gets on screen
 
@@ -424,6 +426,8 @@ Walking-over mask rate is 0.00/s because the walk aborted once the pointer was o
 
 ### Linux X11/Wayland (issue #425)
 
+Out of V1: GPU% and multi-monitor rows here need Linux GPU or multi-monitor hardware, which isn't available. See the note above the status table.
+
 This table is the earlier debug capture. The release measurement above records held-still idle at 3.0% Xtigervnc CPU. A default idle window that contained walk and climb frames read 49.7%.
 
 Re-run with `scripts/bench-gpu-compositing-linux.sh matrix --seconds 15`. Add `--shot path.png` to grab the GPU tool window during idle perched. The grab stays out of the tree.
@@ -539,7 +543,7 @@ overlay: 1 display(s); sprite 126x128; BMO as BMO
 
 `glxinfo -B` during idle perched: `OpenGL renderer string: llvmpipe (LLVM 20.1.2, 256 bits)`, `Accelerated: no`. The same window shows `intel_gpu_top` and `radeontop` failing for lack of a device.
 
-**Status:** Partial. This section leaves [#425](https://github.com/omesser/fidget/issues/425) open. GPU% and the GPU-tool screenshot are won't-do until a bare-metal Linux desktop is available, because this VM renders in software. As of 2026-10-23, the bench script covers xfwm4 with compositing on and off, picom, Mutter, KWin, and headless weston, and the compositor run above records their mask rates. Multi-monitor is not measured, because every test display had one output. The compositor frame-rate metric is not measured either. `xrandr` reads 0.00 Hz on every Xvfb display, and headless weston drives no panel.
+**Status:** Out of V1. [#425](https://github.com/omesser/fidget/issues/425) is off the V1 milestone until a bare-metal Linux machine with a GPU or multiple monitors exists. GPU% and the GPU-tool screenshot are won't-do until a bare-metal Linux desktop is available, because this VM renders in software. As of 2026-10-23, the bench script covers xfwm4 with compositing on and off, picom, Mutter, KWin, and headless weston, and the compositor run above records their mask rates. Multi-monitor is not measured, because every test display had one output. The compositor frame-rate metric is not measured either. `xrandr` reads 0.00 Hz on every Xvfb display, and headless weston drives no panel.
 
 ## WindowSource (issue #427)
 
