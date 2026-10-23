@@ -8,8 +8,8 @@
 //! behind, and this side needs no `CHILD_PID`.
 //!
 //! The bus calls block for up to [`TIMEOUT`] each, so a worker thread makes
-//! them. `spawn` and `kill` only send it an order, and `alive` reads what it
-//! answered, the way the macOS side reads a child's exit.
+//! them. `turn_on` and `turn_off` only send it an order, and `is_on` reads
+//! what it answered, the way the macOS side reads a child's exit.
 
 use std::os::fd::OwnedFd;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -17,8 +17,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use fidget_core::caffeinate::linux::Plan;
-use fidget_core::caffeinate::macos::Argv;
-use fidget_core::caffeinate::Spawner;
+use fidget_core::caffeinate::{Flags, OsCaffeinate, ALREADY_ON};
 use zbus::blocking::{connection, Connection};
 use zbus::zvariant::OwnedObjectPath;
 
@@ -155,9 +154,9 @@ impl Screen {
         }
     }
 
-    /// Dropping the connection would release it too; asking first releases
-    /// it now rather than when the bus notices.
-    fn release(self) {
+    /// Dropping the connection would end it too; asking first ends it now
+    /// rather than when the bus notices.
+    fn uninhibit(self) {
         match self {
             Screen::Saver { conn, cookie } => {
                 let _ = conn.call_method(
@@ -181,24 +180,24 @@ impl Screen {
     }
 }
 
-/// Every inhibitor one spawn took.
-struct Inhibitors {
+/// Every inhibitor one `turn_on` took.
+struct Active {
     logind: Option<OwnedFd>,
     screen: Option<Screen>,
 }
 
-impl Inhibitors {
-    fn release(self) {
+impl Active {
+    fn close(self) {
         drop(self.logind);
         if let Some(screen) = self.screen {
-            screen.release();
+            screen.uninhibit();
         }
     }
 }
 
 /// Every inhibitor the plan asks for, or none. A part that fails drops the
 /// parts already taken, and the error names the inhibitor that failed.
-fn take_all<L, S>(
+fn inhibit_all<L, S>(
     plan: Plan,
     logind: impl FnOnce(&str) -> Result<L, String>,
     screen: impl FnOnce() -> Result<S, String>,
@@ -216,149 +215,149 @@ fn take_all<L, S>(
     Ok((logind_fd, display))
 }
 
-/// Releases what a `Take` took. Runs on the worker.
-type Release = Box<dyn FnOnce() + Send>;
+/// Closes what a `TurnOn` took. Runs on the worker.
+type TurnOff = Box<dyn FnOnce() + Send>;
 /// Takes every inhibitor a plan asks for. Runs on the worker.
-type Take = Box<dyn FnMut(Plan) -> Result<Release, String> + Send>;
+type TurnOn = Box<dyn FnMut(Plan) -> Result<TurnOff, String> + Send>;
 
-fn take_on_the_bus(plan: Plan) -> Result<Release, String> {
-    let (logind, screen) = take_all(
+fn inhibit_on_the_bus(plan: Plan) -> Result<TurnOff, String> {
+    let (logind, screen) = inhibit_all(
         plan,
         |what| inhibit_logind(what).map_err(|error| error.to_string()),
         || Screen::inhibit().map_err(|error| error.to_string()),
     )?;
-    Ok(Box::new(move || Inhibitors { logind, screen }.release()))
+    Ok(Box::new(move || Active { logind, screen }.close()))
 }
 
-/// Each order carries the spawn it belongs to, so a late answer about an old
-/// spawn cannot end a newer one.
+/// Each order carries the `turn_on` it belongs to, so a late answer about an
+/// old one cannot end a newer one.
 enum Order {
-    Take(u64, Plan),
-    Release(u64),
+    On(u64, Plan),
+    Off(u64),
 }
 
 enum Answer {
-    Taken,
+    On,
     Refused(u64, String),
-    Released(u64),
+    Off(u64),
 }
 
-fn work(mut take: Take, orders: Receiver<Order>, answers: Sender<Answer>) {
-    let mut taken: Option<Release> = None;
+fn work(mut turn_on: TurnOn, orders: Receiver<Order>, answers: Sender<Answer>) {
+    let mut active: Option<TurnOff> = None;
     for order in orders {
         let answer = match order {
-            Order::Take(spawn, plan) => match take(plan) {
-                Ok(release) => {
-                    taken = Some(release);
-                    Answer::Taken
+            Order::On(spawn, plan) => match turn_on(plan) {
+                Ok(turn_off) => {
+                    active = Some(turn_off);
+                    Answer::On
                 }
                 Err(reason) => Answer::Refused(spawn, reason),
             },
-            Order::Release(spawn) => {
-                if let Some(release) = taken.take() {
-                    release();
+            Order::Off(spawn) => {
+                if let Some(turn_off) = active.take() {
+                    turn_off();
                 }
-                Answer::Released(spawn)
+                Answer::Off(spawn)
             }
         };
         if answers.send(answer).is_err() {
             break;
         }
     }
-    if let Some(release) = taken.take() {
-        release();
+    if let Some(turn_off) = active.take() {
+        turn_off();
     }
 }
 
 pub struct OsSpawner {
     orders: Sender<Order>,
     answers: Receiver<Answer>,
-    /// The latest spawn's number.
+    /// The latest `turn_on`'s number.
     spawn: u64,
-    /// Asked for and not yet refused or released.
-    up: bool,
-    releasing: bool,
+    /// Asked for and not yet refused or turned off.
+    on: bool,
+    turning_off: bool,
     failure: Option<String>,
 }
 
 impl OsSpawner {
     pub fn new() -> Self {
         start_probe();
-        Self::with(Box::new(take_on_the_bus))
+        Self::with(Box::new(inhibit_on_the_bus))
     }
 
-    fn with(take: Take) -> Self {
+    fn with(turn_on: TurnOn) -> Self {
         let (orders, worker_orders) = mpsc::channel();
         let (worker_answers, answers) = mpsc::channel();
         let _ = std::thread::Builder::new()
             .name("caffeinate-inhibit".to_string())
-            .spawn(move || work(take, worker_orders, worker_answers));
+            .spawn(move || work(turn_on, worker_orders, worker_answers));
         Self {
             orders,
             answers,
             spawn: 0,
-            up: false,
-            releasing: false,
+            on: false,
+            turning_off: false,
             failure: None,
         }
     }
 
     fn hear(&mut self, answer: Answer) {
         match answer {
-            Answer::Taken => {}
+            Answer::On => {}
             Answer::Refused(spawn, reason) if spawn == self.spawn => {
-                self.up = false;
+                self.on = false;
                 self.failure = Some(reason);
             }
-            Answer::Released(spawn) if spawn == self.spawn => self.up = false,
-            Answer::Refused(..) | Answer::Released(_) => {}
+            Answer::Off(spawn) if spawn == self.spawn => self.on = false,
+            Answer::Refused(..) | Answer::Off(_) => {}
         }
     }
 }
 
 impl Drop for OsSpawner {
-    /// The worker releases when the order channel closes.
+    /// The worker turns off when the order channel closes.
     fn drop(&mut self) {
-        self.kill();
+        self.turn_off();
     }
 }
 
-impl Spawner for OsSpawner {
+impl OsCaffeinate for OsSpawner {
     /// Returns once the worker has the order. A refusal comes back through
-    /// `alive` and `failure`.
-    fn spawn(&mut self, argv: &Argv) -> Result<(), String> {
-        if self.up {
-            return Err("the inhibitors are already taken".to_string());
+    /// `is_on` and `failure`.
+    fn turn_on(&mut self, flags: Flags) -> Result<(), String> {
+        if self.on {
+            return Err(ALREADY_ON.to_string());
         }
-        let plan = Plan::of(argv.flags());
+        let plan = Plan::of(flags);
         if plan.is_empty() {
             return Err("no flag maps to a Linux inhibitor".to_string());
         }
         self.spawn += 1;
         self.orders
-            .send(Order::Take(self.spawn, plan))
+            .send(Order::On(self.spawn, plan))
             .map_err(|_| "the caffeinate worker stopped".to_string())?;
-        self.up = true;
-        self.releasing = false;
+        self.on = true;
+        self.turning_off = false;
         self.failure = None;
         Ok(())
     }
 
-    /// Asks once. `alive` stays true until the worker says it let go.
-    fn kill(&mut self) {
-        if self.up && !self.releasing {
-            self.releasing = self.orders.send(Order::Release(self.spawn)).is_ok();
-            if !self.releasing {
-                self.up = false;
+    /// Asks once. `is_on` stays true until the worker says it let go.
+    fn turn_off(&mut self) {
+        if self.on && !self.turning_off {
+            self.turning_off = self.orders.send(Order::Off(self.spawn)).is_ok();
+            if !self.turning_off {
+                self.on = false;
             }
         }
     }
 
-    fn alive(&mut self) -> bool {
+    fn is_on(&mut self) -> bool {
         while let Ok(answer) = self.answers.try_recv() {
             self.hear(answer);
         }
-        self.up
+        self.on
     }
 
     fn failure(&mut self) -> Option<String> {
@@ -370,19 +369,15 @@ impl Spawner for OsSpawner {
 mod tests {
     use super::*;
 
-    use fidget_core::caffeinate::{Flag, Flags};
+    use fidget_core::caffeinate::Flag;
     use std::sync::mpsc::SyncSender;
 
     fn flags(set: &[Flag]) -> Flags {
         Flags::new(set.iter().copied()).expect("a flag")
     }
 
-    fn dims() -> Argv {
-        Argv::new(Flags::all(), std::process::id())
-    }
-
-    /// After `hear_next` the tests read `up`, not `alive`: `alive` would
-    /// also take answers the test has yet to wait for.
+    /// After `hear_next` the tests read `on`, not `is_on`, because `is_on`
+    /// would also take answers the test has yet to wait for.
     impl OsSpawner {
         /// Blocks for the worker's next answer. Tests only.
         fn hear_next(&mut self) {
@@ -391,15 +386,15 @@ mod tests {
         }
     }
 
-    /// A take that blocks until the test opens the gate, then reports its
-    /// release on `released`.
-    fn gated(gate: Receiver<Result<(), String>>, released: SyncSender<()>) -> Take {
+    /// A `TurnOn` that blocks until the test opens the gate, then reports its
+    /// turn-off on `released`.
+    fn gated(gate: Receiver<Result<(), String>>, released: SyncSender<()>) -> TurnOn {
         Box::new(move |_| {
             gate.recv().expect("the test opens the gate")?;
             let released = released.clone();
             Ok(Box::new(move || {
                 let _ = released.send(());
-            }) as Release)
+            }) as TurnOff)
         })
     }
 
@@ -407,29 +402,32 @@ mod tests {
     fn disk_alone_takes_no_inhibitor() {
         let mut spawner = OsSpawner::with(Box::new(|_| Err("never asked".to_string())));
         let err = spawner
-            .spawn(&Argv::new(flags(&[Flag::Disk]), std::process::id()))
+            .turn_on(flags(&[Flag::Disk]))
             .expect_err("no inhibitor");
         assert!(!err.is_empty());
-        assert!(!spawner.alive());
+        assert!(!spawner.is_on());
     }
 
-    /// The frame loop calls `spawn` and `kill`; a bus that takes its 2 s
+    /// The frame loop calls `turn_on` and `turn_off`. A bus that takes its 2 s
     /// timeout must not block either.
     #[test]
     fn spawn_and_kill_return_while_the_bus_is_still_busy() {
         let (open, gate) = mpsc::channel();
         let (released_tx, released) = mpsc::sync_channel(1);
         let mut spawner = OsSpawner::with(gated(gate, released_tx));
-        spawner.spawn(&dims()).expect("ordered");
-        assert!(spawner.alive(), "up while the worker is taking it");
-        assert!(spawner.spawn(&dims()).is_err(), "one spawn at a time");
-        spawner.kill();
-        assert!(spawner.alive(), "up until the worker lets go");
+        spawner.turn_on(Flags::all()).expect("ordered");
+        assert!(spawner.is_on(), "up while the worker is taking it");
+        assert!(
+            spawner.turn_on(Flags::all()).is_err(),
+            "one spawn at a time"
+        );
+        spawner.turn_off();
+        assert!(spawner.is_on(), "up until the worker lets go");
         open.send(Ok(())).expect("gate");
         spawner.hear_next();
-        assert!(spawner.up, "still on, release not heard yet");
+        assert!(spawner.on, "still on, release not heard yet");
         spawner.hear_next();
-        assert!(!spawner.up);
+        assert!(!spawner.on);
         released.recv().expect("released on the worker");
         assert_eq!(spawner.failure(), None);
     }
@@ -439,11 +437,11 @@ mod tests {
         let (open, gate) = mpsc::channel();
         let (released_tx, _released) = mpsc::sync_channel(1);
         let mut spawner = OsSpawner::with(gated(gate, released_tx));
-        spawner.spawn(&dims()).expect("ordered");
+        spawner.turn_on(Flags::all()).expect("ordered");
         open.send(Err("screen saver inhibit: no service".to_string()))
             .expect("gate");
         spawner.hear_next();
-        assert!(!spawner.up);
+        assert!(!spawner.on);
         assert_eq!(
             spawner.failure().as_deref(),
             Some("screen saver inhibit: no service")
@@ -457,15 +455,15 @@ mod tests {
         let (open, gate) = mpsc::channel();
         let (released_tx, _released) = mpsc::sync_channel(1);
         let mut spawner = OsSpawner::with(gated(gate, released_tx));
-        spawner.spawn(&dims()).expect("first");
-        spawner.kill();
+        spawner.turn_on(Flags::all()).expect("first");
+        spawner.turn_off();
         open.send(Err("logind inhibit idle:sleep: denied".to_string()))
             .expect("gate");
         spawner.hear_next();
-        assert!(!spawner.up, "refused");
-        spawner.spawn(&dims()).expect("second");
+        assert!(!spawner.on, "refused");
+        spawner.turn_on(Flags::all()).expect("second");
         spawner.hear_next();
-        assert!(spawner.up, "the first spawn's answer is not this one's");
+        assert!(spawner.on, "the first spawn's answer is not this one's");
     }
 
     /// A partial take fails whole: the Chat note says "keeping your computer
@@ -479,7 +477,7 @@ mod tests {
             }
         }
         let (dropped_tx, dropped) = mpsc::sync_channel(1);
-        let taken = take_all(
+        let taken = inhibit_all(
             Plan::of(Flags::all()),
             |what| {
                 assert_eq!(what, "idle:sleep");
@@ -493,7 +491,7 @@ mod tests {
         );
         dropped.try_recv().expect("the logind part was released");
 
-        let refused = take_all(
+        let refused = inhibit_all(
             Plan::of(Flags::all()),
             |_| Err::<(), _>("denied".to_string()),
             || -> Result<(), String> { panic!("not asked after logind failed") },
@@ -544,15 +542,15 @@ mod tests {
         .expect("match rule");
 
         let mut spawner = OsSpawner::new();
-        spawner.spawn(&dims()).expect("ordered");
+        spawner.turn_on(Flags::all()).expect("ordered");
         spawner.hear_next();
-        assert!(spawner.alive(), "taken: {:?}", spawner.failure());
+        assert!(spawner.is_on(), "taken: {:?}", spawner.failure());
         assert!(logind_inhibitor_whos(&conn).iter().any(|who| who == WHO));
         print_inhibitors("taken");
 
-        spawner.kill();
+        spawner.turn_off();
         spawner.hear_next();
-        assert!(!spawner.alive());
+        assert!(!spawner.is_on());
         changes
             .into_iter()
             .find(|_| !logind_inhibitor_whos(&conn).iter().any(|who| who == WHO))

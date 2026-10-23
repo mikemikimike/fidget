@@ -1147,7 +1147,7 @@ pub(crate) fn run_frame_loop(
                 .lock()
                 .map(|settings| settings.caffeinate_flags())
                 .unwrap_or(Err(fidget_core::caffeinate::Empty));
-            caffeinate_switch.set_target(caffeinate_configured);
+            caffeinate_switch.set_flags(caffeinate_configured);
             while let Ok(call) = mcp.try_recv() {
                 let excluded = settings
                     .lock()

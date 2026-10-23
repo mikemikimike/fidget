@@ -18,7 +18,7 @@ use crate::caffeinate_linux::OsSpawner;
 #[cfg(windows)]
 use crate::caffeinate_win::OsSpawner;
 #[cfg(target_os = "macos")]
-use fidget_core::caffeinate::{macos::Argv, Spawner};
+use fidget_core::caffeinate::{macos::Argv, OsCaffeinate, ALREADY_ON};
 use fidget_core::caffeinate::{CaffeinateHandle, Empty, Fact, Flags, Machine, Note, Request, Tick};
 
 /// The running child's pid, or 0. The quit paths call `process::exit`, which
@@ -79,7 +79,7 @@ impl OsSpawner {
 #[cfg(target_os = "macos")]
 impl Drop for OsSpawner {
     fn drop(&mut self) {
-        self.kill();
+        self.turn_off();
         if let Some(child) = self.child.as_mut() {
             let _ = child.wait();
         }
@@ -87,13 +87,13 @@ impl Drop for OsSpawner {
 }
 
 #[cfg(target_os = "macos")]
-impl Spawner for OsSpawner {
-    fn spawn(&mut self, argv: &Argv) -> Result<(), String> {
+impl OsCaffeinate for OsSpawner {
+    fn turn_on(&mut self, flags: Flags) -> Result<(), String> {
         if self.child.is_some() {
-            return Err("a caffeinate child is already running".to_string());
+            return Err(ALREADY_ON.to_string());
         }
         let child = Command::new(self.program)
-            .args(argv.args())
+            .args(Argv::new(flags, std::process::id()).args())
             .spawn()
             .map_err(|error| error.to_string())?;
         set_child_pid(child.id());
@@ -101,13 +101,13 @@ impl Spawner for OsSpawner {
         Ok(())
     }
 
-    fn kill(&mut self) {
+    fn turn_off(&mut self) {
         if let Some(child) = self.child.as_ref() {
             signal_term(child.id());
         }
     }
 
-    fn alive(&mut self) -> bool {
+    fn is_on(&mut self) -> bool {
         let Some(child) = self.child.as_mut() else {
             return false;
         };
@@ -131,13 +131,13 @@ pub struct Caffeinate {
 impl Caffeinate {
     pub fn new() -> Self {
         Self {
-            machine: Machine::new(OsSpawner::new(), std::process::id()),
+            machine: Machine::new(OsSpawner::new()),
             configured: Ok(Flags::all()),
             pending: Vec::new(),
         }
     }
 
-    pub fn set_target(&mut self, configured: Result<Flags, Empty>) {
+    pub fn set_flags(&mut self, configured: Result<Flags, Empty>) {
         self.configured = configured;
     }
 
@@ -169,23 +169,19 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    fn dims() -> Argv {
-        Argv::new(Flags::all(), std::process::id())
-    }
-
     #[test]
     fn a_missing_program_starts_nothing() {
         let mut spawner = OsSpawner::program("/no/such/caffeinate");
-        let err = spawner.spawn(&dims()).expect_err("missing program");
+        let err = spawner.turn_on(Flags::all()).expect_err("missing program");
         assert!(!err.is_empty());
-        assert!(!spawner.alive());
+        assert!(!spawner.is_on());
     }
 
     #[test]
     fn a_real_caffeinate_leaves_when_signalled() {
         let mut spawner = OsSpawner::new();
-        spawner.spawn(&dims()).expect("caffeinate starts");
-        assert!(spawner.alive());
+        spawner.turn_on(Flags::all()).expect("caffeinate starts");
+        assert!(spawner.is_on());
         let listed = Command::new("pmset")
             .args(["-g", "assertions"])
             .output()
@@ -195,19 +191,19 @@ mod tests {
             text.contains("caffeinate"),
             "pmset should name caffeinate while it is on: {text}"
         );
-        let again = spawner.spawn(&dims());
+        let again = spawner.turn_on(Flags::all());
         assert!(again.is_err(), "a second child would hide the first");
-        assert!(spawner.alive());
-        spawner.kill();
-        let mut alive = true;
+        assert!(spawner.is_on());
+        spawner.turn_off();
+        let mut is_on = true;
         for _ in 0..50 {
-            alive = spawner.alive();
-            if !alive {
+            is_on = spawner.is_on();
+            if !is_on {
                 break;
             }
             thread::sleep(Duration::from_millis(20));
         }
-        assert!(!alive);
+        assert!(!is_on);
         assert_eq!(CHILD_PID.load(Ordering::SeqCst), 0);
     }
 }

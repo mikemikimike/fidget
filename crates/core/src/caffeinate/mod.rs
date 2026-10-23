@@ -1,5 +1,5 @@
 //! Caffeinate keeps this computer awake. [`Machine`] decides when it is on,
-//! and the OS side behind [`Spawner`] does the keeping. [`macos`], [`linux`]
+//! and the OS side behind [`OsCaffeinate`] does the keeping. [`macos`], [`linux`]
 //! and [`windows`] name what each OS takes for a flag set. They are pure, so
 //! every target builds and tests all three.
 
@@ -125,15 +125,18 @@ pub enum Request {
     Set(bool),
 }
 
-/// The OS side. `spawn` fails while Caffeinate is already on, so a second
-/// start cannot hide the first.
-pub trait Spawner {
-    fn spawn(&mut self, argv: &macos::Argv) -> Result<(), String>;
-    fn kill(&mut self);
+/// What an OS side's `turn_on` says while it is already on.
+pub const ALREADY_ON: &str = "Caffeinate is already on.";
+
+/// The OS side. `turn_on` fails with [`ALREADY_ON`] while Caffeinate is on, so
+/// a second start cannot hide the first.
+pub trait OsCaffeinate {
+    fn turn_on(&mut self, flags: Flags) -> Result<(), String>;
+    fn turn_off(&mut self);
     /// Whether the OS side still keeps the computer awake.
-    fn alive(&mut self) -> bool;
-    /// Why `alive` just reported off: Caffeinate never came on. Only a `Spawner`
-    /// whose `spawn` returns before the OS answers has one.
+    fn is_on(&mut self) -> bool;
+    /// Why `is_on` just reported off: Caffeinate never came on. Only an OS side
+    /// whose `turn_on` returns before the OS answers has one.
     fn failure(&mut self) -> Option<String> {
         None
     }
@@ -154,45 +157,42 @@ pub struct Tick {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
-    Idle,
-    Running(Flags),
+    Off,
+    On(Flags),
     /// Asked to turn off. Caffeinate still reads `flags`. Once the OS side is
     /// off it turns `flags` on if `restart`, or turns off with a note.
-    Stopping {
+    TurningOff {
         flags: Flags,
         restart: bool,
     },
 }
 
 /// The only thing that turns Caffeinate on or off.
-pub struct Machine<S: Spawner> {
-    spawner: S,
-    pid: u32,
+pub struct Machine<O: OsCaffeinate> {
+    os: O,
     wanted: bool,
     phase: Phase,
 }
 
-impl<S: Spawner> Machine<S> {
-    /// `pid` goes into the macOS argv.
-    pub fn new(spawner: S, pid: u32) -> Self {
+impl<O: OsCaffeinate> Machine<O> {
+    pub fn new(os: O) -> Self {
         Self {
-            spawner,
-            pid,
+            os,
             wanted: false,
-            phase: Phase::Idle,
+            phase: Phase::Off,
         }
     }
 
     /// Apply requests, then bring the OS side to what they want.
     pub fn tick(&mut self, flags: Result<Flags, Empty>, requests: &[Request]) -> Tick {
-        let alive = self.spawner.alive();
-        let failure = self.spawner.failure();
+        let is_on = self.os.is_on();
+        let failure = self.os.failure();
         let mut tick = Tick {
             fact: Fact::Off,
             notes: Vec::new(),
             error: None,
         };
-        let restarted = self.finish_stop(alive, &mut tick);
+        let restarted = self.finish_turning_off(is_on, &mut tick);
 
         let was = self.wanted;
         for request in requests {
@@ -210,10 +210,10 @@ impl<S: Spawner> Machine<S> {
             .iter()
             .any(|request| matches!(request, Request::Set(true) | Request::Toggle));
 
-        // `alive` described the old one if a restart just turned on a new one.
-        if let (false, false, Phase::Running(spawned)) = (restarted, alive, self.phase) {
-            self.phase = Phase::Idle;
-            let changed = flags.is_ok_and(|next| next != spawned);
+        // `is_on` described the old one if a restart just turned on a new one.
+        if let (false, false, Phase::On(current)) = (restarted, is_on, self.phase) {
+            self.phase = Phase::Off;
+            let changed = flags.is_ok_and(|next| next != current);
             if !self.wanted {
                 tick.notes.push(Note::Off);
             } else if let Some(reason) = failure {
@@ -226,41 +226,41 @@ impl<S: Spawner> Machine<S> {
         }
 
         match (self.wanted, self.phase, flags) {
-            (true, Phase::Idle, Ok(flags)) => self.spawn(flags, announce, &mut tick),
-            (true, Phase::Idle, Err(Empty)) => {
+            (true, Phase::Off, Ok(flags)) => self.turn_on(flags, announce, &mut tick),
+            (true, Phase::Off, Err(Empty)) => {
                 self.wanted = false;
                 tick.error = Some(Empty::REASON.to_string());
             }
-            (false, Phase::Running(flags), _) => {
-                self.spawner.kill();
-                self.phase = Phase::Stopping {
+            (false, Phase::On(flags), _) => {
+                self.os.turn_off();
+                self.phase = Phase::TurningOff {
                     flags,
                     restart: false,
                 };
             }
-            (true, Phase::Running(spawned), Ok(next)) if next != spawned => {
-                self.spawner.kill();
-                self.phase = Phase::Stopping {
+            (true, Phase::On(current), Ok(next)) if next != current => {
+                self.os.turn_off();
+                self.phase = Phase::TurningOff {
                     flags: next,
                     restart: true,
                 };
             }
-            (true, Phase::Stopping { restart: false, .. }, Ok(next)) => {
-                self.phase = Phase::Stopping {
+            (true, Phase::TurningOff { restart: false, .. }, Ok(next)) => {
+                self.phase = Phase::TurningOff {
                     flags: next,
                     restart: true,
                 };
             }
             (
                 false,
-                Phase::Stopping {
+                Phase::TurningOff {
                     flags,
                     restart: true,
                     ..
                 },
                 _,
             ) => {
-                self.phase = Phase::Stopping {
+                self.phase = Phase::TurningOff {
                     flags,
                     restart: false,
                 };
@@ -269,25 +269,25 @@ impl<S: Spawner> Machine<S> {
         }
 
         tick.fact = match self.phase {
-            Phase::Idle => Fact::Off,
-            Phase::Running(flags) | Phase::Stopping { flags, .. } => Fact::On(flags),
+            Phase::Off => Fact::Off,
+            Phase::On(flags) | Phase::TurningOff { flags, .. } => Fact::On(flags),
         };
         tick
     }
 
     /// Asks again while the OS side is still on. Returns whether this call
     /// turned the next one on.
-    fn finish_stop(&mut self, alive: bool, tick: &mut Tick) -> bool {
-        let Phase::Stopping { flags, restart } = self.phase else {
+    fn finish_turning_off(&mut self, is_on: bool, tick: &mut Tick) -> bool {
+        let Phase::TurningOff { flags, restart } = self.phase else {
             return false;
         };
-        if alive {
-            self.spawner.kill();
+        if is_on {
+            self.os.turn_off();
             return false;
         }
-        self.phase = Phase::Idle;
+        self.phase = Phase::Off;
         if restart {
-            self.spawn(flags, false, tick);
+            self.turn_on(flags, false, tick);
             return true;
         }
         self.wanted = false;
@@ -295,17 +295,17 @@ impl<S: Spawner> Machine<S> {
         false
     }
 
-    fn spawn(&mut self, flags: Flags, announce: bool, tick: &mut Tick) {
-        match self.spawner.spawn(&macos::Argv::new(flags, self.pid)) {
+    fn turn_on(&mut self, flags: Flags, announce: bool, tick: &mut Tick) {
+        match self.os.turn_on(flags) {
             Ok(()) => {
-                self.phase = Phase::Running(flags);
+                self.phase = Phase::On(flags);
                 self.wanted = true;
                 if announce {
                     tick.notes.push(Note::On(flags));
                 }
             }
             Err(reason) => {
-                self.phase = Phase::Idle;
+                self.phase = Phase::Off;
                 self.wanted = false;
                 tick.notes.push(Note::Failed);
                 tick.error = Some(reason);
@@ -314,56 +314,62 @@ impl<S: Spawner> Machine<S> {
     }
 }
 
+/// A flag set for tests. `expect`s at least one flag.
+#[cfg(test)]
+fn flags(set: &[Flag]) -> Flags {
+    Flags::new(set.iter().copied()).expect("a flag")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::macos::Argv;
     use super::*;
 
-    struct Fake {
-        running: bool,
+    /// An OS side whose `is_on` answers what the test scripts next.
+    struct ScriptedOs {
+        on: bool,
         next: Option<bool>,
-        spawns: Vec<Vec<String>>,
-        kills: usize,
+        turned_on: Vec<Flags>,
+        turn_offs: usize,
         fail: bool,
         failure: Option<String>,
     }
 
-    impl Fake {
+    impl ScriptedOs {
         fn new() -> Self {
             Self {
-                running: false,
+                on: false,
                 next: None,
-                spawns: Vec::new(),
-                kills: 0,
+                turned_on: Vec::new(),
+                turn_offs: 0,
                 fail: false,
                 failure: None,
             }
         }
     }
 
-    impl Spawner for Fake {
-        fn spawn(&mut self, argv: &Argv) -> Result<(), String> {
-            if self.running {
-                return Err("a child is already running".to_string());
+    impl OsCaffeinate for ScriptedOs {
+        fn turn_on(&mut self, flags: Flags) -> Result<(), String> {
+            if self.on {
+                return Err(ALREADY_ON.to_string());
             }
             if self.fail {
                 return Err("caffeinate missing".to_string());
             }
-            self.running = true;
-            self.spawns.push(argv.args());
+            self.on = true;
+            self.turned_on.push(flags);
             Ok(())
         }
 
-        fn kill(&mut self) {
-            if self.running {
-                self.kills += 1;
+        fn turn_off(&mut self) {
+            if self.on {
+                self.turn_offs += 1;
             }
         }
 
-        fn alive(&mut self) -> bool {
-            let alive = self.next.take().unwrap_or(self.running);
-            self.running &= alive;
-            alive
+        fn is_on(&mut self) -> bool {
+            let is_on = self.next.take().unwrap_or(self.on);
+            self.on &= is_on;
+            is_on
         }
 
         fn failure(&mut self) -> Option<String> {
@@ -376,12 +382,12 @@ mod tests {
     }
 
     fn drive(
-        machine: &mut Machine<Fake>,
+        machine: &mut Machine<ScriptedOs>,
         flags: Result<Flags, Empty>,
         requests: &[Request],
-        alive: bool,
+        is_on: bool,
     ) -> Tick {
-        machine.spawner.next = Some(alive);
+        machine.os.next = Some(is_on);
         machine.tick(flags, requests)
     }
 
@@ -419,30 +425,13 @@ mod tests {
         );
     }
 
-    /// Linux names the inhibitors, the same words as the Settings Command row.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_notes_and_prompt_name_the_inhibitors() {
-        let named = "logind inhibit idle:sleep + screen saver inhibit";
-        assert_eq!(dims().inhibitor_label(), named);
-        assert_eq!(
-            Fact::On(dims()).prompt_line(),
-            format!("caffeinate: on ({named})")
-        );
-        assert_eq!(
-            Note::On(dims()).text(),
-            format!("☕ Caffeinate on: keeping your computer awake ({named})")
-        );
-    }
-
-    /// A `Spawner` that works off the caller's thread reports a refusal after
-    /// `spawn` returned Ok. Chat hears why, and Caffeinate stays
-    /// off.
+    /// An OS side that works off the caller's thread reports a refusal after
+    /// `turn_on` returned Ok. Chat hears why, and Caffeinate stays off.
     #[test]
     fn caffeinate_that_could_not_turn_on_says_why_and_stays_off() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
-        machine.spawner.failure = Some("logind inhibit sleep: denied".to_string());
+        machine.os.failure = Some("logind inhibit sleep: denied".to_string());
         let lost = drive(&mut machine, Ok(dims()), &[], false);
         assert_eq!(lost.fact, Fact::Off);
         assert_eq!(
@@ -452,95 +441,92 @@ mod tests {
         let after = drive(&mut machine, Ok(dims()), &[], false);
         assert_eq!(after.fact, Fact::Off);
         assert!(after.notes.is_empty());
-        assert_eq!(machine.spawner.spawns.len(), 1);
+        assert_eq!(machine.os.turned_on.len(), 1);
     }
 
     /// A refusal that lands after the user turned it off is just Off.
     #[test]
     fn a_refusal_while_stopping_is_only_off() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
         drive(&mut machine, Ok(dims()), &[Request::Set(false)], true);
-        machine.spawner.failure = Some("denied".to_string());
+        machine.os.failure = Some("denied".to_string());
         let done = drive(&mut machine, Ok(dims()), &[], false);
         assert_eq!(done.fact, Fact::Off);
         assert_eq!(done.notes, vec![Note::Off]);
-        assert!(machine.spawner.failure.is_none());
+        assert!(machine.os.failure.is_none());
     }
 
     #[test]
     fn set_on_spawns_once_and_a_repeat_does_not() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         let first = drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
         assert_eq!(first.fact, Fact::On(dims()));
         assert_eq!(first.notes, vec![Note::On(dims())]);
-        assert_eq!(machine.spawner.spawns.len(), 1);
+        assert_eq!(machine.os.turned_on.len(), 1);
 
         let second = drive(&mut machine, Ok(dims()), &[Request::Set(true)], true);
         assert_eq!(second.fact, Fact::On(dims()));
         assert!(second.notes.is_empty());
-        assert_eq!(machine.spawner.spawns.len(), 1);
-        assert_eq!(machine.spawner.kills, 0);
+        assert_eq!(machine.os.turned_on.len(), 1);
+        assert_eq!(machine.os.turn_offs, 0);
     }
 
     #[test]
     fn set_off_stays_on_until_the_child_exits() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
 
         let stopping = drive(&mut machine, Ok(dims()), &[Request::Set(false)], true);
         assert_eq!(stopping.fact, Fact::On(dims()));
         assert!(stopping.notes.is_empty());
-        assert_eq!(machine.spawner.kills, 1);
+        assert_eq!(machine.os.turn_offs, 1);
 
         let done = drive(&mut machine, Ok(dims()), &[], false);
         assert_eq!(done.fact, Fact::Off);
         assert_eq!(done.notes, vec![Note::Off]);
-        assert_eq!(machine.spawner.spawns.len(), 1);
+        assert_eq!(machine.os.turned_on.len(), 1);
     }
 
     #[test]
     fn a_second_set_off_does_nothing() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         let tick = drive(&mut machine, Ok(dims()), &[Request::Set(false)], false);
         assert_eq!(tick.fact, Fact::Off);
         assert!(tick.notes.is_empty());
-        assert!(machine.spawner.spawns.is_empty());
-        assert_eq!(machine.spawner.kills, 0);
+        assert!(machine.os.turned_on.is_empty());
+        assert_eq!(machine.os.turn_offs, 0);
     }
 
     #[test]
     fn flag_change_restarts_without_an_off_or_a_second_on() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
-        let display = Flags::new([Flag::Display]).unwrap();
+        let display = flags(&[Flag::Display]);
 
         let stopping = drive(&mut machine, Ok(display), &[], true);
         assert_eq!(stopping.fact, Fact::On(display));
         assert!(stopping.notes.is_empty());
-        assert_eq!(machine.spawner.kills, 1);
-        assert_eq!(machine.spawner.spawns.len(), 1);
+        assert_eq!(machine.os.turn_offs, 1);
+        assert_eq!(machine.os.turned_on.len(), 1);
 
         let restarted = drive(&mut machine, Ok(display), &[], false);
         assert_eq!(restarted.fact, Fact::On(display));
         assert!(restarted.notes.is_empty());
-        assert_eq!(
-            machine.spawner.spawns[1],
-            vec!["-d".to_string(), "-w".to_string(), "42".to_string()]
-        );
+        assert_eq!(machine.os.turned_on[1], display);
     }
 
     #[test]
     fn off_in_the_tick_a_restart_spawns_waits_for_the_new_child() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
-        let display = Flags::new([Flag::Display]).unwrap();
+        let display = flags(&[Flag::Display]);
         drive(&mut machine, Ok(display), &[], true);
 
         let off = drive(&mut machine, Ok(display), &[Request::Set(false)], false);
         assert_eq!(off.fact, Fact::On(display));
         assert!(off.notes.is_empty());
-        assert_eq!(machine.spawner.spawns.len(), 2);
+        assert_eq!(machine.os.turned_on.len(), 2);
 
         let done = drive(&mut machine, Ok(display), &[], false);
         assert_eq!(done.fact, Fact::Off);
@@ -550,15 +536,15 @@ mod tests {
         assert_eq!(again.fact, Fact::On(display));
         assert_eq!(again.notes, vec![Note::On(display)]);
         assert!(again.error.is_none());
-        assert_eq!(machine.spawner.spawns.len(), 3);
+        assert_eq!(machine.os.turned_on.len(), 3);
     }
 
     #[test]
     fn a_flag_change_in_the_tick_a_restart_spawns_waits_for_the_new_child() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
-        let display = Flags::new([Flag::Display]).unwrap();
-        let system = Flags::new([Flag::System]).unwrap();
+        let display = flags(&[Flag::Display]);
+        let system = flags(&[Flag::System]);
         drive(&mut machine, Ok(display), &[], true);
 
         let changed = drive(&mut machine, Ok(system), &[], false);
@@ -569,47 +555,44 @@ mod tests {
         let restarted = drive(&mut machine, Ok(system), &[], false);
         assert_eq!(restarted.fact, Fact::On(system));
         assert!(restarted.notes.is_empty());
-        assert_eq!(
-            machine.spawner.spawns[2],
-            vec!["-s".to_string(), "-w".to_string(), "42".to_string()]
-        );
+        assert_eq!(machine.os.turned_on[2], system);
     }
 
     #[test]
     fn a_child_that_exits_on_its_own_turns_caffeinate_off() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
         let exited = drive(&mut machine, Ok(dims()), &[], false);
         assert_eq!(exited.fact, Fact::Off);
         assert_eq!(exited.notes, vec![Note::Exited]);
-        assert_eq!(machine.spawner.kills, 0);
+        assert_eq!(machine.os.turn_offs, 0);
     }
 
     #[test]
     fn a_failed_spawn_stays_off() {
-        let mut fake = Fake::new();
-        fake.fail = true;
-        let mut machine = Machine::new(fake, 42);
+        let mut os = ScriptedOs::new();
+        os.fail = true;
+        let mut machine = Machine::new(os);
         let tick = drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
         assert_eq!(tick.fact, Fact::Off);
         assert_eq!(tick.notes, vec![Note::Failed]);
         assert_eq!(tick.error.as_deref(), Some("caffeinate missing"));
-        assert!(machine.spawner.spawns.is_empty());
+        assert!(machine.os.turned_on.is_empty());
     }
 
     #[test]
     fn empty_flags_refuse_a_start() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         let tick = drive(&mut machine, Err(Empty), &[Request::Set(true)], false);
         assert_eq!(tick.fact, Fact::Off);
         assert_eq!(tick.error.as_deref(), Some(Empty::REASON));
         assert!(tick.notes.is_empty());
-        assert!(machine.spawner.spawns.is_empty());
+        assert!(machine.os.turned_on.is_empty());
     }
 
     #[test]
     fn toggle_tracks_set() {
-        let mut machine = Machine::new(Fake::new(), 42);
+        let mut machine = Machine::new(ScriptedOs::new());
         let on = drive(&mut machine, Ok(dims()), &[Request::Toggle], false);
         assert_eq!(on.fact, Fact::On(dims()));
         assert_eq!(on.notes, vec![Note::On(dims())]);

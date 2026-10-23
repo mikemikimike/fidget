@@ -38,11 +38,6 @@ impl Argv {
         Self { flags, pid }
     }
 
-    /// The flags alone, for a `Spawner` that takes no argv.
-    pub fn flags(self) -> Flags {
-        self.flags
-    }
-
     /// The tokens `Command` is given.
     pub fn args(self) -> Vec<String> {
         letters(self.flags)
@@ -55,24 +50,20 @@ impl Argv {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::caffeinate::Empty;
+    use crate::caffeinate::{flags, Empty};
+
+    fn args(flags: Flags) -> Vec<String> {
+        Argv::new(flags, 42).args()
+    }
 
     #[test]
     fn argv_is_flag_tokens_then_wait_pid() {
-        let args = Argv::new(Flags::all(), 42).args();
-        assert_eq!(
-            args,
-            vec!["-d", "-i", "-m", "-s", "-w", "42"]
-                .into_iter()
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        );
+        assert_eq!(args(Flags::all()), ["-d", "-i", "-m", "-s", "-w", "42"]);
+        assert_eq!(args(flags(&[Flag::Display])), ["-d", "-w", "42"]);
+        assert_eq!(args(flags(&[Flag::System])), ["-s", "-w", "42"]);
         assert_eq!(label(Flags::all()), "-dims");
-        assert_eq!(
-            label(Flags::new([Flag::System, Flag::Display]).unwrap()),
-            "-ds"
-        );
-        assert_eq!(label(Flags::new([Flag::Disk]).unwrap()), "-m");
+        assert_eq!(label(flags(&[Flag::System, Flag::Display])), "-ds");
+        assert_eq!(label(flags(&[Flag::Disk])), "-m");
         assert_eq!(Flags::new([]), Err(Empty));
     }
 }

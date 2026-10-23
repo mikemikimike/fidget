@@ -47,10 +47,7 @@ pub fn label(flags: Flags) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn flags(set: &[Flag]) -> Flags {
-        Flags::new(set.iter().copied()).expect("a flag")
-    }
+    use crate::caffeinate::flags;
 
     #[test]
     fn idle_and_system_are_one_logind_inhibitor_and_display_the_screen_saver() {

@@ -8,11 +8,10 @@
 
 use std::io;
 
-use fidget_core::caffeinate::macos::Argv;
 use fidget_core::caffeinate::windows::{self, Request};
 #[cfg(test)]
 use fidget_core::caffeinate::Flag;
-use fidget_core::caffeinate::{Flags, Spawner};
+use fidget_core::caffeinate::{Flags, OsCaffeinate, ALREADY_ON};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Power::{
     PowerClearRequest, PowerCreateRequest, PowerRequestDisplayRequired, PowerRequestSystemRequired,
@@ -31,7 +30,7 @@ const CONTEXT_VERSION: u32 = 0;
 
 /// The `PowerSetRequest` types for a flag set. The core owns the flag map, so
 /// the Settings Command row and the notes name exactly what this file takes.
-pub fn request_types(flags: Flags) -> Vec<POWER_REQUEST_TYPE> {
+fn request_types(flags: Flags) -> Vec<POWER_REQUEST_TYPE> {
     windows::requests(flags)
         .into_iter()
         .map(|request| match request {
@@ -48,9 +47,9 @@ struct Requests {
 }
 
 impl Requests {
-    fn release(self) {
+    fn clear(self) {
         // SAFETY: `handle` came from `PowerCreateRequest` and is closed once,
-        // here, because `release` takes the only copy.
+        // here, because `clear` takes the only copy.
         unsafe {
             for kind in &self.types {
                 PowerClearRequest(self.handle, *kind);
@@ -62,7 +61,7 @@ impl Requests {
 
 #[derive(Default)]
 pub struct OsSpawner {
-    taken: Option<Requests>,
+    requests: Option<Requests>,
 }
 
 impl OsSpawner {
@@ -73,16 +72,16 @@ impl OsSpawner {
 
 impl Drop for OsSpawner {
     fn drop(&mut self) {
-        self.kill();
+        self.turn_off();
     }
 }
 
-impl Spawner for OsSpawner {
-    fn spawn(&mut self, argv: &Argv) -> Result<(), String> {
-        if self.taken.is_some() {
-            return Err("the power requests are already taken".to_string());
+impl OsCaffeinate for OsSpawner {
+    fn turn_on(&mut self, flags: Flags) -> Result<(), String> {
+        if self.requests.is_some() {
+            return Err(ALREADY_ON.to_string());
         }
-        let types = request_types(argv.flags());
+        let types = request_types(flags);
         if types.is_empty() {
             return Err("no flag maps to a Windows power request".to_string());
         }
@@ -100,7 +99,7 @@ impl Spawner for OsSpawner {
         if handle == INVALID_HANDLE_VALUE || handle.is_null() {
             return Err(io::Error::last_os_error().to_string());
         }
-        let mut taken = Requests {
+        let mut requests = Requests {
             handle,
             types: Vec::new(),
         };
@@ -108,31 +107,31 @@ impl Spawner for OsSpawner {
             // SAFETY: `handle` is the live request created above.
             if unsafe { PowerSetRequest(handle, kind) } == 0 {
                 let error = io::Error::last_os_error().to_string();
-                taken.release();
+                requests.clear();
                 return Err(error);
             }
-            taken.types.push(kind);
+            requests.types.push(kind);
         }
         // scripts/verify-caffeinate-win.ps1 waits on this line.
         eprintln!(
             "caffeinate: power requests taken: {}",
-            windows::label(argv.flags())
+            windows::label(flags)
         );
-        self.taken = Some(taken);
+        self.requests = Some(requests);
         Ok(())
     }
 
-    /// Releases the power requests at once, so the next tick reads Caffeinate
+    /// Clears the power requests at once, so the next tick reads Caffeinate
     /// as off.
-    fn kill(&mut self) {
-        if let Some(taken) = self.taken.take() {
-            taken.release();
+    fn turn_off(&mut self) {
+        if let Some(requests) = self.requests.take() {
+            requests.clear();
             eprintln!("caffeinate: power requests released");
         }
     }
 
-    fn alive(&mut self) -> bool {
-        self.taken.is_some()
+    fn is_on(&mut self) -> bool {
+        self.requests.is_some()
     }
 }
 
@@ -169,29 +168,28 @@ mod tests {
     fn disk_alone_takes_no_power_request() {
         let mut spawner = OsSpawner::new();
         let err = spawner
-            .spawn(&Argv::new(flags(&[Flag::Disk]), std::process::id()))
+            .turn_on(flags(&[Flag::Disk]))
             .expect_err("Disk maps to no power request");
         assert!(!err.is_empty());
-        assert!(!spawner.alive());
+        assert!(!spawner.is_on());
     }
 
     #[test]
     fn a_real_power_request_is_taken_once_and_released_by_kill() {
         let mut spawner = OsSpawner::new();
-        let argv = Argv::new(Flags::all(), std::process::id());
         spawner
-            .spawn(&argv)
+            .turn_on(Flags::all())
             .expect("Windows grants the power requests");
-        assert!(spawner.alive());
+        assert!(spawner.is_on());
         assert!(
-            spawner.spawn(&argv).is_err(),
+            spawner.turn_on(Flags::all()).is_err(),
             "a second take would leak the first handle"
         );
-        spawner.kill();
-        assert!(!spawner.alive());
+        spawner.turn_off();
+        assert!(!spawner.is_on());
         spawner
-            .spawn(&argv)
+            .turn_on(Flags::all())
             .expect("released power requests can be taken again");
-        assert!(spawner.alive());
+        assert!(spawner.is_on());
     }
 }

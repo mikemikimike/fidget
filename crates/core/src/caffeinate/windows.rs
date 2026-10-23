@@ -45,10 +45,7 @@ pub fn label(flags: Flags) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn flags(set: &[Flag]) -> Flags {
-        Flags::new(set.iter().copied()).expect("a flag")
-    }
+    use crate::caffeinate::flags;
 
     #[test]
     fn power_requests_follow_the_flags() {
