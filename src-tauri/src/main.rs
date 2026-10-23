@@ -639,7 +639,7 @@ pub(crate) struct CaffeinateFrame {
 
 pub(crate) fn caffeinate_frame(
     fact: fidget_core::caffeinate::Fact,
-    configured: Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty>,
+    configured: Result<fidget_core::caffeinate::Flags, fidget_core::caffeinate::Empty>,
 ) -> CaffeinateFrame {
     let reason = configured
         .err()

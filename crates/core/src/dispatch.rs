@@ -550,7 +550,7 @@ mod tests {
                 Some(value) => {
                     self.sets.push(value);
                     self.fact = if value {
-                        Fact::On(crate::caffeinate::AssertedFlags::all())
+                        Fact::On(crate::caffeinate::Flags::all())
                     } else {
                         Fact::Off
                     };
@@ -582,7 +582,7 @@ mod tests {
         let on = call(&mut caffeinate, json!({ "on": true }));
         let again = call(&mut caffeinate, json!({ "on": true }));
         let off = call(&mut caffeinate, json!({ "on": false }));
-        let flags = crate::caffeinate::AssertedFlags::all().inhibitor_label();
+        let flags = crate::caffeinate::Flags::all().inhibitor_label();
         assert_eq!(on, json!({ "on": true, "flags": flags }));
         assert_eq!(again, json!({ "on": true, "flags": flags }));
         assert_eq!(off, json!({ "on": false }));

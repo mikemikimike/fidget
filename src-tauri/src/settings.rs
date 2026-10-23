@@ -2173,9 +2173,9 @@ fn caffeinate_flags(
     idle: bool,
     disk: bool,
     system: bool,
-) -> Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty> {
-    use fidget_core::caffeinate::{AssertedFlags, Flag};
-    AssertedFlags::new(
+) -> Result<fidget_core::caffeinate::Flags, fidget_core::caffeinate::Empty> {
+    use fidget_core::caffeinate::{Flag, Flags};
+    Flags::new(
         [
             (Flag::Display, display),
             (Flag::Idle, idle),
@@ -2191,28 +2191,28 @@ fn caffeinate_flags(
 
 /// What the Command row shows for a flag set.
 #[cfg(target_os = "macos")]
-fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
+fn caffeinate_command(flags: fidget_core::caffeinate::Flags) -> String {
     format!("caffeinate {}", flags.inhibitor_label())
 }
 
 /// What the Command row shows for a flag set: the inhibitors
 /// `caffeinate_linux` takes for it.
 #[cfg(target_os = "linux")]
-fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
+fn caffeinate_command(flags: fidget_core::caffeinate::Flags) -> String {
     flags.inhibitor_label()
 }
 
 /// What the Command row shows for a flag set: the power requests
 /// `caffeinate_win` takes for it, by the names `powercfg /requests` uses.
 #[cfg(windows)]
-fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
+fn caffeinate_command(flags: fidget_core::caffeinate::Flags) -> String {
     format!("Power request: {}", flags.inhibitor_label())
 }
 
 impl Settings {
     pub fn caffeinate_flags(
         &self,
-    ) -> Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty> {
+    ) -> Result<fidget_core::caffeinate::Flags, fidget_core::caffeinate::Empty> {
         caffeinate_flags(
             self.caffeinate_display,
             self.caffeinate_idle,
@@ -2592,12 +2592,12 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_command_row_names_the_power_requests() {
-        use fidget_core::caffeinate::{AssertedFlags, Flag, Note};
+        use fidget_core::caffeinate::{Flag, Flags, Note};
         assert_eq!(
-            caffeinate_command(AssertedFlags::all()),
+            caffeinate_command(Flags::all()),
             "Power request: DISPLAY, SYSTEM"
         );
-        let idle = AssertedFlags::new([Flag::Idle]).unwrap();
+        let idle = Flags::new([Flag::Idle]).unwrap();
         assert_eq!(caffeinate_command(idle), "Power request: SYSTEM");
         assert!(Note::On(idle).text().ends_with("(SYSTEM)"));
     }

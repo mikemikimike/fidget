@@ -1,9 +1,13 @@
-//! One macOS `caffeinate` child for this launch.
-//!
-//! `-w` is mandatory. A macOS child is reparented to `launchd` when fidget
-//! dies, so a crash would leave the Mac awake without it.
+//! Caffeinate keeps this computer awake. [`Machine`] decides when it is on,
+//! and the OS side behind [`Spawner`] does the keeping. [`macos`], [`linux`]
+//! and [`windows`] name what each OS takes for a flag set. They are pure, so
+//! every target builds and tests all three.
 
-/// The empty flag set cannot be saved or spawned.
+pub mod linux;
+pub mod macos;
+pub mod windows;
+
+/// The empty flag set cannot be saved or turned on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Empty;
 
@@ -11,7 +15,7 @@ impl Empty {
     pub const REASON: &'static str = "At least one caffeinate flag has to stay on.";
 }
 
-/// One `caffeinate` assertion.
+/// One thing Caffeinate can keep awake.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flag {
     Display,
@@ -20,19 +24,15 @@ pub enum Flag {
     System,
 }
 
-/// The one map from flag to its `caffeinate` letter, in argv order.
-const LETTERS: [(Flag, char); 4] = [
-    (Flag::Display, 'd'),
-    (Flag::Idle, 'i'),
-    (Flag::Disk, 'm'),
-    (Flag::System, 's'),
-];
+impl Flag {
+    pub const ALL: [Flag; 4] = [Flag::Display, Flag::Idle, Flag::Disk, Flag::System];
+}
 
 /// A non-empty set of flags. One bit per [`Flag`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AssertedFlags(u8);
+pub struct Flags(u8);
 
-impl AssertedFlags {
+impl Flags {
     pub fn new(flags: impl IntoIterator<Item = Flag>) -> Result<Self, Empty> {
         let bits = flags.into_iter().fold(0, |bits, flag| bits | bit(flag));
         if bits == 0 {
@@ -42,125 +42,24 @@ impl AssertedFlags {
         }
     }
 
-    /// `-dims`, the default.
+    /// Every flag, the default.
     pub fn all() -> Self {
-        Self(LETTERS.iter().fold(0, |bits, (flag, _)| bits | bit(*flag)))
+        Self(Flag::ALL.iter().fold(0, |bits, flag| bits | bit(*flag)))
     }
 
     pub fn contains(self, flag: Flag) -> bool {
         self.0 & bit(flag) != 0
     }
 
-    fn letters(self) -> impl Iterator<Item = char> {
-        LETTERS
-            .into_iter()
-            .filter_map(move |(flag, letter)| self.contains(flag).then_some(letter))
-    }
-
-    /// The flag cluster Settings shows. `-dims`.
-    pub fn preview(self) -> String {
-        std::iter::once('-').chain(self.letters()).collect()
-    }
-
-    /// The Windows power requests this set asks for, in `powercfg` order.
-    /// Idle and System both keep the system up, and Windows has no disk request.
-    pub fn power_requests(self) -> Vec<PowerRequest> {
-        let mut requests = Vec::new();
-        if self.contains(Flag::Display) {
-            requests.push(PowerRequest::Display);
-        }
-        if self.contains(Flag::Idle) || self.contains(Flag::System) {
-            requests.push(PowerRequest::System);
-        }
-        requests
-    }
-
-    /// `DISPLAY, SYSTEM`, the sections `powercfg /requests` lists Fidget under.
-    pub fn power_request_names(self) -> String {
-        let names: Vec<&str> = self
-            .power_requests()
-            .into_iter()
-            .map(PowerRequest::name)
-            .collect();
-        if names.is_empty() {
-            "none".to_string()
-        } else {
-            names.join(", ")
-        }
-    }
-
-    pub fn argv(self, pid: u32) -> Argv {
-        Argv { flags: self, pid }
-    }
-
-    /// How Chat, the prompt line and Settings name what Caffeinate is keeping
-    /// awake: the caffeinate flag cluster such as `-dims` on macOS, the logind
-    /// and screen saver inhibitors on Linux, the power requests on Windows.
+    /// The words this OS uses for what Caffeinate keeps awake. Chat, the
+    /// prompt line, the MCP answer and the Settings Command row show it.
     pub fn inhibitor_label(self) -> String {
         if cfg!(target_os = "linux") {
-            LinuxPlan::of(self).describe()
+            linux::label(self)
         } else if cfg!(windows) {
-            self.power_request_names()
+            windows::label(self)
         } else {
-            self.preview()
-        }
-    }
-}
-
-/// What a flag set asks Linux to block. Pure, so every OS tests it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LinuxPlan {
-    /// The logind `what`: Idle is `idle`, System is `sleep`.
-    pub logind: Option<&'static str>,
-    /// Display is a screen saver inhibit.
-    pub display: bool,
-}
-
-impl LinuxPlan {
-    /// Disk has no Linux equivalent, so it adds nothing.
-    pub fn of(flags: AssertedFlags) -> Self {
-        let logind = match (flags.contains(Flag::Idle), flags.contains(Flag::System)) {
-            (true, true) => Some("idle:sleep"),
-            (true, false) => Some("idle"),
-            (false, true) => Some("sleep"),
-            (false, false) => None,
-        };
-        Self {
-            logind,
-            display: flags.contains(Flag::Display),
-        }
-    }
-
-    pub fn is_empty(self) -> bool {
-        self.logind.is_none() && !self.display
-    }
-
-    /// The Settings Command row, the Chat note and the prompt line.
-    pub fn describe(self) -> String {
-        let mut parts = Vec::new();
-        if let Some(what) = self.logind {
-            parts.push(format!("logind inhibit {what}"));
-        }
-        if self.display {
-            parts.push("screen saver inhibit".to_string());
-        }
-        parts.join(" + ")
-    }
-}
-
-/// A Windows power request type. `caffeinate_win` maps each to the OS value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PowerRequest {
-    Display,
-    System,
-}
-
-impl PowerRequest {
-    /// The section `powercfg /requests` lists it under.
-    pub fn name(self) -> &'static str {
-        match self {
-            PowerRequest::Display => "DISPLAY",
-            PowerRequest::System => "SYSTEM",
+            macos::label(self)
         }
     }
 }
@@ -169,35 +68,12 @@ fn bit(flag: Flag) -> u8 {
     1 << flag as u8
 }
 
-/// Closed argv. There is no utility slot, because `caffeinate` ignores `-w`
-/// when a utility is also present.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Argv {
-    flags: AssertedFlags,
-    pid: u32,
-}
-
-impl Argv {
-    /// The flags alone, for a `Spawner` that takes no argv.
-    pub fn flags(self) -> AssertedFlags {
-        self.flags
-    }
-
-    /// The tokens `Command` is given.
-    pub fn args(self) -> Vec<String> {
-        let flags = self.flags.letters().map(|letter| format!("-{letter}"));
-        flags
-            .chain(["-w".to_string(), self.pid.to_string()])
-            .collect()
-    }
-}
-
 /// Whether Caffeinate is on, and with which flags. Absence of the feature is
 /// `None` at the prompt, not a third variant here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fact {
     Off,
-    On(AssertedFlags),
+    On(Flags),
 }
 
 impl Fact {
@@ -205,7 +81,7 @@ impl Fact {
         matches!(self, Fact::On(_))
     }
 
-    /// `caffeinate: off` or `caffeinate: on (-dims)`, with [`AssertedFlags::inhibitor_label`].
+    /// `caffeinate: off` or `caffeinate: on (-dims)`, with [`Flags::inhibitor_label`].
     pub fn prompt_line(self) -> String {
         match self {
             Fact::Off => "caffeinate: off".to_string(),
@@ -217,9 +93,9 @@ impl Fact {
 /// A Chat note. Not a tool result and not the prompt line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Note {
-    On(AssertedFlags),
+    On(Flags),
     Off,
-    /// The child left while Caffeinate was still on and nobody killed it.
+    /// The OS side turned off while Caffeinate was still on and nobody asked.
     Exited,
     Failed,
     /// A `Spawner` that works off the caller's thread could not turn Caffeinate
@@ -249,13 +125,12 @@ pub enum Request {
     Set(bool),
 }
 
-/// Process boundary. `spawn` fails while Caffeinate is already on, so a second
+/// The OS side. `spawn` fails while Caffeinate is already on, so a second
 /// start cannot hide the first.
 pub trait Spawner {
-    fn spawn(&mut self, argv: &Argv) -> Result<(), String>;
+    fn spawn(&mut self, argv: &macos::Argv) -> Result<(), String>;
     fn kill(&mut self);
-    /// Whether the child or the inhibitors are still in effect. Reaps a child
-    /// that has left.
+    /// Whether the OS side still keeps the computer awake.
     fn alive(&mut self) -> bool;
     /// Why `alive` just reported off: Caffeinate never came on. Only a `Spawner`
     /// whose `spawn` returns before the OS answers has one.
@@ -280,11 +155,11 @@ pub struct Tick {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     Idle,
-    Running(AssertedFlags),
-    /// SIGTERM sent. Caffeinate still reads `flags`. Once the child is gone it
-    /// spawns `flags` if `restart`, or turns off with a note.
+    Running(Flags),
+    /// Asked to turn off. Caffeinate still reads `flags`. Once the OS side is
+    /// off it turns `flags` on if `restart`, or turns off with a note.
     Stopping {
-        flags: AssertedFlags,
+        flags: Flags,
         restart: bool,
     },
 }
@@ -298,7 +173,7 @@ pub struct Machine<S: Spawner> {
 }
 
 impl<S: Spawner> Machine<S> {
-    /// `pid` is the process the child waits on with `-w`.
+    /// `pid` goes into the macOS argv.
     pub fn new(spawner: S, pid: u32) -> Self {
         Self {
             spawner,
@@ -308,8 +183,8 @@ impl<S: Spawner> Machine<S> {
         }
     }
 
-    /// Apply requests, then reconcile the one child to what they want.
-    pub fn tick(&mut self, flags: Result<AssertedFlags, Empty>, requests: &[Request]) -> Tick {
+    /// Apply requests, then bring the OS side to what they want.
+    pub fn tick(&mut self, flags: Result<Flags, Empty>, requests: &[Request]) -> Tick {
         let alive = self.spawner.alive();
         let failure = self.spawner.failure();
         let mut tick = Tick {
@@ -335,7 +210,7 @@ impl<S: Spawner> Machine<S> {
             .iter()
             .any(|request| matches!(request, Request::Set(true) | Request::Toggle));
 
-        // `alive` described the old child if a restart just spawned a new one.
+        // `alive` described the old one if a restart just turned on a new one.
         if let (false, false, Phase::Running(spawned)) = (restarted, alive, self.phase) {
             self.phase = Phase::Idle;
             let changed = flags.is_ok_and(|next| next != spawned);
@@ -400,8 +275,8 @@ impl<S: Spawner> Machine<S> {
         tick
     }
 
-    /// Retries SIGTERM while the child is alive. Returns whether this call
-    /// spawned the next child.
+    /// Asks again while the OS side is still on. Returns whether this call
+    /// turned the next one on.
     fn finish_stop(&mut self, alive: bool, tick: &mut Tick) -> bool {
         let Phase::Stopping { flags, restart } = self.phase else {
             return false;
@@ -420,8 +295,8 @@ impl<S: Spawner> Machine<S> {
         false
     }
 
-    fn spawn(&mut self, flags: AssertedFlags, announce: bool, tick: &mut Tick) {
-        match self.spawner.spawn(&flags.argv(self.pid)) {
+    fn spawn(&mut self, flags: Flags, announce: bool, tick: &mut Tick) {
+        match self.spawner.spawn(&macos::Argv::new(flags, self.pid)) {
             Ok(()) => {
                 self.phase = Phase::Running(flags);
                 self.wanted = true;
@@ -441,6 +316,7 @@ impl<S: Spawner> Machine<S> {
 
 #[cfg(test)]
 mod tests {
+    use super::macos::Argv;
     use super::*;
 
     struct Fake {
@@ -495,39 +371,18 @@ mod tests {
         }
     }
 
-    fn dims() -> AssertedFlags {
-        AssertedFlags::all()
+    fn dims() -> Flags {
+        Flags::all()
     }
 
     fn drive(
         machine: &mut Machine<Fake>,
-        flags: Result<AssertedFlags, Empty>,
+        flags: Result<Flags, Empty>,
         requests: &[Request],
         alive: bool,
     ) -> Tick {
         machine.spawner.next = Some(alive);
         machine.tick(flags, requests)
-    }
-
-    #[test]
-    fn argv_is_flag_tokens_then_wait_pid() {
-        let args = dims().argv(42).args();
-        assert_eq!(
-            args,
-            vec!["-d", "-i", "-m", "-s", "-w", "42"]
-                .into_iter()
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(dims().preview(), "-dims");
-        assert_eq!(
-            AssertedFlags::new([Flag::System, Flag::Display])
-                .unwrap()
-                .preview(),
-            "-ds"
-        );
-        assert_eq!(AssertedFlags::new([Flag::Disk]).unwrap().preview(), "-m");
-        assert_eq!(AssertedFlags::new([]), Err(Empty));
     }
 
     /// `inhibitor_label` for every flag on this OS.
@@ -538,39 +393,6 @@ mod tests {
     } else {
         "-dims"
     };
-
-    #[test]
-    fn windows_power_requests_follow_the_flags() {
-        let requests = |set: &[Flag]| {
-            AssertedFlags::new(set.iter().copied())
-                .unwrap()
-                .power_requests()
-        };
-        assert_eq!(
-            dims().power_requests(),
-            vec![PowerRequest::Display, PowerRequest::System]
-        );
-        assert_eq!(requests(&[Flag::Display]), vec![PowerRequest::Display]);
-        assert_eq!(requests(&[Flag::Idle]), vec![PowerRequest::System]);
-        assert_eq!(
-            requests(&[Flag::System, Flag::Idle]),
-            vec![PowerRequest::System]
-        );
-        assert!(requests(&[Flag::Disk]).is_empty());
-        assert_eq!(dims().power_request_names(), "DISPLAY, SYSTEM");
-        assert_eq!(
-            AssertedFlags::new([Flag::Idle])
-                .unwrap()
-                .power_request_names(),
-            "SYSTEM"
-        );
-        assert_eq!(
-            AssertedFlags::new([Flag::Disk])
-                .unwrap()
-                .power_request_names(),
-            "none"
-        );
-    }
 
     #[test]
     fn the_inhibitor_label_is_the_name_each_os_uses() {
@@ -610,47 +432,6 @@ mod tests {
         assert_eq!(
             Note::On(dims()).text(),
             format!("☕ Caffeinate on: keeping your computer awake ({named})")
-        );
-    }
-
-    fn flags(set: &[Flag]) -> AssertedFlags {
-        AssertedFlags::new(set.iter().copied()).expect("a flag")
-    }
-
-    #[test]
-    fn idle_and_system_are_one_logind_inhibitor_and_display_the_screen_saver() {
-        assert_eq!(
-            LinuxPlan::of(dims()),
-            LinuxPlan {
-                logind: Some("idle:sleep"),
-                display: true
-            }
-        );
-        assert_eq!(LinuxPlan::of(flags(&[Flag::Idle])).logind, Some("idle"));
-        assert_eq!(LinuxPlan::of(flags(&[Flag::System])).logind, Some("sleep"));
-        assert_eq!(
-            LinuxPlan::of(flags(&[Flag::Display])),
-            LinuxPlan {
-                logind: None,
-                display: true
-            }
-        );
-        assert!(LinuxPlan::of(flags(&[Flag::Disk])).is_empty());
-    }
-
-    #[test]
-    fn the_linux_plan_names_each_inhibitor() {
-        assert_eq!(
-            LinuxPlan::of(dims()).describe(),
-            "logind inhibit idle:sleep + screen saver inhibit"
-        );
-        assert_eq!(
-            LinuxPlan::of(flags(&[Flag::System])).describe(),
-            "logind inhibit sleep"
-        );
-        assert_eq!(
-            LinuxPlan::of(flags(&[Flag::Display])).describe(),
-            "screen saver inhibit"
         );
     }
 
@@ -732,7 +513,7 @@ mod tests {
     fn flag_change_restarts_without_an_off_or_a_second_on() {
         let mut machine = Machine::new(Fake::new(), 42);
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
-        let display = AssertedFlags::new([Flag::Display]).unwrap();
+        let display = Flags::new([Flag::Display]).unwrap();
 
         let stopping = drive(&mut machine, Ok(display), &[], true);
         assert_eq!(stopping.fact, Fact::On(display));
@@ -753,7 +534,7 @@ mod tests {
     fn off_in_the_tick_a_restart_spawns_waits_for_the_new_child() {
         let mut machine = Machine::new(Fake::new(), 42);
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
-        let display = AssertedFlags::new([Flag::Display]).unwrap();
+        let display = Flags::new([Flag::Display]).unwrap();
         drive(&mut machine, Ok(display), &[], true);
 
         let off = drive(&mut machine, Ok(display), &[Request::Set(false)], false);
@@ -776,8 +557,8 @@ mod tests {
     fn a_flag_change_in_the_tick_a_restart_spawns_waits_for_the_new_child() {
         let mut machine = Machine::new(Fake::new(), 42);
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
-        let display = AssertedFlags::new([Flag::Display]).unwrap();
-        let system = AssertedFlags::new([Flag::System]).unwrap();
+        let display = Flags::new([Flag::Display]).unwrap();
+        let system = Flags::new([Flag::System]).unwrap();
         drive(&mut machine, Ok(display), &[], true);
 
         let changed = drive(&mut machine, Ok(system), &[], false);

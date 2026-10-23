@@ -18,10 +18,8 @@ use crate::caffeinate_linux::OsSpawner;
 #[cfg(windows)]
 use crate::caffeinate_win::OsSpawner;
 #[cfg(target_os = "macos")]
-use fidget_core::caffeinate::{Argv, Spawner};
-use fidget_core::caffeinate::{
-    AssertedFlags, CaffeinateHandle, Empty, Fact, Machine, Note, Request, Tick,
-};
+use fidget_core::caffeinate::{macos::Argv, Spawner};
+use fidget_core::caffeinate::{CaffeinateHandle, Empty, Fact, Flags, Machine, Note, Request, Tick};
 
 /// The running child's pid, or 0. The quit paths call `process::exit`, which
 /// skips `Drop`, so they read this to SIGTERM the child.
@@ -126,7 +124,7 @@ impl Spawner for OsSpawner {
 /// the frame loop posts them to Chat.
 pub struct Caffeinate {
     machine: Machine<OsSpawner>,
-    configured: Result<AssertedFlags, Empty>,
+    configured: Result<Flags, Empty>,
     pending: Vec<Note>,
 }
 
@@ -134,12 +132,12 @@ impl Caffeinate {
     pub fn new() -> Self {
         Self {
             machine: Machine::new(OsSpawner::new(), std::process::id()),
-            configured: Ok(AssertedFlags::all()),
+            configured: Ok(Flags::all()),
             pending: Vec::new(),
         }
     }
 
-    pub fn set_target(&mut self, configured: Result<AssertedFlags, Empty>) {
+    pub fn set_target(&mut self, configured: Result<Flags, Empty>) {
         self.configured = configured;
     }
 
@@ -172,7 +170,7 @@ mod tests {
     use std::time::Duration;
 
     fn dims() -> Argv {
-        AssertedFlags::all().argv(std::process::id())
+        Argv::new(Flags::all(), std::process::id())
     }
 
     #[test]

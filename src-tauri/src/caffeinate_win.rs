@@ -8,9 +8,11 @@
 
 use std::io;
 
+use fidget_core::caffeinate::macos::Argv;
+use fidget_core::caffeinate::windows::{self, Request};
 #[cfg(test)]
 use fidget_core::caffeinate::Flag;
-use fidget_core::caffeinate::{Argv, AssertedFlags, PowerRequest, Spawner};
+use fidget_core::caffeinate::{Flags, Spawner};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Power::{
     PowerClearRequest, PowerCreateRequest, PowerRequestDisplayRequired, PowerRequestSystemRequired,
@@ -29,13 +31,12 @@ const CONTEXT_VERSION: u32 = 0;
 
 /// The `PowerSetRequest` types for a flag set. The core owns the flag map, so
 /// the Settings Command row and the notes name exactly what this file takes.
-pub fn request_types(flags: AssertedFlags) -> Vec<POWER_REQUEST_TYPE> {
-    flags
-        .power_requests()
+pub fn request_types(flags: Flags) -> Vec<POWER_REQUEST_TYPE> {
+    windows::requests(flags)
         .into_iter()
         .map(|request| match request {
-            PowerRequest::Display => PowerRequestDisplayRequired,
-            PowerRequest::System => PowerRequestSystemRequired,
+            Request::Display => PowerRequestDisplayRequired,
+            Request::System => PowerRequestSystemRequired,
         })
         .collect()
 }
@@ -115,7 +116,7 @@ impl Spawner for OsSpawner {
         // scripts/verify-caffeinate-win.ps1 waits on this line.
         eprintln!(
             "caffeinate: power requests taken: {}",
-            argv.flags().power_request_names()
+            windows::label(argv.flags())
         );
         self.taken = Some(taken);
         Ok(())
@@ -139,14 +140,14 @@ impl Spawner for OsSpawner {
 mod tests {
     use super::*;
 
-    fn flags(set: &[Flag]) -> AssertedFlags {
-        AssertedFlags::new(set.iter().copied()).expect("a flag")
+    fn flags(set: &[Flag]) -> Flags {
+        Flags::new(set.iter().copied()).expect("a flag")
     }
 
     #[test]
     fn display_asks_for_the_display_and_idle_or_system_for_the_system() {
         assert_eq!(
-            request_types(AssertedFlags::all()),
+            request_types(Flags::all()),
             vec![PowerRequestDisplayRequired, PowerRequestSystemRequired]
         );
         assert_eq!(
@@ -168,7 +169,7 @@ mod tests {
     fn disk_alone_takes_no_power_request() {
         let mut spawner = OsSpawner::new();
         let err = spawner
-            .spawn(&flags(&[Flag::Disk]).argv(std::process::id()))
+            .spawn(&Argv::new(flags(&[Flag::Disk]), std::process::id()))
             .expect_err("Disk maps to no power request");
         assert!(!err.is_empty());
         assert!(!spawner.alive());
@@ -177,7 +178,7 @@ mod tests {
     #[test]
     fn a_real_power_request_is_taken_once_and_released_by_kill() {
         let mut spawner = OsSpawner::new();
-        let argv = AssertedFlags::all().argv(std::process::id());
+        let argv = Argv::new(Flags::all(), std::process::id());
         spawner
             .spawn(&argv)
             .expect("Windows grants the power requests");

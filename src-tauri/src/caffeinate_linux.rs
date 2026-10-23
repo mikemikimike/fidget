@@ -16,7 +16,9 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use fidget_core::caffeinate::{Argv, LinuxPlan as Plan, Spawner};
+use fidget_core::caffeinate::linux::Plan;
+use fidget_core::caffeinate::macos::Argv;
+use fidget_core::caffeinate::Spawner;
 use zbus::blocking::{connection, Connection};
 use zbus::zvariant::OwnedObjectPath;
 
@@ -368,15 +370,15 @@ impl Spawner for OsSpawner {
 mod tests {
     use super::*;
 
-    use fidget_core::caffeinate::{AssertedFlags, Flag};
+    use fidget_core::caffeinate::{Flag, Flags};
     use std::sync::mpsc::SyncSender;
 
-    fn flags(set: &[Flag]) -> AssertedFlags {
-        AssertedFlags::new(set.iter().copied()).expect("a flag")
+    fn flags(set: &[Flag]) -> Flags {
+        Flags::new(set.iter().copied()).expect("a flag")
     }
 
     fn dims() -> Argv {
-        AssertedFlags::all().argv(std::process::id())
+        Argv::new(Flags::all(), std::process::id())
     }
 
     /// After `hear_next` the tests read `up`, not `alive`: `alive` would
@@ -405,7 +407,7 @@ mod tests {
     fn disk_alone_takes_no_inhibitor() {
         let mut spawner = OsSpawner::with(Box::new(|_| Err("never asked".to_string())));
         let err = spawner
-            .spawn(&flags(&[Flag::Disk]).argv(std::process::id()))
+            .spawn(&Argv::new(flags(&[Flag::Disk]), std::process::id()))
             .expect_err("no inhibitor");
         assert!(!err.is_empty());
         assert!(!spawner.alive());
@@ -478,7 +480,7 @@ mod tests {
         }
         let (dropped_tx, dropped) = mpsc::sync_channel(1);
         let taken = take_all(
-            Plan::of(AssertedFlags::all()),
+            Plan::of(Flags::all()),
             |what| {
                 assert_eq!(what, "idle:sleep");
                 Ok(Token(dropped_tx))
@@ -492,7 +494,7 @@ mod tests {
         dropped.try_recv().expect("the logind part was released");
 
         let refused = take_all(
-            Plan::of(AssertedFlags::all()),
+            Plan::of(Flags::all()),
             |_| Err::<(), _>("denied".to_string()),
             || -> Result<(), String> { panic!("not asked after logind failed") },
         );
