@@ -417,6 +417,7 @@ impl<C: Completer> ModelDirector<C> {
 
     /// What the reply so far lets the character say: nothing until the
     /// contract line is found, then what the final reply's parse would speak.
+    /// That parse is the only shaping.
     fn speech_so_far(&self, answer: &str) -> Option<String> {
         let answer = answer.trim_end_matches('\r');
         let prepared = prepare_reply(answer, &self.behaviors);
@@ -2291,9 +2292,9 @@ mod tests {
         }
     }
 
-    /// The Harness is handed MCP and must be told. Codex searches deferred MCP
-    /// tools only when something names them. One sentence does it; the catalog
-    /// stays the tools' own to describe.
+    /// The Harness is handed MCP and must be told: Codex searches deferred MCP
+    /// tools only when named, and "never claim an ability" reads as "you have
+    /// none". One sentence does it; the catalog stays the tools' own.
     #[test]
     fn a_request_invites_the_tools_without_naming_them() {
         let moment = context(working(), &["nap"]);

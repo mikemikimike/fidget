@@ -1106,8 +1106,8 @@ mod tests {
         assert_eq!(played["reason"], spoke["reason"]);
     }
 
-    /// Break: an empty message or behavior reporting success, or becoming a
-    /// DispatchError.
+    /// Fails if an empty message or behavior reports success, or stops being
+    /// a DispatchError.
     #[test]
     fn empty_message_and_empty_behavior_keep_the_existing_failure_shape() {
         let temp = tempfile::tempdir().expect("temp dir is creatable");

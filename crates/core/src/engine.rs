@@ -114,9 +114,9 @@ impl Cue {
         }
     }
 
-    /// `Grab` and `Throw` carry none: a cue keyed on `Grab` fires every tick
-    /// of a drag, and a `Throw` is answered by the transition out of `Dragged`,
-    /// which a slow release, emitting no verb, needs anyway.
+    /// `Grab` and `Throw` carry none: a cue keyed on `Grab` would fire every
+    /// tick of a drag, and a `Throw` is answered by the transition out of
+    /// `Dragged`, which a slow release, emitting no verb, needs anyway.
     fn of_verb(verb: &Verb) -> Option<Self> {
         match verb {
             Verb::Poke => Some(Self::Poke),
@@ -139,9 +139,9 @@ pub struct BehaviorProposal {
 /// Everything the Engine is told about the world for one tick.
 #[derive(Clone, Debug, Default)]
 pub struct WorldSnapshot {
-    /// The part of each display a sprite may occupy. The Shell strips furniture
-    /// the sprite must not go behind, so floor, ceiling and walls derive from
-    /// these. Only the Dock's reserved Perch id makes its side a wall.
+    /// The part of each visible display a sprite may occupy: the Shell strips
+    /// furniture it must not go behind. The Dock is known only by its Perch's
+    /// reserved id, which makes its side a wall.
     pub displays: Vec<Rect>,
     /// Visible windows in descending z-order.
     pub windows: Vec<Window>,
@@ -278,13 +278,13 @@ const JUMP_SPEED: f64 = 900.0;
 /// the tallest Character and charged to all of them.
 const CEILING_VISIBLE_SHARE: f64 = 0.5;
 
-/// The clearance a bare `Engine::new` without an art height uses: 32px at 4×.
-/// Production always supplies one.
+/// The clearance an Engine built without an art height uses: 32px at 4×.
+/// Production always supplies one; bare `Engine::new` tests rely on this.
 const CEILING_CLEARANCE_UNKNOWN: f64 = 128.0;
 
-/// How far from a horizontal display edge standing feet stay, so the sprite is
-/// on-screen. 64 is 16px at 4×, a typical character's width. Climb frames put
-/// the wall mid-frame, so climbing ignores this inset.
+/// How far from a horizontal display edge standing feet stay. The Engine does
+/// not know the art's size; 64 is 16px at 4×, a typical width. Climb frames
+/// put the wall mid-frame, so climbing ignores this inset.
 const EDGE_CLEARANCE: f64 = 64.0;
 
 /// Points per second squared. The yank gate is this times `YANK_WINDOW_S`: a
@@ -978,8 +978,8 @@ impl Engine {
         }
 
         // A walk's velocity outlives its Behavior until the Perch runs out; a
-        // still Primitive stops it, or `walk sit` slides. Chase steers on x,
-        // and times out or it follows a restless cursor off the display.
+        // still Primitive stops it, or `walk sit` slides. Chase steers on x;
+        // arrival is a swat, not overlap, and a timeout ends an endless chase.
         if matches!(state, State::Grounded | State::Perched) {
             match self.on_screen() {
                 Some(Primitive::Walk) => self.velocity.x = self.facing * WALK_SPEED,
@@ -1132,9 +1132,9 @@ impl Engine {
             started = true;
         }
 
-        // An undeclared Behavior is refused and interrupts nothing. Runs after
-        // the move so the gate reads the State the tick ends in; a walk steps
-        // first on the next tick, as SPEC.md asks. DND refuses before the gate.
+        // An undeclared Behavior is refused, not reported, and interrupts
+        // nothing. After the move, so the gate reads the State the tick ends
+        // in; a walk steps on the next tick (SPEC.md). DND refuses first.
         let mut behavior = None;
         // The State gate's refusals only. Do Not Disturb is a silence the
         // user asked for, and an undeclared name is traced at the parse.
@@ -1142,9 +1142,9 @@ impl Engine {
         if let Some(proposal) = &snapshot.proposal {
             if !self.do_not_disturb {
                 if let Some(primitives) = self.chain(&proposal.behavior) {
-                    // Mid-cooldown, `play` refuses a moving chain whole: a
-                    // Behavior is one thing, but a lone line or gesture plays.
-                    // After the cooldown the Director calls afresh; no resume.
+                    // Mid-cooldown, `play` refuses a moving chain whole,
+                    // greeting included. A lone line or gesture plays. After
+                    // the cooldown the Director calls afresh; nothing resumes.
                     if self.play(&primitives) {
                         started = true;
                         behavior = Some(proposal.behavior.clone());
@@ -1190,9 +1190,9 @@ impl Engine {
                 .iter()
                 .any(|verb| matches!(verb, Verb::Summon | Verb::Menu));
 
-        // One cue a tick; a hand transition outranks a click, and the first
-        // click verb wins. Menu repeats every held tick like Grab, so it cues
-        // on the press edge.
+        // One cue a tick; a hand transition outranks a click. Two clicks cannot
+        // share a tick, so the first click verb wins. Menu repeats every held
+        // tick like Grab, so it cues on the press edge.
         let menu_now = snapshot.verbs.iter().any(|verb| matches!(verb, Verb::Menu));
         let cue = cue.or_else(|| {
             snapshot

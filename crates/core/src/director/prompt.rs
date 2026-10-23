@@ -1,8 +1,8 @@
 use super::{Context, Doing, Happened, Lately, State, Step, CHAT_LIMIT};
 
-/// The opening turn: the package's Personality Prompt, this Instance's own
-/// (ADR-0012), the roster and this moment. Later wakes send `follow_up` only.
-/// `blank` keeps only the Instance Prompt: the control run for the shipped one.
+/// The opening turn: Personality Prompt, Instance Prompt (ADR-0012), roster
+/// and moment; later wakes send `follow_up`. `blank` empties the built-in
+/// layers for the control run, keeping the rest; its reply is prose.
 pub(crate) fn character_prompt(
     context: &Context,
     behaviors: impl IntoIterator<Item = impl AsRef<str>>,
@@ -41,8 +41,8 @@ pub(crate) fn character_prompt(
 }
 
 /// The app layer of the Character Prompt: voice rules, roster, reply contract.
-/// Empty under Blank AI. Paid on every wake, so it says only what nothing else
-/// can; the tools describe themselves over MCP, so naming them would drift.
+/// Empty under Blank AI, which the Prompt tab shows frozen. Paid every wake,
+/// so the tools describe themselves over MCP; a copy here would drift.
 pub fn app_instructions(
     behaviors: impl IntoIterator<Item = impl AsRef<str>>,
     blank: bool,
