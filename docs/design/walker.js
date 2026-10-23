@@ -142,14 +142,25 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   const back = doc.getElementById("fidget-back");
   const stage = doc.querySelector(".stage");
   const narrow = matchMedia("(max-width: 480px)");
-  const me = data.cast[character(data.cast, data.hero)];
-  const { loops } = me;
-  const [w, h] = me.size;
-  Object.assign(img, { alt: me.name, width: w, height: h });
-  img.classList.toggle("pixel", me.pixel);
-  sprite.style.width = `${w}px`;
-  sprite.style.height = `${h}px`;
-  if (!still) Object.values(loops).flatMap((loop) => loop.frames).forEach((src) => { new Image().src = src; });
+  let worn, me, loops, w, h;
+  let playing = null;
+  // Each frame, so a pick on the desk shows here at once while on the page,
+  // and on the next walk on otherwise: the loop does not run while away.
+  const wear = () => {
+    const id = character(data.cast, data.hero);
+    if (id === worn) return;
+    worn = id;
+    me = data.cast[id];
+    ({ loops } = me);
+    [w, h] = me.size;
+    playing = null;
+    Object.assign(img, { alt: me.name, width: w, height: h });
+    img.classList.toggle("pixel", me.pixel);
+    sprite.style.width = `${w}px`;
+    sprite.style.height = `${h}px`;
+    if (!still) Object.values(loops).flatMap((loop) => loop.frames).forEach((src) => { new Image().src = src; });
+  };
+  wear();
   layer.hidden = false;
 
   const world = () => ({ width: doc.documentElement.clientWidth, height: innerHeight, sprite: { w, h }, windows: [] });
@@ -240,7 +251,6 @@ export function mount(doc, data, { cue, bubble, play, still }) {
     back.hidden = true;
   });
 
-  let playing = null;
   let since = 0;
   let last = null;
   let shown = null;
@@ -287,6 +297,7 @@ export function mount(doc, data, { cue, bubble, play, still }) {
   }
   function frame(now) {
     pending = 0;
+    wear();
     apply({ type: "tick", now, dt: last === null ? 0 : (now - last) / 1000, rand: Math.random() });
     draw(now);
     last = pending ? now : null;

@@ -3,7 +3,7 @@
 // a throw lands on the bottom edge, it hands over to the playground and back
 // without two on screen, resting at the threshold does not bounce it, it draws
 // no frames while away, Hide survives a reload and moves focus, a phone pokes
-// rather than grabs, and reduced motion keeps it still.
+// rather than grabs, reduced motion keeps it still, and a pick swaps it.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -340,6 +340,42 @@ const phone = `
   });
 </script>`;
 
+// A pick by keyboard while the page character walks on swaps it on the next
+// frames. A pick while the desk has it shows when it next walks on.
+const picks = `
+<script>${helpers}
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const data = JSON.parse(document.getElementById("play-data").textContent);
+      const at = document.getElementById("fidget-at");
+      const sprite = document.getElementById("fidget-sprite");
+      const img = sprite.querySelector("img");
+      const playImg = document.querySelector("#play-sprite img");
+      const desk = document.getElementById("play-desk");
+      const button = (id) => document.querySelector('#play-picker button[data-id="' + id + '"]');
+      const wearing = (id) => ({ alt: img.alt, width: sprite.style.width, frame: Object.values(data.cast[id].loops)
+        .some((loop) => loop.frames.includes(img.getAttribute("src"))) });
+      document.getElementById("characters").scrollIntoView({ block: "start" });
+      await until("the walk onto the page", () => !at.hidden, 2000);
+      button("cat").focus({ preventScroll: true });
+      pressKey("Enter");
+      await until("the desk's Cat", () => playImg.alt === "Cat", 1000);
+      await frame(); await frame();
+      const onPage = { ...wearing("cat"), shown: !at.hidden };
+      desk.scrollIntoView({ block: "center" });
+      await until("the hand over to the desk", () => at.hidden, 2000);
+      button("bmo").click();
+      const desked = playImg.alt;
+      document.getElementById("characters").scrollIntoView({ block: "start" });
+      await until("the walk back on", () => !at.hidden, 2000);
+      done({ onPage, desked, entry: wearing("bmo"), sizes: { cat: data.cast.cat.size[0] + "px", bmo: data.cast.bmo.size[0] + "px" } });
+    } catch (err) {
+      done({ errors: [...errors, String(err)] });
+    }
+  });
+</script>`;
+
 let dir;
 let site;
 
@@ -373,7 +409,9 @@ async function play(script, flags = [], viewport = null) {
       const [code, text] = { Enter: [13, "\r"], Tab: [9, ""] }[payload];
       const key = { key: payload, code: payload, windowsVirtualKeyCode: code };
       cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...key, text }, sessionId)
-        .then(() => cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...key }, sessionId));
+        .then(() => cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...key }, sessionId))
+        // A probe can finish on the keyDown, and Chrome close before its keyUp.
+        .catch(() => {});
     });
     return await captureConsoleLog(cdp, sessionId, "__PROBE_RESULT__", PROBE_MS, () => navigate(pathToFileURL(page).href));
   } finally {
@@ -402,6 +440,15 @@ test("the page character walks on, reacts, lands a throw, hands over to the play
   assert.deepEqual(result.reloaded, { hidden: true, back: true, layerEmpty: true }, "Hide is remembered across a reload");
   assert.equal(result.backInView, true, "Bring back shows in a corner of the viewport");
   assert.deepEqual([result.returned, result.backAfter], [true, false], "Bring back walks it on again and hides the link");
+});
+
+test("a pick on the desk swaps the page character at once while it is on the page, else on its next walk on", { skip: chromeSkip }, async () => {
+  const result = await play(picks);
+  assert.deepEqual(result.errors, [], "the page threw nothing");
+  assert.deepEqual(result.onPage, { alt: "Cat", width: result.sizes.cat, frame: true, shown: true },
+    "Enter on Cat swapped the page character it was walking as, without a reload");
+  assert.equal(result.desked, "BMO", "a pick while the desk has the Character swaps the desk");
+  assert.deepEqual(result.entry, { alt: "BMO", width: result.sizes.bmo, frame: true }, "the next walk on is BMO from its first frame");
 });
 
 test("under reduced motion the page character stays put on its first frame, and a poke still shows a bubble", { skip: chromeSkip }, async () => {

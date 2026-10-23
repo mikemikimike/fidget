@@ -98,12 +98,13 @@ test("every frame the page names is in the assembled site", () => {
   }
 });
 
-// The playground and the page character share one blob. Each default
-// Character carries every loop both play, at its own size, and the lines its
-// personality.txt quotes after "heard to say:" or "known to say:".
-test("the playground data carries Buddy Bot, Nim and Timber Wolf, each with its loops and its own lines", () => {
+// The playground and the page character share one blob. The picker offers
+// every Character, so each carries both players' loops, its size, and the
+// lines its personality.txt quotes after "heard to say:" or "known to say:".
+test("the playground data carries every Character, Buddy Bot first, each with its loops and its own lines", () => {
   const data = JSON.parse(published(PAGE).match(/<script type="application\/json" id="play-data">([\s\S]*?)<\/script>/)[1]);
-  assert.deepEqual(Object.keys(data.cast).sort(), ["buddy-bot", "nim", "timber-wolf"]);
+  const ids = readdirSync(join(ROOT, "characters")).filter((id) => existsSync(join(ROOT, "characters", id, "character.manifest")));
+  assert.deepEqual(Object.keys(data.cast), ["buddy-bot", ...ids.filter((id) => id !== "buddy-bot").sort()]);
   for (const [pkg, member] of Object.entries(data.cast)) {
     assert.deepEqual(Object.keys(member.loops).sort(),
       ["fall", "hold", "idle", "land", "react", "sit", "sleep", "talk", "walk"], `${pkg} carries every loop`);

@@ -23,10 +23,12 @@ shows no strip — GitHub's own notes for it are commit subjects and "by @author
 file with no tag. The macOS Homebrew line is read from the Get It section fenced
 command, and claims nothing when there is none.
 
-The "Live Playground" desk plays the hero's loops, moves by constants read
-from the Engine's engine.rs and input.rs and the app's main.rs, and draws its cues with the
-overlay's own rules from src/main.css and src/cue.js. Its still tiles name
-their Characters in PLAY_TILES; a loop or constant it cannot find fails the build.
+The "Live Playground" desk plays the hero until a visitor picks another
+Character, moves by constants read from the Engine's engine.rs and input.rs and
+the app's main.rs, and draws its cues with the overlay's own rules from
+src/main.css and src/cue.js. Its picker offers every Character, so each must
+carry every loop in PLAY_LOOPS. Its still tiles name their Characters in
+PLAY_TILES. A loop or constant it cannot find fails the build.
 
 Every other page in `<out>` gets the same site header, docs/design/site-nav.html,
 right after its `<body>`, and every page, this one included, gets the GoatCounter
@@ -116,9 +118,6 @@ CHAT_RULES = (".log", ".empty", ".empty > div", ".empty p", ".empty p b", ".comp
 # The playground desk and the page character play these, so a Character
 # lacking one fails the build instead of freezing on the page.
 PLAY_LOOPS = ("idle", "walk", "react", "hold", "fall", "land", "sit", "sleep", "talk")
-# The project's own Characters, for a picker to choose from. The hero plays
-# until a pick, and the fan art waits for the picker.
-PAGE_CAST = (HERO, "nim", "timber-wolf")
 # A personality.txt introduces its quoted lines this way, up to a blank line.
 SAYS = re.compile(r"(?:heard|known) to say:(.*?)(?:\n[ \t]*\n|\Z)", re.S)
 # The still tiles no-JavaScript and reduced-motion visitors get: the gesture,
@@ -471,30 +470,22 @@ def player(package, declared, member, defaults):
 
 
 def read_cast(characters_root, defaults):
+    """Every shipped Character as the playground plays it, the hero first."""
     packages = sorted(
-        p for p in characters_root.iterdir()
-        if (p / "character.manifest").is_file() and p.name not in gallery.WITHHELD
+        (p for p in characters_root.iterdir()
+         if (p / "character.manifest").is_file() and p.name not in gallery.WITHHELD),
+        key=lambda p: (p.name != HERO, p.name),
     )
     if not packages:
         raise Malformed(f"{characters_root} holds no Character Package")
-    cast, players = [], {}
+    players = {}
     for package in packages:
         declared = manifest(package)
-        member = {
-            "name": declared.get("name") or package.name,
-            "pixel": declared.get("render_mode") != "smooth",
-            "walk": loop(package, declared, "walk", defaults["fps"]),
-        }
-        if package.name in PAGE_CAST:
-            players[package.name] = player(package, declared, member, defaults)
-        if package.name == HERO:
-            cast.insert(0, member)
-        else:
-            cast.append(member)
-    missing = [name for name in PAGE_CAST if name not in players]
-    if missing:
-        raise Malformed(f"{characters_root} has no {', '.join(missing)} package for the playground")
-    return cast, players
+        member = {"name": declared.get("name") or package.name, "pixel": declared.get("render_mode") != "smooth"}
+        players[package.name] = player(package, declared, member, defaults)
+    if HERO not in players:
+        raise Malformed(f"{characters_root} has no {HERO} package for the playground")
+    return players
 
 
 def play_tiles(characters_root, default_fps):
@@ -706,15 +697,15 @@ def stamp_counter(out):
 def render(readme_text, characters_root, rust_source, shell, release=None, engine=None):
     words = read_readme(readme_text)
     _, defaults = gallery.from_rust(rust_source)
-    cast, players = read_cast(characters_root, defaults)
+    players = read_cast(characters_root, defaults)
     hero = players[HERO]
     desk = {"cast": players, "hero": HERO, "tuning": play_tuning(engine or read_engine())}
 
     figures = "\n".join(
         f'<figure><div class="art">'
-        + sprite(c["walk"], c["name"], ' class="pixel"' if c["pixel"] else "")
+        + sprite(c["loops"]["walk"], c["name"], ' class="pixel"' if c["pixel"] else "")
         + f'</div><figcaption>{html.escape(c["name"])}</figcaption></figure>'
-        for c in cast
+        for c in players.values()
     )
     slots = {
         "headline": html.escape(words["headline"], quote=False),
@@ -732,8 +723,8 @@ def render(readme_text, characters_root, rust_source, shell, release=None, engin
             + "".join(f"<p>{inline(p)}</p>" for p in answer) + "</details>"
             for q, answer in words["faq"]
         ),
-        "count": (COUNT[len(cast)] if len(cast) < len(COUNT) else str(len(cast)))
-        + (" character ships" if len(cast) == 1 else " characters ship"),
+        "count": (COUNT[len(players)] if len(players) < len(COUNT) else str(len(players)))
+        + (" character ships" if len(players) == 1 else " characters ship"),
         "cast": figures,
         **download_slots(release),
         "whats_new": whats_new(release),
@@ -897,7 +888,8 @@ def self_check():
                                                        "once": True}, "the desk's land loop is not the manifest's"
         assert desk["cast"][HERO]["lines"] == ["Hello there.", "Beep."], \
             "the lines are not the quotes after heard to say:, up to the blank line"
-        assert set(desk["cast"]) == set(PAGE_CAST), "the desk's cast is not the project's own Characters"
+        assert list(desk["cast"]) == [HERO, *sorted(p.name for p in scratch.iterdir() if p.name != HERO)], \
+            "the picker's cast is not every Character, the hero first"
         unthrowable = dict(engine)
         unthrowable["input.rs"] = re.sub(r"const THROW_MIN_SPEED:[^\n]*\n", "", engine["input.rs"])
         assert "THROW_MIN_SPEED" in (fails(readme, scratch, engine=unthrowable) or ""), \
@@ -965,6 +957,9 @@ def self_check():
         assert "nim: personality.txt quotes nothing" in (fails(readme, scratch) or ""), \
             "a personality.txt with no heard to say: built a page"
         fixture("nim", "Nim")
+        fixture("bmo", "Bmo", without=("sleep",))
+        assert "bmo: declares no sleep" in (fails(readme, scratch) or ""), "a picker Character with no sleep loop built a page"
+        fixture("bmo", "Bmo")
         fixture("cat", "Cat", without=("fall",))
         assert "cat: declares no fall" in (fails(readme, scratch) or ""), "a tile with no art built a page"
 
@@ -1105,7 +1100,7 @@ def main():
                       rust, SHELL.read_text(encoding="utf-8"), release)
         arguments.out.mkdir(parents=True, exist_ok=True)
         (arguments.out / PAGE).write_text(page, encoding="utf-8")
-        _, players = read_cast(CHARACTERS, gallery.from_rust(rust)[1])
+        players = read_cast(CHARACTERS, gallery.from_rust(rust)[1])
         stamp_nav(arguments.out, site_nav(players[HERO]))
         stamp_counter(arguments.out)
     except Malformed as broken:
