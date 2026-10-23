@@ -103,6 +103,8 @@ pub enum Cue {
 
 impl Cue {
     /// The name the webview's cue machine keys its visual and its sound by.
+    /// A name, not a serialized enum, as with `Frame::animation`: the webview
+    /// side is already a table lookup.
     pub fn name(self) -> &'static str {
         match self {
             Self::Poke => "poke",
