@@ -2,7 +2,8 @@
 // `_site/`, played with in headless Chrome: a throw lands with the hard puff,
 // a slow drop perches on the window, the desk stops painting while scrolled out
 // of view, reduced motion keeps the still tiles, a double-click opens the chat
-// mock, hovering opens the quick-message pill, and the picker swaps the sprite.
+// mock, hovering or a long-press opens the quick-message pill, the wallpaper
+// switch repaints the desk, and the picker swaps the sprite.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -247,6 +248,91 @@ const picker = `
   });
 </script>`;
 
+// On a phone, by real touches: a finger held still on the Character opens the
+// pill and lifting it pokes nothing, a flick throws, and the wallpaper switch
+// repaints the desk.
+const touches = `
+<script>${helpers}
+  const once = (target, type) => new Promise((resolve) => target.addEventListener(type, resolve, { once: true }));
+  const shown = (pill) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("no pill")), 5000);
+    new MutationObserver((_, observer) => {
+      if (!pill.classList.contains("visible")) return;
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve(performance.now());
+    }).observe(pill, { attributes: true, attributeFilter: ["class"] });
+  });
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const desk = document.getElementById("play-desk");
+      const sprite = document.getElementById("play-sprite");
+      const layer = document.getElementById("play-cues");
+      const pill = document.getElementById("play-qm");
+      const tuning = JSON.parse(document.getElementById("play-data").textContent).tuning;
+      const walls = [...document.querySelectorAll("#play-walls button")];
+      const pressed = () => walls.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.wall);
+      const look = () => ({ wall: desk.dataset.wall, pressed: pressed(), paint: getComputedStyle(desk).backgroundImage });
+      const painting = written(sprite, 1000);
+      desk.scrollIntoView({ block: "center" });
+      await painting;
+      const center = () => { const box = sprite.getBoundingClientRect(); return [box.left + box.width / 2, box.top + box.height / 2]; };
+      const finger = (type, at) => touch(JSON.stringify({ type, points: at ? [{ x: at[0], y: at[1] }] : [] }));
+
+      // The switch goes first: a tap that stops the flick's fling is no click.
+      const first = look();
+      const seen = {};
+      for (const wall of ["busy", "dark", "light"]) {
+        const button = walls.find((b) => b.dataset.wall === wall);
+        const tapped = once(button, "click");
+        const spot = button.getBoundingClientRect();
+        tapAt(JSON.stringify([spot.left + spot.width / 2, spot.top + spot.height / 2]));
+        await tapped;
+        seen[wall] = look();
+      }
+      const at = center();
+      const down = once(sprite, "pointerdown");
+      const pillUp = shown(pill);
+      finger("touchStart", at);
+      const pressedAt = (await down).timeStamp;
+      const after = Math.round((await pillUp) - pressedAt);
+      const up = once(sprite, "pointerup");
+      finger("touchEnd");
+      await up;
+      await frame();
+      const longPress = { after, poked: layer.querySelectorAll(".cue-ring").length, open: pill.classList.contains("visible") };
+      const box = desk.getBoundingClientRect();
+      const away = once(document, "pointerup");
+      finger("touchStart", [box.left + 20, box.bottom - 20]);
+      finger("touchEnd");
+      await away;
+      longPress.dismissed = !pill.classList.contains("visible");
+
+      let [x, y] = center();
+      const grabbed = once(sprite, "pointerdown");
+      finger("touchStart", [x, y]);
+      await grabbed;
+      for (const dx of [-10, -40, -40, -40]) {
+        await frame();
+        x += dx;
+        const moved = once(sprite, "pointermove");
+        finger("touchMove", [x, y]);
+        await moved;
+      }
+      const hard = cueIn(layer, ".cue-puff.hard");
+      finger("touchEnd");
+      await hard;
+      const thrown = !pill.classList.contains("visible");
+
+      const fits = walls[0].parentElement.getBoundingClientRect().left > document.getElementById("play-hint").getBoundingClientRect().right;
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, hoverDelayMs: tuning.hoverDelayMs, longPress, thrown, first, seen, fits }));
+    } catch (err) {
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
+    }
+  });
+</script>`;
+
 let dir;
 let site;
 
@@ -326,8 +412,18 @@ async function play(flags = [], script = probe, size = "1280,900") {
     await blockURLs(["http://*", "https://*"]);
     // A probe's tapAt sends a real touch, which a synthetic event is not.
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 }, sessionId);
+    // A headless window is no narrower than 500px, so a phone is emulated.
+    const [width, height] = size.split(",").map(Number);
+    if (width < 500) await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true }, sessionId);
     await cdp.send("Runtime.addBinding", { name: "tapAt" }, sessionId);
+    // And touch sends one touch event, for a press that lasts or moves.
+    await cdp.send("Runtime.addBinding", { name: "touch" }, sessionId);
     cdp.on(sessionId, "Runtime.bindingCalled", async ({ name, payload }) => {
+      if (name === "touch") {
+        const { type, points } = JSON.parse(payload);
+        await cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points }, sessionId).catch(() => {});
+        return;
+      }
       if (name !== "tapAt") return;
       const [x, y] = JSON.parse(payload);
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] }, sessionId);
@@ -384,6 +480,28 @@ test("a tap on a Character in the picker swaps the desk's sprite at once, and th
   assert.deepEqual(result.after, { pressed: ["nim"], stored: "nim", nimFrame: true }, "Nim stays pressed, stored and animating");
 });
 
+test("on a phone, a long-press opens the pill and pokes nothing, a flick throws, and the wallpaper switch repaints the desk", { skip: chromeSkip }, async () => {
+  const result = await play([], touches, "390,844");
+  assert.deepEqual(result.errors, [], "the page threw nothing");
+  const { after, ...longPress } = result.longPress;
+  assert.ok(after >= result.hoverDelayMs && after < result.hoverDelayMs + 500,
+    `the pill opened after the app's hover delay, ${result.hoverDelayMs}ms, held still: ${after}ms`);
+  assert.deepEqual(longPress, { poked: 0, open: true, dismissed: true }, "lifting the finger leaves the pill open and pokes nothing; a tap away closes it");
+  assert.ok(result.thrown, "a moving finger grabbed and threw, with no pill");
+  const stripes = "repeating-linear-gradient(45deg, rgb(200, 107, 74) 0px, rgb(200, 107, 74) 18px";
+  assert.deepEqual([result.first.wall, result.first.pressed], ["light", ["light"]], "in a light page the desk starts light");
+  assert.ok(result.first.paint.includes("rgb(207, 227, 236)"), result.first.paint);
+  assert.deepEqual(Object.fromEntries(Object.entries(result.seen).map(([wall, seen]) => [wall, seen.pressed])),
+    { busy: ["busy"], dark: ["dark"], light: ["light"] }, "the tapped wallpaper is the pressed one");
+  assert.ok(result.seen.busy.paint.startsWith(stripes), result.seen.busy.paint);
+  assert.ok(result.seen.dark.paint.includes("rgb(31, 52, 64)"), result.seen.dark.paint);
+  assert.equal(result.seen.light.paint, result.first.paint);
+  assert.ok(result.fits, "at 390px the switch sits right of the hint");
+  const dark = await play(["--force-dark-mode"], touches, "390,844");
+  assert.deepEqual(dark.errors, [], "the dark page threw nothing");
+  assert.deepEqual([dark.first.wall, dark.first.pressed], ["dark", ["dark"]], "in a dark page the desk starts dark");
+});
+
 for (const size of ["1512,945", "1280,800"]) {
   test(`at ${size}, every cast Character drags onto both windows' top edges and perches`, { skip: chromeSkip }, async () => {
     const result = await play([], perches, size);
@@ -407,7 +525,7 @@ test("the playground reads as Oded asked: its title and gestures, two windows th
   assert.ok(!play.includes("cues.html"), "the playground no longer links Fidget Cues");
   const gestures = [...play.matchAll(/<li>(.*?)<\/li>/g)].map((m) => m[1].replace(/<\/?b>/g, ""));
   assert.deepEqual(gestures, ["Left-click to poke", "Click and hold to drag it around and drop it",
-    "Hover on Fidget to get the quick-message pill and type something, even while Chat is open", "Double-click to summon chat"]);
+    "Hover on Fidget, or long-press it on touch, to get the quick-message pill and type something, even while Chat is open", "Double-click to summon chat"]);
   const windows = [...play.matchAll(/data-win="(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual(windows, ["dark", "light", "chat"]);
   assert.equal(play.match(/<span class="drag-me">drag me<\/span>/g).length, 3, "every window's bar says drag me");

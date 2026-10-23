@@ -2,7 +2,7 @@
 // whole behavior, so these drive it the way the page's pointer handlers do.
 
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { animationOf, character, decodePresses, feet, pick, step } from "../docs/design/playground.js";
 
 const TUNING = {
@@ -290,4 +290,68 @@ test("a drag keeps the press point under the pointer, even if the feet moved bef
   press("pointermove", 110, 100);
   assert.deepEqual(events.map((e) => [e.type, e.x, e.y]), [["grab", undefined, undefined], ["drag", 130, 150]]);
   press("pointerup", 110, 100);
+});
+
+// A fake sprite that decodePresses listens on, and the events it decodes.
+function presses(options = {}) {
+  const handlers = {};
+  const target = { addEventListener: (type, fn) => { handlers[type] = fn; }, setPointerCapture() {} };
+  const events = [];
+  const longPresses = [];
+  decodePresses(target, { dragDelayMs: 180, dragThreshold: 4, hoverDelayMs: 1500 }, {
+    local: (e) => ({ x: e.clientX, y: e.clientY }), feetNow: () => ({ x: 100, y: 200 }), apply: (e) => events.push(e.type),
+    onLongPress: () => longPresses.push("pill"), ...options,
+  });
+  const send = (type, pointerType, x = 100, y = 150) =>
+    handlers[type]({ button: 0, pointerId: 1, pointerType, clientX: x, clientY: y, preventDefault() {} });
+  return { send, events, longPresses };
+}
+
+test("a finger held still for the hover delay opens the pill, and lifting it then neither pokes nor grabs", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const { send, events, longPresses } = presses();
+    send("pointerdown", "touch");
+    mock.timers.tick(1499);
+    assert.deepEqual([events, longPresses], [[], []], "no grab at the drag delay and no pill before the hover delay");
+    mock.timers.tick(1);
+    assert.deepEqual(longPresses, ["pill"]);
+    send("pointermove", "touch", 160, 150);
+    send("pointerup", "touch", 160, 150);
+    assert.deepEqual(events, [], "the press ended at the pill");
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("a finger that moves picks the Character up, and a short tap pokes, with no pill", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const { send, events, longPresses } = presses();
+    send("pointerdown", "touch");
+    send("pointermove", "touch", 110, 150);
+    mock.timers.tick(2000);
+    send("pointerup", "touch", 110, 150);
+    send("pointerdown", "touch");
+    mock.timers.tick(300);
+    send("pointerup", "touch");
+    assert.deepEqual([events, longPresses], [["grab", "drag", "release", "poke"], []]);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("a mouse held still grabs at the drag delay, as input.rs does, and a press with no long-press handler does too", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const mouse = presses();
+    mouse.send("pointerdown", "mouse");
+    mock.timers.tick(2000);
+    const page = presses({ onLongPress: undefined });
+    page.send("pointerdown", "touch");
+    mock.timers.tick(2000);
+    assert.deepEqual([mouse.events, mouse.longPresses, page.events], [["grab"], [], ["grab"]]);
+  } finally {
+    mock.timers.reset();
+  }
 });
