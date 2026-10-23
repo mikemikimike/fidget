@@ -27,10 +27,12 @@
 #[cfg_attr(not(unix), allow(dead_code))]
 mod acp_wire;
 mod action_log;
-// Only macOS ships `caffeinate`, and Windows has no `libc` dependency for
-// `libc::kill`.
-#[cfg(target_os = "macos")]
+// macOS holds a `caffeinate` child, Windows a power request. Linux has no
+// holder yet.
+#[cfg(any(target_os = "macos", windows))]
 mod caffeinate_proc;
+#[cfg(windows)]
+mod caffeinate_win;
 mod chat_surface;
 mod completer;
 mod consent;
@@ -633,7 +635,7 @@ pub(crate) struct CaffeinateFrame {
     reason: Option<String>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 pub(crate) fn caffeinate_frame(
     fact: fidget_core::caffeinate::Fact,
     configured: Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty>,
@@ -2264,13 +2266,14 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
 }
 
 /// The Chat button asks the frame loop to flip the hold. The frame loop owns
-/// the child.
+/// the holder.
 #[tauri::command]
 fn toggle_caffeinate(toggle: tauri::State<'_, CaffeinateToggle>) {
     let _ = toggle.0.send(fidget_core::caffeinate::Request::Toggle);
 }
 
-/// The hold as Chat last heard it. `None` off macOS, and before the first tick.
+/// The hold as Chat last heard it. `None` where there is no hold, and before the
+/// first tick.
 #[tauri::command]
 fn caffeinate_view(shown: tauri::State<'_, CaffeinateShown>) -> Option<CaffeinateFrame> {
     shown.0.lock().ok().and_then(|guard| guard.clone())
@@ -4294,18 +4297,18 @@ struct CaffeinateToggle(mpsc::Sender<fidget_core::caffeinate::Request>);
 /// reads it.
 struct CaffeinateShown(Mutex<Option<CaffeinateFrame>>);
 
-/// The menu row for the hold. `None` off macOS. Before the first tick the hold
+/// The menu row for the hold. `None` where there is no hold. Before the first tick the hold
 /// is off, and an empty flag set disables the row.
 fn menu_caffeinate(
     settings: &Settings,
     frame: Option<&CaffeinateFrame>,
 ) -> Option<menu::CaffeinateRow> {
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = (settings, frame);
         None
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     {
         Some(match frame {
             Some(frame) => menu::CaffeinateRow {
