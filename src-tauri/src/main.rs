@@ -27,12 +27,7 @@
 #[cfg_attr(not(unix), allow(dead_code))]
 mod acp_wire;
 mod action_log;
-// Linux keeps awake with a logind fd and a screen saver cookie.
-#[cfg(target_os = "linux")]
-mod caffeinate_linux;
-// macOS runs a `caffeinate` child, Linux takes the `caffeinate_linux` inhibitors.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-mod caffeinate_proc;
+mod caffeinate;
 mod chat_surface;
 mod completer;
 mod consent;
@@ -628,26 +623,23 @@ struct SpritePlacement<'a> {
     qm: Option<&'a fidget_core::quick_message::QmDraft>,
 }
 
-/// What the Chat button and the menu row show. Never built where there is no
-/// Caffeinate.
+/// What the Chat button and the menu row show.
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct CaffeinateFrame {
     on: bool,
     reason: Option<String>,
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn caffeinate_frame(
     fact: fidget_core::caffeinate::Fact,
-    configured: Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty>,
+    configured: Result<fidget_core::caffeinate::Flags, fidget_core::caffeinate::Empty>,
 ) -> CaffeinateFrame {
     let reason = configured
         .err()
         .map(|_| fidget_core::caffeinate::Empty::REASON.to_string());
-    // Without logind or a screen saver service no inhibitor can be taken, so the
-    // cup and the menu row are disabled the way an empty flag set disables them.
-    #[cfg(target_os = "linux")]
-    let reason = reason.or_else(|| caffeinate_linux::unavailable().map(str::to_string));
+    // With nothing to keep the computer awake with, the cup and the menu row
+    // are disabled the way an empty flag set disables them.
+    let reason = reason.or_else(|| caffeinate::Caffeinate::unavailable().map(str::to_string));
     CaffeinateFrame {
         on: configured.is_ok() && fact.on(),
         reason,
@@ -2272,7 +2264,7 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
 }
 
 /// The Chat button asks the frame loop to turn Caffeinate on or off. The frame
-/// loop owns the child or the inhibitors.
+/// loop owns the child, the inhibitors or the power requests.
 #[tauri::command]
 fn toggle_caffeinate(toggle: tauri::State<'_, CaffeinateToggle>) {
     let _ = toggle.0.send(fidget_core::caffeinate::Request::Toggle);
@@ -4029,8 +4021,7 @@ fn apply_menu_action(
 /// skips that path and the window server drops the overlays with the process.
 fn quit_now() -> ! {
     eprintln!("quit");
-    #[cfg(target_os = "macos")]
-    caffeinate_proc::signal_child();
+    caffeinate::on_quit();
     harness::shutdown();
     std::process::exit(0);
 }
@@ -4140,9 +4131,8 @@ impl QuitHost for AppQuit<'_> {
 
     fn exit_process(&mut self) {
         // Ctrl+C exits here, not through `quit_now`. `exit` skips Caffeinate's
-        // Drop, so signal the child first. `-w` covers a crash.
-        #[cfg(target_os = "macos")]
-        caffeinate_proc::signal_child();
+        // Drop, so turn Caffeinate off first.
+        caffeinate::on_quit();
         std::process::exit(0);
     }
 }
@@ -4303,29 +4293,18 @@ struct CaffeinateToggle(mpsc::Sender<fidget_core::caffeinate::Request>);
 /// `caffeinate_view` reads it.
 struct CaffeinateShown(Mutex<Option<CaffeinateFrame>>);
 
-/// The menu row for Caffeinate. `None` where there is no Caffeinate. Before the
-/// first tick it is off, and an empty flag set disables the row.
-fn menu_caffeinate(
-    settings: &Settings,
-    frame: Option<&CaffeinateFrame>,
-) -> Option<menu::CaffeinateRow> {
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        let _ = (settings, frame);
-        None
-    }
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        Some(match frame {
-            Some(frame) => menu::CaffeinateRow {
-                on: frame.on,
-                enabled: frame.reason.is_none(),
-            },
-            None => menu::CaffeinateRow {
-                on: false,
-                enabled: settings.caffeinate_flags().is_ok(),
-            },
-        })
+/// The menu row for Caffeinate. Before the first tick it is off, and an empty
+/// flag set disables the row.
+fn menu_caffeinate(settings: &Settings, frame: Option<&CaffeinateFrame>) -> menu::CaffeinateRow {
+    match frame {
+        Some(frame) => menu::CaffeinateRow {
+            on: frame.on,
+            enabled: frame.reason.is_none(),
+        },
+        None => menu::CaffeinateRow {
+            on: false,
+            enabled: settings.caffeinate_flags().is_ok(),
+        },
     }
 }
 
@@ -4360,7 +4339,7 @@ fn describe_menu(
     instance_id: &str,
     settings: &Settings,
     rules: &HideRules,
-    caffeinate: Option<menu::CaffeinateRow>,
+    caffeinate: menu::CaffeinateRow,
 ) -> menu::MenuDescription {
     let instances = roster.list();
     let hide_hotkey = settings::display_hotkey(&settings.hide_hotkey);
@@ -5508,8 +5487,7 @@ fn main() {
         // Quit's `quit_now` aside — so the Harness child is never orphaned.
         .run(|_, event| {
             if matches!(event, tauri::RunEvent::Exit) {
-                #[cfg(target_os = "macos")]
-                caffeinate_proc::signal_child();
+                caffeinate::on_quit();
                 harness::shutdown();
             }
         });

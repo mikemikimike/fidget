@@ -2186,10 +2186,13 @@ mod tests {
     #[test]
     fn the_prompt_names_caffeinate_when_this_launch_offers_it() {
         let mut moment = context(working(), &[]);
-        let flags = crate::caffeinate::AssertedFlags::all();
+        let flags = crate::caffeinate::Flags::all();
         moment.caffeinate = Some(crate::caffeinate::Fact::On(flags));
         let on = follow_up(&moment);
-        let line = format!("state: idle\ncaffeinate: on ({})\n", flags.blocking_label());
+        let line = format!(
+            "state: idle\ncaffeinate: on ({})\n",
+            flags.inhibitor_label()
+        );
         assert!(on.contains(&line), "{on}");
         moment.caffeinate = Some(crate::caffeinate::Fact::Off);
         let off = follow_up(&moment);

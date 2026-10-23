@@ -209,7 +209,7 @@ pub fn dispatch(
             match handle.call(args.on) {
                 Ok(Fact::Off) => Ok(serde_json::json!({ "on": false })),
                 Ok(Fact::On(flags)) => {
-                    Ok(serde_json::json!({ "on": true, "flags": flags.preview() }))
+                    Ok(serde_json::json!({ "on": true, "flags": flags.inhibitor_label() }))
                 }
                 Err(message) => Err(DispatchError {
                     code: ErrorCode::ExecutionFailed,
@@ -233,7 +233,7 @@ pub struct ToolInfo {
 
 /// The tools in `tools`, and none that post input events.
 pub fn list_tools() -> Vec<ToolInfo> {
-    let mut tools = vec![
+    vec![
         ToolInfo {
             name: "speak".to_string(),
             description: "Make the Character speak a line of dialogue".to_string(),
@@ -328,11 +328,9 @@ pub fn list_tools() -> Vec<ToolInfo> {
                 "properties": {}
             }),
         },
-    ];
-    if cfg!(any(target_os = "macos", target_os = "linux")) {
-        tools.push(ToolInfo {
+        ToolInfo {
             name: "caffeinate".to_string(),
-            description: "Keep this computer awake until it is turned off or Fidget quits. Returns whether it is on and, when it is, the caffeinate flags.".to_string(),
+            description: "Keep this computer awake until it is turned off or Fidget quits. Returns whether it is on and, when it is, what keeps the computer awake.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -342,9 +340,8 @@ pub fn list_tools() -> Vec<ToolInfo> {
                     }
                 }
             }),
-        });
-    }
-    tools
+        },
+    ]
 }
 
 #[cfg(test)]
@@ -518,13 +515,10 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_returns_exactly_eight_tools() {
+    fn list_tools_returns_exactly_nine_tools() {
         let tools = list_tools();
 
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
         assert_eq!(tools.len(), 9);
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        assert_eq!(tools.len(), 8);
     }
 
     #[test]
@@ -540,10 +534,7 @@ mod tests {
         assert!(names.contains(&"remember"));
         assert!(names.contains(&"list_instances"));
         assert!(names.contains(&"whereabouts"));
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
         assert!(names.contains(&"caffeinate"));
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        assert!(!names.contains(&"caffeinate"));
     }
 
     struct ScriptedCaffeinate {
@@ -559,7 +550,7 @@ mod tests {
                 Some(value) => {
                     self.sets.push(value);
                     self.fact = if value {
-                        Fact::On(crate::caffeinate::AssertedFlags::all())
+                        Fact::On(crate::caffeinate::Flags::all())
                     } else {
                         Fact::Off
                     };
@@ -591,8 +582,9 @@ mod tests {
         let on = call(&mut caffeinate, json!({ "on": true }));
         let again = call(&mut caffeinate, json!({ "on": true }));
         let off = call(&mut caffeinate, json!({ "on": false }));
-        assert_eq!(on, json!({ "on": true, "flags": "-dims" }));
-        assert_eq!(again, json!({ "on": true, "flags": "-dims" }));
+        let flags = crate::caffeinate::Flags::all().inhibitor_label();
+        assert_eq!(on, json!({ "on": true, "flags": flags }));
+        assert_eq!(again, json!({ "on": true, "flags": flags }));
         assert_eq!(off, json!({ "on": false }));
         assert_eq!(caffeinate.sets, [true, true, false]);
     }

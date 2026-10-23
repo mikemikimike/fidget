@@ -734,38 +734,35 @@ impl SettingsView {
                 )
             }));
         }
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
-        {
-            values.insert(
-                form::CAFFEINATE_DISPLAY_ID.to_string(),
-                RowValue::Bool(self.caffeinate_display),
-            );
-            values.insert(
-                form::CAFFEINATE_IDLE_ID.to_string(),
-                RowValue::Bool(self.caffeinate_idle),
-            );
-            #[cfg(target_os = "macos")]
-            values.insert(
-                form::CAFFEINATE_DISK_ID.to_string(),
-                RowValue::Bool(self.caffeinate_disk),
-            );
-            values.insert(
-                form::CAFFEINATE_SYSTEM_ID.to_string(),
-                RowValue::Bool(self.caffeinate_system),
-            );
-            values.insert(
-                form::CAFFEINATE_COMMAND_ID.to_string(),
-                text(&match caffeinate_flags(
-                    self.caffeinate_display,
-                    self.caffeinate_idle,
-                    self.caffeinate_disk,
-                    self.caffeinate_system,
-                ) {
-                    Ok(flags) => caffeinate_command(flags),
-                    Err(_) => fidget_core::caffeinate::Empty::REASON.to_string(),
-                }),
-            );
-        }
+        values.insert(
+            form::CAFFEINATE_DISPLAY_ID.to_string(),
+            RowValue::Bool(self.caffeinate_display),
+        );
+        values.insert(
+            form::CAFFEINATE_IDLE_ID.to_string(),
+            RowValue::Bool(self.caffeinate_idle),
+        );
+        #[cfg(target_os = "macos")]
+        values.insert(
+            form::CAFFEINATE_DISK_ID.to_string(),
+            RowValue::Bool(self.caffeinate_disk),
+        );
+        values.insert(
+            form::CAFFEINATE_SYSTEM_ID.to_string(),
+            RowValue::Bool(self.caffeinate_system),
+        );
+        values.insert(
+            form::CAFFEINATE_COMMAND_ID.to_string(),
+            text(&match caffeinate_flags(
+                self.caffeinate_display,
+                self.caffeinate_idle,
+                self.caffeinate_disk,
+                self.caffeinate_system,
+            ) {
+                Ok(flags) => flags.command_label(),
+                Err(_) => fidget_core::caffeinate::Empty::REASON.to_string(),
+            }),
+        );
         values.insert(
             "chat_ui".to_string(),
             text(&form::chat_ui_title(&self.chat_ui)),
@@ -1614,15 +1611,11 @@ pub enum BoolField {
     /// The idle event tap, which macOS alone has a grant to ask for.
     #[cfg(target_os = "macos")]
     UseInputMonitoring,
-    /// Caffeinate flags. Only the macOS and Linux forms write them, and only
-    /// macOS draws Disk.
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    /// Caffeinate flags. Only macOS draws Disk.
     CaffeinateDisplay,
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     CaffeinateIdle,
     #[cfg(target_os = "macos")]
     CaffeinateDisk,
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     CaffeinateSystem,
 }
 
@@ -1682,13 +1675,10 @@ impl SettingsPatch {
             BoolField::UseWindowNames => self.use_window_names = Some(value),
             #[cfg(target_os = "macos")]
             BoolField::UseInputMonitoring => self.use_input_monitoring = Some(value),
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
             BoolField::CaffeinateDisplay => self.caffeinate_display = Some(value),
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
             BoolField::CaffeinateIdle => self.caffeinate_idle = Some(value),
             #[cfg(target_os = "macos")]
             BoolField::CaffeinateDisk => self.caffeinate_disk = Some(value),
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
             BoolField::CaffeinateSystem => self.caffeinate_system = Some(value),
         }
     }
@@ -2183,9 +2173,9 @@ fn caffeinate_flags(
     idle: bool,
     disk: bool,
     system: bool,
-) -> Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty> {
-    use fidget_core::caffeinate::{AssertedFlags, Flag};
-    AssertedFlags::new(
+) -> Result<fidget_core::caffeinate::Flags, fidget_core::caffeinate::Empty> {
+    use fidget_core::caffeinate::{Flag, Flags};
+    Flags::new(
         [
             (Flag::Display, display),
             (Flag::Idle, idle),
@@ -2199,24 +2189,10 @@ fn caffeinate_flags(
     )
 }
 
-/// What the Command row shows for a flag set.
-#[cfg(target_os = "macos")]
-fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
-    format!("caffeinate {}", flags.preview())
-}
-
-/// What the Command row shows for a flag set: the inhibitors
-/// `caffeinate_linux` takes for it.
-#[cfg(target_os = "linux")]
-fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
-    flags.blocking_label()
-}
-
 impl Settings {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn caffeinate_flags(
         &self,
-    ) -> Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty> {
+    ) -> Result<fidget_core::caffeinate::Flags, fidget_core::caffeinate::Empty> {
         caffeinate_flags(
             self.caffeinate_display,
             self.caffeinate_idle,
@@ -2569,11 +2545,11 @@ mod tests {
         let _ = fs::remove_file(&path);
     }
 
-    /// Linux hides Disk, so Disk alone is an empty set there and a patch
-    /// cannot leave it as the only flag on.
-    #[cfg(target_os = "linux")]
+    /// Only macOS draws Disk, so elsewhere Disk alone is an empty set and a
+    /// patch cannot leave it as the only flag on.
+    #[cfg(not(target_os = "macos"))]
     #[test]
-    fn linux_counts_disk_for_nothing() {
+    fn disk_counts_for_nothing_off_macos() {
         let mut settings = Settings {
             caffeinate_display: false,
             caffeinate_idle: false,
@@ -2590,6 +2566,20 @@ mod tests {
         );
         settings.caffeinate_system = false;
         assert!(settings.caffeinate_flags().is_err());
+    }
+
+    /// The Command row names the same power requests the chat note does.
+    #[cfg(windows)]
+    #[test]
+    fn windows_command_row_names_the_power_requests() {
+        use fidget_core::caffeinate::{Flag, Flags, Note};
+        assert_eq!(
+            Flags::all().command_label(),
+            "Power requests: DISPLAY, SYSTEM"
+        );
+        let idle = Flags::new([Flag::Idle]).unwrap();
+        assert_eq!(idle.command_label(), "Power requests: SYSTEM");
+        assert!(Note::On(idle).text().ends_with("(SYSTEM)"));
     }
 
     /// The alias carries a grant over from the field's old name: reading the
