@@ -260,41 +260,63 @@ try {
             }
         }
 
-        // The programmatic names of the patterns `element` supports.
+        // The programmatic names of the patterns `element` supports. None for an
+        // element the page has since redrawn away.
         public static string[] Patterns(AutomationElement element) {
-            var patterns = element.GetSupportedPatterns();
-            var names = new string[patterns.Length];
-            for (int i = 0; i < patterns.Length; i++) names[i] = patterns[i].ProgrammaticName;
-            return names;
+            try {
+                var patterns = element.GetSupportedPatterns();
+                var names = new string[patterns.Length];
+                for (int i = 0; i < patterns.Length; i++) names[i] = patterns[i].ProgrammaticName;
+                return names;
+            } catch (ElementNotAvailableException) {
+                return new string[0];
+            }
         }
 
-        // Each returns false, rather than throwing, when the element lacks the pattern.
+        // Each returns false, rather than throwing, when the element lacks the
+        // pattern or is gone.
         public static bool Toggle(AutomationElement element) {
-            object pattern;
-            if (!element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) return false;
-            ((TogglePattern)pattern).Toggle();
-            return true;
+            try {
+                object pattern;
+                if (!element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) return false;
+                ((TogglePattern)pattern).Toggle();
+                return true;
+            } catch (ElementNotAvailableException) {
+                return false;
+            }
         }
 
         public static bool Invoke(AutomationElement element) {
-            object pattern;
-            if (!element.TryGetCurrentPattern(InvokePattern.Pattern, out pattern)) return false;
-            ((InvokePattern)pattern).Invoke();
-            return true;
+            try {
+                object pattern;
+                if (!element.TryGetCurrentPattern(InvokePattern.Pattern, out pattern)) return false;
+                ((InvokePattern)pattern).Invoke();
+                return true;
+            } catch (ElementNotAvailableException) {
+                return false;
+            }
         }
 
         public static bool Select(AutomationElement tab) {
-            object pattern;
-            if (!tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) return false;
-            ((SelectionItemPattern)pattern).Select();
-            return true;
+            try {
+                object pattern;
+                if (!tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) return false;
+                ((SelectionItemPattern)pattern).Select();
+                return true;
+            } catch (ElementNotAvailableException) {
+                return false;
+            }
         }
 
         // The cup's aria-pressed, which WebView2 exposes as a toggle state.
         public static string ToggleState(AutomationElement element) {
-            object pattern;
-            if (!element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) return "none";
-            return ((TogglePattern)pattern).Current.ToggleState.ToString();
+            try {
+                object pattern;
+                if (!element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) return "none";
+                return ((TogglePattern)pattern).Current.ToggleState.ToString();
+            } catch (ElementNotAvailableException) {
+                return "gone";
+            }
         }
 
         // Ctrl+C to every process on this console. This process ignores it until
@@ -340,41 +362,63 @@ try {
         $line -replace '^chat: (\S+) is open$', '$1'
     }
 
-    # Presses `$Element` through the pattern Get-PressPattern picks, or fails
-    # naming the patterns it does support.
-    function Press([System.Windows.Automation.AutomationElement]$Element, [string]$What) {
-        $supported = @([CaffeinateWin]::Patterns($Element))
-        $pattern = Get-PressPattern $supported
-        $pressed = switch ($pattern) {
-            "Toggle" { [CaffeinateWin]::Toggle($Element) }
-            "Invoke" { [CaffeinateWin]::Invoke($Element) }
-            default { $false }
+    # Presses what `$Find` returns, through the pattern Get-PressPattern picks.
+    # Each try finds the element again: a page redraw (Settings redraws the tab
+    # after every saved change) leaves an element found earlier with no
+    # patterns. Fails naming the patterns it does support after the last try.
+    function Press([scriptblock]$Find, [string]$What) {
+        $supported = @()
+        foreach ($attempt in 1..3) {
+            $element = & $Find
+            $supported = @([CaffeinateWin]::Patterns($element))
+            $pressed = switch (Get-PressPattern $supported) {
+                "Toggle" { [CaffeinateWin]::Toggle($element) }
+                "Invoke" { [CaffeinateWin]::Invoke($element) }
+                default { $false }
+            }
+            if ($pressed) { return }
+            Start-Sleep -Milliseconds 500
         }
-        if (-not $pressed) {
-            Fail "$What supports neither Toggle nor Invoke; it supports: $($supported -join ', ')"
-        }
+        $names = if ($supported.Count -gt 0) { $supported -join ', ' } else { "none" }
+        Fail "$What supports neither Toggle nor Invoke; it supports: $names"
     }
 
+    # The cup in the Chat titled `$Title`. The "is open" line can land before
+    # the window shows, so the window gets 10 s to appear.
     function Cup([string]$Title) {
-        $chat = [CaffeinateWin]::FindWindow([uint32]$proc.Id, $Title)
+        $deadline = (Get-Date).AddSeconds(10)
+        do {
+            $chat = [CaffeinateWin]::FindWindow([uint32]$proc.Id, $Title)
+            if ($chat -ne [IntPtr]::Zero) { break }
+            Start-Sleep -Milliseconds 250
+        } while ((Get-Date) -lt $deadline)
         if ($chat -eq [IntPtr]::Zero) { Fail "no Chat window titled $Title" }
         $cup = [CaffeinateWin]::Wait($chat, [System.Windows.Automation.ControlType]::Button, "Caffeinate", 30000)
         if ($null -eq $cup) { Fail "$Title's Chat has no Caffeinate button" }
         $cup
     }
 
-    # Presses the cup and waits for the note it should cause.
-    function Press-Cup($Cup, [string]$State) {
+    # The Settings control named `$Name`, found fresh.
+    function Settings-Control([System.Windows.Automation.ControlType]$Type, [string]$Name) {
+        $settings = [CaffeinateWin]::FindWindow([uint32]$proc.Id, "Settings")
+        if ($settings -eq [IntPtr]::Zero) { Fail "no Settings window" }
+        $found = [CaffeinateWin]::Wait($settings, $Type, $Name, 10000)
+        if ($null -eq $found) { Fail "Settings has no $Name control" }
+        $found
+    }
+
+    # Presses the cup in `$Title`'s Chat and waits for the note it should cause.
+    function Press-Cup([string]$Title, [string]$State) {
         $skip = Line-Count
-        Press $Cup "the Caffeinate cup"
+        Press { Cup $Title } "$Title's Caffeinate cup"
         if (-not (Wait-Line $skip 10 (Get-CaffeinatePattern $State))) { Fail "no 'Caffeinate $State' line; see $stderr" }
     }
 
-    # Flips one Settings checkbox and waits for Caffeinate to turn on with the
+    # Flips the Display checkbox and waits for Caffeinate to turn on with the
     # power requests in `$Names`.
-    function Flip-Flag($Box, [string]$Names) {
+    function Flip-Flag([string]$Names) {
         $skip = Line-Count
-        Press $Box "the Display checkbox"
+        Press { Settings-Control ([System.Windows.Automation.ControlType]::CheckBox) "Display" } "the Display checkbox"
         if (-not (Wait-Line $skip 10 (Get-OnPattern $Names))) { Fail "no 'caffeinate: on ($Names)' line; see $stderr" }
     }
 
@@ -387,33 +431,40 @@ try {
         # Launch 1: the cup, a flag change, a second Chat, then quit.
         $env:FIDGET_OPEN_SETTINGS = "1"
         $first = Launch "launch-1"
-        $cup = Cup "Beemo"
-        Press-Cup $cup "on"
+        Press-Cup "Beemo" "on"
         Expect-Requests "on" $true $true
-        Press-Cup $cup "off"
+        Press-Cup "Beemo" "off"
         Expect-Requests "off" $false $false
-        Press-Cup $cup "on"
+        Press-Cup "Beemo" "on"
         Expect-Requests "on-again" $true $true
 
         $settings = [CaffeinateWin]::FindWindow([uint32]$proc.Id, "Settings")
         if ($settings -eq [IntPtr]::Zero) { Fail "no Settings window" }
         $tab = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::TabItem, "Caffeinate", 30000)
         if ($null -eq $tab) { Fail "Settings has no Caffeinate tab" }
-        if (-not [CaffeinateWin]::Select($tab)) { Press $tab "the Caffeinate tab" }
+        if (-not [CaffeinateWin]::Select($tab)) {
+            Press { Settings-Control ([System.Windows.Automation.ControlType]::TabItem) "Caffeinate" } "the Caffeinate tab"
+        }
         $display = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::CheckBox, "Display", 10000)
         if ($null -eq $display) { Fail "the Caffeinate tab has no Display checkbox" }
         $disk = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::CheckBox, "Disk", 0)
         if ($null -ne $disk) { Fail "the Caffeinate tab draws a Disk row" }
         Pass "no-disk" "the Caffeinate tab has no Disk row"
-        Flip-Flag $display "SYSTEM"
+        Flip-Flag "SYSTEM"
         Expect-Requests "flag-off" $true $false
-        Flip-Flag $display "DISPLAY, SYSTEM"
+        Flip-Flag "DISPLAY, SYSTEM"
         Expect-Requests "flag-on" $true $true
 
         $skip = Line-Count
         Write-Output "Double-click Mochi to open a second Chat. Waiting up to 5 minutes."
         if (-not (Wait-Line $skip 300 (Get-OtherChatPattern $first))) { Fail "no second Chat opened" }
-        $state = [CaffeinateWin]::ToggleState((Cup "Mochi"))
+        # The new Chat draws the cup before the shell's caffeinate view sets it.
+        $deadline = (Get-Date).AddSeconds(10)
+        do {
+            $state = [CaffeinateWin]::ToggleState((Cup "Mochi"))
+            if ($state -eq "On") { break }
+            Start-Sleep -Milliseconds 250
+        } while ((Get-Date) -lt $deadline)
         if ($state -ne "On") { Fail "Mochi's new Chat shows the cup as $state, not pressed" }
         Pass "second-cup" "Mochi's Chat opened with the cup pressed"
         Expect-Requests "second" $true $true
@@ -433,7 +484,7 @@ try {
         Remove-Item Env:FIDGET_OPEN_SETTINGS
         Launch "launch-2" | Out-Null
         Expect-Requests "relaunch" $false $false
-        Press-Cup (Cup "Beemo") "on"
+        Press-Cup "Beemo" "on"
         Expect-Requests "on-before-ctrl-c" $true $true
         try {
             if (-not [CaffeinateWin]::SendCtrlC()) { Fail "could not send Ctrl+C; run this from a console, not the ISE" }

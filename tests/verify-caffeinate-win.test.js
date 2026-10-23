@@ -27,7 +27,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE
 if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$FidgetReason' }, $true)
 Invoke-Expression $reason.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem", "Get-PressPattern", "Get-UncaughtLines" }, $true)) {
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem", "Get-PressPattern", "Get-UncaughtLines", "Press" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -211,3 +211,56 @@ Invoke-Expression ("try { throw 'boom' } " + $main.CatchClauses[0].Extent.Text)`
     assert.match(lines[1], /^at /);
   },
 );
+
+// UI Automation stand-ins: "stale" is an element Settings has redrawn away
+// (no patterns), "fresh" a live checkbox.
+const stubs = `
+Add-Type @'
+public static class CaffeinateWin {
+    public static string Pressed = "";
+    public static string[] Patterns(object e) {
+        return (string)e == "fresh" ? new[] { "TogglePatternIdentifiers.Pattern" } : new string[0];
+    }
+    public static bool Toggle(object e) { Pressed += e + ";"; return true; }
+    public static bool Invoke(object e) { Pressed += "invoke " + e + ";"; return true; }
+}
+'@
+function Fail([string]$Message) { "FAIL: $Message"; exit 0 }
+function Start-Sleep { }`;
+
+// Run r4: the Display checkbox pressed once, Settings redrew the tab, and the
+// second press went to the element found before the redraw.
+test("a press finds its element again after a redraw", { skip }, () => {
+  assert.deepEqual(
+    run(`${stubs}
+$script:finds = 0
+Press { $script:finds++; if ($script:finds -eq 1) { "stale" } else { "fresh" } } "the Display checkbox"
+"finds=$script:finds pressed=$([CaffeinateWin]::Pressed)"`),
+    ["finds=2 pressed=fresh;"],
+  );
+});
+
+test(
+  "a press that never finds a live element fails naming its patterns",
+  { skip },
+  () => {
+    assert.deepEqual(
+      run(`${stubs}
+Press { "stale" } "the Display checkbox"
+"not reached"`),
+      [
+        "FAIL: the Display checkbox supports neither Toggle nor Invoke; it supports: none",
+      ],
+    );
+  },
+);
+
+// Every press goes through a finder, so none reuses an element held across a
+// state change.
+test("every press passes a finder, not a held element", () => {
+  const presses = [
+    ...readFileSync(script, "utf8").matchAll(/^\s*Press (\S)/gm),
+  ];
+  assert.ok(presses.length >= 3, `found ${presses.length} presses`);
+  for (const [line, first] of presses) assert.equal(first, "{", line);
+});
