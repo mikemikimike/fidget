@@ -23,7 +23,7 @@ proc_snapshot() { # <name=pid>...
 
 # For each snapshot line: name, pid, CPU% of one core and voluntary context
 # switches per second since the snapshot, over a window of <seconds>. A process
-# that exited in the window (a gst-plugin-scanner) has no row.
+# that exited in the window, such as a gst-plugin-scanner, has no row.
 wakeup_rows() { # <snapshot file> <seconds> <clock ticks per second>
   local name pid ticks switches
   while IFS=$'\t' read -r name pid ticks switches; do
@@ -47,9 +47,9 @@ park_pointer() {
   fi
 }
 
-# The middle of the sprite box from the last Grounded or Perched frame after line
-# $2: top-left plus half the reported size. A climb or perch puts the feet on an
-# edge, so the feet are not a safe aim, and a falling sprite has moved on.
+# The middle of the sprite box, top-left plus half the reported size, from the
+# last Grounded or Perched frame after line $2. A climb or perch puts the feet on
+# an edge, so the feet are not a safe aim, and a falling sprite has moved on.
 sprite_center() {
   local log=$1
   local from=${2:-0}

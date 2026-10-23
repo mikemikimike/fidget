@@ -27,7 +27,7 @@ GPU compositing of the transparent overlay, the other suspect in #423, measured 
 | Issue | State | Result |
 | --- | --- | --- |
 | [#431](https://github.com/omesser/fidget/issues/431) macOS idle | Closed | Host 8.4% CPU and 179.8 interrupt wakeups/s perched, quiet machine. Detail in [macos-idle-wakeups.md](./macos-idle-wakeups.md). |
-| [#432](https://github.com/omesser/fidget/issues/432) Linux idle | Open | Release idle, walking, and hidden are below. As of 2026-10-23, Chat and the pill on X11, and idle and Chat on Wayland (weston headless), are sampled too. C-state residency and real-desktop powertop are not measurable on these VMs. |
+| [#432](https://github.com/omesser/fidget/issues/432) Linux idle | Open | Release idle, walking, and hidden are below. As of 2026-10-23, the rerun below adds Chat and the pill on X11, and idle and Chat on Wayland under headless weston. C-state residency and real-desktop powertop are not measurable on these VMs. |
 | [#429](https://github.com/omesser/fidget/issues/429) macOS GPU | Closed | Idle 0.6% GPU, 0.06 W. Section below, [#1034](https://github.com/omesser/fidget/pull/1034). |
 | [#430](https://github.com/omesser/fidget/issues/430) Windows GPU | Closed | Section below, [#1025](https://github.com/omesser/fidget/pull/1025). xperf frame time was not measured. |
 | [#425](https://github.com/omesser/fidget/issues/425) Linux GPU | Open | GPU% unavailable. Release X server proxy measured below. Wayland, a second compositor, and uncomposited X11 were not running. |
@@ -82,13 +82,13 @@ The four fidget processes while walking are 90.1% of one core and 566.2 voluntar
 
 ### Same-day rerun with Chat, the pill, and Wayland, 2026-10-23
 
-As of 2026-10, on a different VM: Debian 13 (trixie), kernel 6.12.94+, 8 CPUs, a container (`systemd-detect-virt` says `container-other`), no `/dev/dri`. Release build of main at `c90fe0d`. Load average 0.2 to 0.8. Other agents' Xvfb displays ran on the same machine. These rows compare with each other, not with the tables above.
+As of 2026-10, these rows come from a different VM. It runs Debian 13 (trixie), kernel 6.12.94+, and 8 CPUs as a container (`systemd-detect-virt` says `container-other`) with no `/dev/dri`. The build is release main at `c90fe0d`. The load average was 0.2 to 0.8, and other agents' Xvfb displays ran on the same machine. These rows compare with each other, not with the tables above.
 
-`scripts/bench-wakeups-linux.sh` takes the same `/proc` reads over one 60 s window, for the fidget process tree and each `--watch` process, and uses still and walk-only BMO copies. X11 is a private `Xvfb` 21.1.16 at 1920x1200 with `xfwm4` 4.20 compositing on. Wayland is native, with no X server: `weston` 14.0.2 `--backend=headless --renderer=pixman --idle-time=0` at 1920x1200. That is the degraded lane of [ADR-0020](../adr/0020-x11-lane-no-native-wayland.md): no window geometry or Perches, no global pointer, no Grab or Throw. The overlay logged `EWMH config deferred: Wayland surface` and still drew frames.
+`scripts/bench-wakeups-linux.sh` takes the same `/proc` reads over one 60 s window, for the fidget process tree and each `--watch` process, and uses still and walk-only BMO copies. X11 is a private `Xvfb` 21.1.16 at 1920x1200 with `xfwm4` 4.20 compositing on. Wayland is native `weston` 14.0.2 with no X server, run as `--backend=headless --renderer=pixman --idle-time=0` at 1920x1200. That is the degraded lane of [ADR-0020](../adr/0020-x11-lane-no-native-wayland.md), with no window geometry or Perches, no global pointer, and no Grab or Throw. The overlay logged `EWMH config deferred: Wayland surface` and still drew frames.
 
 Every wait starts at a trigger and gives up after 3 s. Idle, Chat and the pill start their window at the first `idle#` frame on the floor, after the landing. The `chat` scenario sets `FIDGET_OPEN_CHAT=1` and also waits for `chat: ... is open`. The pill window starts after `overlay: draft ... text=""` with the pointer on the sprite, and the pill was still open at the end. Without an AI source the pill logs `focused=false`.
 
-Walking starts at the first `walk#` frame. Opening an `xmessage` window changes the frontmost app, which wakes the Static Director within about a second instead of on its 20 s timer. Its copy of BMO plays only walks, written as one long play list: `then = "walk"` on the walk Behavior itself plays one walk, because the Engine stops a chain at its first repeat. Reaching the display's side ends a walk with a climb and a fall, since the Engine makes every wall contact a climb and no Character setting turns it around instead, so the script opens or closes the window again at each first idle frame after that. The walking window had 2 of those changes, and its frames were 67% walk, 26% climb, 5% fall and land, and 2% idle. The pointer sits at the top middle, where the sprite never goes.
+Walking starts at the first `walk#` frame. Opening an `xmessage` window changes the frontmost app, which wakes the Static Director within about a second instead of on its 20 s timer. Its copy of BMO plays only walks, written as one long play list. `then = "walk"` on the walk Behavior plays one walk, because the Engine stops a chain at its first repeat. At the display's side a walk ends with a climb and a fall, because the Engine makes every wall contact a climb and no Character setting turns the sprite around. So the script opens or closes the `xmessage` window again at each first idle frame after that. The walking window had 2 of those focus changes, and its frames were 67% walk, 26% climb, 5% fall and land, and 2% idle. The pointer sits at the top middle, where the sprite never goes.
 
 Walking and the pill run on X11 only. On Wayland fidget sees no frontmost app and no idle time, so nothing wakes the Director before its timer, and headless weston has no seat, so the pill cannot be hovered.
 
@@ -105,7 +105,7 @@ Walking and the pill run on X11 only. On Wayland fidget sees no frontmost app an
 
 Each cell is CPU% of one core / voluntary switches/s. WebKitNetworkProcess read 0.0% and at most 0.3/s in every row. The fidget processes together read 10.0% and 189.9/s idle, 9.3% and 235.1/s with Chat open, 10.9% and 194.9/s with the pill open, and 59.2% and 820.3/s walking, on X11. On weston they read 10.0% and 178.9/s idle, and 8.8% and 195.8/s with Chat open. One overlay WebKitWebProcess runs now, where the tables above had two.
 
-As of 2026-10, C-state residency is not measurable here: the container has no `/sys/devices/system/cpu/cpu0/cpuidle`. A real-desktop `powertop` run is not measurable here either. Both need bare metal.
+As of 2026-10, the container has no `/sys/devices/system/cpu/cpu0/cpuidle`, so C-state residency is not measurable here. A real-desktop `powertop` run is not either. Both need bare metal.
 
 ### GPU proxy and mask rate, #425 and #428
 

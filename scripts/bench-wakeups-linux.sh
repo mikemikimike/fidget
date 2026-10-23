@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Idle wakeups on Linux (#432): CPU% of one core and voluntary context switches/s
-# for the fidget tree and any --watch name=pid (X server, WM, compositor), read
-# from /proc over one window. The caller provides DISPLAY or WAYLAND_DISPLAY.
+# CPU% of one core and voluntary context switches/s on Linux, for the fidget
+# tree and each --watch name=pid (X server, WM, compositor), read from /proc over
+# one window. The caller provides DISPLAY or WAYLAND_DISPLAY.
+# ponytail: /proc counters, not powertop or cpuidle residency. They need no root
+# and run in a container, but miss interrupt wakeups and C-states. Use powertop
+# on bare metal that has /sys/devices/system/cpu/cpu0/cpuidle.
 set -euo pipefail
 
 usage() {
@@ -43,12 +46,18 @@ fail() {
   echo "FAIL: $*; evidence in $out" >&2
   exit 1
 }
+# ponytail: walking and the pill run on X11 only. Wayland gives fidget no
+# frontmost app to wake the Director, and headless weston has no seat to hover
+# with. A compositor with a virtual pointer and focus events would lift this.
 case "$scenario" in
   walking | pill) [ -n "${DISPLAY:-}" ] || fail "$scenario needs X11: Wayland gives fidget no focus change or pointer to trigger it" ;;
 esac
 
 # One copy of BMO that plays only <behavior>, untriggered. [walks] replaces its
 # play list with that many 600 ms walk Primitives, so it walks the whole window.
+# ponytail: walk-only is not pure walking. Every wall contact is a climb and a
+# fall, so the 2026-10-23 window was 67% walk and 26% climb. A Character setting
+# that turns the sprite at a wall would make it pure walking.
 character() { # <behavior> [walks]
   local dir="$out/characters"
   mkdir -p "$dir" && cp -R "$root/characters/bmo" "$dir/"
@@ -63,6 +72,9 @@ character() { # <behavior> [walks]
 
 # Opening or closing a window changes the frontmost app, which wakes the
 # Director within a second instead of on its 20 s timer.
+# ponytail: a focus change, not a direct trigger, so walking needs X11 and
+# xmessage, and each change maps a window in the sample. A way to start a
+# Behavior from outside fidget would replace it.
 toggle_focus() {
   if [ -s "$focus" ]; then
     kill "$(cat "$focus")" && : > "$focus"
@@ -102,6 +114,7 @@ sample() {
 
 [ "$scenario" = baseline ] && sample && exit 0
 if [ "$scenario" = walking ]; then
+  # 5/3 walks a second at 600 ms each, for the window plus 5 s of startup.
   chars=$(character walk "$(((seconds + 5) * 5 / 3 + 1))")
 else
   chars=$(character fidget)
