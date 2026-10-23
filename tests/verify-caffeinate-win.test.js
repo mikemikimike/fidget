@@ -25,7 +25,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE
 if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$FidgetReason' }, $true)
 Invoke-Expression $reason.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-SetPattern", "Get-OtherChatPattern", "Get-PeSubsystem" }, $true)) {
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-TakenPattern", "Get-OtherChatPattern", "Get-PeSubsystem" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -74,7 +74,7 @@ Test-FidgetRequest $lines 'SYSTEM'
   );
 });
 
-test("another process's request is not Fidget's", { skip }, () => {
+test("another process's power request is not Fidget's", { skip }, () => {
   assert.deepEqual(
     run(`
 $lines = @('SYSTEM:', '[DRIVER] Realtek High Definition Audio', 'An audio stream is in use.', '', 'DISPLAY:', '[PROCESS] \\Device\\HarddiskVolume3\\Program Files\\Mozilla Firefox\\firefox.exe', 'Playing video')
@@ -84,7 +84,7 @@ Test-FidgetRequest $lines 'DISPLAY'`),
   );
 });
 
-test("the reason alone names Fidget's request", { skip }, () => {
+test("the reason alone names Fidget's power request", { skip }, () => {
   assert.deepEqual(
     run(`Test-FidgetRequest @('SYSTEM:', '[SERVICE] \\Device\\x\\svchost.exe', 'Fidget: keep my computer awake') 'SYSTEM'`),
     ["True"],
@@ -102,13 +102,13 @@ test("the waits match frame_loop's caffeinate lines", { skip }, () => {
   );
 });
 
-test("a flag change waits for the power request it should set", { skip }, () => {
+test("a flag change waits for the power requests it should take", { skip }, () => {
   assert.deepEqual(
     run(`
-'caffeinate: power request set: SYSTEM' -match (Get-SetPattern 'SYSTEM')
-'caffeinate: power request set: DISPLAY, SYSTEM' -match (Get-SetPattern 'SYSTEM')
-'caffeinate: power request set: DISPLAY, SYSTEM' -match (Get-SetPattern 'DISPLAY, SYSTEM')
-'caffeinate: power request cleared' -match (Get-SetPattern 'SYSTEM')`),
+'caffeinate: power requests taken: SYSTEM' -match (Get-TakenPattern 'SYSTEM')
+'caffeinate: power requests taken: DISPLAY, SYSTEM' -match (Get-TakenPattern 'SYSTEM')
+'caffeinate: power requests taken: DISPLAY, SYSTEM' -match (Get-TakenPattern 'DISPLAY, SYSTEM')
+'caffeinate: power requests released' -match (Get-TakenPattern 'SYSTEM')`),
     ["True", "False", "True", "False"],
   );
 });

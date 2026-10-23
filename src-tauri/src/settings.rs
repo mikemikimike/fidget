@@ -1614,8 +1614,8 @@ pub enum BoolField {
     /// The idle event tap, which macOS alone has a grant to ask for.
     #[cfg(target_os = "macos")]
     UseInputMonitoring,
-    /// Caffeinate flags. Only the macOS, Linux and Windows forms write them, and
-    /// only macOS draws Disk.
+    /// Caffeinate flags. The macOS, Linux and Windows forms write them, and only
+    /// macOS draws Disk.
     #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     CaffeinateDisplay,
     #[cfg(any(target_os = "macos", target_os = "linux", windows))]
@@ -2212,9 +2212,8 @@ fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
     flags.inhibitor_label()
 }
 
-/// What the Command row shows for a flag set: the request types
-/// `powercfg /requests` lists Fidget under, from the same
-/// [`fidget_core::caffeinate::AssertedFlags::power_requests`] `caffeinate_win` sets.
+/// What the Command row shows for a flag set: the power requests
+/// `caffeinate_win` takes for it, by the names `powercfg /requests` uses.
 #[cfg(windows)]
 fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
     format!("Power request: {}", flags.inhibitor_label())

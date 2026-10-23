@@ -6,7 +6,7 @@
 //! dies first. Quit signals the pid from another thread because
 //! `process::exit` skips this thread's `Drop`. On Linux, [`Caffeinate`] drives
 //! the inhibitors in `caffeinate_linux` instead, and on Windows the power
-//! request in `caffeinate_win`.
+//! requests in `caffeinate_win`.
 
 #[cfg(target_os = "macos")]
 use std::process::{Child, Command};

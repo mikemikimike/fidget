@@ -31,7 +31,7 @@ mod action_log;
 #[cfg(target_os = "linux")]
 mod caffeinate_linux;
 // macOS runs a `caffeinate` child, Linux takes the `caffeinate_linux`
-// inhibitors, Windows the `caffeinate_win` power request.
+// inhibitors, Windows takes the `caffeinate_win` power requests.
 #[cfg(any(target_os = "macos", target_os = "linux", windows))]
 mod caffeinate_proc;
 #[cfg(windows)]
@@ -2275,7 +2275,7 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
 }
 
 /// The Chat button asks the frame loop to turn Caffeinate on or off. The frame
-/// loop owns the child, the inhibitors or the power request.
+/// loop owns the child, the inhibitors or the power requests.
 #[tauri::command]
 fn toggle_caffeinate(toggle: tauri::State<'_, CaffeinateToggle>) {
     let _ = toggle.0.send(fidget_core::caffeinate::Request::Toggle);

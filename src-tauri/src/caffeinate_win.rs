@@ -1,10 +1,10 @@
-//! The one power request this process makes on Windows.
+//! The power requests this process takes on Windows.
 //!
-//! Windows clears a power request when its handle closes, and it closes every
-//! handle when the process ends. A crash, End task in Task Manager, or Quit's
+//! Windows drops the power requests when their handle closes, and it closes
+//! every handle when the process ends. A crash, End task in Task Manager, or Quit's
 //! `process::exit` (which skips `Drop`) leaves no request behind, so this side
-//! needs no `CHILD_PID`. `powercfg /requests` lists the request under the
-//! process, with [`REASON`].
+//! needs no `CHILD_PID`. `powercfg /requests` lists the requests under
+//! fidget.exe, with [`REASON`].
 
 use std::io;
 
@@ -27,8 +27,8 @@ pub const REASON: &str = "Fidget: keep my computer awake";
 /// this crate does not otherwise need.
 const CONTEXT_VERSION: u32 = 0;
 
-/// The OS request types for a flag set. The core owns the flag map, so the
-/// Settings Command row and the notes name exactly the requests set here.
+/// The `PowerSetRequest` types for a flag set. The core owns the flag map, so
+/// the Settings Command row and the notes name exactly what this file takes.
 pub fn request_types(flags: AssertedFlags) -> Vec<POWER_REQUEST_TYPE> {
     flags
         .power_requests()
@@ -40,12 +40,13 @@ pub fn request_types(flags: AssertedFlags) -> Vec<POWER_REQUEST_TYPE> {
         .collect()
 }
 
-struct Active {
+/// The `PowerCreateRequest` handle and each type `PowerSetRequest` turned on.
+struct Requests {
     handle: HANDLE,
     types: Vec<POWER_REQUEST_TYPE>,
 }
 
-impl Active {
+impl Requests {
     fn release(self) {
         // SAFETY: `handle` came from `PowerCreateRequest` and is closed once,
         // here, because `release` takes the only copy.
@@ -60,7 +61,7 @@ impl Active {
 
 #[derive(Default)]
 pub struct OsSpawner {
-    active: Option<Active>,
+    taken: Option<Requests>,
 }
 
 impl OsSpawner {
@@ -77,8 +78,8 @@ impl Drop for OsSpawner {
 
 impl Spawner for OsSpawner {
     fn spawn(&mut self, argv: &Argv) -> Result<(), String> {
-        if self.active.is_some() {
-            return Err("a power request is already set".to_string());
+        if self.taken.is_some() {
+            return Err("the power requests are already taken".to_string());
         }
         let types = request_types(argv.flags());
         if types.is_empty() {
@@ -98,7 +99,7 @@ impl Spawner for OsSpawner {
         if handle == INVALID_HANDLE_VALUE || handle.is_null() {
             return Err(io::Error::last_os_error().to_string());
         }
-        let mut active = Active {
+        let mut taken = Requests {
             handle,
             types: Vec::new(),
         };
@@ -106,30 +107,31 @@ impl Spawner for OsSpawner {
             // SAFETY: `handle` is the live request created above.
             if unsafe { PowerSetRequest(handle, kind) } == 0 {
                 let error = io::Error::last_os_error().to_string();
-                active.release();
+                taken.release();
                 return Err(error);
             }
-            active.types.push(kind);
+            taken.types.push(kind);
         }
         // scripts/verify-caffeinate-win.ps1 waits on these two lines.
         eprintln!(
-            "caffeinate: power request set: {}",
+            "caffeinate: power requests taken: {}",
             argv.flags().power_request_names()
         );
-        self.active = Some(active);
+        self.taken = Some(taken);
         Ok(())
     }
 
-    /// Clears the request at once, so the next tick reads it as gone.
+    /// Releases the power requests at once, so the next tick reads Caffeinate
+    /// as off.
     fn kill(&mut self) {
-        if let Some(active) = self.active.take() {
-            active.release();
-            eprintln!("caffeinate: power request cleared");
+        if let Some(taken) = self.taken.take() {
+            taken.release();
+            eprintln!("caffeinate: power requests released");
         }
     }
 
     fn alive(&mut self) -> bool {
-        self.active.is_some()
+        self.taken.is_some()
     }
 }
 
@@ -163,30 +165,32 @@ mod tests {
     }
 
     #[test]
-    fn disk_alone_sets_no_power_request() {
+    fn disk_alone_takes_no_power_request() {
         let mut spawner = OsSpawner::new();
         let err = spawner
             .spawn(&flags(&[Flag::Disk]).argv(std::process::id()))
-            .expect_err("no request type");
+            .expect_err("Disk maps to no power request");
         assert!(!err.is_empty());
         assert!(!spawner.alive());
     }
 
     #[test]
-    fn a_real_request_is_set_once_and_cleared_by_kill() {
+    fn a_real_power_request_is_taken_once_and_released_by_kill() {
         let mut spawner = OsSpawner::new();
         let argv = AssertedFlags::all().argv(std::process::id());
-        spawner.spawn(&argv).expect("the request is created");
+        spawner
+            .spawn(&argv)
+            .expect("Windows grants the power requests");
         assert!(spawner.alive());
         assert!(
             spawner.spawn(&argv).is_err(),
-            "a second request would hide the first"
+            "a second take would leak the first handle"
         );
         spawner.kill();
         assert!(!spawner.alive());
         spawner
             .spawn(&argv)
-            .expect("a released request can be made again");
+            .expect("released power requests can be taken again");
         assert!(spawner.alive());
     }
 }

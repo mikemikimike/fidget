@@ -1458,8 +1458,8 @@ fn privacy_sections(live: &Live) -> Vec<FormSection> {
     ]
 }
 
-/// The Awake section. Only macOS has a disk assertion, so Linux and Windows
-/// drop the Disk row and the freeze counts only the rows it draws.
+/// The Awake section. Only macOS can keep the disk awake, so Linux and Windows
+/// drop the Disk row and the freeze counts only the rows they draw.
 #[cfg(any(target_os = "macos", target_os = "linux", windows))]
 fn caffeinate_section(live: &Live) -> FormSection {
     let mac = cfg!(target_os = "macos");
@@ -1550,7 +1550,7 @@ fn caffeinate_section(live: &Live) -> FormSection {
             } else {
                 "Fidget can keep your computer from sleeping. Turn it on with the coffee cup in \
                  the Chat header, or with Caffeinate in the right-click or tray menu. The flags \
-                 below pick which power requests Fidget makes to Windows."
+                 below pick which power requests Fidget asks Windows for."
             }
             .to_string(),
         ),

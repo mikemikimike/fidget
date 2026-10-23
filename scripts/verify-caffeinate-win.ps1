@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Scenario: caffeinate (Windows), the power request behind the Chat cup (#1788).
+# Scenario: caffeinate (Windows), the power requests Caffeinate takes (#1788).
 #   Covers every #1788 Done-when item that `powercfg /requests` can show.
 # On screen: two launches of an isolated Fidget running Beemo (bmo) and Mochi
 #   (cat). The first opens Beemo's Chat and Settings, the second Beemo's Chat.
@@ -36,7 +36,7 @@
 $Go = if ($args.Count -gt 0) { $args[0] } else { "" }
 $ErrorActionPreference = "Stop"
 
-# The reason `caffeinate_win::REASON` gives the request.
+# The reason `caffeinate_win::REASON` gives the power requests.
 $FidgetReason = "Fidget: keep my computer awake"
 
 # Pure checks, loaded on their own by tests/verify-caffeinate-win.test.js.
@@ -65,10 +65,10 @@ function Get-CaffeinatePattern([string]$State) {
     if ($State -eq "on") { '^caffeinate: .*Caffeinate on:' } else { '^caffeinate: Caffeinate off\.$' }
 }
 
-# The line caffeinate_win prints once the power request is set to exactly
+# The line caffeinate_win prints once it takes exactly the power requests in
 # `$Names`.
-function Get-SetPattern([string]$Names) {
-    '^caffeinate: power request set: ' + [regex]::Escape($Names) + '$'
+function Get-TakenPattern([string]$Names) {
+    '^caffeinate: power requests taken: ' + [regex]::Escape($Names) + '$'
 }
 
 # A Chat opening that is not the one labelled `$First`.
@@ -321,11 +321,12 @@ function Press-Cup($Cup, [string]$State) {
     if (-not (Wait-Line $skip 10 (Get-CaffeinatePattern $State))) { Fail "no 'Caffeinate $State' line; see $stderr" }
 }
 
-# Flips one Settings checkbox and waits for the power request it should set.
+# Flips one Settings checkbox and waits for Caffeinate to take the power
+# requests in `$Names`.
 function Flip-Flag($Box, [string]$Names) {
     $skip = Line-Count
     [CaffeinateWin]::Toggle($Box)
-    if (-not (Wait-Line $skip 10 (Get-SetPattern $Names))) { Fail "no power request set for '$Names'; see $stderr" }
+    if (-not (Wait-Line $skip 10 (Get-TakenPattern $Names))) { Fail "no 'power requests taken: $Names' line; see $stderr" }
 }
 
 $before = Requests "before-launch"
