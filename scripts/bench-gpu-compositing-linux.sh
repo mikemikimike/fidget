@@ -632,27 +632,22 @@ run_walking() {
 }
 
 # Aims from a frame logged after the wait starts, so the aim is fresh, then
-# requires a mask_rebuild within about 1s of the move as proof of a hit.
+# takes a mask_rebuild within 1 s of the move as proof of a hit.
 run_walking_over() {
   local log=$1
-  local _ from center="" x y
+  local from center x y before
   from=$(log_lines "$log")
-  for _ in $(seq 1 "$((walk_timeout * 4))"); do
-    center=$(sprite_center "$log" "$from") && break
-    center=""
-    sleep 0.25
-  done
-  if [ -z "$center" ]; then
+  if ! wait_until 3 sprite_center "$log" "$from"; then
     emit walking-over N/A none N/A N/A N/A N/A "no fresh Grounded or Perched frame to aim at"
     return 0
   fi
+  center=$(sprite_center "$log" "$from")
   x=${center%% *}
   y=${center##* }
-  from=$(log_lines "$log")
+  before=$(mask_since "$log" 0)
   xdotool mousemove "$x" "$y" > /dev/null 2>&1 || true
-  sleep 1
-  if [ "$(mask_since "$log" "$from")" -eq 0 ]; then
-    emit walking-over N/A none N/A N/A N/A N/A "pointer missed: no mask_rebuild within 1s of the move to ${x},${y}"
+  if ! wait_for_count 1 "$log" 'mask_rebuild:' "$before"; then
+    emit walking-over N/A none N/A N/A N/A N/A "pointer missed: no mask_rebuild within 1 s of the move to ${x},${y}"
     return 0
   fi
   sample_row walking-over "$log" 5 "pointer on sprite center ${x},${y}"
