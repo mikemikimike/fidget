@@ -18,7 +18,15 @@ function stub(dir, name, body) {
   chmodSync(path, 0o755);
 }
 
-function probe({ display, running }) {
+// Node passes an undefined env value on as the string "undefined".
+function session(display, wayland) {
+  return {
+    ...(display ? { DISPLAY: display } : {}),
+    ...(wayland ? { WAYLAND_DISPLAY: wayland } : {}),
+  };
+}
+
+function probe({ display, wayland, running }) {
   const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
   const pids = {};
   const children = running.map(({ comm, display: own, serves }) => {
@@ -26,7 +34,7 @@ function probe({ display, running }) {
       "bash",
       ["-c", "sleep 30; :", comm, ...(serves ? [serves] : [])],
       {
-        env: { PATH: "/usr/bin:/bin", DISPLAY: own },
+        env: { PATH: "/usr/bin:/bin", ...session(own) },
       },
     );
     (pids[comm] ??= []).push(child.pid);
@@ -40,6 +48,8 @@ function probe({ display, running }) {
   stub(dir, "pgrep", `case "\${!#}" in\n${table}\nesac\nexit 1`);
   for (const tool of ["xrandr", "xdpyinfo", "glxinfo"])
     stub(dir, tool, "exit 0");
+  // Its saved setting says on; a WM started with --compositor=off overrides it.
+  stub(dir, "xfconf-query", "echo true");
   try {
     const result = spawnSync(
       "/bin/bash",
@@ -47,7 +57,11 @@ function probe({ display, running }) {
       {
         encoding: "utf8",
         timeout: 10000,
-        env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, DISPLAY: display },
+        env: {
+          PATH: `${dir}:/usr/bin:/bin`,
+          HOME: dir,
+          ...session(display, wayland),
+        },
       },
     );
     assert.equal(result.status, 0, result.stderr);
@@ -109,6 +123,43 @@ test("an X server started from this display but serving another is not picked", 
   );
 });
 
+test("a Wayland session picks the compositor serving its socket, with no X server", () => {
+  assert.deepEqual(
+    probe({
+      wayland: "wayland-77",
+      running: [
+        { comm: "weston", serves: "--socket=wayland-78" },
+        { comm: "weston", serves: "--socket=wayland-77" },
+        { comm: "Xvfb", display: ":1", serves: ":77" },
+      ],
+    }),
+    { compositor: "weston", compositing: "true", x_server: "none" },
+  );
+});
+
+test("xfwm4 started with --compositor=off is not compositing", () => {
+  assert.deepEqual(
+    probe({
+      display: ":77",
+      running: [{ comm: "xfwm4", display: ":77", serves: "--compositor=off" }],
+    }),
+    { compositor: "xfwm4", compositing: "false", x_server: "none" },
+  );
+});
+
+test("picom over a window manager is the compositor", () => {
+  assert.deepEqual(
+    probe({
+      display: ":77",
+      running: [
+        { comm: "xfwm4", display: ":77", serves: "--compositor=off" },
+        { comm: "picom", display: ":77" },
+      ],
+    }),
+    { compositor: "picom", compositing: "true", x_server: "none" },
+  );
+});
+
 test("idle reads mask_rebuild lines the app writes to process.log", () => {
   const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
   const bin = join(dir, "fakefid");
@@ -117,7 +168,8 @@ test("idle reads mask_rebuild lines the app writes to process.log", () => {
     "fakefid",
     `log="$XDG_DATA_HOME/fidget/process.log"
 echo "1792071672 overlay: 1 display(s); sprite 126x128; BMO as BMO" >> "$log"
-sleep 4.5
+echo "1792071672 frame: 1 Grounded pos(960,1200) sprite(897,1072) idle#0 id" >> "$log"
+sleep 1
 for _ in 1 2 3 4; do echo "1792071675 mask_rebuild: opaque" >> "$log"; done
 exec sleep 30`,
   );
@@ -209,4 +261,77 @@ test("walking-over with no mask_rebuild after the move reports pointer missed", 
     "N/A",
   ]);
   assert.match(row[7], /pointer missed/);
+});
+
+// A fake fidget that writes the overlay line and one idle frame on the floor,
+// then the given lines; it runs the scenario under the given session.
+function scenarioRow(scenario, name, { display, wayland, script: body = "" }) {
+  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+  stub(
+    dir,
+    "fakefid",
+    `log="$XDG_DATA_HOME/fidget/process.log"
+echo "1 overlay: 1 display(s); sprite 126x128; BMO as BMO" >> "$log"
+echo "1 frame: 1 Grounded pos(960,1200) sprite(897,1072) idle#0 id" >> "$log"
+${body}
+exec sleep 30`,
+  );
+  for (const tool of ["xrandr", "xdpyinfo", "glxinfo", "xdotool", "xfce4-terminal"])
+    stub(dir, tool, "exit 0");
+  stub(dir, "pgrep", "exit 1");
+  const out = join(dir, "out");
+  const result = spawnSync(
+    "/bin/bash",
+    [script, scenario, "--seconds", "1", "--bin", join(dir, "fakefid"), "--out", out],
+    {
+      encoding: "utf8",
+      timeout: 30000,
+      env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, ...session(display, wayland) },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const row = readFileSync(join(out, "rows.tsv"), "utf8")
+    .split("\n")
+    .map((line) => line.split("\t"))
+    .find((cells) => cells[0] === name);
+  assert.ok(row, `no ${name} row in ${out}/rows.tsv`);
+  return row;
+}
+
+test("chat opens Chat through FIDGET_OPEN_CHAT and samples once it is open", () => {
+  const row = scenarioRow("chat", "chat", {
+    display: ":99",
+    script: '[ "$FIDGET_OPEN_CHAT" = 1 ] && echo "1 chat: chat-1 is open" >> "$log"',
+  });
+  assert.equal(row[3], "0", row.join(" "));
+  assert.match(row[7], /Chat open/);
+});
+
+test("away samples a Go-away launch once presence reads hidden", () => {
+  const row = scenarioRow("away", "away", {
+    display: ":99",
+    script: `grep -q '"hidden": *true' "$XDG_DATA_HOME/fidget/settings.json" && echo "1 presence: hidden over 0ms" >> "$log"`,
+  });
+  assert.equal(row[3], "0", row.join(" "));
+  assert.match(row[7], /Go away/);
+});
+
+test("on Wayland the mask rate is N/A: the input region is not wired there", () => {
+  const row = scenarioRow("idle", "idle", { wayland: "wayland-99" });
+  assert.deepEqual(row.slice(3, 5), ["N/A", "N/A"]);
+  assert.match(row[7], /input region/);
+});
+
+test("on Wayland fullscreen hide and walking-over are N/A, citing ADR-0020", () => {
+  for (const [scenario, name] of [
+    ["hidden", "hidden"],
+    ["walking", "walking-over"],
+  ]) {
+    const row = scenarioRow(scenario, name, {
+      wayland: "wayland-99",
+      script: 'echo "1 frame: 2 Grounded pos(960,1200) sprite(897,1072) walk#0 id" >> "$log"',
+    });
+    assert.equal(row[3], "N/A", row.join(" "));
+    assert.match(row[7], /ADR-0020/);
+  }
 });
