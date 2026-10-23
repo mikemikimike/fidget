@@ -734,7 +734,7 @@ impl SettingsView {
                 )
             }));
         }
-        #[cfg(any(target_os = "macos", windows))]
+        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         {
             values.insert(
                 form::CAFFEINATE_DISPLAY_ID.to_string(),
@@ -1614,15 +1614,15 @@ pub enum BoolField {
     /// The idle event tap, which macOS alone has a grant to ask for.
     #[cfg(target_os = "macos")]
     UseInputMonitoring,
-    /// Caffeinate flags. Only the macOS and Windows forms write them, and only
-    /// macOS draws Disk.
-    #[cfg(any(target_os = "macos", windows))]
+    /// Caffeinate flags. Only the macOS, Linux and Windows forms write them, and
+    /// only macOS draws Disk.
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     CaffeinateDisplay,
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     CaffeinateIdle,
     #[cfg(target_os = "macos")]
     CaffeinateDisk,
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     CaffeinateSystem,
 }
 
@@ -1682,13 +1682,13 @@ impl SettingsPatch {
             BoolField::UseWindowNames => self.use_window_names = Some(value),
             #[cfg(target_os = "macos")]
             BoolField::UseInputMonitoring => self.use_input_monitoring = Some(value),
-            #[cfg(any(target_os = "macos", windows))]
+            #[cfg(any(target_os = "macos", target_os = "linux", windows))]
             BoolField::CaffeinateDisplay => self.caffeinate_display = Some(value),
-            #[cfg(any(target_os = "macos", windows))]
+            #[cfg(any(target_os = "macos", target_os = "linux", windows))]
             BoolField::CaffeinateIdle => self.caffeinate_idle = Some(value),
             #[cfg(target_os = "macos")]
             BoolField::CaffeinateDisk => self.caffeinate_disk = Some(value),
-            #[cfg(any(target_os = "macos", windows))]
+            #[cfg(any(target_os = "macos", target_os = "linux", windows))]
             BoolField::CaffeinateSystem => self.caffeinate_system = Some(value),
         }
     }
@@ -2189,9 +2189,9 @@ fn caffeinate_flags(
         [
             (Flag::Display, display),
             (Flag::Idle, idle),
-            // Windows has no disk request and hides the row, so a stored Disk
-            // cannot be the flag that keeps the set non-empty there.
-            (Flag::Disk, disk && !cfg!(windows)),
+            // Only macOS has a disk assertion and draws the row, so elsewhere a
+            // stored Disk cannot be the flag that keeps the set non-empty.
+            (Flag::Disk, disk && cfg!(target_os = "macos")),
             (Flag::System, system),
         ]
         .into_iter()
@@ -2202,19 +2202,26 @@ fn caffeinate_flags(
 /// What the Command row shows for a flag set.
 #[cfg(target_os = "macos")]
 fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
-    format!("caffeinate {}", flags.summary())
+    format!("caffeinate {}", flags.inhibitor_label())
+}
+
+/// What the Command row shows for a flag set: the inhibitors
+/// `caffeinate_linux` takes for it.
+#[cfg(target_os = "linux")]
+fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
+    flags.inhibitor_label()
 }
 
 /// What the Command row shows for a flag set: the request types
-/// `powercfg /requests` lists Fidget under. `caffeinate_win` holds the same
-/// [`fidget_core::caffeinate::AssertedFlags::power_requests`].
+/// `powercfg /requests` lists Fidget under, from the same
+/// [`fidget_core::caffeinate::AssertedFlags::power_requests`] `caffeinate_win` sets.
 #[cfg(windows)]
 fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
-    format!("Power request: {}", flags.summary())
+    format!("Power request: {}", flags.inhibitor_label())
 }
 
 impl Settings {
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     pub fn caffeinate_flags(
         &self,
     ) -> Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty> {
@@ -2570,11 +2577,11 @@ mod tests {
         let _ = fs::remove_file(&path);
     }
 
-    /// Windows hides Disk, so Disk alone is an empty set there and a patch
-    /// cannot leave it as the only flag on.
-    #[cfg(windows)]
+    /// Linux and Windows hide Disk, so Disk alone is an empty set there and a
+    /// patch cannot leave it as the only flag on.
+    #[cfg(any(target_os = "linux", windows))]
     #[test]
-    fn windows_counts_disk_for_nothing() {
+    fn disk_counts_for_nothing_off_macos() {
         let mut settings = Settings {
             caffeinate_display: false,
             caffeinate_idle: false,
@@ -2585,7 +2592,10 @@ mod tests {
             caffeinate_system: Some(false),
             ..SettingsPatch::default()
         });
-        assert!(settings.caffeinate_system, "Disk cannot hold the set open");
+        assert!(
+            settings.caffeinate_system,
+            "Disk alone cannot keep the set non-empty"
+        );
         settings.caffeinate_system = false;
         assert!(settings.caffeinate_flags().is_err());
     }
@@ -2593,7 +2603,7 @@ mod tests {
     /// The Command row names the same power requests the chat note does.
     #[cfg(windows)]
     #[test]
-    fn windows_command_row_names_the_held_requests() {
+    fn windows_command_row_names_the_power_requests() {
         use fidget_core::caffeinate::{AssertedFlags, Flag, Note};
         assert_eq!(
             caffeinate_command(AssertedFlags::all()),

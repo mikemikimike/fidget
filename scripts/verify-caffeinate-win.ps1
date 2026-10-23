@@ -65,9 +65,10 @@ function Get-CaffeinatePattern([string]$State) {
     if ($State -eq "on") { '^caffeinate: .*Caffeinate on:' } else { '^caffeinate: Caffeinate off\.$' }
 }
 
-# The line caffeinate_win prints once a request holds exactly `$Summary`.
-function Get-HeldPattern([string]$Summary) {
-    '^caffeinate: power request held: ' + [regex]::Escape($Summary) + '$'
+# The line caffeinate_win prints once the power request is set to exactly
+# `$Names`.
+function Get-SetPattern([string]$Names) {
+    '^caffeinate: power request set: ' + [regex]::Escape($Names) + '$'
 }
 
 # A Chat opening that is not the one labelled `$First`.
@@ -320,11 +321,11 @@ function Press-Cup($Cup, [string]$State) {
     if (-not (Wait-Line $skip 10 (Get-CaffeinatePattern $State))) { Fail "no 'Caffeinate $State' line; see $stderr" }
 }
 
-# Flips one Settings checkbox and waits for the request it should leave held.
-function Flip-Flag($Box, [string]$Summary) {
+# Flips one Settings checkbox and waits for the power request it should set.
+function Flip-Flag($Box, [string]$Names) {
     $skip = Line-Count
     [CaffeinateWin]::Toggle($Box)
-    if (-not (Wait-Line $skip 10 (Get-HeldPattern $Summary))) { Fail "no request held for '$Summary'; see $stderr" }
+    if (-not (Wait-Line $skip 10 (Get-SetPattern $Names))) { Fail "no power request set for '$Names'; see $stderr" }
 }
 
 $before = Requests "before-launch"
@@ -393,7 +394,7 @@ try {
     if (-not $proc.HasExited) { Fail "Fidget did not exit on Ctrl+C" }
     Expect-Requests "ctrl-c" $false $false
 
-    Write-Output "PASS: every check holds; evidence in $out"
+    Write-Output "PASS: every check passed; evidence in $out"
 } finally {
     if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
 }

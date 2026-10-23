@@ -27,9 +27,12 @@
 #[cfg_attr(not(unix), allow(dead_code))]
 mod acp_wire;
 mod action_log;
-// macOS holds a `caffeinate` child, Windows a power request. Linux has no
-// holder yet.
-#[cfg(any(target_os = "macos", windows))]
+// Linux keeps awake with a logind fd and a screen saver cookie.
+#[cfg(target_os = "linux")]
+mod caffeinate_linux;
+// macOS runs a `caffeinate` child, Linux takes the `caffeinate_linux`
+// inhibitors, Windows the `caffeinate_win` power request.
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 mod caffeinate_proc;
 #[cfg(windows)]
 mod caffeinate_win;
@@ -628,23 +631,29 @@ struct SpritePlacement<'a> {
     qm: Option<&'a fidget_core::quick_message::QmDraft>,
 }
 
-/// What the Chat button and the menu row show. Never built off macOS.
+/// What the Chat button and the menu row show. Never built where there is no
+/// Caffeinate.
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct CaffeinateFrame {
     on: bool,
     reason: Option<String>,
 }
 
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub(crate) fn caffeinate_frame(
     fact: fidget_core::caffeinate::Fact,
     configured: Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty>,
 ) -> CaffeinateFrame {
+    let reason = configured
+        .err()
+        .map(|_| fidget_core::caffeinate::Empty::REASON.to_string());
+    // Without logind or a screen saver service no inhibitor can be taken, so the
+    // cup and the menu row are disabled the way an empty flag set disables them.
+    #[cfg(target_os = "linux")]
+    let reason = reason.or_else(|| caffeinate_linux::unavailable().map(str::to_string));
     CaffeinateFrame {
         on: configured.is_ok() && fact.on(),
-        reason: configured
-            .err()
-            .map(|_| fidget_core::caffeinate::Empty::REASON.to_string()),
+        reason,
     }
 }
 
@@ -2265,21 +2274,21 @@ async fn overlay_open_chat(app: tauri::AppHandle, id: String) {
     open_chat(&app, &id, title, None);
 }
 
-/// The Chat button asks the frame loop to flip the hold. The frame loop owns
-/// the holder.
+/// The Chat button asks the frame loop to turn Caffeinate on or off. The frame
+/// loop owns the child, the inhibitors or the power request.
 #[tauri::command]
 fn toggle_caffeinate(toggle: tauri::State<'_, CaffeinateToggle>) {
     let _ = toggle.0.send(fidget_core::caffeinate::Request::Toggle);
 }
 
-/// The hold as Chat last heard it. `None` where there is no hold, and before the
-/// first tick.
+/// Caffeinate as Chat last heard it. `None` where there is no Caffeinate, and
+/// before the first tick.
 #[tauri::command]
 fn caffeinate_view(shown: tauri::State<'_, CaffeinateShown>) -> Option<CaffeinateFrame> {
     shown.0.lock().ok().and_then(|guard| guard.clone())
 }
 
-/// Push the hold to every open Chat when it changes, and remember it for a
+/// Push Caffeinate to every open Chat when it changes, and remember it for a
 /// window that opens between ticks.
 pub(crate) fn note_caffeinate_view<'a>(
     app: &tauri::AppHandle,
@@ -4024,7 +4033,7 @@ fn apply_menu_action(
 fn quit_now() -> ! {
     eprintln!("quit");
     #[cfg(target_os = "macos")]
-    caffeinate_proc::signal_held_child();
+    caffeinate_proc::signal_child();
     harness::shutdown();
     std::process::exit(0);
 }
@@ -4133,10 +4142,10 @@ impl QuitHost for AppQuit<'_> {
     }
 
     fn exit_process(&mut self) {
-        // Ctrl+C exits here, not through `quit_now`. `exit` skips the hold's
+        // Ctrl+C exits here, not through `quit_now`. `exit` skips Caffeinate's
         // Drop, so signal the child first. `-w` covers a crash.
         #[cfg(target_os = "macos")]
-        caffeinate_proc::signal_held_child();
+        caffeinate_proc::signal_child();
         std::process::exit(0);
     }
 }
@@ -4293,22 +4302,22 @@ struct FrameExtras {
 /// state is keyed by type.
 struct CaffeinateToggle(mpsc::Sender<fidget_core::caffeinate::Request>);
 
-/// The hold Chat was last shown. The frame loop writes it and `caffeinate_view`
-/// reads it.
+/// The Caffeinate state Chat was last shown. The frame loop writes it and
+/// `caffeinate_view` reads it.
 struct CaffeinateShown(Mutex<Option<CaffeinateFrame>>);
 
-/// The menu row for the hold. `None` where there is no hold. Before the first tick the hold
-/// is off, and an empty flag set disables the row.
+/// The menu row for Caffeinate. `None` where there is no Caffeinate. Before the
+/// first tick it is off, and an empty flag set disables the row.
 fn menu_caffeinate(
     settings: &Settings,
     frame: Option<&CaffeinateFrame>,
 ) -> Option<menu::CaffeinateRow> {
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = (settings, frame);
         None
     }
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
         Some(match frame {
             Some(frame) => menu::CaffeinateRow {
@@ -5503,7 +5512,7 @@ fn main() {
         .run(|_, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 #[cfg(target_os = "macos")]
-                caffeinate_proc::signal_held_child();
+                caffeinate_proc::signal_child();
                 harness::shutdown();
             }
         });

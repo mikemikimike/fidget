@@ -54,8 +54,8 @@ pub struct DispatchContext<'a, 'c> {
     pub roster: &'a [InstanceInfo],
     pub expression: Option<&'a mut dyn ExpressionHandle>,
     pub placement: PlacementQuery<'a>,
-    /// Its own lifetime, because the hold outlives this call's window lists.
-    /// `None` where this build has no hold, and the tool errors.
+    /// Its own lifetime, because Caffeinate outlives this call's window lists.
+    /// `None` where this build has no Caffeinate, and the tool errors.
     pub caffeinate: Option<&'c mut dyn CaffeinateHandle>,
 }
 
@@ -209,7 +209,7 @@ pub fn dispatch(
             match handle.call(args.on) {
                 Ok(Fact::Off) => Ok(serde_json::json!({ "on": false })),
                 Ok(Fact::On(flags)) => {
-                    Ok(serde_json::json!({ "on": true, "flags": flags.summary() }))
+                    Ok(serde_json::json!({ "on": true, "flags": flags.inhibitor_label() }))
                 }
                 Err(message) => Err(DispatchError {
                     code: ErrorCode::ExecutionFailed,
@@ -329,10 +329,10 @@ pub fn list_tools() -> Vec<ToolInfo> {
             }),
         },
     ];
-    if cfg!(any(target_os = "macos", windows)) {
+    if cfg!(any(target_os = "macos", target_os = "linux", windows)) {
         tools.push(ToolInfo {
             name: "caffeinate".to_string(),
-            description: "Keep this computer awake until it is turned off or Fidget quits. Returns whether it is on and, when it is, what it holds: the caffeinate flags on macOS, the power requests on Windows.".to_string(),
+            description: "Keep this computer awake until it is turned off or Fidget quits. Returns whether it is on and, when it is, what keeps it awake: the caffeinate flags on macOS, the inhibitors on Linux, the power requests on Windows.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -521,9 +521,9 @@ mod tests {
     fn list_tools_returns_exactly_eight_tools() {
         let tools = list_tools();
 
-        #[cfg(any(target_os = "macos", windows))]
+        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         assert_eq!(tools.len(), 9);
-        #[cfg(not(any(target_os = "macos", windows)))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
         assert_eq!(tools.len(), 8);
     }
 
@@ -540,19 +540,19 @@ mod tests {
         assert!(names.contains(&"remember"));
         assert!(names.contains(&"list_instances"));
         assert!(names.contains(&"whereabouts"));
-        #[cfg(any(target_os = "macos", windows))]
+        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         assert!(names.contains(&"caffeinate"));
-        #[cfg(not(any(target_os = "macos", windows)))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
         assert!(!names.contains(&"caffeinate"));
     }
 
-    struct ScriptedHold {
+    struct ScriptedCaffeinate {
         fact: Fact,
         reads: usize,
         sets: Vec<bool>,
     }
 
-    impl CaffeinateHandle for ScriptedHold {
+    impl CaffeinateHandle for ScriptedCaffeinate {
         fn call(&mut self, on: Option<bool>) -> Result<Fact, String> {
             match on {
                 None => self.reads += 1,
@@ -571,35 +571,35 @@ mod tests {
 
     #[test]
     fn caffeinate_reads_when_on_is_omitted_and_sets_when_it_is_present() {
-        let mut hold = ScriptedHold {
+        let mut caffeinate = ScriptedCaffeinate {
             fact: Fact::Off,
             reads: 0,
             sets: Vec::new(),
         };
-        let call = |hold: &mut ScriptedHold, args: serde_json::Value| {
+        let call = |caffeinate: &mut ScriptedCaffeinate, args: serde_json::Value| {
             let temp = tempfile::tempdir().expect("temp dir is creatable");
             let source = fake_source(vec![]);
             let mut context = test_context(&temp, &source, &[]);
-            context.caffeinate = Some(hold);
+            context.caffeinate = Some(caffeinate);
             dispatch("caffeinate", args, &mut context).expect("dispatch")
         };
-        let read = call(&mut hold, json!({}));
+        let read = call(&mut caffeinate, json!({}));
         assert_eq!(read, json!({ "on": false }));
-        assert_eq!(hold.reads, 1);
-        assert!(hold.sets.is_empty());
+        assert_eq!(caffeinate.reads, 1);
+        assert!(caffeinate.sets.is_empty());
 
-        let on = call(&mut hold, json!({ "on": true }));
-        let again = call(&mut hold, json!({ "on": true }));
-        let off = call(&mut hold, json!({ "on": false }));
-        let flags = crate::caffeinate::AssertedFlags::all().summary();
+        let on = call(&mut caffeinate, json!({ "on": true }));
+        let again = call(&mut caffeinate, json!({ "on": true }));
+        let off = call(&mut caffeinate, json!({ "on": false }));
+        let flags = crate::caffeinate::AssertedFlags::all().inhibitor_label();
         assert_eq!(on, json!({ "on": true, "flags": flags }));
         assert_eq!(again, json!({ "on": true, "flags": flags }));
         assert_eq!(off, json!({ "on": false }));
-        assert_eq!(hold.sets, [true, true, false]);
+        assert_eq!(caffeinate.sets, [true, true, false]);
     }
 
     #[test]
-    fn caffeinate_without_a_hold_errors() {
+    fn caffeinate_without_a_handle_errors() {
         let temp = tempfile::tempdir().expect("temp dir is creatable");
         let source = fake_source(vec![]);
         let mut context = test_context(&temp, &source, &[]);

@@ -25,7 +25,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE
 if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$FidgetReason' }, $true)
 Invoke-Expression $reason.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-HeldPattern", "Get-OtherChatPattern", "Get-PeSubsystem" }, $true)) {
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-SetPattern", "Get-OtherChatPattern", "Get-PeSubsystem" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -48,7 +48,7 @@ ${body}`;
 }
 
 // The shape `powercfg /requests` prints, one entry under DISPLAY.
-const held = (section) =>
+const listed = (section) =>
   ["DISPLAY", "SYSTEM", "AWAYMODE", "EXECUTION", "PERFMON", "ACTIVELOCKSCREEN"]
     .flatMap((name) =>
       name === section
@@ -66,7 +66,7 @@ const held = (section) =>
 test("a Fidget entry counts only under its own section", { skip }, () => {
   assert.deepEqual(
     run(`
-$lines = @(${held("DISPLAY")})
+$lines = @(${listed("DISPLAY")})
 Test-FidgetRequest $lines 'DISPLAY'
 Test-FidgetRequest $lines 'SYSTEM'
 (Get-PowerRequests $lines)['SYSTEM'].Count`),
@@ -102,13 +102,13 @@ test("the waits match frame_loop's caffeinate lines", { skip }, () => {
   );
 });
 
-test("a flag change waits for the request it should leave held", { skip }, () => {
+test("a flag change waits for the power request it should set", { skip }, () => {
   assert.deepEqual(
     run(`
-'caffeinate: power request held: SYSTEM' -match (Get-HeldPattern 'SYSTEM')
-'caffeinate: power request held: DISPLAY, SYSTEM' -match (Get-HeldPattern 'SYSTEM')
-'caffeinate: power request held: DISPLAY, SYSTEM' -match (Get-HeldPattern 'DISPLAY, SYSTEM')
-'caffeinate: power request cleared' -match (Get-HeldPattern 'SYSTEM')`),
+'caffeinate: power request set: SYSTEM' -match (Get-SetPattern 'SYSTEM')
+'caffeinate: power request set: DISPLAY, SYSTEM' -match (Get-SetPattern 'SYSTEM')
+'caffeinate: power request set: DISPLAY, SYSTEM' -match (Get-SetPattern 'DISPLAY, SYSTEM')
+'caffeinate: power request cleared' -match (Get-SetPattern 'SYSTEM')`),
     ["True", "False", "True", "False"],
   );
 });

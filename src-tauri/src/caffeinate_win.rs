@@ -1,9 +1,9 @@
-//! The one power request this process holds on Windows.
+//! The one power request this process makes on Windows.
 //!
 //! Windows clears a power request when its handle closes, and it closes every
 //! handle when the process ends. A crash, End task in Task Manager, or Quit's
 //! `process::exit` (which skips `Drop`) leaves no request behind, so this side
-//! needs no `HELD_PID`. `powercfg /requests` lists the request under the
+//! needs no `CHILD_PID`. `powercfg /requests` lists the request under the
 //! process, with [`REASON`].
 
 use std::io;
@@ -28,7 +28,7 @@ pub const REASON: &str = "Fidget: keep my computer awake";
 const CONTEXT_VERSION: u32 = 0;
 
 /// The OS request types for a flag set. The core owns the flag map, so the
-/// Settings Command row and the notes name exactly what is held.
+/// Settings Command row and the notes name exactly the requests set here.
 pub fn request_types(flags: AssertedFlags) -> Vec<POWER_REQUEST_TYPE> {
     flags
         .power_requests()
@@ -40,12 +40,12 @@ pub fn request_types(flags: AssertedFlags) -> Vec<POWER_REQUEST_TYPE> {
         .collect()
 }
 
-struct Held {
+struct Active {
     handle: HANDLE,
     types: Vec<POWER_REQUEST_TYPE>,
 }
 
-impl Held {
+impl Active {
     fn release(self) {
         // SAFETY: `handle` came from `PowerCreateRequest` and is closed once,
         // here, because `release` takes the only copy.
@@ -60,7 +60,7 @@ impl Held {
 
 #[derive(Default)]
 pub struct OsSpawner {
-    held: Option<Held>,
+    active: Option<Active>,
 }
 
 impl OsSpawner {
@@ -77,8 +77,8 @@ impl Drop for OsSpawner {
 
 impl Spawner for OsSpawner {
     fn spawn(&mut self, argv: &Argv) -> Result<(), String> {
-        if self.held.is_some() {
-            return Err("a power request is already held".to_string());
+        if self.active.is_some() {
+            return Err("a power request is already set".to_string());
         }
         let types = request_types(argv.flags());
         if types.is_empty() {
@@ -98,7 +98,7 @@ impl Spawner for OsSpawner {
         if handle == INVALID_HANDLE_VALUE || handle.is_null() {
             return Err(io::Error::last_os_error().to_string());
         }
-        let mut held = Held {
+        let mut active = Active {
             handle,
             types: Vec::new(),
         };
@@ -106,30 +106,30 @@ impl Spawner for OsSpawner {
             // SAFETY: `handle` is the live request created above.
             if unsafe { PowerSetRequest(handle, kind) } == 0 {
                 let error = io::Error::last_os_error().to_string();
-                held.release();
+                active.release();
                 return Err(error);
             }
-            held.types.push(kind);
+            active.types.push(kind);
         }
         // scripts/verify-caffeinate-win.ps1 waits on these two lines.
         eprintln!(
-            "caffeinate: power request held: {}",
-            argv.flags().power_summary()
+            "caffeinate: power request set: {}",
+            argv.flags().power_request_names()
         );
-        self.held = Some(held);
+        self.active = Some(active);
         Ok(())
     }
 
     /// Clears the request at once, so the next tick reads it as gone.
     fn kill(&mut self) {
-        if let Some(held) = self.held.take() {
-            held.release();
+        if let Some(active) = self.active.take() {
+            active.release();
             eprintln!("caffeinate: power request cleared");
         }
     }
 
     fn alive(&mut self) -> bool {
-        self.held.is_some()
+        self.active.is_some()
     }
 }
 
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn disk_alone_holds_nothing() {
+    fn disk_alone_sets_no_power_request() {
         let mut spawner = OsSpawner::new();
         let err = spawner
             .spawn(&flags(&[Flag::Disk]).argv(std::process::id()))
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn a_real_request_is_held_once_and_released_by_kill() {
+    fn a_real_request_is_set_once_and_cleared_by_kill() {
         let mut spawner = OsSpawner::new();
         let argv = AssertedFlags::all().argv(std::process::id());
         spawner.spawn(&argv).expect("the request is created");
