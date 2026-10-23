@@ -26,13 +26,14 @@ function session(display, wayland) {
   };
 }
 
-function probe({ display, wayland, running }) {
+// A running process named comm; a busy one spins so its CPU reads high.
+function runBench({ display, wayland, running }, args) {
   const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
   const pids = {};
-  const children = running.map(({ comm, display: own, serves }) => {
+  const children = running.map(({ comm, display: own, serves, busy }) => {
     const child = spawn(
       "bash",
-      ["-c", "sleep 30; :", comm, ...(serves ? [serves] : [])],
+      ["-c", busy ? "while :; do :; done" : "sleep 30; :", comm, ...(serves ? [serves] : [])],
       {
         env: { PATH: "/usr/bin:/bin", ...session(own) },
       },
@@ -51,9 +52,10 @@ function probe({ display, wayland, running }) {
   // Its saved setting says on; a WM started with --compositor=off overrides it.
   stub(dir, "xfconf-query", "echo true");
   try {
+    const out = join(dir, "out");
     const result = spawnSync(
       "/bin/bash",
-      [script, "env", "--out", join(dir, "out")],
+      [script, ...args, "--out", out],
       {
         encoding: "utf8",
         timeout: 10000,
@@ -65,15 +67,19 @@ function probe({ display, wayland, running }) {
       },
     );
     assert.equal(result.status, 0, result.stderr);
-    return Object.fromEntries(
-      result.stdout
-        .split("\n")
-        .filter((line) => /^(compositor|compositing|x_server)=/.test(line))
-        .map((line) => line.split("=")),
-    );
+    return { stdout: result.stdout, out };
   } finally {
     for (const child of children) child.kill();
   }
+}
+
+function probe(session) {
+  return Object.fromEntries(
+    runBench(session, ["env"])
+      .stdout.split("\n")
+      .filter((line) => /^(compositor|compositing|x_server)=/.test(line))
+      .map((line) => line.split("=")),
+  );
 }
 
 test("no compositor on this display reports compositing false", () => {
@@ -137,6 +143,29 @@ test("a Wayland session picks the compositor serving its socket, with no X serve
   );
 });
 
+test("the Wayland row reads the CPU of the weston on its socket, not another weston", () => {
+  const { out } = runBench(
+    {
+      wayland: "wayland-77",
+      running: [
+        { comm: "weston", serves: "--socket=wayland-78" },
+        { comm: "weston", serves: "--socket=wayland-77", busy: true },
+      ],
+    },
+    ["baseline", "--seconds", "1"],
+  );
+  const row = readFileSync(join(out, "rows.tsv"), "utf8").split("\n")[1].split("\t");
+  assert.equal(row[0], "baseline");
+  assert.ok(Number(row[5]) > 50, row.join(" "));
+});
+
+test("kwin_x11 is compositing", () => {
+  assert.deepEqual(
+    probe({ display: ":77", running: [{ comm: "kwin_x11", display: ":77" }] }),
+    { compositor: "kwin_x11", compositing: "true", x_server: "none" },
+  );
+});
+
 test("xfwm4 started with --compositor=off is not compositing", () => {
   assert.deepEqual(
     probe({
@@ -189,6 +218,32 @@ exec sleep 30`,
     .split("\n")[1]
     .split("\t");
   assert.deepEqual(idle.slice(0, 5), ["idle", "N/A", "none", "4", "1.33"]);
+});
+
+test("idle samples only once the Character stands, not during the landing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+  stub(
+    dir,
+    "fakefid",
+    `log="$XDG_DATA_HOME/fidget/process.log"
+echo "1 overlay: 1 display(s); sprite 126x128; BMO as BMO" >> "$log"
+sleep 0.5
+for _ in 1 2 3; do echo "1 mask_rebuild: opaque" >> "$log"; done
+sleep 0.5
+echo "1 frame: 1 Grounded pos(960,1200) sprite(897,1072) idle#0 id" >> "$log"
+exec sleep 30`,
+  );
+  for (const tool of ["xrandr", "xdpyinfo", "glxinfo", "xdotool"]) stub(dir, tool, "exit 0");
+  stub(dir, "pgrep", "exit 1");
+  const out = join(dir, "out");
+  const result = spawnSync(
+    "/bin/bash",
+    [script, "idle", "--seconds", "1", "--bin", join(dir, "fakefid"), "--out", out],
+    { encoding: "utf8", timeout: 30000, env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, DISPLAY: ":99" } },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const idle = readFileSync(join(out, "rows.tsv"), "utf8").split("\n")[1].split("\t");
+  assert.deepEqual(idle.slice(0, 4), ["idle", "N/A", "none", "0"]);
 });
 
 function walkingOver(hit) {
@@ -261,6 +316,38 @@ test("walking-over with no mask_rebuild after the move reports pointer missed", 
     "N/A",
   ]);
   assert.match(row[7], /pointer missed/);
+});
+
+test("walking-over gives up within about 3 s when no fresh floor frame arrives", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+  stub(
+    dir,
+    "fakefid",
+    `log="$XDG_DATA_HOME/fidget/process.log"
+echo "1 overlay: 1 display(s); sprite 126x128; BMO as BMO" >> "$log"
+echo "1 frame: 1 Grounded pos(163,328) sprite(100,200) walk#0 id" >> "$log"
+while :; do
+  echo "1 frame: 2 Falling pos(1920,128) sprite(1857,0) fall#0 id" >> "$log"
+  sleep 0.1
+done`,
+  );
+  for (const tool of ["xrandr", "xdpyinfo", "glxinfo", "xdotool"]) stub(dir, tool, "exit 0");
+  stub(dir, "pgrep", "exit 1");
+  const out = join(dir, "out");
+  const started = Date.now();
+  const result = spawnSync(
+    "/bin/bash",
+    [script, "walking", "--seconds", "1", "--walk-timeout", "30", "--bin", join(dir, "fakefid"), "--out", out],
+    { encoding: "utf8", timeout: 60000, env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, DISPLAY: ":99" } },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const row = readFileSync(join(out, "rows.tsv"), "utf8")
+    .split("\n")
+    .map((line) => line.split("\t"))
+    .find((cells) => cells[0] === "walking-over");
+  assert.match(row[7], /no fresh Grounded or Perched frame/);
+  // The run is 1 s of walking plus the 3 s budget; 30 s means the walk budget was used.
+  assert.ok(Date.now() - started < 15000, `${Date.now() - started} ms`);
 });
 
 // A fake fidget that writes the overlay line and one idle frame on the floor,
