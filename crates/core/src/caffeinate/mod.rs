@@ -138,7 +138,7 @@ impl Note {
             Note::Off => "Caffeinate off.".to_string(),
             Note::Exited => "Caffeinate off. It exited on its own.".to_string(),
             Note::Failed => "Caffeinate did not start.".to_string(),
-            Note::Lost(reason) => format!("Caffeinate off. Could not take {reason}"),
+            Note::Lost(reason) => format!("Caffeinate off. Reason: {reason}"),
         }
     }
 }
@@ -458,7 +458,7 @@ mod tests {
         assert_eq!(Note::Failed.text(), "Caffeinate did not start.");
         assert_eq!(
             Note::Lost("logind inhibit sleep: Access denied".to_string()).text(),
-            "Caffeinate off. Could not take logind inhibit sleep: Access denied"
+            "Caffeinate off. Reason: logind inhibit sleep: Access denied"
         );
     }
 
