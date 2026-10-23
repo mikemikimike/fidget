@@ -65,6 +65,57 @@ impl AssertedFlags {
     pub fn argv(self, pid: u32) -> Argv {
         Argv { flags: self, pid }
     }
+
+    /// How Chat, the prompt line and Settings name what Caffeinate is blocking:
+    /// the flag cluster (`-dims`) on macOS, the inhibitors on Linux.
+    pub fn blocking_label(self) -> String {
+        if cfg!(target_os = "linux") {
+            LinuxPlan::of(self).describe()
+        } else {
+            self.preview()
+        }
+    }
+}
+
+/// What a flag set asks Linux to block. Pure, so every OS tests it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LinuxPlan {
+    /// The logind `what`: Idle is `idle`, System is `sleep`.
+    pub logind: Option<&'static str>,
+    /// Display is a screen saver inhibit.
+    pub display: bool,
+}
+
+impl LinuxPlan {
+    /// Disk has no Linux equivalent, so it adds nothing.
+    pub fn of(flags: AssertedFlags) -> Self {
+        let logind = match (flags.contains(Flag::Idle), flags.contains(Flag::System)) {
+            (true, true) => Some("idle:sleep"),
+            (true, false) => Some("idle"),
+            (false, true) => Some("sleep"),
+            (false, false) => None,
+        };
+        Self {
+            logind,
+            display: flags.contains(Flag::Display),
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.logind.is_none() && !self.display
+    }
+
+    /// The Settings Command row, the Chat note and the prompt line.
+    pub fn describe(self) -> String {
+        let mut parts = Vec::new();
+        if let Some(what) = self.logind {
+            parts.push(format!("logind inhibit {what}"));
+        }
+        if self.display {
+            parts.push("screen saver inhibit".to_string());
+        }
+        parts.join(" + ")
+    }
 }
 
 fn bit(flag: Flag) -> u8 {
@@ -80,6 +131,11 @@ pub struct Argv {
 }
 
 impl Argv {
+    /// The flags alone, for a `Spawner` that takes no argv.
+    pub fn flags(self) -> AssertedFlags {
+        self.flags
+    }
+
     /// The tokens `Command` is given.
     pub fn args(self) -> Vec<String> {
         let flags = self.flags.letters().map(|letter| format!("-{letter}"));
@@ -89,8 +145,8 @@ impl Argv {
     }
 }
 
-/// Level of the hold. Absence of the feature is `None` at the prompt, not a
-/// third variant here.
+/// Whether Caffeinate is on, and with which flags. Absence of the feature is
+/// `None` at the prompt, not a third variant here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fact {
     Off,
@@ -106,31 +162,35 @@ impl Fact {
     pub fn prompt_line(self) -> String {
         match self {
             Fact::Off => "caffeinate: off".to_string(),
-            Fact::On(flags) => format!("caffeinate: on ({})", flags.preview()),
+            Fact::On(flags) => format!("caffeinate: on ({})", flags.blocking_label()),
         }
     }
 }
 
 /// A Chat note. Not a tool result and not the prompt line.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Note {
     On(AssertedFlags),
     Off,
-    /// The child left while the hold was still wanted and nobody killed it.
+    /// The child left while Caffeinate was still on and nobody killed it.
     Exited,
     Failed,
+    /// A `Spawner` that works off the caller's thread could not turn Caffeinate
+    /// on.
+    Lost(String),
 }
 
 impl Note {
-    pub fn text(self) -> String {
+    pub fn text(&self) -> String {
         match self {
             Note::On(flags) => format!(
-                "☕ Caffeinate on: keeping your Mac awake ({})",
-                flags.preview()
+                "☕ Caffeinate on: keeping your computer awake ({})",
+                flags.blocking_label()
             ),
             Note::Off => "Caffeinate off.".to_string(),
             Note::Exited => "Caffeinate off. It exited on its own.".to_string(),
             Note::Failed => "Caffeinate did not start.".to_string(),
+            Note::Lost(reason) => format!("Caffeinate off. Could not take {reason}"),
         }
     }
 }
@@ -142,16 +202,22 @@ pub enum Request {
     Set(bool),
 }
 
-/// Process boundary. `spawn` fails when a child is already held, so a second
+/// Process boundary. `spawn` fails while Caffeinate is already on, so a second
 /// start cannot hide the first.
 pub trait Spawner {
     fn spawn(&mut self, argv: &Argv) -> Result<(), String>;
     fn kill(&mut self);
-    /// Whether the held child is still running. Reaps one that has left.
+    /// Whether the child or the inhibitors are still in effect. Reaps a child
+    /// that has left.
     fn alive(&mut self) -> bool;
+    /// Why `alive` just reported off: Caffeinate never came on. Only a `Spawner`
+    /// whose `spawn` returns before the OS answers has one.
+    fn failure(&mut self) -> Option<String> {
+        None
+    }
 }
 
-/// The frame loop's hold, as `dispatch` sees it. `None` reads. `Err` is a
+/// The frame loop's Caffeinate, as `dispatch` sees it. `None` reads. `Err` is a
 /// failed start or an empty flag set.
 pub trait CaffeinateHandle {
     fn call(&mut self, on: Option<bool>) -> Result<Fact, String>;
@@ -168,7 +234,7 @@ pub struct Tick {
 enum Phase {
     Idle,
     Running(AssertedFlags),
-    /// SIGTERM sent. The hold still reads `flags`. Once the child is gone it
+    /// SIGTERM sent. Caffeinate still reads `flags`. Once the child is gone it
     /// spawns `flags` if `restart`, or turns off with a note.
     Stopping {
         flags: AssertedFlags,
@@ -176,7 +242,7 @@ enum Phase {
     },
 }
 
-/// The only mutator of the hold.
+/// The only thing that turns Caffeinate on or off.
 pub struct Machine<S: Spawner> {
     spawner: S,
     pid: u32,
@@ -198,6 +264,7 @@ impl<S: Spawner> Machine<S> {
     /// Apply requests, then reconcile the one child to what they want.
     pub fn tick(&mut self, flags: Result<AssertedFlags, Empty>, requests: &[Request]) -> Tick {
         let alive = self.spawner.alive();
+        let failure = self.spawner.failure();
         let mut tick = Tick {
             fact: Fact::Off,
             notes: Vec::new(),
@@ -227,6 +294,9 @@ impl<S: Spawner> Machine<S> {
             let changed = flags.is_ok_and(|next| next != spawned);
             if !self.wanted {
                 tick.notes.push(Note::Off);
+            } else if let Some(reason) = failure {
+                tick.notes.push(Note::Lost(reason));
+                self.wanted = false;
             } else if self.wanted && !changed && !asked_on {
                 tick.notes.push(Note::Exited);
                 self.wanted = false;
@@ -327,48 +397,54 @@ mod tests {
     use super::*;
 
     struct Fake {
-        held: bool,
+        running: bool,
         next: Option<bool>,
         spawns: Vec<Vec<String>>,
         kills: usize,
         fail: bool,
+        failure: Option<String>,
     }
 
     impl Fake {
         fn new() -> Self {
             Self {
-                held: false,
+                running: false,
                 next: None,
                 spawns: Vec::new(),
                 kills: 0,
                 fail: false,
+                failure: None,
             }
         }
     }
 
     impl Spawner for Fake {
         fn spawn(&mut self, argv: &Argv) -> Result<(), String> {
-            if self.held {
-                return Err("already holding a child".to_string());
+            if self.running {
+                return Err("a child is already running".to_string());
             }
             if self.fail {
                 return Err("caffeinate missing".to_string());
             }
-            self.held = true;
+            self.running = true;
             self.spawns.push(argv.args());
             Ok(())
         }
 
         fn kill(&mut self) {
-            if self.held {
+            if self.running {
                 self.kills += 1;
             }
         }
 
         fn alive(&mut self) -> bool {
-            let alive = self.next.take().unwrap_or(self.held);
-            self.held &= alive;
+            let alive = self.next.take().unwrap_or(self.running);
+            self.running &= alive;
             alive
+        }
+
+        fn failure(&mut self) -> Option<String> {
+            self.failure.take()
         }
     }
 
@@ -410,14 +486,111 @@ mod tests {
     #[test]
     fn prompt_and_note_text_are_the_issue_sentences() {
         assert_eq!(Fact::Off.prompt_line(), "caffeinate: off");
-        assert_eq!(Fact::On(dims()).prompt_line(), "caffeinate: on (-dims)");
-        assert_eq!(
-            Note::On(dims()).text(),
-            "☕ Caffeinate on: keeping your Mac awake (-dims)"
-        );
+        #[cfg(not(target_os = "linux"))]
+        {
+            assert_eq!(Fact::On(dims()).prompt_line(), "caffeinate: on (-dims)");
+            assert_eq!(
+                Note::On(dims()).text(),
+                "☕ Caffeinate on: keeping your computer awake (-dims)"
+            );
+        }
         assert_eq!(Note::Off.text(), "Caffeinate off.");
         assert_eq!(Note::Exited.text(), "Caffeinate off. It exited on its own.");
         assert_eq!(Note::Failed.text(), "Caffeinate did not start.");
+        assert_eq!(
+            Note::Lost("logind inhibit sleep: Access denied".to_string()).text(),
+            "Caffeinate off. Could not take logind inhibit sleep: Access denied"
+        );
+    }
+
+    /// Linux names the inhibitors, the same words as the Settings Command row.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_notes_and_prompt_name_the_inhibitors() {
+        let named = "logind inhibit idle:sleep + screen saver inhibit";
+        assert_eq!(dims().blocking_label(), named);
+        assert_eq!(
+            Fact::On(dims()).prompt_line(),
+            format!("caffeinate: on ({named})")
+        );
+        assert_eq!(
+            Note::On(dims()).text(),
+            format!("☕ Caffeinate on: keeping your computer awake ({named})")
+        );
+    }
+
+    fn flags(set: &[Flag]) -> AssertedFlags {
+        AssertedFlags::new(set.iter().copied()).expect("a flag")
+    }
+
+    #[test]
+    fn idle_and_system_are_one_logind_inhibitor_and_display_the_screen_saver() {
+        assert_eq!(
+            LinuxPlan::of(dims()),
+            LinuxPlan {
+                logind: Some("idle:sleep"),
+                display: true
+            }
+        );
+        assert_eq!(LinuxPlan::of(flags(&[Flag::Idle])).logind, Some("idle"));
+        assert_eq!(LinuxPlan::of(flags(&[Flag::System])).logind, Some("sleep"));
+        assert_eq!(
+            LinuxPlan::of(flags(&[Flag::Display])),
+            LinuxPlan {
+                logind: None,
+                display: true
+            }
+        );
+        assert!(LinuxPlan::of(flags(&[Flag::Disk])).is_empty());
+    }
+
+    #[test]
+    fn the_linux_plan_names_each_inhibitor() {
+        assert_eq!(
+            LinuxPlan::of(dims()).describe(),
+            "logind inhibit idle:sleep + screen saver inhibit"
+        );
+        assert_eq!(
+            LinuxPlan::of(flags(&[Flag::System])).describe(),
+            "logind inhibit sleep"
+        );
+        assert_eq!(
+            LinuxPlan::of(flags(&[Flag::Display])).describe(),
+            "screen saver inhibit"
+        );
+    }
+
+    /// A `Spawner` that works off the caller's thread reports a refusal after
+    /// `spawn` returned Ok. Chat hears why, and Caffeinate stays
+    /// off.
+    #[test]
+    fn caffeinate_that_could_not_turn_on_says_why_and_stays_off() {
+        let mut machine = Machine::new(Fake::new(), 42);
+        drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
+        machine.spawner.failure = Some("logind inhibit sleep: denied".to_string());
+        let lost = drive(&mut machine, Ok(dims()), &[], false);
+        assert_eq!(lost.fact, Fact::Off);
+        assert_eq!(
+            lost.notes,
+            vec![Note::Lost("logind inhibit sleep: denied".to_string())]
+        );
+        let after = drive(&mut machine, Ok(dims()), &[], false);
+        assert_eq!(after.fact, Fact::Off);
+        assert!(after.notes.is_empty());
+        assert_eq!(machine.spawner.spawns.len(), 1);
+    }
+
+    /// A refusal that lands after the user turned it off is just Off.
+    #[test]
+    fn a_refusal_while_stopping_is_only_off() {
+        let mut machine = Machine::new(Fake::new(), 42);
+        drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
+        drive(&mut machine, Ok(dims()), &[Request::Set(false)], true);
+        machine.spawner.failure = Some("denied".to_string());
+        let done = drive(&mut machine, Ok(dims()), &[], false);
+        assert_eq!(done.fact, Fact::Off);
+        assert_eq!(done.notes, vec![Note::Off]);
+        assert!(machine.spawner.failure.is_none());
     }
 
     #[test]
@@ -528,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn a_child_that_exits_on_its_own_turns_the_hold_off() {
+    fn a_child_that_exits_on_its_own_turns_caffeinate_off() {
         let mut machine = Machine::new(Fake::new(), 42);
         drive(&mut machine, Ok(dims()), &[Request::Set(true)], false);
         let exited = drive(&mut machine, Ok(dims()), &[], false);

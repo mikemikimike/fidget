@@ -128,8 +128,8 @@ pub struct Context {
     /// `state` is read after the tick, so this is the only place the moment
     /// before the verb survives.
     pub lately: Lately,
-    /// The caffeinate line for the prompt. `None` off macOS, which leaves the
-    /// line out.
+    /// The caffeinate line for the prompt. `None` where this build has no
+    /// Caffeinate, which leaves the line out.
     pub caffeinate: Option<crate::caffeinate::Fact>,
 }
 
@@ -2189,7 +2189,8 @@ mod tests {
         let flags = crate::caffeinate::AssertedFlags::all();
         moment.caffeinate = Some(crate::caffeinate::Fact::On(flags));
         let on = follow_up(&moment);
-        assert!(on.contains("state: idle\ncaffeinate: on (-dims)\n"), "{on}");
+        let line = format!("state: idle\ncaffeinate: on ({})\n", flags.blocking_label());
+        assert!(on.contains(&line), "{on}");
         moment.caffeinate = Some(crate::caffeinate::Fact::Off);
         let off = follow_up(&moment);
         assert!(off.contains("state: idle\ncaffeinate: off\n"), "{off}");
