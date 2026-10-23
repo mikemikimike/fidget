@@ -4,15 +4,17 @@
 # On screen: two launches of an isolated Fidget running Beemo (bmo) and Mochi
 #   (cat). The first opens Beemo's Chat and Settings, the second Beemo's Chat.
 #   The script presses the cup and the Settings checkboxes through UI
-#   Automation, with no mouse.
-# Input: one by hand. When asked, double-click Mochi to open a second Chat.
-#   With --quit-by-hand, also pick Quit in the tray menu when asked.
+#   Automation. It opens Mochi's Chat with a real double-click on Mochi
+#   (SendInput), and with --quit-from-menu picks Quit from Beemo's
+#   right-click menu.
+# Input: none, apart from accepting UAC. The mouse pointer moves onto Mochi
+#   and clicks there on its own; leave the mouse alone while it runs.
 # Needs: an elevated PowerShell console (not the ISE), because
 #   `powercfg /requests` refuses without admin rights and Ctrl+C needs a
 #   console. No other Fidget may be running. Needs a debug fidget.exe: a
 #   release build is a windows-subsystem exe with no console, so Ctrl+C can
 #   never reach it, and the script refuses one before launching.
-# Duration: about 2 min with a built exe, plus the time you take.
+# Duration: about 2 min with a built exe.
 # Asserts, each from a `powercfg /requests` snapshot:
 #   on       the cup turns it on: fidget.exe under SYSTEM and DISPLAY
 #   off      the cup turns it off: under neither
@@ -20,14 +22,14 @@
 #   flag-off unticking Display in Settings while on: SYSTEM only
 #   flag-on  ticking Display again: SYSTEM and DISPLAY
 #   second   Mochi's new Chat shows the cup pressed; still SYSTEM and DISPLAY
-#   quit     after ending the process (or Quit by hand): under neither
+#   quit     after ending the process (or Quit from the menu): under neither
 #   ctrl-c   second launch, cup on, then Ctrl+C in the console: under neither
-# Waits: on Fidget's stderr lines (Get-Content -Wait), UI Automation
-#   structure events, and Wait-Process. No sleep loops.
+# Waits: on Fidget's stderr lines (read off its pipe as they land), UI
+#   Automation events, and Wait-Process. No sleep loops.
 # Isolation: FIDGET_DATA_DIR, HOME, APPDATA, LOCALAPPDATA, TEMP, TMP and
 #   WEBVIEW2_USER_DATA_FOLDER all point under the evidence directory.
 #
-# Usage: verify-caffeinate-win.ps1 --go <evidence dir> [<fidget.exe>] [--quit-by-hand]
+# Usage: verify-caffeinate-win.ps1 --go <evidence dir> [<fidget.exe>] [--quit-from-menu]
 # Without <fidget.exe> it runs `cargo build -p fidget` (a debug build) and
 # uses that exe.
 # Evidence: result.txt, powercfg-<check>.txt and each launch's stderr.
@@ -76,6 +78,40 @@ function Get-OtherChatPattern([string]$First) {
     '^chat: (?!' + [regex]::Escape($First) + ' is open$)\S+ is open$'
 }
 
+# A frame of Instance `$Id` (with -Except, of any other Instance) standing
+# on something, so not mid-fall or held: the `frame:` line frame_loop prints
+# under FIDGET_TRACE_FRAMES, which ends in the Instance id.
+function Get-FramePattern([string]$Id, [switch]$Except) {
+    $instance = if ($Except) { '(?!' + [regex]::Escape($Id) + '$)\S+' } else { [regex]::Escape($Id) }
+    '^frame: \d+ (Grounded|Perched) pos\(-?\d+,-?\d+\) sprite\(-?\d+,-?\d+\) \S+#\d+ ' + $instance + '$'
+}
+
+# The Instance id in a Chat label: chat_label is `chat-<id>`.
+function Get-ChatInstance([string]$Label) {
+    $Label -replace '^chat-', ''
+}
+
+# The factor from the Engine's points to screen pixels, from a `hit-test:`
+# line: `cursor(x,y) scale S` is the cursor in pixels and that factor.
+function Get-CursorScale([string]$Line) {
+    if ($Line -match '^hit-test: cursor\(-?\d+,-?\d+\) scale (\d+(\.\d+)?) ') { [double]$Matches[1] } else { 0 }
+}
+
+# Where to click a sprite, in screen pixels, from its `frame:` line. pos() is
+# the contact point at the middle of the art's bottom edge and sprite() its
+# top-left (overlay::place_sprite), so halfway down at pos's x is the art's
+# middle, which is drawn in every frame of the cat. "" for another line.
+function Get-SpritePoint([string]$Frame, [double]$Scale) {
+    if ($Frame -notmatch ' pos\((-?\d+),(-?\d+)\) sprite\((-?\d+),(-?\d+)\) ') { return "" }
+    $x = [int]$Matches[1]
+    $y = ([int]$Matches[2] + [int]$Matches[4]) / 2
+    "$([math]::Round($x * $Scale)),$([math]::Round($y * $Scale))"
+}
+
+# The `hit-test:` line for the overlay stopping passing clicks through, which
+# it does once the cursor is over drawn sprite pixels.
+$HitFlipPattern = '^hit-test: .* HIT\s+click-through OFF\s+<- flipped$'
+
 # The PE Subsystem field: 2 is a windows (GUI) exe, 3 a console one, 0 not a PE.
 function Get-PeSubsystem([byte[]]$Bytes) {
     if ($Bytes.Length -lt 64 -or $Bytes[0] -ne 0x4D -or $Bytes[1] -ne 0x5A) { return 0 }
@@ -114,10 +150,10 @@ if ($Go -ne "--go") {
     exit 2
 }
 $rest = @($args | Select-Object -Skip 1)
-$QuitByHand = $rest -contains "--quit-by-hand"
-$positional = @($rest | Where-Object { $_ -ne "--quit-by-hand" })
+$QuitFromMenu = $rest -contains "--quit-from-menu"
+$positional = @($rest | Where-Object { $_ -ne "--quit-from-menu" })
 if ($positional.Count -lt 1 -or $positional.Count -gt 2) {
-    Write-Error "usage: verify-caffeinate-win.ps1 --go <evidence dir> [<fidget.exe>] [--quit-by-hand]"
+    Write-Error "usage: verify-caffeinate-win.ps1 --go <evidence dir> [<fidget.exe>] [--quit-from-menu]"
     exit 1
 }
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -146,6 +182,7 @@ $result = Join-Path $out "result.txt"
 Set-Content -LiteralPath $result -Value "" -Encoding ascii
 $proc = $null
 $stderr = $null
+$tee = $null
 
 function Fail([string]$Message) {
     Add-Content -LiteralPath $result -Value "FAIL: $Message"
@@ -188,27 +225,22 @@ try {
         Pass $Label $got
     }
 
-    # Blocks on a tail of Fidget's stderr until a line matches `$Pattern`, or the
-    # timeout. `Get-Content -Wait` delivers lines as they land.
+    # Blocks until a line of Fidget's stderr from line `$Skip` on matches
+    # `$Pattern` (case-insensitive, as -match), or the timeout. The tee wakes it
+    # as each line comes off the pipe.
     function Wait-Line([int]$Skip, [int]$Seconds, [string]$Pattern) {
-        $job = Start-Job -ArgumentList $stderr, $Skip, $Pattern -ScriptBlock {
-            param($File, $Skip, $Pattern)
-            Get-Content -LiteralPath $File -Wait | Select-Object -Skip $Skip |
-                Where-Object { $_ -match $Pattern } | Select-Object -First 1
-        }
-        try {
-            if (-not (Wait-Job -Job $job -Timeout $Seconds)) { return $null }
-            return Receive-Job -Job $job
-        } finally {
-            Remove-Job -Job $job -Force
-        }
+        $tee.WaitLine($Skip, $Seconds * 1000, $Pattern)
     }
-    function Line-Count { @(Get-Content -LiteralPath $stderr).Count }
+    function Line-Count { $tee.Count }
 
     Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
     Add-Type -ReferencedAssemblies UIAutomationClient, UIAutomationTypes, WindowsBase @"
     using System;
+    using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.IO;
     using System.Text;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Runtime.InteropServices;
     using System.Windows.Automation;
@@ -220,6 +252,146 @@ try {
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
         [DllImport("kernel32.dll")] static extern bool GenerateConsoleCtrlEvent(uint ev, uint group);
         [DllImport("kernel32.dll")] static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
+        [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint count, Input[] inputs, int size);
+        [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
+        [DllImport("user32.dll")] static extern uint GetDoubleClickTime();
+        [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct MouseInput { public int dx, dy; public uint data, flags, time; public IntPtr extra; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct Input { public uint type; public MouseInput mi; }
+
+        const uint Move = 0x0001, LeftDown = 0x0002, LeftUp = 0x0004, RightDown = 0x0008, RightUp = 0x0010;
+        const uint Absolute = 0x8000, VirtualDesk = 0x4000;
+
+        // A stream of Fidget's (stderr or stdout) copied line by line to a file,
+        // and kept, so a wait wakes on the line itself rather than on a re-read
+        // of the file.
+        public sealed class Tee {
+            readonly List<string> lines = new List<string>();
+            readonly object gate = new object();
+            public Tee(StreamReader from, string path) {
+                var to = new StreamWriter(path, false, new UTF8Encoding(false));
+                to.AutoFlush = true;
+                var reader = new Thread(() => {
+                    try {
+                        string line;
+                        while ((line = from.ReadLine()) != null) {
+                            to.WriteLine(line);
+                            lock (gate) { lines.Add(line); Monitor.PulseAll(gate); }
+                        }
+                    } catch (IOException) {
+                    } catch (ObjectDisposedException) {
+                    } finally {
+                        to.Dispose();
+                    }
+                });
+                reader.IsBackground = true;
+                reader.Start();
+            }
+            public int Count { get { lock (gate) return lines.Count; } }
+            // The first line from `skip` on matching `pattern`, or null at `ms`.
+            public string WaitLine(int skip, int ms, string pattern) {
+                var re = new Regex(pattern, RegexOptions.IgnoreCase);
+                var deadline = DateTime.UtcNow.AddMilliseconds(ms);
+                lock (gate) {
+                    for (var i = skip; ; ) {
+                        for (; i < lines.Count; i++) if (re.IsMatch(lines[i])) return lines[i];
+                        var left = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+                        if (left <= 0) return null;
+                        Monitor.Wait(gate, left);
+                    }
+                }
+            }
+        }
+
+        static Input Mouse(uint flags, int dx, int dy) {
+            var input = new Input();
+            input.type = 0;
+            input.mi.dx = dx; input.mi.dy = dy; input.mi.flags = flags;
+            return input;
+        }
+
+        // Sends `inputs` as real input, measured in physical pixels whatever
+        // this PowerShell's DPI awareness. True when Windows took all of them.
+        static bool Send(params Input[] inputs) {
+            return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(Input))) == inputs.Length;
+        }
+
+        // Moves the pointer to (`x`, `y`) in screen pixels, as Fidget's cursor
+        // reads them.
+        public static bool MoveTo(int x, int y) {
+            var before = IntPtr.Zero;
+            // Per-monitor aware (v2) for this thread, so the metrics are pixels.
+            try { before = SetThreadDpiAwarenessContext(new IntPtr(-4)); } catch (EntryPointNotFoundException) { }
+            try {
+                int left = GetSystemMetrics(76), top = GetSystemMetrics(77);
+                int width = Math.Max(2, GetSystemMetrics(78)), height = Math.Max(2, GetSystemMetrics(79));
+                var nx = (int)((long)(x - left) * 65535 / (width - 1));
+                var ny = (int)((long)(y - top) * 65535 / (height - 1));
+                return Send(Mouse(Move | Absolute | VirtualDesk, nx, ny));
+            } finally {
+                if (before != IntPtr.Zero) SetThreadDpiAwarenessContext(before);
+            }
+        }
+
+        // `clicks` left clicks where the pointer is. Fidget reads the button
+        // once a tick, so each edge waits for the `click:` line that shows the
+        // tick saw it, and the presses stay apart. Null when all landed within
+        // the system double-click time, else what went wrong.
+        public static string LeftClicks(Tee tee, int clicks) {
+            var limit = GetDoubleClickTime();
+            var clock = Stopwatch.StartNew();
+            for (var n = 1; n <= clicks; n++) {
+                foreach (var down in new[] { true, false }) {
+                    var edge = down ? "down" : "up";
+                    var skip = tee.Count;
+                    if (!Send(Mouse(down ? LeftDown : LeftUp, 0, 0))) return "SendInput refused left button " + edge + " " + n;
+                    if (tee.WaitLine(skip, 2000, "^click: " + edge + " ") == null) return "Fidget never saw left button " + edge + " " + n;
+                }
+            }
+            if (clock.ElapsedMilliseconds >= limit) return "the clicks took " + clock.ElapsedMilliseconds + " ms, past the " + limit + " ms double-click time";
+            return null;
+        }
+
+        // One right click where the pointer is. The overlay latches a press
+        // between ticks, so the button need not stay down for one.
+        public static bool RightClick() {
+            return Send(Mouse(RightDown, 0, 0), Mouse(RightUp, 0, 0));
+        }
+
+        // Popup menus of process `pid` opening, from construction on, so a
+        // menu that opens before `Item` is called is not missed.
+        public sealed class MenuWatch : IDisposable {
+            readonly AutoResetEvent opened = new AutoResetEvent(false);
+            readonly AutomationEventHandler handler;
+            AutomationElement menu;
+            public MenuWatch(int pid) {
+                handler = (s, e) => {
+                    var element = s as AutomationElement;
+                    try {
+                        if (element != null && element.Current.ProcessId == pid) { menu = element; opened.Set(); }
+                    } catch (ElementNotAvailableException) { }
+                };
+                Automation.AddAutomationEventHandler(AutomationElement.MenuOpenedEvent, AutomationElement.RootElement, TreeScope.Subtree, handler);
+            }
+            // The item whose name starts with `prefix` in the menu that opened,
+            // or null when none opened within `ms` or it has no such item.
+            public AutomationElement Item(string prefix, int ms) {
+                if (!opened.WaitOne(ms)) return null;
+                try {
+                    var items = menu.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem));
+                    foreach (AutomationElement item in items) {
+                        if (item.Current.Name.StartsWith(prefix)) return item;
+                    }
+                } catch (ElementNotAvailableException) { }
+                return null;
+            }
+            public void Dispose() {
+                Automation.RemoveAutomationEventHandler(AutomationElement.MenuOpenedEvent, AutomationElement.RootElement, handler);
+            }
+        }
 
         // A visible top-level window of `pid` with this exact title.
         public static IntPtr FindWindow(uint pid, string title) {
@@ -409,14 +581,26 @@ try {
     $env:FIDGET_OPEN_CHAT = "1"
     # Prints the "chat: ... is open" lines the waits block on.
     $env:FIDGET_TRACE_BUBBLE = "1"
+    # Print each sprite's place every frame, the overlay's click-through flips
+    # and each left button edge: what aiming at Mochi and clicking it wait on.
+    $env:FIDGET_TRACE_FRAMES = "1"
+    $env:FIDGET_TRACE_HITTEST = "1"
 
-    # Starts Fidget on this console, with stderr in `<name>.err`, and returns once
-    # Beemo's Chat is open. -NoNewWindow shares the console so Ctrl+C reaches it.
+    # Starts Fidget on this console, with stderr teed to `<name>.err`, and
+    # returns once Beemo's Chat is open. No new window, so it shares the
+    # console and Ctrl+C reaches it.
     function Launch([string]$Name) {
         $script:stderr = Join-Path $out "$Name.err"
-        Set-Content -LiteralPath $script:stderr -Value "" -Encoding ascii
-        $script:proc = Start-Process -FilePath $Bin -WorkingDirectory $out -PassThru -NoNewWindow `
-            -RedirectStandardOutput (Join-Path $out "$Name.log") -RedirectStandardError $script:stderr
+        $start = New-Object System.Diagnostics.ProcessStartInfo $Bin
+        $start.WorkingDirectory = $out
+        $start.UseShellExecute = $false
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $start.StandardOutputEncoding = $utf8
+        $start.StandardErrorEncoding = $utf8
+        $script:proc = [System.Diagnostics.Process]::Start($start)
+        $script:tee = New-Object 'CaffeinateWin+Tee' -ArgumentList $script:proc.StandardError, $script:stderr
+        New-Object 'CaffeinateWin+Tee' -ArgumentList $script:proc.StandardOutput, (Join-Path $out "$Name.log") | Out-Null
         Add-Content -LiteralPath (Join-Path $out "run.txt") -Value "$Name pid=$($script:proc.Id)"
         $line = Wait-Line 0 60 '^chat: \S+ is open$'
         if (-not $line) { Fail "${Name}: Chat did not open; see $script:stderr" }
@@ -496,6 +680,40 @@ try {
         if (-not (Wait-Line $skip 10 (Get-OnPattern $Names))) { Fail "no 'caffeinate: on ($Names)' line; see $stderr" }
     }
 
+    # Puts the pointer on the sprite of `$What`, aimed from its next frame
+    # line matching `$Frame`, and returns once the overlay stops passing
+    # clicks through there. A sprite can walk off before the pointer lands
+    # (Mochi shies away from a pointer that jumps at it), so it aims up to 3
+    # times.
+    function Aim([string]$Frame, [string]$What) {
+        $scale = Get-CursorScale (Wait-Line 0 10 '^hit-test: cursor')
+        if ($scale -le 0) { Fail "no 'hit-test:' line gave the cursor scale; see $stderr" }
+        foreach ($attempt in 1..3) {
+            $line = Wait-Line (Line-Count) 10 $Frame
+            if (-not $line) { Fail "no standing 'frame:' line for $What; see $stderr" }
+            $point = (Get-SpritePoint $line $scale) -split ','
+            $skip = Line-Count
+            if (-not [CaffeinateWin]::MoveTo([int]$point[0], [int]$point[1])) { Fail "SendInput refused to move the pointer" }
+            if (Wait-Line $skip 2 $HitFlipPattern) { return }
+        }
+        Fail "the pointer never came to rest on $What; see $stderr"
+    }
+
+    # Opens the sprite menu of `$What` (frames matching `$Frame`) with a real
+    # right click and picks the item whose name starts with `$Item`.
+    function Sprite-Menu([string]$Frame, [string]$What, [string]$Item) {
+        $watch = New-Object 'CaffeinateWin+MenuWatch' -ArgumentList $proc.Id
+        try {
+            Aim $Frame $What
+            if (-not [CaffeinateWin]::RightClick()) { Fail "SendInput refused the right click" }
+            $found = $watch.Item($Item, 10000)
+        } finally {
+            $watch.Dispose()
+        }
+        if ($null -eq $found) { Fail "the sprite menu of $What did not open with a $Item item" }
+        if (-not [CaffeinateWin]::Invoke($found)) { Fail "the $Item item of $What's menu cannot be invoked" }
+    }
+
     $before = Requests "before-launch"
     if ((Test-FidgetRequest $before "SYSTEM") -or (Test-FidgetRequest $before "DISPLAY")) {
         Fail "a Fidget power request is already listed; quit the other Fidget first"
@@ -528,19 +746,25 @@ try {
         Flip-Flag "DISPLAY, SYSTEM"
         Expect-Requests "flag-on" $true $true
 
+        # A real double-click on Mochi, the gesture that Summons its Chat. Beemo
+        # owns the first Chat, so Mochi is the other Instance.
+        $beemo = Get-ChatInstance $first
         $skip = Line-Count
-        Write-Output "Double-click Mochi to open a second Chat. Waiting up to 5 minutes."
-        if (-not (Wait-Line $skip 300 (Get-OtherChatPattern $first))) { Fail "no second Chat opened" }
+        Aim (Get-FramePattern $beemo -Except) "Mochi"
+        $missed = [CaffeinateWin]::LeftClicks($tee, 2)
+        if ($missed) { Fail "double-click on Mochi: $missed; see $stderr" }
+        if (-not (Wait-Line $skip 10 '^verbs: \S+ .*\bSummon\b')) { Fail "the double-click did not Summon Mochi; see $stderr" }
+        if (-not (Wait-Line $skip 10 (Get-OtherChatPattern $first))) { Fail "no second Chat opened" }
         # The new Chat draws the cup before the shell's caffeinate view sets it.
         $state = [CaffeinateWin]::WaitToggleState((Cup "Mochi"), "On", 10000)
         if ($state -ne "On") { Fail "Mochi's new Chat shows the cup as $state, not pressed" }
         Pass "second-cup" "Mochi's Chat opened with the cup pressed"
         Expect-Requests "second" $true $true
 
-        if ($QuitByHand) {
-            Write-Output "Pick Quit in Fidget's tray menu now. Waiting up to 5 minutes."
-            Wait-Process -Id $proc.Id -Timeout 300 -ErrorAction SilentlyContinue
-            if (-not $proc.HasExited) { Fail "Fidget did not quit within 5 minutes" }
+        if ($QuitFromMenu) {
+            Sprite-Menu (Get-FramePattern $beemo) "Beemo" "Quit"
+            Wait-Process -Id $proc.Id -Timeout 30 -ErrorAction SilentlyContinue
+            if (-not $proc.HasExited) { Fail "Fidget did not quit from its menu" }
         } else {
             Stop-Process -Id $proc.Id -Force
             Wait-Process -Id $proc.Id -Timeout 30 -ErrorAction SilentlyContinue

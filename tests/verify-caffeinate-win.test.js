@@ -27,7 +27,9 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE
 if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$FidgetReason' }, $true)
 Invoke-Expression $reason.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem", "Get-PressPattern", "Get-UncaughtLines", "Press" }, $true)) {
+$flip = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$HitFlipPattern' }, $true)
+Invoke-Expression $flip.Extent.Text
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem", "Get-PressPattern", "Get-UncaughtLines", "Press", "Get-FramePattern", "Get-ChatInstance", "Get-CursorScale", "Get-SpritePoint" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -278,4 +280,68 @@ test("no wait sleeps or polls the clock", () => {
   const text = readFileSync(script, "utf8").replace(/^\s*#.*$/gm, "");
   assert.doesNotMatch(text, /Start-Sleep|Thread\.Sleep|\bsleep\b/i);
   assert.doesNotMatch(text, /\(Get-Date\)\.Add/);
+});
+
+// The aim at Mochi reads frame_loop's trace lines: `frame:` for where a sprite
+// stands, `hit-test:` for the cursor scale and the click-through flip.
+const beemo = "0b1c2d3e-0000-4000-8000-00000000000a";
+const mochi = "9f8e7d6c-0000-4000-8000-00000000000b";
+
+test("Mochi is the Instance that is not Beemo, standing", { skip }, () => {
+  assert.deepEqual(
+    run(`
+$beemo = Get-ChatInstance 'chat-${beemo}'
+$beemo
+'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${mochi}' -match (Get-FramePattern $beemo -Except)
+'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${beemo}' -match (Get-FramePattern $beemo -Except)
+'frame: 1761234567890 Falling pos(400,900) sprite(344,790) fall#0 ${mochi}' -match (Get-FramePattern $beemo -Except)
+'frame: 1761234567890 Perched pos(-12,40) sprite(-68,-70) idle#0 ${beemo}' -match (Get-FramePattern $beemo)
+'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${mochi}' -match (Get-FramePattern $beemo)`),
+    [beemo, "True", "False", "False", "True", "False"],
+  );
+});
+
+test("the click lands halfway down the sprite, in pixels", { skip }, () => {
+  assert.deepEqual(
+    run(`
+$scale = Get-CursorScale 'hit-test: cursor(1200,800) scale 1.5 -> point(800,533) on overlay 0 miss click-through on'
+$scale
+Get-SpritePoint 'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${mochi}' $scale
+Get-SpritePoint 'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${mochi}' 1
+"[$(Get-SpritePoint 'chat: x is open' 1)]"
+Get-CursorScale 'click: down hits=[] target=None'`),
+    ["1.5", "600,1268", "400,845", "[]", "0"],
+  );
+});
+
+test(
+  "the aim waits for the overlay to stop passing clicks through",
+  { skip },
+  () => {
+    assert.deepEqual(
+      run(`
+'hit-test: cursor(600,1268) scale 1.5 -> point(400,845) on overlay 0 HIT  click-through OFF  <- flipped' -match $HitFlipPattern
+'hit-test: cursor(600,1268) scale 1.5 -> point(400,845) on overlay 0 HIT  click-through OFF' -match $HitFlipPattern
+'hit-test: cursor(0,0) scale 1.5 -> point(0,0) on overlay 0 miss click-through on  <- flipped' -match $HitFlipPattern`),
+      ["True", "False", "False"],
+    );
+  },
+);
+
+// The run is unattended: no step waits on a person, and Mochi's Chat opens
+// from a real double-click the script sends itself.
+test("no step asks for a hand", () => {
+  const text = readFileSync(script, "utf8");
+  assert.match(text, /^# Input: none, apart from accepting UAC\./m);
+  assert.doesNotMatch(
+    text,
+    /Double-click Mochi|by hand|by-hand|when asked|Read-Host|Waiting up to/i,
+  );
+});
+
+test("Mochi's Chat opens from a SendInput double-click", () => {
+  const text = readFileSync(script, "utf8");
+  assert.match(text, /static extern uint SendInput\(/);
+  assert.match(text, /GetDoubleClickTime\(\)/);
+  assert.match(text, /\[CaffeinateWin\]::LeftClicks\(\$tee, 2\)/);
 });
