@@ -240,18 +240,18 @@ fn work(mut turn_on: TurnOn, orders: Receiver<Order>, answers: Sender<Answer>) {
     let mut active: Option<TurnOff> = None;
     for order in orders {
         let answer = match order {
-            Order::On(spawn, plan) => match turn_on(plan) {
+            Order::On(turn, plan) => match turn_on(plan) {
                 Ok(turn_off) => {
                     active = Some(turn_off);
                     Answer::On
                 }
-                Err(reason) => Answer::Refused(spawn, reason),
+                Err(reason) => Answer::Refused(turn, reason),
             },
-            Order::Off(spawn) => {
+            Order::Off(turn) => {
                 if let Some(turn_off) = active.take() {
                     turn_off();
                 }
-                Answer::Off(spawn)
+                Answer::Off(turn)
             }
         };
         if answers.send(answer).is_err() {
@@ -267,7 +267,7 @@ pub struct Inhibitors {
     orders: Sender<Order>,
     answers: Receiver<Answer>,
     /// The latest `turn_on`'s number.
-    spawn: u64,
+    turn: u64,
     /// Asked for and not yet refused or turned off.
     on: bool,
     turning_off: bool,
@@ -299,7 +299,7 @@ impl Inhibitors {
         Self {
             orders,
             answers,
-            spawn: 0,
+            turn: 0,
             on: false,
             turning_off: false,
             failure: None,
@@ -309,11 +309,11 @@ impl Inhibitors {
     fn hear(&mut self, answer: Answer) {
         match answer {
             Answer::On => {}
-            Answer::Refused(spawn, reason) if spawn == self.spawn => {
+            Answer::Refused(turn, reason) if turn == self.turn => {
                 self.on = false;
                 self.failure = Some(reason);
             }
-            Answer::Off(spawn) if spawn == self.spawn => self.on = false,
+            Answer::Off(turn) if turn == self.turn => self.on = false,
             Answer::Refused(..) | Answer::Off(_) => {}
         }
     }
@@ -337,9 +337,9 @@ impl OsCaffeinate for Inhibitors {
         if plan.is_empty() {
             return Err("no flag maps to a Linux inhibitor".to_string());
         }
-        self.spawn += 1;
+        self.turn += 1;
         self.orders
-            .send(Order::On(self.spawn, plan))
+            .send(Order::On(self.turn, plan))
             .map_err(|_| "the caffeinate worker stopped".to_string())?;
         self.on = true;
         self.turning_off = false;
@@ -350,7 +350,7 @@ impl OsCaffeinate for Inhibitors {
     /// Asks once. `is_on` stays true until the worker says it let go.
     fn turn_off(&mut self) {
         if self.on && !self.turning_off {
-            self.turning_off = self.orders.send(Order::Off(self.spawn)).is_ok();
+            self.turning_off = self.orders.send(Order::Off(self.turn)).is_ok();
             if !self.turning_off {
                 self.on = false;
             }
@@ -415,21 +415,21 @@ mod tests {
     /// The frame loop calls `turn_on` and `turn_off`. A bus that takes its 2 s
     /// timeout must not block either.
     #[test]
-    fn spawn_and_kill_return_while_the_bus_is_still_busy() {
+    fn turn_on_and_turn_off_return_while_the_bus_is_still_busy() {
         let (open, gate) = mpsc::channel();
         let (released_tx, released) = mpsc::sync_channel(1);
         let mut inhibitors = Inhibitors::with(gated(gate, released_tx));
         inhibitors.turn_on(Flags::all()).expect("ordered");
-        assert!(inhibitors.is_on(), "up while the worker is taking it");
+        assert!(inhibitors.is_on(), "on while the worker turns on");
         assert!(
             inhibitors.turn_on(Flags::all()).is_err(),
-            "one spawn at a time"
+            "one turn_on at a time"
         );
         inhibitors.turn_off();
-        assert!(inhibitors.is_on(), "up until the worker lets go");
+        assert!(inhibitors.is_on(), "on until the worker turns off");
         open.send(Ok(())).expect("gate");
         inhibitors.hear_next();
-        assert!(inhibitors.on, "still on, release not heard yet");
+        assert!(inhibitors.on, "still on, the turn off not heard yet");
         inhibitors.hear_next();
         assert!(!inhibitors.on);
         released.recv().expect("released on the worker");
@@ -453,9 +453,9 @@ mod tests {
         assert_eq!(inhibitors.failure(), None, "said once");
     }
 
-    /// The answer about a refused spawn must not end the spawn after it.
+    /// The answer about a refused `turn_on` must not end the one after it.
     #[test]
-    fn a_late_answer_about_an_old_spawn_leaves_the_new_one_up() {
+    fn a_late_answer_about_an_old_turn_on_leaves_the_new_one_on() {
         let (open, gate) = mpsc::channel();
         let (released_tx, _released) = mpsc::sync_channel(1);
         let mut inhibitors = Inhibitors::with(gated(gate, released_tx));
@@ -467,7 +467,10 @@ mod tests {
         assert!(!inhibitors.on, "refused");
         inhibitors.turn_on(Flags::all()).expect("second");
         inhibitors.hear_next();
-        assert!(inhibitors.on, "the first spawn's answer is not this one's");
+        assert!(
+            inhibitors.on,
+            "the first turn_on's answer is not this one's"
+        );
     }
 
     /// A partial take fails whole: the Chat note says "keeping your computer

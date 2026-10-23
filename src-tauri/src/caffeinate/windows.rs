@@ -8,7 +8,7 @@
 
 use std::io;
 
-use fidget_core::caffeinate::windows::{self, Request};
+use fidget_core::caffeinate::windows::{self, PowerRequest};
 #[cfg(test)]
 use fidget_core::caffeinate::Flag;
 use fidget_core::caffeinate::{Flags, OsCaffeinate, ALREADY_ON};
@@ -34,8 +34,8 @@ fn request_types(flags: Flags) -> Vec<POWER_REQUEST_TYPE> {
     windows::requests(flags)
         .into_iter()
         .map(|request| match request {
-            Request::Display => PowerRequestDisplayRequired,
-            Request::System => PowerRequestSystemRequired,
+            PowerRequest::Display => PowerRequestDisplayRequired,
+            PowerRequest::System => PowerRequestSystemRequired,
         })
         .collect()
 }
