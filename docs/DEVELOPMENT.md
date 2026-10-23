@@ -121,6 +121,7 @@ scripts/bench-rss-macos.sh                          # macOS: resident set over a
 scripts/bench-rss-linux.sh                          # Linux: RSS baseline (needs a working display)
 scripts/bench-rss-windows.ps1                       # Windows: RSS baseline
 scripts/bench-frame-cadence-macos.sh                # macOS and Linux: display-frame cadence and Engine tick rate
+scripts/bench-wakeups-linux.sh                      # Linux: CPU% and wakeups per process, X11 or Wayland
 ```
 
 CI does not run the Settings sittings. `verify-settings-keyboard-webview.sh` drives Tab, Space, Enter, and Escape, compares each tab's focus sequence with the AX dump, requires a focused still per tab and a committed `<select>` value, and writes a pass/fail table and stills under `.verify/`. Its pure checks run on fixtures in `scripts/test_verify_settings_keyboard.sh`. The AX / UIA / AT-SPI helpers are `scripts/ax-settings.swift`, `scripts/ax-settings-win.ps1`, and `scripts/ax-settings-linux.py`.
