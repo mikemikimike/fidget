@@ -188,6 +188,39 @@ def find_window(desktop, pid, title):
     return best
 
 
+def wait_until(pid, check, seconds, events):
+    """True once check() holds. Registers first, then checks, then sleeps in
+    the GLib main loop until an event from pid re-checks or SECONDS pass."""
+    import pyatspi
+    from gi.repository import GLib
+
+    found = []
+
+    def on_event(event):
+        try:
+            if event.host_application.get_process_id() != pid:
+                return
+        except Exception:
+            return
+        if not found and check():
+            found.append(True)
+            pyatspi.Registry.stop()
+
+    def give_up():
+        pyatspi.Registry.stop()
+        return False
+
+    pyatspi.Registry.registerEventListener(on_event, *events)
+    try:
+        if check():
+            return True
+        GLib.timeout_add(int(seconds * 1000), give_up)
+        pyatspi.Registry.start()
+        return bool(found) or check()
+    finally:
+        pyatspi.Registry.deregisterEventListener(on_event, *events)
+
+
 def cmd_dump(argv):
     if len(argv) not in (4, 5) or (len(argv) == 5 and argv[4] != "frames"):
         print(
@@ -321,6 +354,11 @@ def cmd_press(argv):
     return 0
 
 
+MENU_EVENTS = (
+    "object:state-changed:showing",
+    "object:children-changed",
+    "window:create",
+)
 MENU_ITEM_ROLES = {"menu item", "check menu item", "radio menu item"}
 
 
@@ -372,16 +410,15 @@ def cmd_menu(argv):
     time.sleep(0.12)
     subprocess.check_call(["xdotool", "mouseup", "3"])
     items = []
-    for _ in range(20):
-        time.sleep(0.25)
+
+    def menu_showing():
         app = find_app(pyatspi.Registry.getDesktop(0), pid)
-        if app is None:
-            continue
-        items = []
-        for j in range(app.childCount):
+        items.clear()
+        for j in range(app.childCount if app else 0):
             showing_menu_items(app.getChildAtIndex(j), items)
-        if items:
-            break
+        return bool(items)
+
+    wait_until(pid, menu_showing, 5, MENU_EVENTS)
     subprocess.call(["xdotool", "key", "Escape"])
     if not items:
         print(f"pid {pid} showed no menu within 5s", file=sys.stderr)
