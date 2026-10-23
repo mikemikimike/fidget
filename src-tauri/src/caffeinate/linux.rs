@@ -40,12 +40,6 @@ const PORTAL_IDLE: u32 = 8;
 /// A bus that does not answer gives up after this, per call.
 const TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The disabled reason, once the startup probe found neither logind nor a
-/// screen saver. `None` while the probe runs or when either answered.
-pub fn unavailable() -> Option<&'static str> {
-    PROBE.get().copied().flatten()
-}
-
 static PROBE: OnceLock<Option<&'static str>> = OnceLock::new();
 
 /// Off the frame loop, because a bus that is slow to answer would stall it.
@@ -269,7 +263,7 @@ fn work(mut turn_on: TurnOn, orders: Receiver<Order>, answers: Sender<Answer>) {
     }
 }
 
-pub struct OsSpawner {
+pub struct Inhibitors {
     orders: Sender<Order>,
     answers: Receiver<Answer>,
     /// The latest `turn_on`'s number.
@@ -280,11 +274,21 @@ pub struct OsSpawner {
     failure: Option<String>,
 }
 
-impl OsSpawner {
+impl Inhibitors {
     pub fn new() -> Self {
         start_probe();
         Self::with(Box::new(inhibit_on_the_bus))
     }
+
+    /// The disabled reason, once the startup probe found neither logind nor a
+    /// screen saver. `None` while the probe runs or when either answered.
+    pub fn unavailable() -> Option<&'static str> {
+        PROBE.get().copied().flatten()
+    }
+
+    /// The kernel closes the logind fd and the bus drops the screen saver
+    /// cookie when the process ends.
+    pub fn on_quit() {}
 
     fn with(turn_on: TurnOn) -> Self {
         let (orders, worker_orders) = mpsc::channel();
@@ -315,14 +319,14 @@ impl OsSpawner {
     }
 }
 
-impl Drop for OsSpawner {
+impl Drop for Inhibitors {
     /// The worker turns off when the order channel closes.
     fn drop(&mut self) {
         self.turn_off();
     }
 }
 
-impl OsCaffeinate for OsSpawner {
+impl OsCaffeinate for Inhibitors {
     /// Returns once the worker has the order. A refusal comes back through
     /// `is_on` and `failure`.
     fn turn_on(&mut self, flags: Flags) -> Result<(), String> {
@@ -378,7 +382,7 @@ mod tests {
 
     /// After `hear_next` the tests read `on`, not `is_on`, because `is_on`
     /// would also take answers the test has yet to wait for.
-    impl OsSpawner {
+    impl Inhibitors {
         /// Blocks for the worker's next answer. Tests only.
         fn hear_next(&mut self) {
             let answer = self.answers.recv().expect("the worker answers");
@@ -400,12 +404,12 @@ mod tests {
 
     #[test]
     fn disk_alone_takes_no_inhibitor() {
-        let mut spawner = OsSpawner::with(Box::new(|_| Err("never asked".to_string())));
-        let err = spawner
+        let mut inhibitors = Inhibitors::with(Box::new(|_| Err("never asked".to_string())));
+        let err = inhibitors
             .turn_on(flags(&[Flag::Disk]))
             .expect_err("no inhibitor");
         assert!(!err.is_empty());
-        assert!(!spawner.is_on());
+        assert!(!inhibitors.is_on());
     }
 
     /// The frame loop calls `turn_on` and `turn_off`. A bus that takes its 2 s
@@ -414,39 +418,39 @@ mod tests {
     fn spawn_and_kill_return_while_the_bus_is_still_busy() {
         let (open, gate) = mpsc::channel();
         let (released_tx, released) = mpsc::sync_channel(1);
-        let mut spawner = OsSpawner::with(gated(gate, released_tx));
-        spawner.turn_on(Flags::all()).expect("ordered");
-        assert!(spawner.is_on(), "up while the worker is taking it");
+        let mut inhibitors = Inhibitors::with(gated(gate, released_tx));
+        inhibitors.turn_on(Flags::all()).expect("ordered");
+        assert!(inhibitors.is_on(), "up while the worker is taking it");
         assert!(
-            spawner.turn_on(Flags::all()).is_err(),
+            inhibitors.turn_on(Flags::all()).is_err(),
             "one spawn at a time"
         );
-        spawner.turn_off();
-        assert!(spawner.is_on(), "up until the worker lets go");
+        inhibitors.turn_off();
+        assert!(inhibitors.is_on(), "up until the worker lets go");
         open.send(Ok(())).expect("gate");
-        spawner.hear_next();
-        assert!(spawner.on, "still on, release not heard yet");
-        spawner.hear_next();
-        assert!(!spawner.on);
+        inhibitors.hear_next();
+        assert!(inhibitors.on, "still on, release not heard yet");
+        inhibitors.hear_next();
+        assert!(!inhibitors.on);
         released.recv().expect("released on the worker");
-        assert_eq!(spawner.failure(), None);
+        assert_eq!(inhibitors.failure(), None);
     }
 
     #[test]
     fn a_refusal_turns_caffeinate_off_and_names_the_inhibitor() {
         let (open, gate) = mpsc::channel();
         let (released_tx, _released) = mpsc::sync_channel(1);
-        let mut spawner = OsSpawner::with(gated(gate, released_tx));
-        spawner.turn_on(Flags::all()).expect("ordered");
+        let mut inhibitors = Inhibitors::with(gated(gate, released_tx));
+        inhibitors.turn_on(Flags::all()).expect("ordered");
         open.send(Err("screen saver inhibit: no service".to_string()))
             .expect("gate");
-        spawner.hear_next();
-        assert!(!spawner.on);
+        inhibitors.hear_next();
+        assert!(!inhibitors.on);
         assert_eq!(
-            spawner.failure().as_deref(),
+            inhibitors.failure().as_deref(),
             Some("screen saver inhibit: no service")
         );
-        assert_eq!(spawner.failure(), None, "said once");
+        assert_eq!(inhibitors.failure(), None, "said once");
     }
 
     /// The answer about a refused spawn must not end the spawn after it.
@@ -454,16 +458,16 @@ mod tests {
     fn a_late_answer_about_an_old_spawn_leaves_the_new_one_up() {
         let (open, gate) = mpsc::channel();
         let (released_tx, _released) = mpsc::sync_channel(1);
-        let mut spawner = OsSpawner::with(gated(gate, released_tx));
-        spawner.turn_on(Flags::all()).expect("first");
-        spawner.turn_off();
+        let mut inhibitors = Inhibitors::with(gated(gate, released_tx));
+        inhibitors.turn_on(Flags::all()).expect("first");
+        inhibitors.turn_off();
         open.send(Err("logind inhibit idle:sleep: denied".to_string()))
             .expect("gate");
-        spawner.hear_next();
-        assert!(!spawner.on, "refused");
-        spawner.turn_on(Flags::all()).expect("second");
-        spawner.hear_next();
-        assert!(spawner.on, "the first spawn's answer is not this one's");
+        inhibitors.hear_next();
+        assert!(!inhibitors.on, "refused");
+        inhibitors.turn_on(Flags::all()).expect("second");
+        inhibitors.hear_next();
+        assert!(inhibitors.on, "the first spawn's answer is not this one's");
     }
 
     /// A partial take fails whole: the Chat note says "keeping your computer
@@ -519,7 +523,7 @@ mod tests {
     }
 
     /// Against a real logind, so it is opt-in: `cargo test -p fidget
-    /// caffeinate_linux -- --ignored`, as a user logind lets inhibit.
+    /// caffeinate::linux -- --ignored`, as a user logind lets inhibit.
     /// Releasing is asynchronous on logind's side, so it waits for the
     /// `BlockInhibited` change rather than polling.
     #[test]
@@ -541,16 +545,16 @@ mod tests {
         )
         .expect("match rule");
 
-        let mut spawner = OsSpawner::new();
-        spawner.turn_on(Flags::all()).expect("ordered");
-        spawner.hear_next();
-        assert!(spawner.is_on(), "taken: {:?}", spawner.failure());
+        let mut inhibitors = Inhibitors::new();
+        inhibitors.turn_on(Flags::all()).expect("ordered");
+        inhibitors.hear_next();
+        assert!(inhibitors.is_on(), "taken: {:?}", inhibitors.failure());
         assert!(logind_inhibitor_whos(&conn).iter().any(|who| who == WHO));
         print_inhibitors("taken");
 
-        spawner.turn_off();
-        spawner.hear_next();
-        assert!(!spawner.is_on());
+        inhibitors.turn_off();
+        inhibitors.hear_next();
+        assert!(!inhibitors.is_on());
         changes
             .into_iter()
             .find(|_| !logind_inhibitor_whos(&conn).iter().any(|who| who == WHO))

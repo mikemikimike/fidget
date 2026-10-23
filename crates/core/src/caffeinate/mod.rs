@@ -52,14 +52,39 @@ impl Flags {
     }
 
     /// The words this OS uses for what Caffeinate keeps awake. Chat, the
-    /// prompt line, the MCP answer and the Settings Command row show it.
+    /// prompt line and the MCP answer show it.
     pub fn inhibitor_label(self) -> String {
-        if cfg!(target_os = "linux") {
-            linux::label(self)
-        } else if cfg!(windows) {
-            windows::label(self)
-        } else {
-            macos::label(self)
+        (this_os().label)(self)
+    }
+
+    /// The Settings Command row, such as `caffeinate -dims`.
+    pub fn command_label(self) -> String {
+        let os = this_os();
+        format!("{}{}", os.command_prefix, (os.label)(self))
+    }
+}
+
+/// How this OS names a flag set.
+struct OsLabel {
+    label: fn(Flags) -> String,
+    command_prefix: &'static str,
+}
+
+fn this_os() -> OsLabel {
+    if cfg!(target_os = "linux") {
+        OsLabel {
+            label: linux::label,
+            command_prefix: "",
+        }
+    } else if cfg!(windows) {
+        OsLabel {
+            label: windows::label,
+            command_prefix: "Power requests: ",
+        }
+    } else {
+        OsLabel {
+            label: macos::label,
+            command_prefix: "caffeinate ",
         }
     }
 }
@@ -98,8 +123,8 @@ pub enum Note {
     /// The OS side turned off while Caffeinate was still on and nobody asked.
     Exited,
     Failed,
-    /// A `Spawner` that works off the caller's thread could not turn Caffeinate
-    /// on.
+    /// An [`OsCaffeinate`] that works off the caller's thread could not turn
+    /// Caffeinate on.
     Lost(String),
 }
 
@@ -403,6 +428,18 @@ mod tests {
     #[test]
     fn the_inhibitor_label_is_the_name_each_os_uses() {
         assert_eq!(dims().inhibitor_label(), DIMS_LABEL);
+    }
+
+    #[test]
+    fn the_command_label_prefixes_the_label_on_macos_and_windows() {
+        let prefix = if cfg!(target_os = "linux") {
+            ""
+        } else if cfg!(windows) {
+            "Power requests: "
+        } else {
+            "caffeinate "
+        };
+        assert_eq!(dims().command_label(), format!("{prefix}{DIMS_LABEL}"));
     }
 
     #[test]

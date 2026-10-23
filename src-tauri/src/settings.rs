@@ -759,7 +759,7 @@ impl SettingsView {
                 self.caffeinate_disk,
                 self.caffeinate_system,
             ) {
-                Ok(flags) => caffeinate_command(flags),
+                Ok(flags) => flags.command_label(),
                 Err(_) => fidget_core::caffeinate::Empty::REASON.to_string(),
             }),
         );
@@ -2189,26 +2189,6 @@ fn caffeinate_flags(
     )
 }
 
-/// What the Command row shows for a flag set.
-#[cfg(target_os = "macos")]
-fn caffeinate_command(flags: fidget_core::caffeinate::Flags) -> String {
-    format!("caffeinate {}", flags.inhibitor_label())
-}
-
-/// What the Command row shows for a flag set: the inhibitors
-/// `caffeinate_linux` takes for it.
-#[cfg(target_os = "linux")]
-fn caffeinate_command(flags: fidget_core::caffeinate::Flags) -> String {
-    flags.inhibitor_label()
-}
-
-/// What the Command row shows for a flag set: the power requests
-/// `caffeinate_win` takes for it, by the names `powercfg /requests` uses.
-#[cfg(windows)]
-fn caffeinate_command(flags: fidget_core::caffeinate::Flags) -> String {
-    format!("Power request: {}", flags.inhibitor_label())
-}
-
 impl Settings {
     pub fn caffeinate_flags(
         &self,
@@ -2594,11 +2574,11 @@ mod tests {
     fn windows_command_row_names_the_power_requests() {
         use fidget_core::caffeinate::{Flag, Flags, Note};
         assert_eq!(
-            caffeinate_command(Flags::all()),
-            "Power request: DISPLAY, SYSTEM"
+            Flags::all().command_label(),
+            "Power requests: DISPLAY, SYSTEM"
         );
         let idle = Flags::new([Flag::Idle]).unwrap();
-        assert_eq!(caffeinate_command(idle), "Power request: SYSTEM");
+        assert_eq!(idle.command_label(), "Power requests: SYSTEM");
         assert!(Note::On(idle).text().ends_with("(SYSTEM)"));
     }
 

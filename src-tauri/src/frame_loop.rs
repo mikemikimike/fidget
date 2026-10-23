@@ -186,7 +186,7 @@ pub(crate) fn run_frame_loop(
             mcp,
             caffeinate: caffeinate_rx,
         } = extras;
-        let mut caffeinate_switch = crate::caffeinate_proc::Caffeinate::new();
+        let mut caffeinate_switch = crate::caffeinate::Caffeinate::new();
         let mut slots = completer::Slots::new();
         publish_instances(&roster, &instance_rows);
         let (mut tray_actions, mut last_menu) = {

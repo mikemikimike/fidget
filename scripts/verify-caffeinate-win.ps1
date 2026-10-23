@@ -36,7 +36,7 @@
 $Go = if ($args.Count -gt 0) { $args[0] } else { "" }
 $ErrorActionPreference = "Stop"
 
-# The reason `caffeinate_win::REASON` gives the power requests.
+# The reason `caffeinate::windows::REASON` gives the power requests.
 $FidgetReason = "Fidget: keep my computer awake"
 
 # Pure checks, loaded on their own by tests/verify-caffeinate-win.test.js.

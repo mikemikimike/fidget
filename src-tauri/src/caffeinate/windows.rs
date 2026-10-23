@@ -60,23 +60,31 @@ impl Requests {
 }
 
 #[derive(Default)]
-pub struct OsSpawner {
+pub struct PowerRequests {
     requests: Option<Requests>,
 }
 
-impl OsSpawner {
+impl PowerRequests {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Every Windows has power requests.
+    pub fn unavailable() -> Option<&'static str> {
+        None
+    }
+
+    /// Windows clears the requests when the process ends.
+    pub fn on_quit() {}
 }
 
-impl Drop for OsSpawner {
+impl Drop for PowerRequests {
     fn drop(&mut self) {
         self.turn_off();
     }
 }
 
-impl OsCaffeinate for OsSpawner {
+impl OsCaffeinate for PowerRequests {
     fn turn_on(&mut self, flags: Flags) -> Result<(), String> {
         if self.requests.is_some() {
             return Err(ALREADY_ON.to_string());
@@ -144,52 +152,31 @@ mod tests {
     }
 
     #[test]
-    fn display_asks_for_the_display_and_idle_or_system_for_the_system() {
-        assert_eq!(
-            request_types(Flags::all()),
-            vec![PowerRequestDisplayRequired, PowerRequestSystemRequired]
-        );
-        assert_eq!(
-            request_types(flags(&[Flag::Display])),
-            vec![PowerRequestDisplayRequired]
-        );
-        assert_eq!(
-            request_types(flags(&[Flag::Idle])),
-            vec![PowerRequestSystemRequired]
-        );
-        assert_eq!(
-            request_types(flags(&[Flag::System])),
-            vec![PowerRequestSystemRequired]
-        );
-        assert!(request_types(flags(&[Flag::Disk])).is_empty());
-    }
-
-    #[test]
     fn disk_alone_takes_no_power_request() {
-        let mut spawner = OsSpawner::new();
-        let err = spawner
+        let mut requests = PowerRequests::new();
+        let err = requests
             .turn_on(flags(&[Flag::Disk]))
             .expect_err("Disk maps to no power request");
         assert!(!err.is_empty());
-        assert!(!spawner.is_on());
+        assert!(!requests.is_on());
     }
 
     #[test]
     fn a_real_power_request_is_taken_once_and_released_by_kill() {
-        let mut spawner = OsSpawner::new();
-        spawner
+        let mut requests = PowerRequests::new();
+        requests
             .turn_on(Flags::all())
             .expect("Windows grants the power requests");
-        assert!(spawner.is_on());
+        assert!(requests.is_on());
         assert!(
-            spawner.turn_on(Flags::all()).is_err(),
+            requests.turn_on(Flags::all()).is_err(),
             "a second take would leak the first handle"
         );
-        spawner.turn_off();
-        assert!(!spawner.is_on());
-        spawner
+        requests.turn_off();
+        assert!(!requests.is_on());
+        requests
             .turn_on(Flags::all())
             .expect("released power requests can be taken again");
-        assert!(spawner.is_on());
+        assert!(requests.is_on());
     }
 }

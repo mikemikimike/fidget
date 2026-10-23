@@ -27,14 +27,7 @@
 #[cfg_attr(not(unix), allow(dead_code))]
 mod acp_wire;
 mod action_log;
-// Linux keeps awake with a logind fd and a screen saver cookie.
-#[cfg(target_os = "linux")]
-mod caffeinate_linux;
-// macOS runs a `caffeinate` child, Linux takes the `caffeinate_linux`
-// inhibitors, Windows takes the `caffeinate_win` power requests.
-mod caffeinate_proc;
-#[cfg(windows)]
-mod caffeinate_win;
+mod caffeinate;
 mod chat_surface;
 mod completer;
 mod consent;
@@ -644,10 +637,9 @@ pub(crate) fn caffeinate_frame(
     let reason = configured
         .err()
         .map(|_| fidget_core::caffeinate::Empty::REASON.to_string());
-    // Without logind or a screen saver service no inhibitor can be taken, so the
-    // cup and the menu row are disabled the way an empty flag set disables them.
-    #[cfg(target_os = "linux")]
-    let reason = reason.or_else(|| caffeinate_linux::unavailable().map(str::to_string));
+    // With nothing to keep the computer awake with, the cup and the menu row
+    // are disabled the way an empty flag set disables them.
+    let reason = reason.or_else(|| caffeinate::Caffeinate::unavailable().map(str::to_string));
     CaffeinateFrame {
         on: configured.is_ok() && fact.on(),
         reason,
@@ -4029,8 +4021,7 @@ fn apply_menu_action(
 /// skips that path and the window server drops the overlays with the process.
 fn quit_now() -> ! {
     eprintln!("quit");
-    #[cfg(target_os = "macos")]
-    caffeinate_proc::signal_child();
+    caffeinate::on_quit();
     harness::shutdown();
     std::process::exit(0);
 }
@@ -4140,9 +4131,8 @@ impl QuitHost for AppQuit<'_> {
 
     fn exit_process(&mut self) {
         // Ctrl+C exits here, not through `quit_now`. `exit` skips Caffeinate's
-        // Drop, so signal the child first. `-w` covers a crash.
-        #[cfg(target_os = "macos")]
-        caffeinate_proc::signal_child();
+        // Drop, so turn Caffeinate off first.
+        caffeinate::on_quit();
         std::process::exit(0);
     }
 }
@@ -5497,8 +5487,7 @@ fn main() {
         // Quit's `quit_now` aside — so the Harness child is never orphaned.
         .run(|_, event| {
             if matches!(event, tauri::RunEvent::Exit) {
-                #[cfg(target_os = "macos")]
-                caffeinate_proc::signal_child();
+                caffeinate::on_quit();
                 harness::shutdown();
             }
         });
