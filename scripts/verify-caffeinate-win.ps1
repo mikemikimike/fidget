@@ -91,10 +91,19 @@ function Get-ChatInstance([string]$Label) {
     $Label -replace '^chat-', ''
 }
 
-# The factor from the Engine's points to screen pixels, from a `hit-test:`
-# line: `cursor(x,y) scale S` is the cursor in pixels and that factor.
-function Get-CursorScale([string]$Line) {
-    if ($Line -match '^hit-test: cursor\(-?\d+,-?\d+\) scale (\d+(\.\d+)?) ') { [double]$Matches[1] } else { 0 }
+# The factor from the Engine's points to screen pixels, from the primary
+# display's DPI: Fidget divides the cursor by the primary monitor's scale
+# factor, which is that DPI over 96. Exact, where the `scale` in the trace
+# lines is rounded to one place (125% would read 1.2).
+function Get-DpiScale([int]$Dpi) {
+    if ($Dpi -le 0) { return 0 }
+    $Dpi / 96
+}
+
+# Whether the overlay passes clicks through ("on") or takes them ("OFF"), from
+# a `hit-test:` line. "" for another line.
+function Get-ClickThrough([string]$Line) {
+    if ($Line -cmatch '^hit-test: .* click-through (on|OFF)(  <- flipped)?$') { $Matches[1] } else { "" }
 }
 
 # Where to click a sprite, in screen pixels, from its `frame:` line. pos() is
@@ -111,6 +120,8 @@ function Get-SpritePoint([string]$Frame, [double]$Scale) {
 # The `hit-test:` line for the overlay stopping passing clicks through, which
 # it does once the cursor is over drawn sprite pixels.
 $HitFlipPattern = '^hit-test: .* HIT\s+click-through OFF\s+<- flipped$'
+# And for it passing clicks through again, once the cursor is off them.
+$MissFlipPattern = '^hit-test: .* miss\s+click-through on\s+<- flipped$'
 
 # The PE Subsystem field: 2 is a windows (GUI) exe, 3 a console one, 0 not a PE.
 function Get-PeSubsystem([byte[]]$Bytes) {
@@ -256,6 +267,11 @@ try {
         [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
         [DllImport("user32.dll")] static extern uint GetDoubleClickTime();
         [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(Point point, uint flags);
+        [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint x, out uint y);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct Point { public int x, y; }
 
         [StructLayout(LayoutKind.Sequential)]
         struct MouseInput { public int dx, dy; public uint data, flags, time; public IntPtr extra; }
@@ -291,6 +307,14 @@ try {
                 reader.Start();
             }
             public int Count { get { lock (gate) return lines.Count; } }
+            // The last line so far matching `pattern`, or null.
+            public string Last(string pattern) {
+                var re = new Regex(pattern, RegexOptions.IgnoreCase);
+                lock (gate) {
+                    for (var i = lines.Count - 1; i >= 0; i--) if (re.IsMatch(lines[i])) return lines[i];
+                }
+                return null;
+            }
             // The first line from `skip` on matching `pattern`, or null at `ms`.
             public string WaitLine(int skip, int ms, string pattern) {
                 var re = new Regex(pattern, RegexOptions.IgnoreCase);
@@ -319,21 +343,53 @@ try {
             return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(Input))) == inputs.Length;
         }
 
-        // Moves the pointer to (`x`, `y`) in screen pixels, as Fidget's cursor
-        // reads them.
-        public static bool MoveTo(int x, int y) {
+        // Runs `body` per-monitor aware (v2) on this thread, so metrics, DPI and
+        // pointer moves are in physical pixels, as Fidget (per-monitor aware)
+        // reads them, whatever this PowerShell's own awareness.
+        static T InPixels<T>(Func<T> body) {
             var before = IntPtr.Zero;
-            // Per-monitor aware (v2) for this thread, so the metrics are pixels.
             try { before = SetThreadDpiAwarenessContext(new IntPtr(-4)); } catch (EntryPointNotFoundException) { }
             try {
+                return body();
+            } finally {
+                if (before != IntPtr.Zero) SetThreadDpiAwarenessContext(before);
+            }
+        }
+
+        // The primary display's effective DPI, the one its scale factor comes
+        // from (96 is 100%). 0 when Windows will not say.
+        public static int PrimaryDpi() {
+            return InPixels(() => {
+                // (0,0) is on the primary display; 1 is MONITOR_DEFAULTTOPRIMARY.
+                var monitor = MonitorFromPoint(new Point(), 1);
+                uint x, y;
+                try {
+                    if (GetDpiForMonitor(monitor, 0, out x, out y) != 0) return 0;
+                } catch (DllNotFoundException) { return 0; } catch (EntryPointNotFoundException) { return 0; }
+                return (int)x;
+            });
+        }
+
+        // Moves the pointer to (`x`, `y`) in screen pixels.
+        public static bool MoveTo(int x, int y) {
+            return InPixels(() => {
                 int left = GetSystemMetrics(76), top = GetSystemMetrics(77);
                 int width = Math.Max(2, GetSystemMetrics(78)), height = Math.Max(2, GetSystemMetrics(79));
                 var nx = (int)((long)(x - left) * 65535 / (width - 1));
                 var ny = (int)((long)(y - top) * 65535 / (height - 1));
                 return Send(Mouse(Move | Absolute | VirtualDesk, nx, ny));
-            } finally {
-                if (before != IntPtr.Zero) SetThreadDpiAwarenessContext(before);
-            }
+            });
+        }
+
+        // Moves the pointer to corner `n` (0 to 3: top-left, top-right,
+        // bottom-right, bottom-left) of the whole desktop, a few pixels in.
+        public static bool MoveToCorner(int n) {
+            var corner = InPixels(() => {
+                int left = GetSystemMetrics(76), top = GetSystemMetrics(77);
+                int right = left + GetSystemMetrics(78) - 4, bottom = top + GetSystemMetrics(79) - 4;
+                return new[] { new[] { left + 3, top + 3 }, new[] { right, top + 3 }, new[] { right, bottom }, new[] { left + 3, bottom } }[n % 4];
+            });
+            return MoveTo(corner[0], corner[1]);
         }
 
         // `clicks` left clicks where the pointer is. Fidget reads the button
@@ -680,15 +736,31 @@ try {
         if (-not (Wait-Line $skip 10 (Get-OnPattern $Names))) { Fail "no 'caffeinate: on ($Names)' line; see $stderr" }
     }
 
+    # Takes the pointer off every sprite. While it is on one the overlay takes
+    # clicks (click-through OFF), and a move straight onto another sprite logs
+    # no flip for Aim to wait on, so Aim starts from click-through on. Tries
+    # each corner of the desktop in turn, since a sprite can sit in one.
+    function Leave-Sprites {
+        if ((Get-ClickThrough $tee.Last('^hit-test: ')) -cne "OFF") { return }
+        foreach ($corner in 0..3) {
+            $skip = Line-Count
+            if (-not [CaffeinateWin]::MoveToCorner($corner)) { Fail "SendInput refused to move the pointer" }
+            if (Wait-Line $skip 2 $MissFlipPattern) { return }
+        }
+        Fail "the pointer could not get off the sprites; see $stderr"
+    }
+
     # Puts the pointer on the sprite of `$What`, aimed from its next frame
     # line matching `$Frame`, and returns once the overlay stops passing
     # clicks through there. A sprite can walk off before the pointer lands
     # (Mochi shies away from a pointer that jumps at it), so it aims up to 3
     # times.
     function Aim([string]$Frame, [string]$What) {
-        $scale = Get-CursorScale (Wait-Line 0 10 '^hit-test: cursor')
-        if ($scale -le 0) { Fail "no 'hit-test:' line gave the cursor scale; see $stderr" }
+        $dpi = [CaffeinateWin]::PrimaryDpi()
+        $scale = Get-DpiScale $dpi
+        if ($scale -le 0) { Fail "Windows gave no DPI for the primary display" }
         foreach ($attempt in 1..3) {
+            Leave-Sprites
             $line = Wait-Line (Line-Count) 10 $Frame
             if (-not $line) { Fail "no standing 'frame:' line for $What; see $stderr" }
             $point = (Get-SpritePoint $line $scale) -split ','

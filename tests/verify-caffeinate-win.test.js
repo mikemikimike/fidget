@@ -29,7 +29,9 @@ $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.Assign
 Invoke-Expression $reason.Extent.Text
 $flip = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$HitFlipPattern' }, $true)
 Invoke-Expression $flip.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem", "Get-PressPattern", "Get-UncaughtLines", "Press", "Get-FramePattern", "Get-ChatInstance", "Get-CursorScale", "Get-SpritePoint" }, $true)) {
+$miss = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$MissFlipPattern' }, $true)
+Invoke-Expression $miss.Extent.Text
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem", "Get-PressPattern", "Get-UncaughtLines", "Press", "Get-FramePattern", "Get-ChatInstance", "Get-DpiScale", "Get-ClickThrough", "Get-SpritePoint" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -283,50 +285,80 @@ test("no wait sleeps or polls the clock", () => {
 });
 
 // The aim at Mochi reads frame_loop's trace lines: `frame:` for where a sprite
-// stands, `hit-test:` for the cursor scale and the click-through flip.
+// stands, `hit-test:` for the click-through flips. The scale comes from the
+// primary display's DPI, not the trace, which rounds it to one place.
 const beemo = "0b1c2d3e-0000-4000-8000-00000000000a";
 const mochi = "9f8e7d6c-0000-4000-8000-00000000000b";
+const frame = (state, pos, sprite, id) =>
+  `'frame: 1761234567890 ${state} pos(${pos}) sprite(${sprite}) walk#3 ${id}'`;
 
 test("Mochi is the Instance that is not Beemo, standing", { skip }, () => {
   assert.deepEqual(
     run(`
 $beemo = Get-ChatInstance 'chat-${beemo}'
 $beemo
-'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${mochi}' -match (Get-FramePattern $beemo -Except)
-'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${beemo}' -match (Get-FramePattern $beemo -Except)
-'frame: 1761234567890 Falling pos(400,900) sprite(344,790) fall#0 ${mochi}' -match (Get-FramePattern $beemo -Except)
-'frame: 1761234567890 Perched pos(-12,40) sprite(-68,-70) idle#0 ${beemo}' -match (Get-FramePattern $beemo)
-'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${mochi}' -match (Get-FramePattern $beemo)`),
+${frame("Grounded", "400,900", "344,790", mochi)} -match (Get-FramePattern $beemo -Except)
+${frame("Grounded", "400,900", "344,790", beemo)} -match (Get-FramePattern $beemo -Except)
+${frame("Falling", "400,900", "344,790", mochi)} -match (Get-FramePattern $beemo -Except)
+${frame("Perched", "-12,40", "-68,-70", beemo)} -match (Get-FramePattern $beemo)
+${frame("Grounded", "400,900", "344,790", mochi)} -match (Get-FramePattern $beemo)`),
     [beemo, "True", "False", "False", "True", "False"],
+  );
+});
+
+// Review of a3d09020: the trace's `scale 1.2` at 125% put the click 4% short.
+test("the scale is the DPI over 96, exact at 125% and 175%", { skip }, () => {
+  assert.deepEqual(
+    run(`
+Get-DpiScale 96
+Get-DpiScale 120
+Get-DpiScale 144
+Get-DpiScale 168
+Get-DpiScale 0`),
+    ["1", "1.25", "1.5", "1.75", "0"],
   );
 });
 
 test("the click lands halfway down the sprite, in pixels", { skip }, () => {
   assert.deepEqual(
     run(`
-$scale = Get-CursorScale 'hit-test: cursor(1200,800) scale 1.5 -> point(800,533) on overlay 0 miss click-through on'
-$scale
-Get-SpritePoint 'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${mochi}' $scale
-Get-SpritePoint 'frame: 1761234567890 Grounded pos(400,900) sprite(344,790) walk#3 ${mochi}' 1
-"[$(Get-SpritePoint 'chat: x is open' 1)]"
-Get-CursorScale 'click: down hits=[] target=None'`),
-    ["1.5", "600,1268", "400,845", "[]", "0"],
+Get-SpritePoint ${frame("Grounded", "400,900", "344,790", mochi)} (Get-DpiScale 120)
+Get-SpritePoint ${frame("Grounded", "400,900", "344,790", mochi)} 1
+Get-SpritePoint ${frame("Grounded", "-400,900", "-456,790", mochi)} 1.5
+"[$(Get-SpritePoint 'chat: x is open' 1)]"`),
+    ["500,1056", "400,845", "-600,1268", "[]"],
   );
 });
 
-test(
-  "the aim waits for the overlay to stop passing clicks through",
-  { skip },
-  () => {
-    assert.deepEqual(
-      run(`
-'hit-test: cursor(600,1268) scale 1.5 -> point(400,845) on overlay 0 HIT  click-through OFF  <- flipped' -match $HitFlipPattern
-'hit-test: cursor(600,1268) scale 1.5 -> point(400,845) on overlay 0 HIT  click-through OFF' -match $HitFlipPattern
-'hit-test: cursor(0,0) scale 1.5 -> point(0,0) on overlay 0 miss click-through on  <- flipped' -match $HitFlipPattern`),
-      ["True", "False", "False"],
-    );
-  },
-);
+test("the aim waits on the overlay's click-through flips", { skip }, () => {
+  const hit =
+    "'hit-test: cursor(500,1056) scale 1.2 -> point(400,845) on overlay 0 HIT  click-through OFF";
+  const miss =
+    "'hit-test: cursor(3,3) scale 1.2 -> point(2,2) on overlay 0 miss click-through on";
+  assert.deepEqual(
+    run(`
+${hit}  <- flipped' -match $HitFlipPattern
+${hit}' -match $HitFlipPattern
+${miss}  <- flipped' -match $HitFlipPattern
+${miss}  <- flipped' -match $MissFlipPattern
+${hit}  <- flipped' -match $MissFlipPattern
+Get-ClickThrough "${hit.slice(1)}"
+Get-ClickThrough "${miss.slice(1)}  <- flipped"
+"[$(Get-ClickThrough 'click: down hits=[]')]"`),
+    ["True", "False", "False", "True", "False", "OFF", "on", "[]"],
+  );
+});
+
+// Review of a3d09020: after the double-click the pointer was still on Mochi,
+// so the overlay already took clicks and the move to Beemo flipped nothing.
+test("every aim first takes the pointer off the sprites", () => {
+  const text = readFileSync(script, "utf8");
+  const aim = text.slice(text.indexOf("function Aim("));
+  const body = aim.slice(0, aim.indexOf("\n    }\n"));
+  assert.match(body, /foreach \(\$attempt in 1\.\.3\) \{\s*Leave-Sprites/);
+  assert.match(text, /Wait-Line \$skip 2 \$MissFlipPattern/);
+  assert.doesNotMatch(text, /Get-CursorScale/);
+});
 
 // The run is unattended: no step waits on a person, and Mochi's Chat opens
 // from a real double-click the script sends itself.
