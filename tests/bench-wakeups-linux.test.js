@@ -2,7 +2,7 @@
 // fake /proc and a fake log, so no display or fidget is needed.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -24,12 +24,14 @@ function fakeProcess(dir, pid, comm, { utime, stime, voluntary }) {
   writeFileSync(join(at, "status"), `Name:\t${comm}\nvoluntary_ctxt_switches:\t${voluntary}\nnonvoluntary_ctxt_switches:\t7\n`);
 }
 
-test("rates are the change between a snapshot and now, per second of the window", () => {
+test("rates are the change between a snapshot and now, per second of the window, for processes still running", () => {
   const dir = mkdtempSync(join(tmpdir(), "bench-wakeups-"));
   // A comm with ") " in it must not shift the tick fields.
   fakeProcess(dir, 41, "Web) Content", { utime: 100, stime: 50, voluntary: 1000 });
   fakeProcess(dir, 42, "Xvfb", { utime: 9, stime: 1, voluntary: 5 });
-  bash(`proc_snapshot "WebKit=41" "Xvfb=42" > "${dir}/before.tsv"`, dir);
+  fakeProcess(dir, 43, "gst-plugin-scan", { utime: 1, stime: 1, voluntary: 3 });
+  bash(`proc_snapshot "WebKit=41" "Xvfb=42" "scanner=43" > "${dir}/before.tsv"`, dir);
+  rmSync(join(dir, "proc", "43"), { recursive: true });
   fakeProcess(dir, 41, "Web) Content", { utime: 250, stime: 70, voluntary: 1600 });
   fakeProcess(dir, 42, "Xvfb", { utime: 9, stime: 1, voluntary: 6 });
 

@@ -4,6 +4,8 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/bench-linux-helpers.sh
+. scripts/bench-linux-helpers.sh
 
 seconds=15
 walk_timeout=180
@@ -393,10 +395,6 @@ sample_radeon() {
   return 0
 }
 
-proc_ticks() {
-  awk -F')' '{ split($NF, a, " "); print a[12] + a[13] }' "/proc/$1/stat"
-}
-
 cpu_begin() {
   CPU_T0=$(date +%s.%N)
   COMP_T0=""
@@ -493,33 +491,6 @@ wait_overlay() {
     sleep 0.5
   done
   return 1
-}
-
-park_pointer() {
-  if [ -n "${DISPLAY:-}" ] && command -v xdotool > /dev/null 2>&1; then
-    xdotool mousemove 2 2 > /dev/null 2>&1 || true
-  fi
-}
-
-# The middle of the sprite box from the last Grounded or Perched frame after line
-# $2: top-left plus half the reported size. A climb or perch puts the feet on an
-# edge, so the feet are not a safe aim, and a falling sprite has moved on.
-sprite_center() {
-  local log=$1
-  local from=${2:-0}
-  awk -v from="$from" '
-    /overlay: [0-9]+ display.*sprite [0-9]+x[0-9]+/ {
-      match($0, /sprite [0-9]+x[0-9]+/)
-      split(substr($0, RSTART + 7, RLENGTH - 7), size, "x")
-    }
-    NR > from && /frame: [0-9]+ (Grounded|Perched) / { line = $0 }
-    END {
-      if (line == "" || size[1] == "") exit 1
-      if (!match(line, /sprite\([-0-9]+,[-0-9]+\)/)) exit 1
-      split(substr(line, RSTART + 7, RLENGTH - 8), corner, ",")
-      printf "%d %d\n", corner[1] + size[1] / 2, corner[2] + size[2] / 2
-    }
-  ' "$log"
 }
 
 capture_shot() {

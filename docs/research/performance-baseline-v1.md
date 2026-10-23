@@ -27,7 +27,7 @@ GPU compositing of the transparent overlay, the other suspect in #423, measured 
 | Issue | State | Result |
 | --- | --- | --- |
 | [#431](https://github.com/omesser/fidget/issues/431) macOS idle | Closed | Host 8.4% CPU and 179.8 interrupt wakeups/s perched, quiet machine. Detail in [macos-idle-wakeups.md](./macos-idle-wakeups.md). |
-| [#432](https://github.com/omesser/fidget/issues/432) Linux idle | Open | Release idle, walking, and hidden are below. As of 2026-10-23, Chat, the pill, and Wayland (weston headless) are sampled too. C-state residency and real-desktop powertop are not measurable on these VMs. |
+| [#432](https://github.com/omesser/fidget/issues/432) Linux idle | Open | Release idle, walking, and hidden are below. As of 2026-10-23, Chat and the pill on X11, and idle and Chat on Wayland (weston headless), are sampled too. C-state residency and real-desktop powertop are not measurable on these VMs. |
 | [#429](https://github.com/omesser/fidget/issues/429) macOS GPU | Closed | Idle 0.6% GPU, 0.06 W. Section below, [#1034](https://github.com/omesser/fidget/pull/1034). |
 | [#430](https://github.com/omesser/fidget/issues/430) Windows GPU | Closed | Section below, [#1025](https://github.com/omesser/fidget/pull/1025). xperf frame time was not measured. |
 | [#425](https://github.com/omesser/fidget/issues/425) Linux GPU | Open | GPU% unavailable. Release X server proxy measured below. Wayland, a second compositor, and uncomposited X11 were not running. |
@@ -84,21 +84,26 @@ The four fidget processes while walking are 90.1% of one core and 566.2 voluntar
 
 As of 2026-10, on a different VM: Debian 13 (trixie), kernel 6.12.94+, 8 CPUs, a container (`systemd-detect-virt` says `container-other`), no `/dev/dri`. Release build of main at `c90fe0d`. Load average 0.2 to 0.8. Other agents' Xvfb displays ran on the same machine. These rows compare with each other, not with the tables above.
 
-`scripts/bench-wakeups-linux.sh` takes the same `/proc` reads over one 60 s window and uses the still and walk-only BMO copies. X11 is a private `Xvfb` 21.1.16 at 1920x1200 with `xfwm4` 4.20 compositing on. Wayland is native, with no X server: `weston` 14.0.2 `--backend=headless --renderer=pixman` at 1920x1200. That is the degraded lane of [ADR-0020](../adr/0020-x11-lane-no-native-wayland.md): no window geometry or Perches, no global pointer, no Grab or Throw. The overlay logged `EWMH config deferred: Wayland surface` and still drew frames. Headless weston has no seat, so the pill cannot be hovered there. Chat opens with `FIDGET_OPEN_CHAT=1`, and its window starts after `chat: ... is open` and the landing frame. The pill window starts after `overlay: draft ... text=""` with the pointer on the sprite, and the pill was still open at the end. Without an AI source the pill logs `focused=false`.
+`scripts/bench-wakeups-linux.sh` takes the same `/proc` reads over one 60 s window, for the fidget process tree and each `--watch` process, and uses still and walk-only BMO copies. X11 is a private `Xvfb` 21.1.16 at 1920x1200 with `xfwm4` 4.20 compositing on. Wayland is native, with no X server: `weston` 14.0.2 `--backend=headless --renderer=pixman --idle-time=0` at 1920x1200. That is the degraded lane of [ADR-0020](../adr/0020-x11-lane-no-native-wayland.md): no window geometry or Perches, no global pointer, no Grab or Throw. The overlay logged `EWMH config deferred: Wayland surface` and still drew frames.
+
+Every wait starts at a trigger and gives up after 3 s. Idle, Chat and the pill start their window at the first `idle#` frame on the floor, after the landing. The `chat` scenario sets `FIDGET_OPEN_CHAT=1` and also waits for `chat: ... is open`. The pill window starts after `overlay: draft ... text=""` with the pointer on the sprite, and the pill was still open at the end. Without an AI source the pill logs `focused=false`.
+
+Walking starts at the first `walk#` frame. Opening an `xmessage` window changes the frontmost app, which wakes the Static Director within about a second instead of on its 20 s timer. Its copy of BMO plays only walks, written as one long play list: `then = "walk"` on the walk Behavior itself plays one walk, because the Engine stops a chain at its first repeat. Reaching the display's side ends a walk with a climb and a fall, since the Engine makes every wall contact a climb and no Character setting turns it around instead, so the script opens or closes the window again at each first idle frame after that. The walking window had 2 of those changes, and its frames were 67% walk, 26% climb, 5% fall and land, and 2% idle. The pointer sits at the top middle, where the sprite never goes.
+
+Walking and the pill run on X11 only. On Wayland fidget sees no frontmost app and no idle time, so nothing wakes the Director before its timer, and headless weston has no seat, so the pill cannot be hovered.
 
 | Scenario | Display | fidget | WebKitWebProcess, overlay | WebKitWebProcess, Chat | X server or compositor | xfwm4 | Frames in the window |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Baseline, no fidget | Xvfb + xfwm4 | | | | 0.0 / 0.0 | 0.0 / 0.0 | |
-| Idle, still Character | Xvfb + xfwm4 | 2.7 / 146.3 | 4.5 / 25.0 | | 1.4 / 243.3 | 0.0 / 5.9 | 3688 idle, 37 land |
-| Walking | Xvfb + xfwm4 | 8.4 / 314.8 | 26.9 / 279.5 | | 16.5 / 371.7 | 0.6 / 227.0 | 1509 walk, 703 climb, 1206 idle |
-| Chat open, still Character | Xvfb + xfwm4 | 3.0 / 148.6 | 4.2 / 23.3 | 1.7 / 48.6 | 1.8 / 293.2 | 0.1 / 29.2 | 3516 idle, 11 land |
-| Pill open, pointer on the sprite | Xvfb + xfwm4 | 3.7 / 156.0 | 8.1 / 34.1 | | 3.6 / 252.0 | 0.1 / 22.2 | 3592 talk, 113 idle |
+| Idle, still Character | Xvfb + xfwm4 | 4.0 / 154.2 | 6.0 / 35.6 | | 3.3 / 252.4 | 0.1 / 20.2 | 3725 idle |
+| Walking | Xvfb + xfwm4 | 15.4 / 402.6 | 43.8 / 417.4 | | 37.7 / 468.3 | 1.4 / 623.3 | 2508 walk, 976 climb, 105 fall, 77 land, 83 idle |
+| Chat open, still Character | Xvfb + xfwm4 | 3.2 / 156.7 | 4.7 / 25.8 | 1.4 / 52.5 | 2.4 / 313.6 | 0.1 / 41.2 | 3727 idle |
+| Pill open, pointer on the sprite | Xvfb + xfwm4 | 3.6 / 157.4 | 7.3 / 37.4 | | 3.3 / 259.2 | 0.1 / 26.7 | 3593 talk, 117 idle, 16 react |
 | Baseline, no fidget | weston headless | | | | 0.0 / 0.1 | | |
-| Idle, still Character | weston headless | 3.0 / 132.8 | 4.6 / 21.8 | | 0.7 / 5.4 | | 3690 idle, 37 land |
-| Walking | weston headless | 17.1 / 222.9 | 18.2 / 201.1 | | 9.4 / 90.3 | | 1510 walk, 707 climb, 1202 idle |
-| Chat open, still Character | weston headless | 5.2 / 150.0 | 5.8 / 38.7 | 1.3 / 38.7 | 2.6 / 27.6 | | 3687 idle, 37 land |
+| Idle, still Character | weston headless | 4.3 / 141.5 | 5.7 / 37.3 | | 1.9 / 15.2 | | 3726 idle |
+| Chat open, still Character | weston headless | 3.5 / 141.7 | 4.1 / 16.1 | 1.2 / 38.0 | 1.0 / 17.7 | | 3727 idle |
 
-Each cell is CPU% of one core / voluntary switches/s. WebKitNetworkProcess read 0.0% and at most 0.2/s in every row. The fidget processes together read 7.2% and 171.4/s idle, 8.9% and 220.6/s with Chat open, and 11.8% and 190.2/s with the pill open, on X11. On weston they read 7.6% and 154.7/s idle, and 12.3% and 227.5/s with Chat open. Walking is 35.3% on both, with 594.4/s on X11 and 424.2/s on weston. One overlay WebKitWebProcess runs now, where the tables above had two.
+Each cell is CPU% of one core / voluntary switches/s. WebKitNetworkProcess read 0.0% and at most 0.3/s in every row. The fidget processes together read 10.0% and 189.9/s idle, 9.3% and 235.1/s with Chat open, 10.9% and 194.9/s with the pill open, and 59.2% and 820.3/s walking, on X11. On weston they read 10.0% and 178.9/s idle, and 8.8% and 195.8/s with Chat open. One overlay WebKitWebProcess runs now, where the tables above had two.
 
 As of 2026-10, C-state residency is not measurable here: the container has no `/sys/devices/system/cpu/cpu0/cpuidle`. A real-desktop `powertop` run is not measurable here either. Both need bare metal.
 
@@ -239,7 +244,7 @@ DISPLAY=:1 FIDGET_BENCH_GREEN_LIGHT=1 scripts/bench-frame-cadence-macos.sh walki
 DISPLAY=:1 FIDGET_BENCH_GREEN_LIGHT=1 scripts/bench-frame-cadence-macos.sh load --seconds 20 --bin target/release/fidget --out /tmp/fidget-cadence-load2
 ```
 
-Idle wakeups. Sample Xtigervnc for 60 s with no fidget, then launch the release binary with the still Character, park the pointer at x=2, y=2, and sample the main pid plus `pgrep -P` children for 60 s. CPU% is `utime+stime` from `/proc/<pid>/stat` over `CLK_TCK`. Voluntary switches are the delta of `voluntary_ctxt_switches` in `/proc/<pid>/status`. The idle table did those two reads in one window for the fidget tree, and a separate 60 s window for X before launch. Walking used the same 60 s read after a `walk#` frame, pointer at (2, 2), with `FIDGET_TRACE_FRAMES=1`. Hidden used it after `presence: hidden over 500ms`, under `xfce4-terminal --fullscreen`. `sudo powertop --time=10 --csv=/tmp/powertop.csv` prints a blank wakeup column and an empty idle-state table on this VM. The 2026-10-23 rows come from `scripts/bench-wakeups-linux.sh <baseline|idle|walking|chat|pill> --bin target/release/fidget --watch Xvfb=<pid> --watch xfwm4=<pid>`, with `FIDGET_OPEN_CHAT=1` for `chat`. For Wayland, run it under `env -u DISPLAY WAYLAND_DISPLAY=<socket>` with `--watch weston=<pid>`.
+Idle wakeups. Sample Xtigervnc for 60 s with no fidget, then launch the release binary with the still Character, park the pointer at x=2, y=2, and sample the main pid plus `pgrep -P` children for 60 s. CPU% is `utime+stime` from `/proc/<pid>/stat` over `CLK_TCK`. Voluntary switches are the delta of `voluntary_ctxt_switches` in `/proc/<pid>/status`. The idle table did those two reads in one window for the fidget tree, and a separate 60 s window for X before launch. Walking used the same 60 s read after a `walk#` frame, pointer at (2, 2), with `FIDGET_TRACE_FRAMES=1`. Hidden used it after `presence: hidden over 500ms`, under `xfce4-terminal --fullscreen`. `sudo powertop --time=10 --csv=/tmp/powertop.csv` prints a blank wakeup column and an empty idle-state table on this VM. The 2026-10-23 rows come from `scripts/bench-wakeups-linux.sh <baseline|idle|walking|chat|pill> --bin target/release/fidget --watch Xvfb=<pid> --watch xfwm4=<pid>`. For Wayland, run `baseline`, `idle` or `chat` under `env -u DISPLAY WAYLAND_DISPLAY=<socket>` with `--watch weston=<pid>`.
 
 ## Earlier captures
 
