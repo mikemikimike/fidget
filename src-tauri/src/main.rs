@@ -3592,6 +3592,15 @@ fn chat_ready(
         for form in forms {
             let _ = app.emit_to(&label, CHAT_ELICITATION_EVENT, form);
         }
+        // A Chat that an ask opened mid-turn missed the thoughts emitted
+        // before it listened. A thought is the whole text, so a repeat is
+        // harmless.
+        if let Some((text, over)) = session_log::thinking(&app, &instance) {
+            let _ = app.emit_to(&label, CHAT_THOUGHT_EVENT, &text);
+            if over {
+                let _ = app.emit_to(&label, CHAT_THOUGHT_EVENT, "");
+            }
+        }
     }
     let _ = chat.0.send(ChatMsg::Listening(instance));
 }

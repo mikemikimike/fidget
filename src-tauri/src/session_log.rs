@@ -222,6 +222,13 @@ impl Log {
         self.turns.get(instance).cloned().unwrap_or_default()
     }
 
+    /// The thought of a turn still on the wire, and whether it stopped.
+    pub fn thinking(&self, instance: &str) -> Option<(&str, bool)> {
+        self.thinking
+            .get(instance)
+            .map(|thinking| (thinking.text.as_str(), thinking.over))
+    }
+
     /// Drop what one Instance's replaced session said.
     ///
     /// One Instance, not all of them: wiping the others would empty windows still standing.
@@ -334,6 +341,13 @@ pub fn replay(app: &tauri::AppHandle, instance: &str) -> Vec<Turn> {
     app.try_state::<Mutex<Log>>()
         .and_then(|held| held.lock().ok().map(|log| log.replay(instance)))
         .unwrap_or_default()
+}
+
+pub fn thinking(app: &tauri::AppHandle, instance: &str) -> Option<(String, bool)> {
+    let held = app.try_state::<Mutex<Log>>()?;
+    let log = held.lock().ok()?;
+    log.thinking(instance)
+        .map(|(text, over)| (text.to_string(), over))
 }
 
 /// A dismissed Instance's turns go with it.
@@ -675,6 +689,20 @@ mod tests {
 
         let who: Vec<_> = log.replay("buddy-1").iter().map(|t| t.who).collect();
         assert_eq!(who, [Who::You, Who::Them]);
+    }
+
+    /// Production change that would fail this: a Chat that opens mid-turn,
+    /// after the thought was emitted to no listener, never drawing it.
+    #[test]
+    fn a_chat_opened_mid_turn_reads_the_thought_on_the_wire() {
+        let mut log = Log::new();
+        assert_eq!(log.thinking("buddy-1"), None);
+        log.think("buddy-1", "Thought 1 of four.", UNIX_EPOCH);
+        assert_eq!(log.thinking("buddy-1"), Some(("Thought 1 of four.", false)));
+        log.think("buddy-1", "", UNIX_EPOCH);
+        assert_eq!(log.thinking("buddy-1"), Some(("Thought 1 of four.", true)));
+        log.log_them("buddy-1", Some("ok".into()), None, UNIX_EPOCH);
+        assert_eq!(log.thinking("buddy-1"), None);
     }
 
     /// Production change that would fail this: the old session's thinking
