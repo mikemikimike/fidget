@@ -2084,8 +2084,17 @@ fn roster_specs(roster: &Roster) -> Vec<InstanceSpec> {
 /// The overlay heard the primary button. The frame loop polls a session
 /// query that can miss a click on this window; this is the other witness.
 #[tauri::command]
-fn overlay_primary(down: bool) {
+fn overlay_primary(down: bool, at: Option<f64>, queued: Option<f64>) {
     platform::set_overlay_primary(down);
+    let now = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or_default();
+    eprintln!(
+        "witness: primary down={down} lag={:?}ms queued={queued:?}ms main={}",
+        at.map(|at| now - at),
+        std::thread::current().name() == Some("main")
+    );
 }
 
 /// The overlay's quick message gained or lost the caret. Empty means none.

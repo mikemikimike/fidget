@@ -849,10 +849,10 @@ async function start() {
   const reporter = (command) => {
     let inflight = false;
     let queued = null;
-    const send = (down) => {
+    const send = ([down, at]) => {
       inflight = true;
       window.__TAURI__.core
-        .invoke(command, { down })
+        .invoke(command, { down, at, queued: Date.now() - at })
         .catch((err) => {
           console.error(command, err);
         })
@@ -867,10 +867,10 @@ async function start() {
     };
     return (down) => {
       if (inflight) {
-        queued = down;
+        queued = [down, Date.now()];
         return;
       }
-      send(down);
+      send([down, Date.now()]);
     };
   };
   const reportPrimary = reporter("overlay_primary");
