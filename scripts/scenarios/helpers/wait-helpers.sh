@@ -217,3 +217,11 @@ rest_or_moved() { # <log> <flag file>
   done
   return 1
 }
+
+login_shell_without_profile() { # <bin dir>; writes <bin dir>/login-shell
+  # Fidget adopts the login shell's PATH, and macOS /etc/paths or Debian
+  # /etc/profile can add /usr/local/bin with npx. This shell reads neither.
+  # shellcheck disable=SC2016 # $4 is the stub's own argument.
+  printf '#!/bin/sh\nexec /bin/sh -c "$4"\n' > "$1/login-shell"
+  chmod +x "$1/login-shell"
+}
