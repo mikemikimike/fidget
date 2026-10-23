@@ -9,7 +9,9 @@
 #   With --quit-by-hand, also pick Quit in the tray menu when asked.
 # Needs: an elevated PowerShell console (not the ISE), because
 #   `powercfg /requests` refuses without admin rights and Ctrl+C needs a
-#   console. No other Fidget may be running.
+#   console. No other Fidget may be running. Needs a debug fidget.exe: a
+#   release build is a windows-subsystem exe with no console, so Ctrl+C can
+#   never reach it, and the script refuses one before launching.
 # Duration: about 2 min with a built exe, plus the time you take.
 # Asserts, each from a `powercfg /requests` snapshot:
 #   on       the cup turns it on: fidget.exe under SYSTEM and DISPLAY
@@ -26,7 +28,8 @@
 #   WEBVIEW2_USER_DATA_FOLDER all point under the evidence directory.
 #
 # Usage: verify-caffeinate-win.ps1 --go <evidence dir> [<fidget.exe>] [--quit-by-hand]
-# Without <fidget.exe> it runs `cargo build -p fidget` and uses that exe.
+# Without <fidget.exe> it runs `cargo build -p fidget` (a debug build) and
+# uses that exe.
 # Evidence: result.txt, powercfg-<check>.txt and each launch's stderr.
 # Without --go it prints this header and exits 2.
 # No param() block: Windows PowerShell binds `--go` as -Go (see question-bubble.win.ps1).
@@ -70,6 +73,16 @@ function Get-HeldPattern([string]$Summary) {
 # A Chat opening that is not the one labelled `$First`.
 function Get-OtherChatPattern([string]$First) {
     '^chat: (?!' + [regex]::Escape($First) + ' is open$)\S+ is open$'
+}
+
+# The PE Subsystem field: 2 is a windows (GUI) exe, 3 a console one, 0 not a PE.
+function Get-PeSubsystem([byte[]]$Bytes) {
+    if ($Bytes.Length -lt 64 -or $Bytes[0] -ne 0x4D -or $Bytes[1] -ne 0x5A) { return 0 }
+    $pe = [BitConverter]::ToInt32($Bytes, 0x3C)
+    $field = $pe + 24 + 68
+    if ($pe -lt 0 -or $field + 2 -gt $Bytes.Length) { return 0 }
+    if ([BitConverter]::ToUInt32($Bytes, $pe) -ne 0x4550) { return 0 }
+    [int][BitConverter]::ToUInt16($Bytes, $field)
 }
 
 if ($Go -ne "--go") {
@@ -126,6 +139,17 @@ function Pass([string]$Check, [string]$Detail) {
     Write-Output "PASS $Check $Detail"
 }
 if (-not (Test-Path -LiteralPath $Bin)) { Fail "missing $Bin" }
+$stream = [System.IO.File]::OpenRead($Bin)
+try {
+    $head = New-Object byte[] 4096
+    $read = $stream.Read($head, 0, $head.Length)
+} finally {
+    $stream.Dispose()
+}
+$subsystem = Get-PeSubsystem $head[0..($read - 1)]
+if ($subsystem -ne 3) {
+    Fail "$Bin is not a console exe (PE subsystem $subsystem). The ctrl-c check needs the debug build: pass target\debug\fidget.exe, or no exe to build it."
+}
 
 # One powercfg snapshot, kept as evidence under `$Label`.
 function Requests([string]$Label) {
@@ -269,11 +293,11 @@ $env:FIDGET_OPEN_CHAT = "1"
 $env:FIDGET_TRACE_BUBBLE = "1"
 
 # Starts Fidget on this console, with stderr in `<name>.err`, and returns once
-# Beemo's Chat is open. Sharing the console is what lets Ctrl+C reach it.
+# Beemo's Chat is open. -NoNewWindow shares the console so Ctrl+C reaches it.
 function Launch([string]$Name) {
     $script:stderr = Join-Path $out "$Name.err"
     Set-Content -LiteralPath $script:stderr -Value "" -Encoding ascii
-    $script:proc = Start-Process -FilePath $Bin -WorkingDirectory $out -PassThru `
+    $script:proc = Start-Process -FilePath $Bin -WorkingDirectory $out -PassThru -NoNewWindow `
         -RedirectStandardOutput (Join-Path $out "$Name.log") -RedirectStandardError $script:stderr
     Add-Content -LiteralPath (Join-Path $out "run.txt") -Value "$Name pid=$($script:proc.Id)"
     $line = Wait-Line 0 60 '^chat: \S+ is open$'

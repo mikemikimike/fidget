@@ -25,7 +25,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE
 if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$FidgetReason' }, $true)
 Invoke-Expression $reason.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-HeldPattern", "Get-OtherChatPattern" }, $true)) {
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-HeldPattern", "Get-OtherChatPattern", "Get-PeSubsystem" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -121,5 +121,19 @@ test("the second Chat is any Chat but the first", { skip }, () => {
 'chat: chat-a12 is open' -match (Get-OtherChatPattern 'chat-a1')
 'chat: chat-b2 could not be raised: x' -match (Get-OtherChatPattern 'chat-a1')`),
     ["False", "True", "True", "False"],
+  );
+});
+
+test("only a console exe passes the Ctrl+C precheck", { skip }, () => {
+  // The smallest header Get-PeSubsystem reads: MZ, e_lfanew, the PE signature.
+  const pe = (subsystem) => `
+$b = New-Object byte[] 256; $b[0] = 0x4D; $b[1] = 0x5A; $b[0x3C] = 0x40
+$b[0x40] = 0x50; $b[0x41] = 0x45; $b[0x40 + 92] = ${subsystem}
+Get-PeSubsystem $b`;
+  assert.deepEqual(
+    run(`${pe(3)}
+${pe(2)}
+Get-PeSubsystem ([byte[]](0x23, 0x21) * 40)`),
+    ["3", "2", "0"],
   );
 });
