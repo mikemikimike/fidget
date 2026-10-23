@@ -2202,22 +2202,15 @@ fn caffeinate_flags(
 /// What the Command row shows for a flag set.
 #[cfg(target_os = "macos")]
 fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
-    format!("caffeinate {}", flags.preview())
+    format!("caffeinate {}", flags.summary())
 }
 
 /// What the Command row shows for a flag set: the request types
-/// `powercfg /requests` lists Fidget under. Matches `caffeinate_win`.
+/// `powercfg /requests` lists Fidget under. `caffeinate_win` holds the same
+/// [`fidget_core::caffeinate::AssertedFlags::power_requests`].
 #[cfg(windows)]
 fn caffeinate_command(flags: fidget_core::caffeinate::AssertedFlags) -> String {
-    use fidget_core::caffeinate::Flag;
-    let mut kinds = Vec::new();
-    if flags.contains(Flag::Display) {
-        kinds.push("DISPLAY");
-    }
-    if flags.contains(Flag::Idle) || flags.contains(Flag::System) {
-        kinds.push("SYSTEM");
-    }
-    format!("Power request: {}", kinds.join(", "))
+    format!("Power request: {}", flags.summary())
 }
 
 impl Settings {
@@ -2595,6 +2588,20 @@ mod tests {
         assert!(settings.caffeinate_system, "Disk cannot hold the set open");
         settings.caffeinate_system = false;
         assert!(settings.caffeinate_flags().is_err());
+    }
+
+    /// The Command row names the same power requests the chat note does.
+    #[cfg(windows)]
+    #[test]
+    fn windows_command_row_names_the_held_requests() {
+        use fidget_core::caffeinate::{AssertedFlags, Flag, Note};
+        assert_eq!(
+            caffeinate_command(AssertedFlags::all()),
+            "Power request: DISPLAY, SYSTEM"
+        );
+        let idle = AssertedFlags::new([Flag::Idle]).unwrap();
+        assert_eq!(caffeinate_command(idle), "Power request: SYSTEM");
+        assert!(Note::On(idle).text().ends_with("(SYSTEM)"));
     }
 
     /// The alias carries a grant over from the field's old name: reading the

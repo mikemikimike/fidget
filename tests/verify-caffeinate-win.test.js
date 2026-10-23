@@ -25,7 +25,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE
 if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$FidgetReason' }, $true)
 Invoke-Expression $reason.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern" }, $true)) {
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-HeldPattern", "Get-OtherChatPattern" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -99,5 +99,27 @@ test("the waits match frame_loop's caffeinate lines", { skip }, () => {
 'caffeinate: Caffeinate off.' -match (Get-CaffeinatePattern 'on')
 'caffeinate: Caffeinate on: x' -match (Get-CaffeinatePattern 'off')`),
     ["True", "True", "False", "False"],
+  );
+});
+
+test("a flag change waits for the request it should leave held", { skip }, () => {
+  assert.deepEqual(
+    run(`
+'caffeinate: power request held: SYSTEM' -match (Get-HeldPattern 'SYSTEM')
+'caffeinate: power request held: DISPLAY, SYSTEM' -match (Get-HeldPattern 'SYSTEM')
+'caffeinate: power request held: DISPLAY, SYSTEM' -match (Get-HeldPattern 'DISPLAY, SYSTEM')
+'caffeinate: power request cleared' -match (Get-HeldPattern 'SYSTEM')`),
+    ["True", "False", "True", "False"],
+  );
+});
+
+test("the second Chat is any Chat but the first", { skip }, () => {
+  assert.deepEqual(
+    run(`
+'chat: chat-a1 is open' -match (Get-OtherChatPattern 'chat-a1')
+'chat: chat-b2 is open' -match (Get-OtherChatPattern 'chat-a1')
+'chat: chat-a12 is open' -match (Get-OtherChatPattern 'chat-a1')
+'chat: chat-b2 could not be raised: x' -match (Get-OtherChatPattern 'chat-a1')`),
+    ["False", "True", "True", "False"],
   );
 });

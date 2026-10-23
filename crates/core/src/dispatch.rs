@@ -209,7 +209,7 @@ pub fn dispatch(
             match handle.call(args.on) {
                 Ok(Fact::Off) => Ok(serde_json::json!({ "on": false })),
                 Ok(Fact::On(flags)) => {
-                    Ok(serde_json::json!({ "on": true, "flags": flags.preview() }))
+                    Ok(serde_json::json!({ "on": true, "flags": flags.summary() }))
                 }
                 Err(message) => Err(DispatchError {
                     code: ErrorCode::ExecutionFailed,
@@ -332,7 +332,7 @@ pub fn list_tools() -> Vec<ToolInfo> {
     if cfg!(any(target_os = "macos", windows)) {
         tools.push(ToolInfo {
             name: "caffeinate".to_string(),
-            description: "Keep this computer awake until it is turned off or Fidget quits. Returns whether it is on and, when it is, the caffeinate flags.".to_string(),
+            description: "Keep this computer awake until it is turned off or Fidget quits. Returns whether it is on and, when it is, what it holds: the caffeinate flags on macOS, the power requests on Windows.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -591,8 +591,9 @@ mod tests {
         let on = call(&mut hold, json!({ "on": true }));
         let again = call(&mut hold, json!({ "on": true }));
         let off = call(&mut hold, json!({ "on": false }));
-        assert_eq!(on, json!({ "on": true, "flags": "-dims" }));
-        assert_eq!(again, json!({ "on": true, "flags": "-dims" }));
+        let flags = crate::caffeinate::AssertedFlags::all().summary();
+        assert_eq!(on, json!({ "on": true, "flags": flags }));
+        assert_eq!(again, json!({ "on": true, "flags": flags }));
         assert_eq!(off, json!({ "on": false }));
         assert_eq!(hold.sets, [true, true, false]);
     }

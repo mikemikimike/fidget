@@ -8,7 +8,9 @@
 
 use std::io;
 
-use fidget_core::caffeinate::{Argv, AssertedFlags, Flag, Spawner};
+#[cfg(test)]
+use fidget_core::caffeinate::Flag;
+use fidget_core::caffeinate::{Argv, AssertedFlags, PowerRequest, Spawner};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Power::{
     PowerClearRequest, PowerCreateRequest, PowerRequestDisplayRequired, PowerRequestSystemRequired,
@@ -25,17 +27,17 @@ pub const REASON: &str = "Fidget: keep my computer awake";
 /// this crate does not otherwise need.
 const CONTEXT_VERSION: u32 = 0;
 
-/// The request types a flag set asks for. Idle and System both keep the system
-/// up. Windows has no disk request, so Disk adds nothing.
+/// The OS request types for a flag set. The core owns the flag map, so the
+/// Settings Command row and the notes name exactly what is held.
 pub fn request_types(flags: AssertedFlags) -> Vec<POWER_REQUEST_TYPE> {
-    let mut types = Vec::new();
-    if flags.contains(Flag::Display) {
-        types.push(PowerRequestDisplayRequired);
-    }
-    if flags.contains(Flag::Idle) || flags.contains(Flag::System) {
-        types.push(PowerRequestSystemRequired);
-    }
-    types
+    flags
+        .power_requests()
+        .into_iter()
+        .map(|request| match request {
+            PowerRequest::Display => PowerRequestDisplayRequired,
+            PowerRequest::System => PowerRequestSystemRequired,
+        })
+        .collect()
 }
 
 struct Held {
@@ -109,6 +111,11 @@ impl Spawner for OsSpawner {
             }
             held.types.push(kind);
         }
+        // scripts/verify-caffeinate-win.ps1 waits on these two lines.
+        eprintln!(
+            "caffeinate: power request held: {}",
+            argv.flags().power_summary()
+        );
         self.held = Some(held);
         Ok(())
     }
@@ -117,6 +124,7 @@ impl Spawner for OsSpawner {
     fn kill(&mut self) {
         if let Some(held) = self.held.take() {
             held.release();
+            eprintln!("caffeinate: power request cleared");
         }
     }
 

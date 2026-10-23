@@ -62,8 +62,62 @@ impl AssertedFlags {
         std::iter::once('-').chain(self.letters()).collect()
     }
 
+    /// The Windows power requests this set asks for, in `powercfg` order.
+    /// Idle and System both keep the system up, and Windows has no disk request.
+    pub fn power_requests(self) -> Vec<PowerRequest> {
+        let mut requests = Vec::new();
+        if self.contains(Flag::Display) {
+            requests.push(PowerRequest::Display);
+        }
+        if self.contains(Flag::Idle) || self.contains(Flag::System) {
+            requests.push(PowerRequest::System);
+        }
+        requests
+    }
+
+    /// `DISPLAY, SYSTEM`, the sections `powercfg /requests` lists Fidget under.
+    pub fn power_summary(self) -> String {
+        let names: Vec<&str> = self
+            .power_requests()
+            .into_iter()
+            .map(PowerRequest::name)
+            .collect();
+        if names.is_empty() {
+            "none".to_string()
+        } else {
+            names.join(", ")
+        }
+    }
+
+    /// What Settings, the notes, the prompt line and the tool show, so each OS
+    /// names the hold the way its own tools do.
+    pub fn summary(self) -> String {
+        if cfg!(windows) {
+            self.power_summary()
+        } else {
+            self.preview()
+        }
+    }
+
     pub fn argv(self, pid: u32) -> Argv {
         Argv { flags: self, pid }
+    }
+}
+
+/// A Windows power request type. `caffeinate_win` maps each to the OS value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerRequest {
+    Display,
+    System,
+}
+
+impl PowerRequest {
+    /// The section `powercfg /requests` lists it under.
+    pub fn name(self) -> &'static str {
+        match self {
+            PowerRequest::Display => "DISPLAY",
+            PowerRequest::System => "SYSTEM",
+        }
     }
 }
 
@@ -107,11 +161,11 @@ impl Fact {
         matches!(self, Fact::On(_))
     }
 
-    /// `caffeinate: off` or `caffeinate: on (-dims)`.
+    /// `caffeinate: off` or `caffeinate: on (-dims)`, with [`AssertedFlags::summary`].
     pub fn prompt_line(self) -> String {
         match self {
             Fact::Off => "caffeinate: off".to_string(),
-            Fact::On(flags) => format!("caffeinate: on ({})", flags.preview()),
+            Fact::On(flags) => format!("caffeinate: on ({})", flags.summary()),
         }
     }
 }
@@ -131,7 +185,7 @@ impl Note {
         match self {
             Note::On(flags) => format!(
                 "☕ Caffeinate on: keeping your computer awake ({})",
-                flags.preview()
+                flags.summary()
             ),
             Note::Off => "Caffeinate off.".to_string(),
             Note::Exited => "Caffeinate off. It exited on its own.".to_string(),
@@ -412,13 +466,58 @@ mod tests {
         assert_eq!(AssertedFlags::new([]), Err(Empty));
     }
 
+    /// What the surfaces show for every flag: the `caffeinate` cluster on
+    /// macOS, the power requests `powercfg /requests` lists on Windows.
+    const DIMS_SUMMARY: &str = if cfg!(windows) {
+        "DISPLAY, SYSTEM"
+    } else {
+        "-dims"
+    };
+
+    #[test]
+    fn windows_power_requests_follow_the_flags() {
+        let requests = |set: &[Flag]| {
+            AssertedFlags::new(set.iter().copied())
+                .unwrap()
+                .power_requests()
+        };
+        assert_eq!(
+            dims().power_requests(),
+            vec![PowerRequest::Display, PowerRequest::System]
+        );
+        assert_eq!(requests(&[Flag::Display]), vec![PowerRequest::Display]);
+        assert_eq!(requests(&[Flag::Idle]), vec![PowerRequest::System]);
+        assert_eq!(
+            requests(&[Flag::System, Flag::Idle]),
+            vec![PowerRequest::System]
+        );
+        assert!(requests(&[Flag::Disk]).is_empty());
+        assert_eq!(dims().power_summary(), "DISPLAY, SYSTEM");
+        assert_eq!(
+            AssertedFlags::new([Flag::Idle]).unwrap().power_summary(),
+            "SYSTEM"
+        );
+        assert_eq!(
+            AssertedFlags::new([Flag::Disk]).unwrap().power_summary(),
+            "none"
+        );
+    }
+
+    #[test]
+    fn the_summary_is_the_cluster_on_macos_and_the_requests_on_windows() {
+        assert_eq!(dims().summary(), DIMS_SUMMARY);
+    }
+
     #[test]
     fn prompt_and_note_text_are_the_issue_sentences() {
         assert_eq!(Fact::Off.prompt_line(), "caffeinate: off");
-        assert_eq!(Fact::On(dims()).prompt_line(), "caffeinate: on (-dims)");
+        assert_eq!(
+            Fact::On(dims()).prompt_line(),
+            format!("caffeinate: on ({DIMS_SUMMARY})")
+        );
         assert_eq!(
             Note::On(dims()).text(),
-            "☕ Caffeinate on: keeping your computer awake (-dims)"
+            format!("☕ Caffeinate on: keeping your computer awake ({DIMS_SUMMARY})")
         );
         assert_eq!(Note::Off.text(), "Caffeinate off.");
         assert_eq!(Note::Exited.text(), "Caffeinate off. It exited on its own.");
