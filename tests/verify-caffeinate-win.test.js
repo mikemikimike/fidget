@@ -366,3 +366,12 @@ test("Mochi's Chat opens from a SendInput double-click", () => {
   assert.match(text, /GetDoubleClickTime\(\)/);
   assert.match(text, /\[CaffeinateWin\]::LeftClicks\(\$tee, 2\)/);
 });
+
+// The C# goes to Add-Type verbatim. In a double-quoted here-string PowerShell
+// expands `n and $x, which broke the compile on Windows (`n` in a comment).
+test("Add-Type C# source is a literal here-string", () => {
+  const text = readFileSync(script, "utf8");
+  const addTypes = [...text.matchAll(/Add-Type\b[^\n]*@(["'])$/gm)];
+  assert.ok(addTypes.length > 0);
+  for (const [line, quote] of addTypes) assert.equal(quote, "'", line);
+});

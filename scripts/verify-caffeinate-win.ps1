@@ -245,7 +245,7 @@ try {
     function Line-Count { $tee.Count }
 
     Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-    Add-Type -ReferencedAssemblies UIAutomationClient, UIAutomationTypes, WindowsBase @"
+    Add-Type -ReferencedAssemblies UIAutomationClient, UIAutomationTypes, WindowsBase @'
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
@@ -619,7 +619,7 @@ try {
             SetConsoleCtrlHandler(IntPtr.Zero, false);
         }
     }
-"@
+'@
 
     $utf8 = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText((Join-Path $data "settings.json"),
