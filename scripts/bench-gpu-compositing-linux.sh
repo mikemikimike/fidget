@@ -133,7 +133,8 @@ compositor_on_display() {
       tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qx "DISPLAY=$DISPLAY" || continue
     else
       # ponytail: a Wayland compositor counts when its command line names the
-      # socket (weston --socket=NAME); one on the default socket is missed.
+      # socket (weston --socket=NAME); one on the default socket reads as none.
+      # Match the socket owner in /proc/net/unix if a real session needs it.
       tr '\0' '\n' < "/proc/$pid/cmdline" 2> /dev/null | grep -qxE "(.*=)?${WAYLAND_DISPLAY:-}" || continue
     fi
     echo "$pid"
@@ -581,8 +582,8 @@ run_baseline() {
   sample_row baseline "$log" "$seconds" "no fidget"
 }
 
-# The window opens once the Character stands on a floor, or once the line
-# the scenario waits for lands (Go away logs no floor frame).
+# The window opens once the Character stands on a floor, or on the line
+# the scenario names instead.
 run_with_overlay() {
   local name=$1 settings=${2:-'{}'} ready=${3:-' frame: [0-9]+ (Grounded|Perched) '}
   local log="$out/${name}.log"
@@ -659,7 +660,7 @@ run_walking_over() {
 
 run_chat() {
   local log="$out/chat.log"
-  # The `chat: ... is open` line is a bubble trace.
+  # The `chat: ... is open` line prints only under FIDGET_TRACE_BUBBLE=1.
   FIDGET_OPEN_CHAT=1 FIDGET_TRACE_BUBBLE=1 run_with_overlay chat '{}' 'chat: .* is open' || {
     emit chat N/A none N/A N/A N/A N/A "FIDGET_OPEN_CHAT=1 did not log Chat open within 3 s"
     stop_app
