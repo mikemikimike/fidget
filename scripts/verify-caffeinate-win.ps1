@@ -234,6 +234,67 @@ try {
             return found;
         }
 
+        // Waits for `FindWindow` to see the window, waking when any window opens
+        // or focus moves (a new window takes focus as it shows).
+        public static IntPtr WaitWindow(uint pid, string title, int ms) {
+            var changed = new AutoResetEvent(false);
+            AutomationEventHandler opened = (s, e) => changed.Set();
+            AutomationFocusChangedEventHandler focused = (s, e) => changed.Set();
+            Automation.AddAutomationEventHandler(WindowPattern.WindowOpenedEvent, AutomationElement.RootElement, TreeScope.Subtree, opened);
+            Automation.AddAutomationFocusChangedEventHandler(focused);
+            try {
+                var deadline = DateTime.UtcNow.AddMilliseconds(ms);
+                while (true) {
+                    var found = FindWindow(pid, title);
+                    var left = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+                    if (found != IntPtr.Zero || left <= 0) return found;
+                    changed.WaitOne(left);
+                }
+            } finally {
+                Automation.RemoveAutomationEventHandler(WindowPattern.WindowOpenedEvent, AutomationElement.RootElement, opened);
+                Automation.RemoveAutomationFocusChangedEventHandler(focused);
+            }
+        }
+
+        // Waits for `element`'s toggle state to read `state`, waking on each
+        // change to it. Returns the last state read.
+        public static string WaitToggleState(AutomationElement element, string state, int ms) {
+            var changed = new AutoResetEvent(false);
+            AutomationPropertyChangedEventHandler handler = (s, e) => changed.Set();
+            Automation.AddAutomationPropertyChangedEventHandler(element, TreeScope.Element, handler, TogglePattern.ToggleStateProperty);
+            try {
+                var deadline = DateTime.UtcNow.AddMilliseconds(ms);
+                while (true) {
+                    var now = ToggleState(element);
+                    var left = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+                    if (now == state || now == "gone" || left <= 0) return now;
+                    changed.WaitOne(left);
+                }
+            } finally {
+                try { Automation.RemoveAutomationPropertyChangedEventHandler(element, handler); } catch (ElementNotAvailableException) { }
+            }
+        }
+
+        // Structure changes under a window, counted from construction, so a
+        // change between a find and the wait for the next one is not missed.
+        public sealed class StructureWatch : IDisposable {
+            readonly AutomationElement root;
+            readonly AutoResetEvent changed = new AutoResetEvent(false);
+            readonly StructureChangedEventHandler handler;
+            public StructureWatch(IntPtr hwnd) {
+                root = AutomationElement.FromHandle(hwnd);
+                handler = (s, e) => changed.Set();
+                Automation.AddStructureChangedEventHandler(root, TreeScope.Subtree, handler);
+            }
+            // True once the tree has changed since the last call, false at `ms`.
+            public bool Next(int ms) { return changed.WaitOne(ms); }
+            public void Dispose() {
+                try { Automation.RemoveStructureChangedEventHandler(root, handler); } catch (ElementNotAvailableException) { }
+            }
+        }
+
+        public static StructureWatch WatchStructure(IntPtr hwnd) { return new StructureWatch(hwnd); }
+
         static AutomationElement Find(AutomationElement root, ControlType type, string name) {
             return root.FindFirst(TreeScope.Descendants, new AndCondition(
                 new PropertyCondition(AutomationElement.ControlTypeProperty, type),
@@ -273,39 +334,39 @@ try {
             }
         }
 
-        // Each returns false, rather than throwing, when the element lacks the
-        // pattern or is gone.
-        public static bool Toggle(AutomationElement element) {
+        // The pattern of `element`, or null when it lacks it or is gone.
+        static object Pattern(AutomationElement element, AutomationPattern which) {
             try {
                 object pattern;
-                if (!element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) return false;
-                ((TogglePattern)pattern).Toggle();
-                return true;
+                return element.TryGetCurrentPattern(which, out pattern) ? pattern : null;
             } catch (ElementNotAvailableException) {
-                return false;
+                return null;
             }
+        }
+
+        // Each returns false, rather than throwing, when the element lacks the
+        // pattern or is gone. Once the pattern call is made the press counts:
+        // the page can redraw the element away before the call returns, and
+        // pressing again would flip it back.
+        public static bool Toggle(AutomationElement element) {
+            var pattern = (TogglePattern)Pattern(element, TogglePattern.Pattern);
+            if (pattern == null) return false;
+            try { pattern.Toggle(); } catch (ElementNotAvailableException) { }
+            return true;
         }
 
         public static bool Invoke(AutomationElement element) {
-            try {
-                object pattern;
-                if (!element.TryGetCurrentPattern(InvokePattern.Pattern, out pattern)) return false;
-                ((InvokePattern)pattern).Invoke();
-                return true;
-            } catch (ElementNotAvailableException) {
-                return false;
-            }
+            var pattern = (InvokePattern)Pattern(element, InvokePattern.Pattern);
+            if (pattern == null) return false;
+            try { pattern.Invoke(); } catch (ElementNotAvailableException) { }
+            return true;
         }
 
         public static bool Select(AutomationElement tab) {
-            try {
-                object pattern;
-                if (!tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) return false;
-                ((SelectionItemPattern)pattern).Select();
-                return true;
-            } catch (ElementNotAvailableException) {
-                return false;
-            }
+            var pattern = (SelectionItemPattern)Pattern(tab, SelectionItemPattern.Pattern);
+            if (pattern == null) return false;
+            try { pattern.Select(); } catch (ElementNotAvailableException) { }
+            return true;
         }
 
         // The cup's aria-pressed, which WebView2 exposes as a toggle state.
@@ -362,47 +423,58 @@ try {
         $line -replace '^chat: (\S+) is open$', '$1'
     }
 
-    # Presses what `$Find` returns, through the pattern Get-PressPattern picks.
-    # Each try finds the element again: a page redraw (Settings redraws the tab
-    # after every saved change) leaves an element found earlier with no
-    # patterns. Fails naming the patterns it does support after the last try.
-    function Press([scriptblock]$Find, [string]$What) {
+    # Presses what `$Find` returns in `$Window`, through the pattern
+    # Get-PressPattern picks. A page redraw (Settings redraws the tab after
+    # every saved change) leaves an element found earlier with no patterns, so
+    # each of up to 3 tries finds it again, the next after the window's tree
+    # changes. Fails naming the patterns it does support after the last try.
+    function Press([IntPtr]$Window, [scriptblock]$Find, [string]$What) {
         $supported = @()
-        foreach ($attempt in 1..3) {
-            $element = & $Find
-            $supported = @([CaffeinateWin]::Patterns($element))
-            $pressed = switch (Get-PressPattern $supported) {
-                "Toggle" { [CaffeinateWin]::Toggle($element) }
-                "Invoke" { [CaffeinateWin]::Invoke($element) }
-                default { $false }
+        $watch = [CaffeinateWin]::WatchStructure($Window)
+        try {
+            foreach ($attempt in 1..3) {
+                $element = & $Find
+                $supported = @([CaffeinateWin]::Patterns($element))
+                $pressed = switch (Get-PressPattern $supported) {
+                    "Toggle" { [CaffeinateWin]::Toggle($element) }
+                    "Invoke" { [CaffeinateWin]::Invoke($element) }
+                    default { $false }
+                }
+                if ($pressed) { return }
+                if (-not $watch.Next(5000)) { break }
             }
-            if ($pressed) { return }
-            Start-Sleep -Milliseconds 500
+        } finally {
+            $watch.Dispose()
         }
         $names = if ($supported.Count -gt 0) { $supported -join ', ' } else { "none" }
         Fail "$What supports neither Toggle nor Invoke; it supports: $names"
     }
 
-    # The cup in the Chat titled `$Title`. The "is open" line can land before
-    # the window shows, so the window gets 10 s to appear.
-    function Cup([string]$Title) {
-        $deadline = (Get-Date).AddSeconds(10)
-        do {
-            $chat = [CaffeinateWin]::FindWindow([uint32]$proc.Id, $Title)
-            if ($chat -ne [IntPtr]::Zero) { break }
-            Start-Sleep -Milliseconds 250
-        } while ((Get-Date) -lt $deadline)
+    # The Chat window titled `$Title`. The "is open" line can land before the
+    # window shows, so this waits up to 10 s for it to open.
+    function Chat([string]$Title) {
+        $chat = [CaffeinateWin]::WaitWindow([uint32]$proc.Id, $Title, 10000)
         if ($chat -eq [IntPtr]::Zero) { Fail "no Chat window titled $Title" }
-        $cup = [CaffeinateWin]::Wait($chat, [System.Windows.Automation.ControlType]::Button, "Caffeinate", 30000)
+        $chat
+    }
+
+    # The cup in the Chat window `$Window` titled `$Title`, found fresh.
+    function Cup([string]$Title, [IntPtr]$Window = [IntPtr]::Zero) {
+        if ($Window -eq [IntPtr]::Zero) { $Window = Chat $Title }
+        $cup = [CaffeinateWin]::Wait($Window, [System.Windows.Automation.ControlType]::Button, "Caffeinate", 30000)
         if ($null -eq $cup) { Fail "$Title's Chat has no Caffeinate button" }
         $cup
     }
 
-    # The Settings control named `$Name`, found fresh.
-    function Settings-Control([System.Windows.Automation.ControlType]$Type, [string]$Name) {
-        $settings = [CaffeinateWin]::FindWindow([uint32]$proc.Id, "Settings")
+    function Settings-Window {
+        $settings = [CaffeinateWin]::WaitWindow([uint32]$proc.Id, "Settings", 10000)
         if ($settings -eq [IntPtr]::Zero) { Fail "no Settings window" }
-        $found = [CaffeinateWin]::Wait($settings, $Type, $Name, 10000)
+        $settings
+    }
+
+    # The Settings control named `$Name`, found fresh.
+    function Settings-Control([IntPtr]$Window, [System.Windows.Automation.ControlType]$Type, [string]$Name) {
+        $found = [CaffeinateWin]::Wait($Window, $Type, $Name, 10000)
         if ($null -eq $found) { Fail "Settings has no $Name control" }
         $found
     }
@@ -410,7 +482,8 @@ try {
     # Presses the cup in `$Title`'s Chat and waits for the note it should cause.
     function Press-Cup([string]$Title, [string]$State) {
         $skip = Line-Count
-        Press { Cup $Title } "$Title's Caffeinate cup"
+        $chat = Chat $Title
+        Press $chat { Cup $Title $chat } "$Title's Caffeinate cup"
         if (-not (Wait-Line $skip 10 (Get-CaffeinatePattern $State))) { Fail "no 'Caffeinate $State' line; see $stderr" }
     }
 
@@ -418,7 +491,8 @@ try {
     # power requests in `$Names`.
     function Flip-Flag([string]$Names) {
         $skip = Line-Count
-        Press { Settings-Control ([System.Windows.Automation.ControlType]::CheckBox) "Display" } "the Display checkbox"
+        $settings = Settings-Window
+        Press $settings { Settings-Control $settings ([System.Windows.Automation.ControlType]::CheckBox) "Display" } "the Display checkbox"
         if (-not (Wait-Line $skip 10 (Get-OnPattern $Names))) { Fail "no 'caffeinate: on ($Names)' line; see $stderr" }
     }
 
@@ -438,12 +512,11 @@ try {
         Press-Cup "Beemo" "on"
         Expect-Requests "on-again" $true $true
 
-        $settings = [CaffeinateWin]::FindWindow([uint32]$proc.Id, "Settings")
-        if ($settings -eq [IntPtr]::Zero) { Fail "no Settings window" }
+        $settings = Settings-Window
         $tab = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::TabItem, "Caffeinate", 30000)
         if ($null -eq $tab) { Fail "Settings has no Caffeinate tab" }
         if (-not [CaffeinateWin]::Select($tab)) {
-            Press { Settings-Control ([System.Windows.Automation.ControlType]::TabItem) "Caffeinate" } "the Caffeinate tab"
+            Press $settings { Settings-Control $settings ([System.Windows.Automation.ControlType]::TabItem) "Caffeinate" } "the Caffeinate tab"
         }
         $display = [CaffeinateWin]::Wait($settings, [System.Windows.Automation.ControlType]::CheckBox, "Display", 10000)
         if ($null -eq $display) { Fail "the Caffeinate tab has no Display checkbox" }
@@ -459,12 +532,7 @@ try {
         Write-Output "Double-click Mochi to open a second Chat. Waiting up to 5 minutes."
         if (-not (Wait-Line $skip 300 (Get-OtherChatPattern $first))) { Fail "no second Chat opened" }
         # The new Chat draws the cup before the shell's caffeinate view sets it.
-        $deadline = (Get-Date).AddSeconds(10)
-        do {
-            $state = [CaffeinateWin]::ToggleState((Cup "Mochi"))
-            if ($state -eq "On") { break }
-            Start-Sleep -Milliseconds 250
-        } while ((Get-Date) -lt $deadline)
+        $state = [CaffeinateWin]::WaitToggleState((Cup "Mochi"), "On", 10000)
         if ($state -ne "On") { Fail "Mochi's new Chat shows the cup as $state, not pressed" }
         Pass "second-cup" "Mochi's Chat opened with the cup pressed"
         Expect-Requests "second" $true $true

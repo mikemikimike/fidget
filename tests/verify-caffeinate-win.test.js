@@ -213,11 +213,19 @@ Invoke-Expression ("try { throw 'boom' } " + $main.CatchClauses[0].Extent.Text)`
 );
 
 // UI Automation stand-ins: "stale" is an element Settings has redrawn away
-// (no patterns), "fresh" a live checkbox.
+// (no patterns), "fresh" a live checkbox. The watch counts the structure
+// changes Press waits on.
 const stubs = `
 Add-Type @'
+public sealed class StubWatch : System.IDisposable {
+    public int Waits;
+    public bool Next(int ms) { Waits++; return true; }
+    public void Dispose() { }
+}
 public static class CaffeinateWin {
     public static string Pressed = "";
+    public static StubWatch Watch = new StubWatch();
+    public static StubWatch WatchStructure(System.IntPtr hwnd) { return Watch; }
     public static string[] Patterns(object e) {
         return (string)e == "fresh" ? new[] { "TogglePatternIdentifiers.Pattern" } : new string[0];
     }
@@ -225,18 +233,17 @@ public static class CaffeinateWin {
     public static bool Invoke(object e) { Pressed += "invoke " + e + ";"; return true; }
 }
 '@
-function Fail([string]$Message) { "FAIL: $Message"; exit 0 }
-function Start-Sleep { }`;
+function Fail([string]$Message) { "FAIL: $Message"; exit 0 }`;
 
 // Run r4: the Display checkbox pressed once, Settings redrew the tab, and the
 // second press went to the element found before the redraw.
-test("a press finds its element again after a redraw", { skip }, () => {
+test("a press finds its element again after the next redraw", { skip }, () => {
   assert.deepEqual(
     run(`${stubs}
 $script:finds = 0
-Press { $script:finds++; if ($script:finds -eq 1) { "stale" } else { "fresh" } } "the Display checkbox"
-"finds=$script:finds pressed=$([CaffeinateWin]::Pressed)"`),
-    ["finds=2 pressed=fresh;"],
+Press ([IntPtr]::Zero) { $script:finds++; if ($script:finds -eq 1) { "stale" } else { "fresh" } } "the Display checkbox"
+"finds=$script:finds waits=$([CaffeinateWin]::Watch.Waits) pressed=$([CaffeinateWin]::Pressed)"`),
+    ["finds=2 waits=1 pressed=fresh;"],
   );
 });
 
@@ -246,7 +253,7 @@ test(
   () => {
     assert.deepEqual(
       run(`${stubs}
-Press { "stale" } "the Display checkbox"
+Press ([IntPtr]::Zero) { "stale" } "the Display checkbox"
 "not reached"`),
       [
         "FAIL: the Display checkbox supports neither Toggle nor Invoke; it supports: none",
@@ -259,8 +266,16 @@ Press { "stale" } "the Display checkbox"
 // state change.
 test("every press passes a finder, not a held element", () => {
   const presses = [
-    ...readFileSync(script, "utf8").matchAll(/^\s*Press (\S)/gm),
+    ...readFileSync(script, "utf8").matchAll(/^\s*Press (\S+) (\S)/gm),
   ];
   assert.ok(presses.length >= 3, `found ${presses.length} presses`);
-  for (const [line, first] of presses) assert.equal(first, "{", line);
+  for (const [line, , finder] of presses) assert.equal(finder, "{", line);
+});
+
+// Scenario waits wake on UI Automation events, stderr lines or the process
+// exiting, never on a timer.
+test("no wait sleeps or polls the clock", () => {
+  const text = readFileSync(script, "utf8").replace(/^\s*#.*$/gm, "");
+  assert.doesNotMatch(text, /Start-Sleep|Thread\.Sleep|\bsleep\b/i);
+  assert.doesNotMatch(text, /\(Get-Date\)\.Add/);
 });
