@@ -48,7 +48,7 @@ pub fn moving(frame: &Frame) -> bool {
 
 /// When the next Active tick is due. Moving counts from the last deadline, so a
 /// late sleep shortens the next wait; still counts from the wake, keeping a
-/// perched sprite's slower rate. A deadline a tick older than the wake is stale.
+/// perched sprite's slower rate. A deadline a tick behind the wake is stale.
 pub fn next_tick(
     tick: Duration,
     last_deadline: Instant,

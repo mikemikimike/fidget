@@ -79,16 +79,15 @@ pub fn reacting_to(happened: &Happened) -> String {
 }
 
 /// Chat row label when the character's agent spoke on its own between Fidget
-/// turns. Sibling of the `"unprompted"` arm in `reacting_to`: the row reads
-/// `Name · unprompted (AI)`. Not derived from `Happened`. Inbound wake still
-/// uses `Happened::Proactive` for Pace and the status bar.
+/// turns: the row reads `Name · unprompted (AI)`. Not derived from `Happened`;
+/// an inbound wake still uses `Happened::Proactive` for Pace and status bar.
 pub fn unprompted_ai() -> String {
     "unprompted (AI)".to_string()
 }
 
 /// The same fact as `happened_word`, in the Chat surface's status bar.
 /// A second vocabulary because the bar must not wrap on a 420-point window.
-/// Nine characters is the longest word here; `chat-status.js` measures against it.
+/// Nine characters is the longest; `chat-status.js` measures against it.
 pub fn happened_cell(happened: &Happened) -> &'static str {
     match happened {
         Happened::Poke => "poked",
@@ -114,12 +113,12 @@ pub struct Context {
     pub personality: String,
     /// This Instance's own layer, which the user wrote. Beside `personality`
     /// rather than folded into it: two authored layers with two authors, and
-    /// the empty case has to assemble the payload it always did (ADR-0012).
+    /// an empty one leaves the payload untouched (ADR-0012).
     pub instance_prompt: String,
     pub state: State,
     pub happened: Happened,
     /// What the feet are on: a window (owner name), the floor above the
-    /// Dock, or a screen edge. Not a title: `front_title` carries the one title sent.
+    /// Dock, or a screen edge. Not a title; `front_title` is the one sent.
     pub standing: String,
     /// The frontmost application's window title, from the same window walk
     /// as `standing`. None without the window-names consent or a title.
@@ -178,7 +177,8 @@ pub struct WakeRequest {
 /// the event, so a new `Happened` cannot compile until someone classes it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Claim {
-    /// The user did something to the sprite. It takes a call that is only thinking.
+    /// The user did something to the sprite. It takes a call that is only
+    /// thinking.
     Interaction,
     /// The user opened a surface to read what the character says. It must not
     /// cancel the response it was opened for.
@@ -374,7 +374,7 @@ impl<C: Completer> ModelDirector<C> {
 
     /// The wake, and the Behavior name the reply proposed that this Character
     /// declares none of. A near miss arrives as speech, so without this it is
-    /// invisible. Reported, never corrected: guessing a correction is ruled out.
+    /// invisible. Reported, never corrected: guessing a fix is ruled out.
     pub fn wake_and_near_miss(&self, context: &Context) -> Woken {
         self.wake_request(self.request(context), &|_| {})
     }
@@ -415,9 +415,8 @@ impl<C: Completer> ModelDirector<C> {
         }
     }
 
-    /// What the reply so far lets the character say: nothing until the contract
-    /// line is found, then the speech extracted by the same parse logic the final
-    /// reply uses. This is the only shaping: extracting speech from the parsed reply.
+    /// What the reply so far lets the character say: nothing until the
+    /// contract line is found, then what the final reply's parse would speak.
     fn speech_so_far(&self, answer: &str) -> Option<String> {
         let answer = answer.trim_end_matches('\r');
         let prepared = prepare_reply(answer, &self.behaviors);
@@ -452,14 +451,14 @@ struct PreparedReply {
     cached: Option<Result<ParsedContract, ParseError>>,
 }
 
-/// Unglue (if needed) + parse the Behavior contract + resolve wake/near-miss/peel.
-/// The only full parse path for a Character reply against declared behaviors.
+/// The only full parse path for a Character reply against declared behaviors:
+/// unglue if needed, parse the contract, then resolve wake, near miss and peel.
 fn resolve_reply(behaviors: &[String], reply: &str) -> ResolvedReply {
     resolve_prepared(behaviors, prepare_reply(reply, behaviors))
 }
 
 /// Period-glue rewrite when a declared Behavior is stuck after a period, else
-/// the original text. Reuses the first contract parse when nothing is rewritten.
+/// the original text, reusing the first contract parse when nothing changes.
 fn prepare_reply(reply: &str, behaviors: &[String]) -> PreparedReply {
     if behaviors.is_empty() {
         return PreparedReply {
@@ -510,7 +509,7 @@ fn prepare_reply(reply: &str, behaviors: &[String]) -> PreparedReply {
     }
 }
 
-/// Resolve wake/near-miss/peel from already-prepared text. Does not unglue again.
+/// Resolve wake, near miss and peel from prepared text. Does not unglue again.
 fn resolve_prepared(behaviors: &[String], prepared: PreparedReply) -> ResolvedReply {
     let parsed = match prepared.cached {
         Some(result) => result,
@@ -583,9 +582,9 @@ fn contract_visible(answer: &str, behaviors: &[String]) -> bool {
         || unfinished_marked_contract(tail, behaviors)
 }
 
-/// Period-glue floor: two-letter names collide with file extensions (`main.rs`);
-/// shipped Behaviors start at three (`nap`, `sit`). Marked `behavior:` and bare
-/// mid-reply still accept short names.
+/// Period-glue floor: two-letter names collide with file extensions
+/// (`main.rs`); shipped Behaviors start at three (`nap`, `sit`). Marked
+/// `behavior:` and bare mid-reply still accept short names.
 const MIN_PERIOD_GLUE_NAME: usize = 3;
 
 fn glued_declared_behavior<'a>(
@@ -610,7 +609,8 @@ fn glued_declared_behavior<'a>(
                 from = dot + 1;
                 continue;
             }
-            // Glue at EOF/|/\n, or space then uppercase speech — not `main.rs now`.
+            // Glue at EOF, `|` or a newline, or space then uppercase speech.
+            // Not `main.rs now`.
             let name_ends_here = match bytes.get(name_end) {
                 None => true,
                 Some(b'|') | Some(b'\n') | Some(b'\r') => true,
@@ -801,7 +801,7 @@ pub struct Pace {
 impl Pace {
     /// First proactive wait, and the value a reactive wake resets to.
     pub const FIRST: Duration = Duration::from_secs(2 * 60);
-    /// Ceiling after repeated proactive wakes with no one addressing the character.
+    /// Ceiling after repeated proactive wakes with the character unaddressed.
     pub const CAP: Duration = Duration::from_secs(2 * 60 * 60);
 
     pub fn new() -> Self {
@@ -891,9 +891,9 @@ pub fn session_due(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParseError;
 
-/// Strip known Harness startup banners from `reply` by wire markers.
-/// Pi's banner is `pi v{version}`, `---`, optional blank, `## Skills`, then paths.
-/// A sentence that names Pi, or a rule in the middle of an answer, is kept.
+/// Strip known Harness startup banners from `reply` by wire markers. Pi's is
+/// `pi v{version}`, `---`, optional blank, `## Skills`, then paths. A sentence
+/// that names Pi, or a rule in the middle of an answer, is kept.
 fn strip_harness_banners(reply: &str) -> String {
     let lines: Vec<&str> = reply.lines().collect();
 
@@ -941,7 +941,7 @@ pub fn parse_proposal(reply: &str) -> Result<BehaviorProposal, ParseError> {
 }
 
 /// `line` as the contract: optional `behavior:` then a name, or `name | said`.
-/// The bool is whether the marker was present. `None` when it is not that shape.
+/// The bool is whether the marker was there. `None` when it is not that shape.
 fn contract_line(line: &str) -> Option<(&str, Option<&str>, bool)> {
     let (body, marked) = match behavior_marker_body(line) {
         Some(body) => (body, true),
@@ -1002,7 +1002,7 @@ impl StaticDirector {
 
     /// Pick among the Behaviors this moment permits, by weight.
     /// Suppression gives way when it would leave nothing, because a Character
-    /// with two Behaviors and three of them remembered would otherwise go still.
+    /// with two Behaviors and three remembered would otherwise go still.
     pub fn propose(&mut self, context: &Context) -> Option<BehaviorProposal> {
         let suits = |(name, behavior): (&String, &Behavior)| {
             let triggered = match &behavior.trigger {
@@ -1071,7 +1071,7 @@ impl Seeded {
     }
 
     /// Which of `weights` the next draw lands on. Order matters, so a
-    /// `BTreeMap` feeds it: the same seed must pick the same Behavior every run.
+    /// `BTreeMap` feeds it: one seed must pick the same Behavior every run.
     /// Modulo bias is real and irrelevant: weights sum to far less than 2^64.
     pub(crate) fn pick_index(&mut self, weights: &[u32]) -> Option<usize> {
         let total: u64 = weights.iter().map(|weight| u64::from(*weight)).sum();
@@ -1675,8 +1675,8 @@ mod tests {
         }
     }
 
-    /// The Action Log's `prompt` event can only name the character that woke and
-    /// say whether the user caused it if the request carries both. The
+    /// The Action Log's `prompt` event names the character that woke and
+    /// whether the user caused it only if the request carries both. The
     /// Completer is handed nothing else.
     #[test]
     fn the_request_names_the_instance_and_whether_the_wake_was_reactive() {
@@ -1935,9 +1935,9 @@ mod tests {
         assert_eq!(inline.dialogue.as_deref(), Some("sleepy"));
     }
 
-    /// Production change that would fail this: rebuilding the dialogue from
-    /// the trimmed, blank-stripped list instead of from `reply.lines()`.
-    /// That applies a bubble ceiling in a parser that has no idea a bubble exists.
+    /// Fails if the dialogue is rebuilt from the trimmed, blank-stripped list
+    /// instead of `reply.lines()`: a bubble ceiling in a parser that has no
+    /// idea a bubble exists.
     #[test]
     fn a_reply_keeps_its_own_line_structure() {
         let reply = "wave\nHere's what I found:\n\n  - the roster loads\n  - the session resumed";
@@ -2116,7 +2116,8 @@ mod tests {
         }
     }
 
-    /// The prompt must include every desktop sensing field. Settings shows this string.
+    /// The prompt must include every desktop sensing field. Settings shows
+    /// this string.
     #[test]
     fn the_character_prompt_is_the_payload_the_model_is_sent() {
         let moment = Context {
@@ -2200,8 +2201,8 @@ mod tests {
     }
 
     /// ADR-0012: the layer is additive and empty by default, so an Instance
-    /// nobody wrote for assembles exactly the Character Prompt it did before
-    /// the layer existed — no blank line where the user typed nothing.
+    /// nobody wrote for assembles the Character Prompt without it: no blank
+    /// line where the user typed nothing.
     #[test]
     fn an_empty_instance_prompt_assembles_the_payload_it_always_did() {
         let moment = context(working(), &["nap"]);
@@ -2290,10 +2291,9 @@ mod tests {
         }
     }
 
-    /// #917: the Harness is handed MCP and nothing told it. Codex searches
-    /// deferred MCP tools only when something names them, and the old
-    /// "never claim an ability" line read as "you have none". One sentence
-    /// answers both. The catalog stays the tools' own to describe.
+    /// The Harness is handed MCP and must be told. Codex searches deferred MCP
+    /// tools only when something names them. One sentence does it; the catalog
+    /// stays the tools' own to describe.
     #[test]
     fn a_request_invites_the_tools_without_naming_them() {
         let moment = context(working(), &["nap"]);
@@ -2335,8 +2335,7 @@ mod tests {
     }
 
     /// The app layer is paid on every wake, including an HTTP Director with a
-    /// small context, and it crowds the Character and Instance prompts. #917
-    /// must not have made it cost more than it did before.
+    /// small context, and it crowds the Character and Instance prompts.
     #[test]
     fn the_app_layer_stays_shorter_than_it_was_before_the_tool_invitation() {
         let app = app_instructions(["wave", "nap", "sit"], false);
@@ -2638,7 +2637,7 @@ mod tests {
             "marked contract keeps only speech after the marker"
         );
 
-        // A later one-word line must not win as a bare near-miss over glued `wave`.
+        // A later one-word line must not beat glued `wave` as a bare near miss.
         let woken = directing(Scripted::says("I waved.wave\nhi"), ["wave", "ponder"])
             .wake_and_near_miss(&typed("wave"));
         assert_eq!(woken.near_miss, None);
@@ -2656,9 +2655,9 @@ mod tests {
         );
     }
 
-    /// A short declared name must not steal a file-extension suffix as period glue.
-    /// Space-then-lowercase (`main.rs now`), newline-then-sentence (`main.rs\nPlease.`),
-    /// and EOF (`main.rs`) all stay whole-sentence speech.
+    /// A short declared name must not steal a file extension as period glue.
+    /// `main.rs now`, `main.rs\nPlease.` and a bare `main.rs` at EOF all stay
+    /// whole-sentence speech.
     #[test]
     fn a_file_extension_that_matches_a_short_declared_name_is_not_period_glue() {
         let declared = declares(&["rs", "wave"]);
