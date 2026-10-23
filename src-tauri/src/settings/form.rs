@@ -2282,8 +2282,8 @@ pub(crate) mod tests {
             "Traces",
             "What the fidget can see",
         ];
-        // Awake is on the macOS form only.
-        #[cfg(target_os = "macos")]
+        // Awake is on the macOS and Windows forms.
+        #[cfg(any(target_os = "macos", windows))]
         expected.push("Awake");
         expected.sort_unstable();
         assert_eq!(headings, expected);
