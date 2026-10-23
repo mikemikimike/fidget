@@ -24,17 +24,19 @@ GPU compositing of the transparent overlay, the other suspect in #423, measured 
 
 ## Where each child stands
 
+**Out of V1:** Linux GPU and Linux multi-monitor measurements need a bare-metal Linux machine with a GPU or multiple monitors, which isn't available. The box VM has no GPU and one output per display. Don't pick up or re-test those rows until one is. [#425](https://github.com/omesser/fidget/issues/425) and the Linux display seam in [#426](https://github.com/omesser/fidget/issues/426) are off the V1 milestone for this reason.
+
 | Issue | State | Result |
 | --- | --- | --- |
 | [#431](https://github.com/omesser/fidget/issues/431) macOS idle | Closed | Host 8.4% CPU and 179.8 interrupt wakeups/s perched, quiet machine. Detail in [macos-idle-wakeups.md](./macos-idle-wakeups.md). |
 | [#432](https://github.com/omesser/fidget/issues/432) Linux idle | Open | Release idle, walking, and hidden are below. As of 2026-10-23, the rerun below adds Chat and the pill on X11, and idle and Chat on Wayland under headless weston. C-state residency and real-desktop powertop are not measurable on these VMs. |
 | [#429](https://github.com/omesser/fidget/issues/429) macOS GPU | Closed | Idle 0.6% GPU, 0.06 W. Section below, [#1034](https://github.com/omesser/fidget/pull/1034). |
 | [#430](https://github.com/omesser/fidget/issues/430) Windows GPU | Closed | Section below, [#1025](https://github.com/omesser/fidget/pull/1025). xperf frame time was not measured. |
-| [#425](https://github.com/omesser/fidget/issues/425) Linux GPU | Open | GPU% unavailable. Release X server proxy measured below. Wayland, a second compositor, and uncomposited X11 were not running. |
+| [#425](https://github.com/omesser/fidget/issues/425) Linux GPU | Out of V1 | GPU% unavailable. Release X server proxy measured below. Wayland, a second compositor, and uncomposited X11 were not running. |
 | [#427](https://github.com/omesser/fidget/issues/427) WindowSource | Closed | Section below, [#1042](https://github.com/omesser/fidget/pull/1042) and [#1128](https://github.com/omesser/fidget/pull/1128). |
 | [#428](https://github.com/omesser/fidget/issues/428) mask rebuild | Open | Desktop numbers in the mask docs. This VM adds release per-call times. No `perf` flamegraph. |
 | [#424](https://github.com/omesser/fidget/issues/424) RSS | Open | macOS footprint in [memory-rss-and-multi-monitor.md](./memory-rss-and-multi-monitor.md). This VM has one display. heaptrack was not installed. |
-| [#426](https://github.com/omesser/fidget/issues/426) frame cadence | Open | macOS, Linux release, Linux ride, Windows matrix, and a Windows dual-display seam ride are below. A display seam on Linux was not measured. |
+| [#426](https://github.com/omesser/fidget/issues/426) frame cadence | Out of V1 | macOS, Linux release, Linux ride, Windows matrix, and a Windows dual-display seam ride are below. A display seam on Linux was not measured. |
 
 ## How a frame gets on screen
 
@@ -412,6 +414,8 @@ Crop Task Manager's Performance GPU page during idle perched to about 280px wide
 Walking-over mask rate is 0.00/s because the walk aborted once the pointer was on the sprite. The aim hit.
 
 ### Linux X11/Wayland (issue #425)
+
+Out of V1: GPU% and multi-monitor rows here need Linux GPU or multi-monitor hardware, which isn't available. See the note above the status table.
 
 This table is the earlier debug capture. The release measurement above records held-still idle at 3.0% Xtigervnc CPU. A default idle window that contained walk and climb frames read 49.7%.
 
