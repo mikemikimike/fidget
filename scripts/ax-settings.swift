@@ -154,7 +154,11 @@ func press(_ element: AXUIElement) -> Bool {
 }
 
 func window(titled title: String) -> AXUIElement? {
-    let windows = attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []
+    var value: CFTypeRef?
+    let err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
+    let windows = value as? [AXUIElement] ?? []
+    let titles = windows.map { string($0, kAXTitleAttribute) ?? "?" }
+    lastError = "AXWindows -> \(err.rawValue), titles \(titles)"
     return windows.first { string($0, kAXTitleAttribute) == title }
 }
 
@@ -571,7 +575,7 @@ case "dump":
     let wanted = args.count >= 3 ? args[2] : "Settings"
     // `frames` appends each element's x,y,w,h, for a layout assertion.
     let withFrames = args.count >= 4 && args[3] == "frames"
-    guard settledWindow(titled: wanted) != nil else { die("\(wanted) is not open") }
+    guard settledWindow(titled: wanted) != nil else { die("\(wanted) is not open (\(lastError))") }
     func walk(_ element: AXUIElement, depth: Int) {
         guard depth < 30 else { return }
         let role = string(element, kAXRoleAttribute) ?? "?"
