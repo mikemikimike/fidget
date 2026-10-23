@@ -290,15 +290,16 @@ export function frameOf(loop, elapsed) {
 }
 
 // Press decoding as in input.rs: a Grab once a press moves dragThreshold or
-// is held dragDelayMs, else a Poke on release. A drag keeps the press's offset
-// from the feet, so nothing jumps. Returns a check for a press under way.
+// is held dragDelayMs, else a Poke on release. A drag keeps the feet's offset
+// from the press point, taken at the Grab. Returns a check for a press
+// under way.
 export function decodePresses(target, tuning, { local, feetNow, apply, grabbable = () => true, onPress = () => {} }) {
   let press = null;
   const grab = () => {
     if (!press || press.held) return;
     clearTimeout(press.timer);
     const at = feetNow();
-    press = { ...press, held: true, dx: at.x - press.last.x, dy: at.y - press.last.y };
+    press = { ...press, held: true, dx: at.x - press.from.x, dy: at.y - press.from.y };
     apply({ type: "grab", now: performance.now() });
   };
   target.addEventListener("pointerdown", (event) => {
@@ -306,7 +307,8 @@ export function decodePresses(target, tuning, { local, feetNow, apply, grabbable
     event.preventDefault();
     target.setPointerCapture(event.pointerId);
     const at = local(event);
-    press = { from: at, last: at, held: false, timer: grabbable() ? setTimeout(grab, tuning.dragDelayMs) : 0 };
+    const timer = grabbable() ? setTimeout(grab, tuning.dragDelayMs) : 0;
+    press = { from: at, last: at, held: false, timer };
     onPress();
   });
   target.addEventListener("pointermove", (event) => {
