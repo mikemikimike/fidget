@@ -27,10 +27,10 @@ GPU compositing of the transparent overlay, the other suspect in #423, measured 
 | Issue | State | Result |
 | --- | --- | --- |
 | [#431](https://github.com/omesser/fidget/issues/431) macOS idle | Closed | Host 8.4% CPU and 179.8 interrupt wakeups/s perched, quiet machine. Detail in [macos-idle-wakeups.md](./macos-idle-wakeups.md). |
-| [#432](https://github.com/omesser/fidget/issues/432) Linux idle | Open | Release idle, walking, and hidden are below. As of 2026-10-23, the rerun below adds Chat and the pill on X11, and idle and Chat on Wayland under headless weston. C-state residency and real-desktop powertop are not measurable on these VMs. |
+| [#432](https://github.com/omesser/fidget/issues/432) Linux idle | Closed | Release idle, walking, hidden, Chat, and the pill on X11 are below, with idle and Chat on Wayland under headless weston. Hidden on Wayland is out of scope under ADR-0020. C-state residency and real-desktop powertop are out of scope as of 2026-10-23, because no bare-metal Linux desktop is available. |
 | [#429](https://github.com/omesser/fidget/issues/429) macOS GPU | Closed | Idle 0.6% GPU, 0.06 W. Section below, [#1034](https://github.com/omesser/fidget/pull/1034). |
 | [#430](https://github.com/omesser/fidget/issues/430) Windows GPU | Closed | Section below, [#1025](https://github.com/omesser/fidget/pull/1025). xperf frame time was not measured. |
-| [#425](https://github.com/omesser/fidget/issues/425) Linux GPU | Open | GPU% unavailable. Release X server proxy measured below. Wayland, a second compositor, and uncomposited X11 were not running. |
+| [#425](https://github.com/omesser/fidget/issues/425) Linux GPU | Open | As of 2026-10-23, compositor and X server CPU are measured on xfwm4 with compositing on and off, picom, Mutter, KWin, and headless weston, in the [compositor rows](#compositor-rows-2026-10-23) below. GPU% and the GPU-tool screenshot need bare metal and are out of scope. Multi-monitor is not measured, because each test display has one output. |
 | [#427](https://github.com/omesser/fidget/issues/427) WindowSource | Closed | Section below, [#1042](https://github.com/omesser/fidget/pull/1042) and [#1128](https://github.com/omesser/fidget/pull/1128). |
 | [#428](https://github.com/omesser/fidget/issues/428) mask rebuild | Open | Desktop numbers in the mask docs. This VM adds release per-call times. No `perf` flamegraph. |
 | [#424](https://github.com/omesser/fidget/issues/424) RSS | Open | macOS footprint in [memory-rss-and-multi-monitor.md](./memory-rss-and-multi-monitor.md). This VM has one display. heaptrack was not installed. |
@@ -109,7 +109,7 @@ As of 2026-10, the container has no `/sys/devices/system/cpu/cpu0/cpuidle`, so C
 
 ### GPU proxy and mask rate, #425 and #428
 
-`scripts/bench-gpu-compositing-linux.sh matrix --seconds 15 --bin target/release/fidget`. GPU% is N/A on every row. Chat is unavailable this run. Three attempts, one of them on the still Character, each logged `verbs: ... [Poke]` and none logged `Summon`.
+`scripts/bench-gpu-compositing-linux.sh matrix --seconds 15 --bin target/release/fidget`. GPU% is N/A on every row. Chat is unavailable this run. The [compositor rows](#compositor-rows-2026-10-23) of 2026-10-23 fill the Chat, Wayland, Mutter, KWin, and uncomposited rows. Three attempts, one of them on the still Character, each logged `verbs: ... [Poke]` and none logged `Summon`.
 
 | Scenario | Mask calls | Mask Hz | xfwm4 CPU% | Xtigervnc CPU% | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -245,6 +245,17 @@ DISPLAY=:1 FIDGET_BENCH_GREEN_LIGHT=1 scripts/bench-frame-cadence-macos.sh load 
 ```
 
 Idle wakeups. Sample Xtigervnc for 60 s with no fidget, then launch the release binary with the still Character, park the pointer at x=2, y=2, and sample the main pid plus `pgrep -P` children for 60 s. CPU% is `utime+stime` from `/proc/<pid>/stat` over `CLK_TCK`. Voluntary switches are the delta of `voluntary_ctxt_switches` in `/proc/<pid>/status`. The idle table did those two reads in one window for the fidget tree, and a separate 60 s window for X before launch. Walking used the same 60 s read after a `walk#` frame, pointer at (2, 2), with `FIDGET_TRACE_FRAMES=1`. Hidden used it after `presence: hidden over 500ms`, under `xfce4-terminal --fullscreen`. `sudo powertop --time=10 --csv=/tmp/powertop.csv` prints a blank wakeup column and an empty idle-state table on this VM. The 2026-10-23 rows come from `scripts/bench-wakeups-linux.sh <baseline|idle|walking|chat|pill> --bin target/release/fidget --watch Xvfb=<pid> --watch xfwm4=<pid>`. For Wayland, run `baseline`, `idle` or `chat` under `env -u DISPLAY WAYLAND_DISPLAY=<socket>` with `--watch weston=<pid>`.
+
+Compositor rows. Start one display per row, wait until the compositor owns `_NET_WM_CM_S0`, then run the matrix. The window manager lines are `xfwm4 --compositor=off`, `xfwm4 --compositor=on`, `mutter --x11 --replace`, and `kwin_x11 --replace`. For picom, start `xfwm4 --compositor=off` and then `picom --backend xrender`. The still-Character idle row is `idle` with the `FIDGET_CHARACTERS` and `FIDGET_INSTANCES` lines from the held-still block.
+
+```bash
+Xvfb :61 -screen 0 1920x1200x24 -nolisten tcp &
+DISPLAY=:61 dbus-run-session -- xfwm4 --compositor=off &
+DISPLAY=:61 scripts/bench-gpu-compositing-linux.sh matrix --seconds 60 --bin target/release/fidget --out /tmp/fidget-425-xfwm4-off
+weston --backend=headless --renderer=pixman --idle-time=0 --width=1920 --height=1200 --socket=wayland-425 &
+env -u DISPLAY WAYLAND_DISPLAY=wayland-425 \
+  scripts/bench-gpu-compositing-linux.sh matrix --seconds 60 --bin target/release/fidget --out /tmp/fidget-425-weston
+```
 
 ## Earlier captures
 
@@ -424,7 +435,7 @@ Re-run with `scripts/bench-gpu-compositing-linux.sh matrix --seconds 15`. Add `-
 - X11 on `DISPLAY=:1`. `WAYLAND_DISPLAY` unset. X.Org 21.1.11, vendor The X.Org Foundation
 - One screen, 1920×1200, xrandr mode `60.00*+`
 - Compositor `xfwm4`, `use_compositing` true, `vblank_mode` auto
-- Mutter, KWin, and Xfwm4's uncomposited mode were not running
+- Mutter, KWin, and Xfwm4's uncomposited mode were not running in this capture. The 2026-10-23 rows below measure them.
 - Character BMO, 126×128, from `characters/bmo`
 - App scenarios ran with `FIDGET_TRACE_FRAMES=1` and `FIDGET_TRACE_MASK_REBUILD=1`
 
@@ -491,8 +502,39 @@ No DRM device, so GPU% is N/A on every row. CPU is percent of one core.
 1. **Uncomposited X11 costs about the same as composited:** Walking reads 23.5% Xvfb CPU with no compositor and 29.3% under picom. picom itself stays under 1%. The paint lands in the X server either way on this software-only host.
 2. **The mask stays at 0/s while the pointer is off the sprite, with or without a compositor:** Same result as the xfwm4 run above.
 3. **The pointer aims at a fresh grounded sprite:** The script waits for a `Grounded` or `Perched` `frame:` line logged after the walk window, then aims at the middle of that sprite box: the corner from the frame line, half the size from the `overlay:` line. An aim from an older frame, taken while the Character was falling at the x=1920 edge, missed and read 0.00/s. If no `mask_rebuild` line follows within 1s of the move, the row reads N/A with "pointer missed" instead of 0.00. Re-run with `walking --seconds 15` on fresh Xvfb displays: no compositor and picom both aimed at 1856,1136 and read 14 calls in 5s (2.80/s).
-4. **Chat and hidden need a window manager:** These rows ran with no window manager, so the double-click did not log `Summon` and the fullscreen terminal did not hide the Character.
-5. **Mutter was not measured:** Under `mutter --x11` on Xvfb the app never logged its overlay within the 20s wait. Not investigated here.
+4. **Chat and hidden need a window manager:** These rows ran with no window manager, so the double-click did not log `Summon` and the fullscreen terminal did not hide the Character. The 2026-10-23 rows below run each display under a window manager.
+5. **Mutter was not measured:** Under `mutter --x11` on Xvfb the app never logged its overlay within the 20s wait. The 2026-10-23 rows below did not reproduce this.
+
+#### Compositor rows (2026-10-23)
+
+These rows come from the shared box: Debian 13.7, kernel 6.12.94+, 8 CPUs, and no `/dev/dri`. The binary is a release build of `746fd2d3`. Each row is one run of `scripts/bench-gpu-compositing-linux.sh matrix --seconds 60` with 60 s windows. Each X11 row had a fresh `Xvfb` 21.1.16 at 1920×1200, with its window manager in its own `dbus-run-session`. The runner waited until the compositor owned `_NET_WM_CM_S0` before it started the matrix, so the probe named the compositor that held the selection. Weston 14.0.2 ran with `--backend=headless --renderer=pixman --idle-time=0`. GPU% is N/A on every row. CPU is percent of one core.
+
+Each cell is compositor CPU / Xvfb CPU. Weston has no X server, so its cells hold weston CPU alone. The picom column counts picom only. xfwm4 ran beside it with compositing off.
+
+| Scenario | xfwm4, compositing off | picom 12.5 (xrender) | xfwm4 4.20 | Mutter 48.7 | KWin 6.3.6 (`kwin_x11`) | weston 14.0.2 |
+|----------|------------------------|----------------------|------------|-------------|-------------------------|---------------|
+| Baseline, no fidget | 0.0 / 0.0 | 0.0 / 0.0 | 0.0 / 0.0 | 0.0 / 0.0 | 0.4 / 0.1 | 0.0 |
+| Idle, still Character, pointer at (2, 2) | 0.0 / 0.9 | 0.0 / 1.5 | 0.0 / 1.8 | 9.4 / 2.3 | 6.9 / 2.2 | 0.8 |
+| Idle, default Director | 0.2 / 3.4 | 0.3 / 9.1 | 0.3 / 9.2 | 7.7 / 2.0 | 35.8 / 6.4 | 5.6 |
+| Walking, pointer away | 0.4 / 5.9 | 0.2 / 6.8 | 0.4 / 9.9 | 51.7 / 7.5 | 74.2 / 12.5 | 5.8 |
+| Pointer on sprite, 5 s | 0.2 / 1.8 | 0.2 / 3.8 | 0.2 / 5.0 | 179.0 / 23.5 | 17.6 / 3.6 | N/A |
+| Pointer on sprite, mask Hz | 2.80 | 2.80 | 3.20 | 0.00 | 2.80 | N/A |
+| Chat open, pointer at (2, 2) | 0.2 / 3.7 | 0.3 / 8.6 | 0.5 / 10.0 | 8.8 / 2.6 | 9.9 / 1.8 | 6.2 |
+| Hidden, fullscreen terminal | 0.0 / 0.3 | 0.0 / 0.9 | 0.0 / 0.9 | 5.1 / 0.6 | 4.2 / 0.9 | N/A |
+| Go away | 0.0 / 0.2 | 0.0 / 0.5 | 0.0 / 0.6 | 1.5 / 0.4 | 1.9 / 0.5 | 0.2 |
+| Multi-monitor | N/A | N/A | N/A | N/A | N/A | N/A |
+
+The mask rate is 0.00/s in every X11 cell outside the pointer-on-sprite row. Weston has no mask figures, because the input region is not wired on Wayland and the app traces `mask_rebuild:` only on X11. The still-Character idle row is a separate `idle` run with the still Character from the reproduce steps. It logged no walk or climb frames on any row.
+
+1. **Mutter and KWin spend far more compositor CPU than xfwm4 or picom.** Walking reads 51.7% for Mutter and 74.2% for KWin, against 0.4% or less for xfwm4 and picom. Both paint the screen through OpenGL, and the only OpenGL on this box is llvmpipe, so that paint runs on the CPU. That cause is an inference from the renderer, and no profile backs it. A bare-metal run would show how much of it moves to the GPU, and that run is out of scope.
+2. **Compare rows on the still-Character idle line.** The Director chose the motion in the other rows. The default idle windows held about 515 walk frames on every row except Mutter, where the Character stayed idle. The walking windows held between 165 and 999 walk frames. With the motion held still, the X server reads 0.9% to 2.3% on every X11 row, and the compositor reads 0.0% on xfwm4 and picom, 9.4% on Mutter, and 6.9% on KWin.
+3. **The mask stays at 0/s while the pointer is off the sprite on all five X11 rows.** That includes Chat open with the pointer at (2, 2). With the pointer on the sprite, four rows read 2.80/s to 3.20/s. On Mutter the aim hit, and 29 `mask_rebuild:` lines landed in the second after the move. The Character then climbed the left wall away from the pointer, so the 5 s window counted 0. The 179.0% Mutter CPU in that row is that climb, from one sample.
+4. **Chat opens with `FIDGET_OPEN_CHAT=1` and costs about what idle costs.** The row waits for the `chat: ... is open` trace, which needs `FIDGET_TRACE_BUBBLE=1`. It replaces the double-click, which never logged `Summon` on Xvfb.
+5. **Hidden and Go away bring the X server back near the baseline.** Xvfb reads 0.2% to 0.9% on every X11 row. Mutter keeps 5.1% and KWin 4.2% under the fullscreen terminal, and 1.5% and 1.9% after Go away. Go away on weston reads 0.2%. Wayland has no fullscreen hide (ADR-0020), so weston has no hidden row.
+6. **Mutter reports its overlay now.** With Mutter 48.7 on this box, the `overlay:` line landed about 2 s after launch on every attempt. With no failing run there was nothing to diagnose and no red test to write. The 2026-10-15 run did not record its Mutter version. KWin 6.3.6 also showed the overlay. Its log warns about a missing QML module, `glSwapInterval`, and the desktop portal, and none of those stopped the app.
+7. **Weston runs the Director but has no pointer row.** The walking window held 515 walk frames. Wayland gives the app no global pointer to aim (ADR-0020), so pointer-on-sprite is N/A. The still-Character idle window logged 941 idle frames on weston against about 3,300 on the X11 rows. The multi-monitor probe reads 0 displays on weston, because `xrandr` does not see Wayland outputs.
+
+The script finds weston by the socket name on its command line, `weston --socket=NAME`. A compositor on the default socket reads as no compositor.
 
 **Evidence:**
 
@@ -506,7 +548,7 @@ overlay: 1 display(s); sprite 126x128; BMO as BMO
 
 `glxinfo -B` during idle perched: `OpenGL renderer string: llvmpipe (LLVM 20.1.2, 256 bits)`, `Accelerated: no`. The same window shows `intel_gpu_top` and `radeontop` failing for lack of a device.
 
-**Status:** Partial. This section leaves [#425](https://github.com/omesser/fidget/issues/425) open. GPU% per scenario and compositor is still N/A. Two compositors, a Wayland row, and an uncomposited X11 row are still missing. X11 under xfwm4 has a mask-rate pair (idle 0.00/s, walking with the pointer away 0.00/s) and an X-server CPU proxy.
+**Status:** Partial. This section leaves [#425](https://github.com/omesser/fidget/issues/425) open. As of 2026-10-23, the compositor rows cover xfwm4 with compositing on and off, picom, Mutter, KWin, and headless weston, each with a mask-rate pair and a CPU proxy. GPU% and the GPU-tool screenshot need a bare-metal Linux desktop, and none is available, so they are out of scope. Multi-monitor is not measured, because every test display had one output.
 
 ## WindowSource (issue #427)
 
