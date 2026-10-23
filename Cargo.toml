@@ -15,5 +15,12 @@ license = "MIT"
 
 # Unoptimized PNG decoding of every installed Character adds 1-2 s to a debug
 # launch on a CI runner, which pushes it past the scenario leaves' 3 s wait.
-[profile.dev.package."*"]
-opt-level = 3
+# Only the decoder's crates, so a clean dev build costs no more.
+[profile.dev.package]
+adler2.opt-level = 3
+crc32fast.opt-level = 3
+fdeflate.opt-level = 3
+flate2.opt-level = 3
+miniz_oxide.opt-level = 3
+png.opt-level = 3
+simd-adler32.opt-level = 3
