@@ -73,9 +73,18 @@ screencapture -x -R "$rect" "$out/before-poke.png"
 "$tools/ax" dump "$pid" Fidget > "$out/before-poke.ax.txt" 2>&1 || fail "AX dump failed; see $out/before-poke.ax.txt"
 ! grep -qF "Question for you" "$out/before-poke.ax.txt" || fail "the question cue showed before the Poke; see $out/before-poke.ax.txt"
 
-# The sprite walks while the capture and dump run, so aim at where it is now.
-read -r sx sy < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame trace in $log"
-"$tools/click-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" 1 > "$out/poke.txt" 2>&1 || fail "could not click the sprite; see $out/poke.txt"
+# The sprite can start a walk between the read and the click, so a click that
+# misses it (hits=[false]) is aimed again once it rests.
+for attempt in 1 2 3; do
+  wait_for_rest "$log" || fail "the sprite never came to rest; see $log"
+  read -r sx sy < <(sed -nE 's/^frame: .* sprite\((-?[0-9]+),(-?[0-9]+)\) .*/\1 \2/p' "$log" | tail -1) || fail "no frame trace in $log"
+  before=$(line_count "$log" '^click: down ')
+  "$tools/click-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" 1 > "$out/poke.txt" 2>&1 || fail "could not click the sprite; see $out/poke.txt"
+  wait_for_count 2 "$log" '^click: down ' "$before" || fail "Fidget saw no click; see $log"
+  grep '^click: down ' "$log" | tail -1 | grep -qF 'hits=[true]' && break
+  [ "$attempt" -lt 3 ] || fail "three clicks missed the sprite; see $log"
+  echo "retry: the click missed the sprite (attempt $((attempt + 1)) of 3)"
+done
 wait_for_trace 2 "$log" '^verbs: .*Poke' || fail "the click did not land as a Poke; see $log"
 # A Poke points at the question on the director's next due wake, not on the
 # click itself, so the cue is given more than the usual budget.
