@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/bench-linux-helpers.sh
 . scripts/bench-linux-helpers.sh
+# shellcheck source=scripts/scenarios/helpers/wait-helpers.sh
+. scripts/scenarios/helpers/wait-helpers.sh
 
 seconds=15
 walk_timeout=180
@@ -15,7 +17,7 @@ bin="target/debug/fidget"
 scenario=""
 
 usage() {
-  echo "Usage: $0 <env|baseline|idle|walking|chat|multi|hidden|matrix> [--seconds N] [--walk-timeout N] [--shot FILE] [--out DIR] [--bin PATH]" >&2
+  echo "Usage: $0 <env|baseline|idle|walking|chat|multi|hidden|away|matrix> [--seconds N] [--walk-timeout N] [--shot FILE] [--out DIR] [--bin PATH]" >&2
   exit 2
 }
 
@@ -42,7 +44,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --help | -h) usage ;;
-    env | baseline | idle | walking | chat | multi | hidden | matrix)
+    env | baseline | idle | walking | chat | multi | hidden | away | matrix)
       scenario="$1"
       shift
       ;;
@@ -59,6 +61,8 @@ out="${out:-$(mktemp -d /tmp/fidget-gpu-bench-XXXXXX)}"
 mkdir -p "$out"
 
 APP_PID=""
+# The wait helpers fail a wait early once this pid is gone.
+pid=""
 TAIL_PID=""
 PANEL_PID=""
 COVER_PIDS=()
@@ -125,16 +129,23 @@ need_bin() {
 compositor_on_display() {
   local pid
   for pid in $(pgrep -x "$1" 2> /dev/null); do
-    if tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qx "DISPLAY=${DISPLAY:-}"; then
-      echo "$pid"
-      return 0
+    if [ -n "${DISPLAY:-}" ]; then
+      tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qx "DISPLAY=$DISPLAY" || continue
+    else
+      # ponytail: a Wayland compositor counts when its command line names the
+      # socket (weston --socket=NAME); one on the default socket reads as none.
+      # Match the socket owner in /proc/net/unix if a real session needs it.
+      tr '\0' '\n' < "/proc/$pid/cmdline" 2> /dev/null | grep -qxE "(.*=)?${WAYLAND_DISPLAY:-}" || continue
     fi
+    echo "$pid"
+    return 0
   done
   return 1
 }
 
 x_server_for_display() {
   local pid
+  [ -n "${DISPLAY:-}" ] || return 1
   for pid in $(pgrep -x "$1" 2> /dev/null); do
     if tr '\0' '\n' < "/proc/$pid/cmdline" 2> /dev/null | grep -qx "${DISPLAY:-}"; then
       echo "$pid"
@@ -157,7 +168,8 @@ probe_host() {
   COMPOSITOR=none
   COMP_PID=""
   local comm
-  for comm in mutter gnome-shell kwin_x11 kwin_wayland xfwm4 picom compton sway weston; do
+  # picom and compton first: they composite over a WM that does not.
+  for comm in picom compton mutter gnome-shell kwin_x11 kwin_wayland xfwm4 sway weston; do
     if COMP_PID=$(compositor_on_display "$comm"); then
       COMPOSITOR=$comm
       break
@@ -168,9 +180,12 @@ probe_host() {
   VBLANK=unknown
   case "$COMPOSITOR" in
     none) COMPOSITING=false ;;
-    mutter | gnome-shell | kwin_wayland | picom | compton | sway | weston) COMPOSITING=true ;;
+    # As of 2026-10, mutter 48 and kwin_x11 6.3 on Xvfb own _NET_WM_CM_S0.
+    mutter | gnome-shell | kwin_x11 | kwin_wayland | picom | compton | sway | weston) COMPOSITING=true ;;
     xfwm4)
-      if command -v xfconf-query > /dev/null 2>&1; then
+      if tr '\0' '\n' < "/proc/$COMP_PID/cmdline" 2> /dev/null | grep -qx -- '--compositor=off'; then
+        COMPOSITING=false
+      elif command -v xfconf-query > /dev/null 2>&1; then
         COMPOSITING=$(xfconf-query -c xfwm4 -p /general/use_compositing 2> /dev/null || echo unknown)
         VBLANK=$(xfconf-query -c xfwm4 -p /general/vblank_mode 2> /dev/null || echo unknown)
       fi
@@ -451,6 +466,7 @@ emit() {
 
 launch_app() {
   local log=$1
+  local settings=${2:-'{}'}
   need_bin
   # Scratch HOME so the bench does not write the user's settings. X11 looks
   # for authority under HOME when XAUTHORITY is unset, and that file is not
@@ -465,7 +481,7 @@ launch_app() {
   mkdir -p "$SCRATCH_HOME/data/fidget"
   : > "$SCRATCH_HOME/data/fidget/process.log"
   # A settings file makes this a later launch, which opens no Chat (#1730).
-  echo '{}' > "$SCRATCH_HOME/data/fidget/settings.json"
+  printf '%s\n' "$settings" > "$SCRATCH_HOME/data/fidget/settings.json"
   tail -n +1 -F "$SCRATCH_HOME/data/fidget/process.log" >> "$log" 2> /dev/null &
   TAIL_PID=$!
   XDG_DATA_HOME="$SCRATCH_HOME/data" \
@@ -476,21 +492,7 @@ launch_app() {
     HOME="$SCRATCH_HOME" \
     "$bin" >> "$log" 2>&1 &
   APP_PID=$!
-}
-
-wait_overlay() {
-  local log=$1
-  local _
-  for _ in $(seq 1 40); do
-    if grep -q 'overlay: [0-9]* display' "$log" 2> /dev/null; then
-      return 0
-    fi
-    if ! kill -0 "$APP_PID" 2> /dev/null; then
-      return 1
-    fi
-    sleep 0.5
-  done
-  return 1
+  pid=$APP_PID
 }
 
 capture_shot() {
@@ -559,6 +561,10 @@ sample_row() {
   if [ "$name" = baseline ]; then
     calls=N/A
     hz=N/A
+  elif [ "$DISPLAY_SERVER" = wayland ]; then
+    calls=N/A
+    hz=N/A
+    notes="$notes, no mask: the input region is not wired on Wayland"
   else
     calls=$(mask_since "$log" "$from")
     hz=$(rate "$calls" "$window")
@@ -576,23 +582,28 @@ run_baseline() {
   sample_row baseline "$log" "$seconds" "no fidget"
 }
 
+# The window opens once the Character stands on a floor, or on the line
+# the scenario names instead.
 run_with_overlay() {
-  local name=$1
+  local name=$1 settings=${2:-'{}'} ready=${3:-' frame: [0-9]+ (Grounded|Perched) '}
   local log="$out/${name}.log"
-  launch_app "$log"
-  if ! wait_overlay "$log"; then
-    echo "app did not report an overlay; see $log" >&2
+  launch_app "$log" "$settings"
+  if ! wait_for_trace 3 "$log" ' overlay: [0-9]+ display'; then
+    echo "app did not report an overlay within 3 s; see $log" >&2
     tail -40 "$log" >&2 || true
     stop_app
     exit 1
   fi
-  sleep 2
   park_pointer
-  sleep 1
+  wait_for_trace 3 "$log" "$ready"
 }
 
 run_idle() {
-  run_with_overlay idle
+  if ! run_with_overlay idle; then
+    emit idle N/A none N/A N/A N/A N/A "no Grounded or Perched frame within 3 s of the overlay"
+    stop_app
+    return 0
+  fi
   capture_shot "$shot"
   sample_row idle "$out/idle.log" "$seconds" "pointer at 2,2"
   stop_app
@@ -604,52 +615,39 @@ run_idle() {
 
 run_walking() {
   local log="$out/walking.log"
-  run_with_overlay walking
-  local deadline
-  deadline=$((SECONDS + walk_timeout))
-  local saw=0
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    if grep -qE ' (walk|ballwalk)#' "$log"; then
-      saw=1
-      break
-    fi
-    if ! kill -0 "$APP_PID" 2> /dev/null; then
-      break
-    fi
-    sleep 1
-  done
-  if [ "$saw" -ne 1 ]; then
+  run_with_overlay walking || true
+  # The Director picks a walk on its own timer, so this budget is its, not 3 s.
+  if ! wait_for_trace "$walk_timeout" "$log" ' (walk|ballwalk)#'; then
     emit walking N/A none N/A N/A N/A N/A "no walk or ballwalk frame within ${walk_timeout}s"
     stop_app
     return 0
   fi
   sample_row walking "$log" "$seconds" "pointer away, walk frame seen"
-  run_walking_over "$log"
+  if [ "$DISPLAY_SERVER" = wayland ]; then
+    emit walking-over N/A none N/A N/A N/A N/A "Wayland has no global pointer to aim (ADR-0020)"
+  else
+    run_walking_over "$log"
+  fi
   stop_app
 }
 
 # Aims from a frame logged after the wait starts, so the aim is fresh, then
-# requires a mask_rebuild within about 1s of the move as proof of a hit.
+# takes a mask_rebuild within 1 s of the move as proof of a hit.
 run_walking_over() {
   local log=$1
-  local _ from center="" x y
+  local from center x y before
   from=$(log_lines "$log")
-  for _ in $(seq 1 "$((walk_timeout * 4))"); do
-    center=$(sprite_center "$log" "$from") && break
-    center=""
-    sleep 0.25
-  done
-  if [ -z "$center" ]; then
+  if ! wait_until 3 sprite_center "$log" "$from"; then
     emit walking-over N/A none N/A N/A N/A N/A "no fresh Grounded or Perched frame to aim at"
     return 0
   fi
+  center=$(sprite_center "$log" "$from")
   x=${center%% *}
   y=${center##* }
-  from=$(log_lines "$log")
+  before=$(mask_since "$log" 0)
   xdotool mousemove "$x" "$y" > /dev/null 2>&1 || true
-  sleep 1
-  if [ "$(mask_since "$log" "$from")" -eq 0 ]; then
-    emit walking-over N/A none N/A N/A N/A N/A "pointer missed: no mask_rebuild within 1s of the move to ${x},${y}"
+  if ! wait_for_count 1 "$log" 'mask_rebuild:' "$before"; then
+    emit walking-over N/A none N/A N/A N/A N/A "pointer missed: no mask_rebuild within 1 s of the move to ${x},${y}"
     return 0
   fi
   sample_row walking-over "$log" 5 "pointer on sprite center ${x},${y}"
@@ -657,34 +655,25 @@ run_walking_over() {
 
 run_chat() {
   local log="$out/chat.log"
-  run_with_overlay chat
-  local center x y
-  if ! center=$(sprite_center "$log"); then
-    emit chat N/A none N/A N/A N/A N/A "no frame line to aim a double-click"
+  # The `chat: ... is open` line prints only under FIDGET_TRACE_BUBBLE=1.
+  FIDGET_OPEN_CHAT=1 FIDGET_TRACE_BUBBLE=1 run_with_overlay chat '{}' 'chat: .* is open' || {
+    emit chat N/A none N/A N/A N/A N/A "FIDGET_OPEN_CHAT=1 did not log Chat open within 3 s"
     stop_app
     return 0
-  fi
-  x=${center%% *}
-  y=${center##* }
-  xdotool mousemove "$x" "$y" > /dev/null 2>&1 || true
-  xdotool click 1 > /dev/null 2>&1 || true
-  sleep 0.12
-  xdotool click 1 > /dev/null 2>&1 || true
-  local _ opened=0
-  for _ in $(seq 1 20); do
-    if grep -q 'Summon' "$log"; then
-      opened=1
-      break
-    fi
-    sleep 0.25
-  done
-  if [ "$opened" -ne 1 ]; then
-    emit chat N/A none N/A N/A N/A N/A "double-click at ${x},${y} did not log Summon"
+  }
+  sample_row chat "$log" "$seconds" "Chat open via FIDGET_OPEN_CHAT=1, pointer at 2,2"
+  stop_app
+}
+
+# Go away from the tray, set before launch: the Character leaves the screen.
+run_away() {
+  local log="$out/away.log"
+  run_with_overlay away '{"first_run_tour_shown": true, "hidden": true}' 'presence: hidden' || {
+    emit away N/A none N/A N/A N/A N/A "settings hidden=true did not log presence hidden within 3 s"
     stop_app
     return 0
-  fi
-  sleep 1
-  sample_row chat "$log" "$seconds" "Summon logged, pointer left on sprite"
+  }
+  sample_row away "$log" "$seconds" "Go away (settings hidden=true), presence hidden"
   stop_app
 }
 
@@ -693,7 +682,7 @@ run_multi() {
     emit multi N/A none N/A N/A N/A N/A "host has ${SCREENS} display"
     return 0
   fi
-  run_with_overlay multi
+  run_with_overlay multi || true
   local reported
   reported=$(sed -n 's/^\([0-9]* \)\{0,1\}overlay: \([0-9]*\) display.*/\2/p' "$out/multi.log" | head -1)
   sample_row multi "$out/multi.log" "$seconds" "xrandr screens=$SCREENS overlay displays=${reported:-unknown}"
@@ -702,11 +691,15 @@ run_multi() {
 
 run_hidden() {
   local log="$out/hidden.log"
+  if [ "$DISPLAY_SERVER" = wayland ]; then
+    emit hidden N/A none N/A N/A N/A N/A "no fullscreen hide on Wayland (ADR-0020); see away"
+    return 0
+  fi
   if ! command -v xfce4-terminal > /dev/null 2>&1; then
     emit hidden N/A none N/A N/A N/A N/A "no xfce4-terminal to cover the display"
     return 0
   fi
-  run_with_overlay hidden
+  run_with_overlay hidden || true
   # One per monitor: with a display left free, the Character moves there instead
   # of hiding. Each terminal goes fullscreen on the monitor it opens on.
   local origins
@@ -717,21 +710,12 @@ run_hidden() {
       -e "sleep $((seconds + 10))" > /dev/null 2>&1 &
     COVER_PIDS+=("$!")
   done
-  local _ hidden=0
-  for _ in $(seq 1 20); do
-    if grep -q 'presence: hidden' "$log"; then
-      hidden=1
-      break
-    fi
-    sleep 0.25
-  done
-  if [ "$hidden" -ne 1 ]; then
-    emit hidden N/A none N/A N/A N/A N/A "fullscreen terminal did not log presence hidden"
+  if ! wait_for_trace 3 "$log" 'presence: hidden'; then
+    emit hidden N/A none N/A N/A N/A N/A "fullscreen terminal did not log presence hidden within 3 s"
     stop_covers
     stop_app
     return 0
   fi
-  sleep 1
   sample_row hidden "$log" "$seconds" "presence hidden under fullscreen terminal"
   stop_covers
   stop_app
@@ -770,6 +754,10 @@ case "$scenario" in
     print_env
     run_hidden
     ;;
+  away)
+    print_env
+    run_away
+    ;;
   matrix)
     print_env
     run_baseline
@@ -778,6 +766,7 @@ case "$scenario" in
     run_chat
     run_multi
     run_hidden
+    run_away
     ;;
 esac
 
