@@ -28,8 +28,9 @@ out="${TMPDIR:-/tmp}/fidget-scenario-streaming-bubble-$(date +%Y%m%d-%H%M%S)"
 tools="${TMPDIR:-/tmp}/fidget-scenario-tools"
 mkdir -p "$out/home" "$tools"
 seed_tour_shown "$out/home"
-log="$out/app.log" marks="$out/harness.log"
+log="$out/app.log" marks="$out/harness.log" hold="$out/hold"
 : > "$marks"
+mkfifo "$hold"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -41,8 +42,8 @@ fail() {
 build_ax_events
 
 # FIDGET_HARNESS splits on whitespace, so no path in it may hold a space.
-harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-streaming count=$marks"
-[ "$(wc -w <<< "$harness")" -eq 4 ] || fail "a path in the Harness line holds a space: $harness"
+harness="$root/scripts/scenarios/helpers/fixture-harness.sh $test_bin script=scenario-streaming count=$marks hold=$hold"
+[ "$(wc -w <<< "$harness")" -eq 5 ] || fail "a path in the Harness line holds a space: $harness"
 
 start_ms=$(now_ms)
 env HOME="$out/home" \
@@ -78,15 +79,25 @@ capture() {
   echo "ok: $1"
 }
 
+# The Harness holds the stream after words 2 and 5 until this opens the FIFO.
+# Read-write never blocks; closing it once the next word lands rearms the hold.
+release() { # <word the stream resumes with>
+  exec 3<> "$hold"
+  wait_for_marks 3 "$marks" "^word $1\$" || fail "the stream did not resume at word $1; see $log"
+  exec 3>&-
+}
+
 wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 # The fixture sends a word every 700 ms, so each wait below ends within 3 s.
 wait_for_marks 3 "$marks" '^word 2$' || fail "no streamed turn reached the Harness; see $log"
 wait_for_ax_dump 2 "$pid" Fidget 'Watch these' || fail "early: the bubble never showed the first words; see $log"
 capture early "Watch these" "arrive" talk
+release 3
 wait_for_marks 3 "$marks" '^word 5$' || fail "the stream stalled; see $log"
 wait_for_ax_dump 2 "$pid" Fidget 'Watch these words arrive one' || fail "mid: the bubble never caught up to word 5; see $log"
 capture mid "Watch these words arrive one" "time." talk
+release 6
 wait_for_marks 3 "$marks" '^spoken$' || fail "the reply never ended; see $log"
 wait_for_ax_dump 2 "$pid" Fidget 'one at a time\.' || fail "landed: the bubble never showed the whole line; see $log"
 capture landed "Watch these words arrive one at a time."

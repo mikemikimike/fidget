@@ -4464,17 +4464,23 @@ mod tests {
                             stop(&id, "end_turn");
                         }
                         // `scripts/scenarios/ci/streaming-bubble.sh`. Slow enough
-                        // to photograph the bubble mid-sentence.
+                        // to photograph the bubble mid-sentence. With `hold=<fifo>`
+                        // it stops after words 2 and 5 until the leaf opens it.
                         "scenario-streaming" => {
                             chunk(&session, "gre");
                             thread::sleep(Duration::from_millis(600));
                             chunk(&session, "et\n");
+                            let fifo = std::env::args()
+                                .find_map(|arg| arg.strip_prefix("hold=").map(PathBuf::from));
                             for (n, word) in "Watch these words arrive one at a time."
                                 .split_inclusive(' ')
                                 .enumerate()
                             {
                                 chunk(&session, word);
                                 record(count, &format!("word {}", n + 1));
+                                if let Some(fifo) = fifo.as_ref().filter(|_| n == 1 || n == 4) {
+                                    hold(fifo, Duration::from_secs(10));
+                                }
                                 thread::sleep(Duration::from_millis(700));
                             }
                             record(count, "spoken");
