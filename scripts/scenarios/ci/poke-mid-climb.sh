@@ -66,6 +66,7 @@ else
 
   env HOME="$out/home" FIDGET_DIRECTOR_API_KEY=x FIDGET_TRACE_FRAMES=1 \
     FIDGET_CHARACTERS="$root/characters" "$bin" > "$log" 2>&1 &
+  # shellcheck disable=SC2034 # read by stop_fidget
   pid=$!
   trap 'stop_fidget' EXIT INT TERM
 
@@ -142,8 +143,7 @@ else
   [ -n "$poked" ] || fail "five throws and no Poke landed mid-climb; see $out/input.txt"
 
   wait_until 3 cooldown_traced || true
-  kill "$pid" 2> /dev/null || true
-  wait "$pid" 2> /dev/null || true
+  stop_fidget
 fi
 
 python3 "$root/scripts/scenarios/helpers/poke-mid-climb-check.py" "$log" 2> "$out/check.txt" || fail "$(cat "$out/check.txt")"

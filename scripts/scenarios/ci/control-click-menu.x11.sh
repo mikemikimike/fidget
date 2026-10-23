@@ -84,7 +84,7 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
+trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
 wait_for_up 3 "$log" || fail "Fidget never wrote its overlay line; see $log"
 
 # The overlay spans the display, so its centre is not the sprite. The newest

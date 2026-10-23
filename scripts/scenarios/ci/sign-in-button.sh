@@ -63,7 +63,7 @@ env HOME="$out/home" PATH="$out/bin:$PATH" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT
+trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT
 
 dump() { # <name>
   "$tools/ax" dump "$pid" BMO > "$out/$1.ax.txt" 2>&1 || fail "$1: AX dump failed; see $out/$1.ax.txt"

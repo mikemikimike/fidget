@@ -110,7 +110,7 @@ env HOME="$out/home" PATH="$path" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true' EXIT INT TERM
+trap 'stop_fidget' EXIT INT TERM
 
 ax() { python3 "$root/scripts/ax-window-linux.py" "$@"; }
 dump() { ax dump "$pid" BMO frames > "$out/$1.ax.txt" 2> "$out/$1.err"; }
