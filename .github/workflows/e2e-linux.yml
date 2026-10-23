@@ -85,7 +85,8 @@ jobs:
             > "$TMPDIR/indicator.log" 2>&1 &
           gdbus wait --session --timeout 3 org.kde.StatusNotifierWatcher
           # A fresh runner draws Fidget's first frame seconds late, past a leaf's
-          # 3 s launch wait. One launch here takes that cold start.
+          # 3 s launch wait. One launch here takes that cold start, which can run
+          # past 3 s itself, so this one wait gets 30 s, as on macOS.
           (
             root=$PWD log="$TMPDIR/warmup.log"
             . scripts/scenarios/helpers/wait-helpers.x11.sh
@@ -93,10 +94,10 @@ jobs:
               target/debug/fidget > "$log" 2>&1 &
             pid=$!
             drew=0
-            wait_for_trace 3 "$log" '^frame: ' || drew=$?
+            wait_for_trace 30 "$log" '^frame: ' || drew=$?
             stop_fidget
             if [ "$drew" != 0 ]; then
-              echo "::error::the warm-up drew no frame in 3 s; see warmup.log in the evidence"
+              echo "::error::the warm-up drew no frame in 30 s; see warmup.log in the evidence"
               exit 1
             fi
           )
