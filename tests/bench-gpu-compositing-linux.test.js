@@ -301,7 +301,7 @@ exec sleep 30`,
 test("chat opens Chat through FIDGET_OPEN_CHAT and samples once it is open", () => {
   const row = scenarioRow("chat", "chat", {
     display: ":99",
-    script: '[ "$FIDGET_OPEN_CHAT" = 1 ] && echo "1 chat: chat-1 is open" >> "$log"',
+    script: '[ "$FIDGET_OPEN_CHAT$FIDGET_TRACE_BUBBLE" = 11 ] && echo "1 chat: chat-1 is open" >> "$log"',
   });
   assert.equal(row[3], "0", row.join(" "));
   assert.match(row[7], /Chat open/);
