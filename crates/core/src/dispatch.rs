@@ -233,7 +233,7 @@ pub struct ToolInfo {
 
 /// The tools in `tools`, and none that post input events.
 pub fn list_tools() -> Vec<ToolInfo> {
-    let mut tools = vec![
+    vec![
         ToolInfo {
             name: "speak".to_string(),
             description: "Make the Character speak a line of dialogue".to_string(),
@@ -328,11 +328,9 @@ pub fn list_tools() -> Vec<ToolInfo> {
                 "properties": {}
             }),
         },
-    ];
-    if cfg!(any(target_os = "macos", target_os = "linux", windows)) {
-        tools.push(ToolInfo {
+        ToolInfo {
             name: "caffeinate".to_string(),
-            description: "Keep this computer awake until it is turned off or Fidget quits. Returns whether it is on and, when it is, what keeps it awake: the caffeinate flags on macOS, the inhibitors on Linux, the power requests on Windows.".to_string(),
+            description: "Keep this computer awake until it is turned off or Fidget quits. Returns whether it is on and, when it is, what keeps the computer awake.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -342,9 +340,8 @@ pub fn list_tools() -> Vec<ToolInfo> {
                     }
                 }
             }),
-        });
-    }
-    tools
+        },
+    ]
 }
 
 #[cfg(test)]
@@ -521,10 +518,7 @@ mod tests {
     fn list_tools_returns_exactly_eight_tools() {
         let tools = list_tools();
 
-        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         assert_eq!(tools.len(), 9);
-        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-        assert_eq!(tools.len(), 8);
     }
 
     #[test]
@@ -540,10 +534,7 @@ mod tests {
         assert!(names.contains(&"remember"));
         assert!(names.contains(&"list_instances"));
         assert!(names.contains(&"whereabouts"));
-        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         assert!(names.contains(&"caffeinate"));
-        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-        assert!(!names.contains(&"caffeinate"));
     }
 
     struct ScriptedCaffeinate {

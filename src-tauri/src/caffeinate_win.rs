@@ -112,7 +112,7 @@ impl Spawner for OsSpawner {
             }
             taken.types.push(kind);
         }
-        // scripts/verify-caffeinate-win.ps1 waits on these two lines.
+        // scripts/verify-caffeinate-win.ps1 waits on this line.
         eprintln!(
             "caffeinate: power requests taken: {}",
             argv.flags().power_request_names()

@@ -32,7 +32,6 @@ mod action_log;
 mod caffeinate_linux;
 // macOS runs a `caffeinate` child, Linux takes the `caffeinate_linux`
 // inhibitors, Windows takes the `caffeinate_win` power requests.
-#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 mod caffeinate_proc;
 #[cfg(windows)]
 mod caffeinate_win;
@@ -631,15 +630,13 @@ struct SpritePlacement<'a> {
     qm: Option<&'a fidget_core::quick_message::QmDraft>,
 }
 
-/// What the Chat button and the menu row show. Never built where there is no
-/// Caffeinate.
+/// What the Chat button and the menu row show.
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct CaffeinateFrame {
     on: bool,
     reason: Option<String>,
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub(crate) fn caffeinate_frame(
     fact: fidget_core::caffeinate::Fact,
     configured: Result<fidget_core::caffeinate::AssertedFlags, fidget_core::caffeinate::Empty>,
@@ -4306,30 +4303,22 @@ struct CaffeinateToggle(mpsc::Sender<fidget_core::caffeinate::Request>);
 /// `caffeinate_view` reads it.
 struct CaffeinateShown(Mutex<Option<CaffeinateFrame>>);
 
-/// The menu row for Caffeinate. `None` where there is no Caffeinate. Before the
-/// first tick it is off, and an empty flag set disables the row.
+/// The menu row for Caffeinate. Before the first tick it is off, and an empty
+/// flag set disables the row.
 fn menu_caffeinate(
     settings: &Settings,
     frame: Option<&CaffeinateFrame>,
 ) -> Option<menu::CaffeinateRow> {
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    {
-        let _ = (settings, frame);
-        None
-    }
-    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-    {
-        Some(match frame {
-            Some(frame) => menu::CaffeinateRow {
-                on: frame.on,
-                enabled: frame.reason.is_none(),
-            },
-            None => menu::CaffeinateRow {
-                on: false,
-                enabled: settings.caffeinate_flags().is_ok(),
-            },
-        })
-    }
+    Some(match frame {
+        Some(frame) => menu::CaffeinateRow {
+            on: frame.on,
+            enabled: frame.reason.is_none(),
+        },
+        None => menu::CaffeinateRow {
+            on: false,
+            enabled: settings.caffeinate_flags().is_ok(),
+        },
+    })
 }
 
 fn publish_instances(roster: &Roster, dest: &Arc<Mutex<Vec<InstanceRow>>>) {

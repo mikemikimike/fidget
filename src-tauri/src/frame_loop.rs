@@ -36,7 +36,6 @@ use super::{
     MenuSignal, Placed, Placement, SpritePlacement, Traced, TrayHandle, ENGINE_TICK, FRAME_EVENT,
     MENU_HOLD_TIMEOUT, SENSE_INTERVAL,
 };
-#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 use super::{caffeinate_frame, emit_chat_notice};
 
 /// How long an overlay may go without being told anything.
@@ -187,7 +186,6 @@ pub(crate) fn run_frame_loop(
             mcp,
             caffeinate: caffeinate_rx,
         } = extras;
-        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         let mut caffeinate_switch = crate::caffeinate_proc::Caffeinate::new();
         let mut slots = completer::Slots::new();
         publish_instances(&roster, &instance_rows);
@@ -1145,26 +1143,18 @@ pub(crate) fn run_frame_loop(
 
             // A `tools/call` from the attached Harness, here because the `Roster` and
             // `ExpressionHandle` are. A queued proposal reaches the screen next tick.
-            #[cfg(any(target_os = "macos", target_os = "linux", windows))]
             let caffeinate_configured = settings
                 .lock()
                 .map(|settings| settings.caffeinate_flags())
                 .unwrap_or(Err(fidget_core::caffeinate::Empty));
-            #[cfg(any(target_os = "macos", target_os = "linux", windows))]
             caffeinate_switch.set_target(caffeinate_configured);
             while let Ok(call) = mcp.try_recv() {
                 let excluded = settings
                     .lock()
                     .map(|settings| settings.excluded_applications.clone())
                     .unwrap_or_default();
-                #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-                let caffeinate_handle: Option<
-                    &mut dyn fidget_core::caffeinate::CaffeinateHandle,
-                > = Some(&mut caffeinate_switch);
-                #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-                let caffeinate_handle: Option<
-                    &mut dyn fidget_core::caffeinate::CaffeinateHandle,
-                > = None;
+                let caffeinate_handle: Option<&mut dyn fidget_core::caffeinate::CaffeinateHandle> =
+                    Some(&mut caffeinate_switch);
                 answer_tool_call(
                     call,
                     &mut roster,
@@ -1174,7 +1164,6 @@ pub(crate) fn run_frame_loop(
                     caffeinate_handle,
                 );
             }
-            #[cfg(any(target_os = "macos", target_os = "linux", windows))]
             let (caffeinate_fact, caffeinate_drawn) = {
                 let mut requests = Vec::new();
                 while let Ok(request) = caffeinate_rx.try_recv() {
@@ -1191,15 +1180,6 @@ pub(crate) fn run_frame_loop(
                     }
                 }
                 (Some(fact), Some(drawn))
-            };
-            // Without Caffeinate nothing below names these types, so they are spelled out.
-            #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-            let (caffeinate_fact, caffeinate_drawn): (
-                Option<fidget_core::caffeinate::Fact>,
-                Option<super::CaffeinateFrame>,
-            ) = {
-                while caffeinate_rx.try_recv().is_ok() {}
-                (None, None)
             };
             note_caffeinate_view(
                 &app,

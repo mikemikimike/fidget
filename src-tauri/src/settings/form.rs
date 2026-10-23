@@ -437,15 +437,11 @@ pub const CONSENT_ACCESSIBILITY_ID: &str = "consent_accessibility";
 pub const CONSENT_SCREEN_RECORDING_ID: &str = "consent_screen_recording";
 #[cfg(target_os = "macos")]
 pub const CONSENT_INPUT_MONITORING_ID: &str = "consent_input_monitoring";
-#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub const CAFFEINATE_DISPLAY_ID: &str = "caffeinate_display";
-#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub const CAFFEINATE_IDLE_ID: &str = "caffeinate_idle";
 #[cfg(target_os = "macos")]
 pub const CAFFEINATE_DISK_ID: &str = "caffeinate_disk";
-#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub const CAFFEINATE_SYSTEM_ID: &str = "caffeinate_system";
-#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub const CAFFEINATE_COMMAND_ID: &str = "caffeinate_command";
 #[cfg(target_os = "linux")]
 pub const CONSENT_PORTAL_SCREENCAST_ID: &str = "consent_screen_cast";
@@ -1458,9 +1454,8 @@ fn privacy_sections(live: &Live) -> Vec<FormSection> {
     ]
 }
 
-/// The Awake section. Only macOS can keep the disk awake, so Linux and Windows
-/// drop the Disk row and the freeze counts only the rows they draw.
-#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+/// The Awake section. Only macOS can keep the disk awake, so elsewhere the Disk
+/// row is dropped and the freeze counts only the rows drawn.
 fn caffeinate_section(live: &Live) -> FormSection {
     let mac = cfg!(target_os = "macos");
     let mut flags = vec![
@@ -1835,7 +1830,7 @@ pub fn describe() -> FormDescription {
 }
 
 pub fn describe_with(live: &Live) -> FormDescription {
-    let mut tabs = vec![
+    let tabs = vec![
         FormTab {
             title: "Presence".to_string(),
             sections: presence_sections(live.bundled),
@@ -1856,17 +1851,15 @@ pub fn describe_with(live: &Live) -> FormDescription {
             title: "Privacy".to_string(),
             sections: privacy_sections(live),
         },
+        FormTab {
+            title: "Caffeinate".to_string(),
+            sections: vec![caffeinate_section(live)],
+        },
+        FormTab {
+            title: "Development".to_string(),
+            sections: development_sections(live),
+        },
     ];
-    // macOS, Linux and Windows. The page hides the tab button on other builds.
-    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-    tabs.push(FormTab {
-        title: "Caffeinate".to_string(),
-        sections: vec![caffeinate_section(live)],
-    });
-    tabs.push(FormTab {
-        title: "Development".to_string(),
-        sections: development_sections(live),
-    });
     // Only the buttons: every writing row carries the field it writes.
     let operations = HashMap::from([
         (SPAWN_ID.to_string(), RowOperation::Spawn),
@@ -1903,8 +1896,8 @@ pub(crate) mod tests {
         "/Users/buddy/Library/Application Support/fidget/characters";
 
     /// The fixtures hold the macOS form. Linux freezes capturable and drops the
-    /// consent rows, and Windows drops one. Linux and Windows draw Caffeinate
-    /// without Disk. Each tab pins where it builds the same.
+    /// consent rows, and Windows drops one. Only macOS draws Disk on the
+    /// Caffeinate tab. Each tab pins where it builds the same.
     #[cfg(target_os = "linux")]
     const UNPINNED_TABS: &[&str] = &["Presence", "Privacy", "Caffeinate"];
     /// Windows builds Privacy without the Input Monitoring row: the grant is
@@ -1914,7 +1907,6 @@ pub(crate) mod tests {
     #[cfg(target_os = "macos")]
     const UNPINNED_TABS: &[&str] = &[];
 
-    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     fn awake_checkboxes(live: &Live) -> Vec<(String, bool)> {
         describe_with(live)
             .tabs
@@ -1934,7 +1926,6 @@ pub(crate) mod tests {
             .collect()
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     fn frozen_rows(rows: &[(&str, bool)]) -> Vec<(String, bool)> {
         rows.iter()
             .map(|(id, frozen)| (id.to_string(), *frozen))
@@ -1960,9 +1951,9 @@ pub(crate) mod tests {
         );
     }
 
-    /// Linux has no disk inhibitor and Windows no disk request, so there is no
-    /// Disk row, and a stored Disk does not keep the last drawn flag unfrozen.
-    #[cfg(any(target_os = "linux", windows))]
+    /// Only macOS draws Disk, so elsewhere a stored Disk does not keep the last
+    /// drawn flag unfrozen.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn no_disk_row_off_macos_and_the_last_drawn_flag_freezes() {
         let mut live = Live::current();
@@ -2288,10 +2279,8 @@ pub(crate) mod tests {
             "Quick message",
             "Traces",
             "What the fidget can see",
+            "Awake",
         ];
-        // Awake is on the macOS, Linux and Windows forms.
-        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-        expected.push("Awake");
         expected.sort_unstable();
         assert_eq!(headings, expected);
     }
@@ -2304,7 +2293,6 @@ pub(crate) mod tests {
             .iter()
             .map(|tab| tab.title.as_str())
             .collect();
-        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         let expected = vec![
             "Presence",
             "Character",
@@ -2312,15 +2300,6 @@ pub(crate) mod tests {
             "Chat",
             "Privacy",
             "Caffeinate",
-            "Development",
-        ];
-        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-        let expected = vec![
-            "Presence",
-            "Character",
-            "AI",
-            "Chat",
-            "Privacy",
             "Development",
         ];
         assert_eq!(titles, expected);
