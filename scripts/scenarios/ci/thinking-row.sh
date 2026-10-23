@@ -59,7 +59,7 @@ env HOME="$out/home" \
   FIDGET_CHARACTER=bmo FIDGET_CHARACTERS="$root/characters" \
   "$bin" > "$log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2> /dev/null || true; pkill -f "count=$marks" || true' EXIT INT TERM
+trap 'stop_fidget; pkill -f "count=$marks" || true' EXIT INT TERM
 
 # The first row is the turn that thought; the ask turn before it has none.
 capture() { # <name> <glyph the first Thinking row starts with>
