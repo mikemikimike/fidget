@@ -101,9 +101,14 @@ if PATH=$path command -v npx > /dev/null; then
   echo "SKIP: npx is on $path, so Codex would launch and no landing shows." >&2
   exit 2
 fi
+# Fidget adds the login shell's PATH, and Debian's /etc/profile adds
+# /usr/local/bin, where a tarball Node install puts npx. This shell skips it.
+# shellcheck disable=SC2016 # $4 is the stub's own argument.
+printf '#!/bin/sh\nexec /bin/sh -c "$4"\n' > "$out/bin/login-shell"
+chmod +x "$out/bin/login-shell"
 
 start_ms=$(($(date +%s%N) / 1000000))
-env HOME="$out/home" PATH="$path" \
+env HOME="$out/home" PATH="$path" SHELL="$out/bin/login-shell" \
   FIDGET_HARNESS=codex \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \
