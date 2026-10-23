@@ -65,10 +65,10 @@ function Get-CaffeinatePattern([string]$State) {
     if ($State -eq "on") { '^caffeinate: .*Caffeinate on:' } else { '^caffeinate: Caffeinate off\.$' }
 }
 
-# The line caffeinate_win prints once it takes exactly the power requests in
-# `$Names`.
-function Get-TakenPattern([string]$Names) {
-    '^caffeinate: power requests taken: ' + [regex]::Escape($Names) + '$'
+# The line `caffeinate::windows` prints once it turns on with exactly the
+# power requests in `$Names`.
+function Get-OnPattern([string]$Names) {
+    '^caffeinate: on \(' + [regex]::Escape($Names) + '\)$'
 }
 
 # A Chat opening that is not the one labelled `$First`.
@@ -321,12 +321,12 @@ function Press-Cup($Cup, [string]$State) {
     if (-not (Wait-Line $skip 10 (Get-CaffeinatePattern $State))) { Fail "no 'Caffeinate $State' line; see $stderr" }
 }
 
-# Flips one Settings checkbox and waits for Caffeinate to take the power
-# requests in `$Names`.
+# Flips one Settings checkbox and waits for Caffeinate to turn on with the
+# power requests in `$Names`.
 function Flip-Flag($Box, [string]$Names) {
     $skip = Line-Count
     [CaffeinateWin]::Toggle($Box)
-    if (-not (Wait-Line $skip 10 (Get-TakenPattern $Names))) { Fail "no 'power requests taken: $Names' line; see $stderr" }
+    if (-not (Wait-Line $skip 10 (Get-OnPattern $Names))) { Fail "no 'caffeinate: on ($Names)' line; see $stderr" }
 }
 
 $before = Requests "before-launch"

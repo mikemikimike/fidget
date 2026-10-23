@@ -25,7 +25,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:CAFFEINATE
 if ($errors.Count -gt 0) { throw "parse errors: $($errors | Out-String)" }
 $reason = $ast.Find({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$FidgetReason' }, $true)
 Invoke-Expression $reason.Extent.Text
-foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-TakenPattern", "Get-OtherChatPattern", "Get-PeSubsystem" }, $true)) {
+foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -in "Get-PowerRequests", "Test-FidgetRequest", "Get-CaffeinatePattern", "Get-OnPattern", "Get-OtherChatPattern", "Get-PeSubsystem" }, $true)) {
   Invoke-Expression $fn.Extent.Text
 }
 ${body}`;
@@ -102,14 +102,16 @@ test("the waits match frame_loop's caffeinate lines", { skip }, () => {
   );
 });
 
-test("a flag change waits for the power requests it should take", { skip }, () => {
+test("a flag change waits for the power requests it turns on", { skip }, () => {
   assert.deepEqual(
     run(`
-'caffeinate: power requests taken: SYSTEM' -match (Get-TakenPattern 'SYSTEM')
-'caffeinate: power requests taken: DISPLAY, SYSTEM' -match (Get-TakenPattern 'SYSTEM')
-'caffeinate: power requests taken: DISPLAY, SYSTEM' -match (Get-TakenPattern 'DISPLAY, SYSTEM')
-'caffeinate: power requests released' -match (Get-TakenPattern 'SYSTEM')`),
-    ["True", "False", "True", "False"],
+'caffeinate: on (SYSTEM)' -match (Get-OnPattern 'SYSTEM')
+'caffeinate: on (DISPLAY, SYSTEM)' -match (Get-OnPattern 'SYSTEM')
+'caffeinate: on (DISPLAY, SYSTEM)' -match (Get-OnPattern 'DISPLAY, SYSTEM')
+'caffeinate: off' -match (Get-OnPattern 'SYSTEM')
+'caffeinate: on (SYSTEM)' -match (Get-CaffeinatePattern 'on')
+'caffeinate: off' -match (Get-CaffeinatePattern 'off')`),
+    ["True", "False", "True", "False", "False", "False"],
   );
 });
 

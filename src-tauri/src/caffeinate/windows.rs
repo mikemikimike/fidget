@@ -121,10 +121,7 @@ impl OsCaffeinate for PowerRequests {
             requests.types.push(kind);
         }
         // scripts/verify-caffeinate-win.ps1 waits on this line.
-        eprintln!(
-            "caffeinate: power requests taken: {}",
-            windows::label(flags)
-        );
+        eprintln!("caffeinate: on ({})", windows::label(flags));
         self.requests = Some(requests);
         Ok(())
     }
@@ -134,7 +131,7 @@ impl OsCaffeinate for PowerRequests {
     fn turn_off(&mut self) {
         if let Some(requests) = self.requests.take() {
             requests.clear();
-            eprintln!("caffeinate: power requests released");
+            eprintln!("caffeinate: off");
         }
     }
 
