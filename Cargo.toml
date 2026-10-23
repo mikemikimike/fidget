@@ -12,3 +12,8 @@ edition = "2021"
 # The ACP crates (ADR-0022) need 1.88.
 rust-version = "1.95"
 license = "MIT"
+
+# Unoptimized PNG decoding of every installed Character held a debug launch for
+# 1-2 s on a CI runner, past the scenario leaves' 3 s wait (#1765).
+[profile.dev.package."*"]
+opt-level = 3
