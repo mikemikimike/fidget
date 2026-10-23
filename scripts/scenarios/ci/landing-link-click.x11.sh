@@ -101,9 +101,10 @@ if PATH=$path command -v npx > /dev/null; then
   echo "SKIP: npx is on $path, so Codex would launch and no landing shows." >&2
   exit 2
 fi
+login_shell_without_profile "$out/bin"
 
 start_ms=$(($(date +%s%N) / 1000000))
-env HOME="$out/home" PATH="$path" \
+env HOME="$out/home" PATH="$path" SHELL="$out/bin/login-shell" \
   FIDGET_HARNESS=codex \
   FIDGET_DIRECTOR_WAKE_SECS=600 \
   FIDGET_DIRECTOR_API_KEY=x FIDGET_CAPTURABLE=1 \

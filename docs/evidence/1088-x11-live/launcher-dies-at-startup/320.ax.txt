@@ -1,0 +1,42 @@
+frame|BMO|1066,90,320,560
+filler||1061,61,320,560
+filler||1061,61,320,560
+filler||1061,61,320,560
+scroll-area||1061,61,320,560
+web-area|Fidget|1061,61,320,560
+landmark||1061,61,320,105
+label|BMO|1079,74,36,20
+label|BMO|1121,78,36,17
+label|/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh · failed to start|1182,80,145,78
+button|Caffeinate|1335,102,28,28
+page-tab-list||1061,166,320,34
+page-tab|Chat|1075,166,52,33
+page-tab|Prompt|1131,166,71,33
+section|HARNESS ERROR\nHarness couldn't start\n\nIt exited before initialize, signal: 6 (SIGABRT). This is what it printed:\nError output\ndyld[0]: Library not loaded: /opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib\n\nrunning 1 test\ntest harness::tests::fake_acp_agent ...\nCommand\n/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh /workspace/fidget-1088-target/debug/deps/fidget-0f0313657cab3cb8 script=abort-first count=/workspace/1088-trio-run/evidence/fidget-scenario-launcher-dies-at-startup-20261023-204632/harness.log\nFix the error above, then pick it again, or pick a different Harness below.\n￼￼￼￼￼￼￼￼￼￼\n￼\n|1061,200,320,323
+paragraph|HARNESS ERROR|1097,242,248,18
+heading|Harness couldn't start|1097,273,248,22
+paragraph|It exited before initialize, signal: 6 (SIGABRT). This is what it printed:|1097,314,248,38
+heading|Error output|1097,375,248,18
+section|dyld[0]: Library not loaded: /opt/homebrew/opt/llhttp/lib/libllhttp.9.3.dylib\n\nrunning 1 test\ntest harness::tests::fake_acp_agent ...|1097,396,248,165
+heading|Command|1097,572,248,18
+section|/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh /workspace/fidget-1088-target/debug/deps/fidget-0f0313657cab3cb8 script=abort-first count=/workspace/1088-trio-run/evidence/fidget-scenario-launcher-dies-at-startup-20261023-204632/harness.log|1097,593,248,165
+paragraph|Fix the error above, then pick it again, or pick a different Harness below.|1097,780,248,39
+button|Claude Code|1097,849,119,98
+button|Codex|1226,849,119,98
+button|GitHub Copilot|1097,956,119,98
+button|Cursor|1226,956,119,98
+button|Goose|1097,1063,119,98
+button|Grok|1226,1063,119,98
+button|Hermes|1097,1170,119,98
+button|OpenCode|1226,1170,119,98
+button|Pi|1097,1277,119,98
+button|Antigravity|1226,1277,119,98
+button|More options in Settings|1097,1397,248,44
+form||1061,522,320,71
+entry|Nothing can answer yet|1077,534,215,43
+button|Send|1301,534,64,43
+landmark||1061,592,320,29
+unknown||1302,600,63,12
+section|Advanced|1302,600,63,12
+unknown|▸ Advanced|1302,600,63,12
+section|▸|1302,600,7,12

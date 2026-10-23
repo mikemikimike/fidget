@@ -1,0 +1,28 @@
+frame|BMO|1066,81,420,560
+filler||1061,52,420,560
+filler||1061,52,420,560
+filler||1061,52,420,560
+scroll-area||1061,52,420,560
+web-area|Fidget|1061,52,420,560
+landmark||1061,52,420,66
+label|BMO|1079,65,36,20
+label|BMO|1121,69,36,17
+label|/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh · session fresh-id|1182,71,245,39
+button|Caffeinate|1435,73,28,29
+page-tab-list||1061,118,420,34
+page-tab|Chat|1075,118,52,33
+page-tab|Prompt|1131,118,71,33
+section|BMO · ASKS\nEnter ABCD-1234 on the sign-in page.\nhttps://example.test/device?code=ABCD-1234\n￼￼\n|1061,152,420,362
+section|BMO · ASKS|1079,170,384,14
+section|Enter ABCD-1234 on the sign-in page.|1079,189,384,18
+section|https://example.test/device?code=ABCD-1234|1079,211,384,26
+button|Open|1079,241,384,24
+button|Decline|1079,270,384,24
+form||1061,513,420,71
+entry|Ask BMO…|1077,525,315,43
+button|Send|1401,525,64,43
+landmark||1061,583,420,29
+unknown||1402,591,63,12
+section|Advanced|1402,591,63,12
+unknown|▸ Advanced|1402,591,63,12
+section|▸|1402,591,7,12
