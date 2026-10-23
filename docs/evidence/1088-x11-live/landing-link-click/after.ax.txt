@@ -1,0 +1,40 @@
+frame|BMO|1066,85,420,560
+filler||1061,56,420,560
+filler||1061,56,420,560
+filler||1061,56,420,560
+scroll-area||1061,56,420,560
+web-area|Fidget|1061,56,420,560
+landmark||1061,56,420,49
+label|BMO|1079,72,36,21
+label|BMO|1121,76,36,18
+label|codex · npx is not installed|1182,78,204,14
+button|Caffeinate|1435,69,28,28
+page-tab-list||1061,105,420,34
+page-tab|Chat|1075,105,52,33
+page-tab|Prompt|1131,105,71,33
+section|Codex needs npx\n\nnpx is not installed. Fidget does not bundle npx. Install from https://nodejs.org/. Then press Codex again, or pick a different Harness below.\n￼￼￼￼￼￼￼￼￼￼\n￼\n|1061,139,420,379
+heading|Codex needs npx|1198,181,145,22
+section|npx|1305,182,38,22
+paragraph|npx is not installed. Fidget does not bundle npx. Install from https://nodejs.org/. Then press Codex again, or pick a different Harness below.|1145,222,252,77
+section|npx|1160,223,33,19
+section|npx|1241,242,32,19
+label|https://nodejs.org/|1158,261,114,18
+button|Claude Code|1145,329,121,98
+button|Codex|1276,329,121,98
+button|GitHub Copilot|1145,436,121,98
+button|Cursor|1276,436,121,98
+button|Goose|1145,543,121,98
+button|Grok|1276,543,121,98
+button|Hermes|1145,650,121,98
+button|OpenCode|1276,650,121,98
+button|Pi|1145,757,121,98
+button|Antigravity|1276,757,121,98
+button|More options in Settings|1145,877,252,44
+form||1061,517,420,71
+entry|Nothing can answer yet|1077,529,315,43
+button|Send|1401,529,64,43
+landmark||1061,587,420,29
+unknown||1402,595,63,12
+section|Advanced|1402,595,63,12
+unknown|▸ Advanced|1402,595,63,12
+section|▸|1402,595,7,12

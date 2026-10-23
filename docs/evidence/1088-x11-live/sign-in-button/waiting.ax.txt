@@ -1,0 +1,47 @@
+frame|BMO|1066,81,420,560
+filler||1061,52,420,560
+filler||1061,52,420,560
+filler||1061,52,420,560
+scroll-area||1061,52,420,560
+web-area|Fidget|1061,52,420,560
+landmark||1061,52,420,79
+label|BMO|1079,65,36,20
+label|BMO|1121,69,36,17
+label|/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh · not signed in —fake --login|1182,71,245,52
+button|Caffeinate|1435,80,28,28
+page-tab-list||1061,131,420,34
+page-tab|Chat|1075,131,52,33
+page-tab|Prompt|1131,131,71,33
+section|/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh needs login\n\n/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh is running but not signed in. Sign in, then press Retry, or pick a different Harness below.\nLogin using:\n￼\nFinish signing in in your browser. Any code on that page came from /workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh, so continue only if you just clicked this button.\nOr run this in a terminal:\nfake --login\n\n￼\n￼￼￼￼￼￼￼￼￼￼\n￼\nBMO · ASKS\nEnter ABCD-1234 on the sign-in page.\nhttps://example.test/device?code=ABCD-1234\n￼￼\n|1061,165,420,349
+heading|/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh needs login|1097,-798,348,66
+paragraph|/workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh is running but not signed in. Sign in, then press Retry, or pick a different Harness below.|1145,-713,252,96
+paragraph|Login using:|1238,-595,66,19
+button|Fake login|1097,-566,348,36
+paragraph|Finish signing in in your browser. Any code on that page came from /workspace/fidget-1088-trio/scripts/scenarios/helpers/fixture-harness.sh, so continue only if you just clicked this button.|1097,-511,252,91
+paragraph|Or run this in a terminal:|1203,-398,136,19
+paragraph|fake --login|1213,-365,116,32
+button|Retry|1097,-315,348,36
+button|Claude Code|1097,-249,169,98
+button|Codex|1276,-249,169,98
+button|GitHub Copilot|1097,-142,169,98
+button|Cursor|1276,-142,169,98
+button|Goose|1097,-35,169,98
+button|Grok|1276,-35,169,98
+button|Hermes|1097,72,169,98
+button|OpenCode|1276,72,169,98
+button|Pi|1097,179,169,98
+button|Antigravity|1276,179,169,98
+button|More options in Settings|1097,299,348,44
+section|BMO · ASKS|1079,382,384,15
+section|Enter ABCD-1234 on the sign-in page.|1079,401,384,19
+section|https://example.test/device?code=ABCD-1234|1079,423,384,26
+button|Open|1079,454,384,24
+button|Decline|1079,483,384,24
+form||1061,513,420,71
+entry|Nothing can answer yet|1077,525,315,43
+button|Send|1401,525,64,43
+landmark||1061,583,420,29
+unknown||1402,591,63,12
+section|Advanced|1402,591,63,12
+unknown|▸ Advanced|1402,591,63,12
+section|▸|1402,591,7,12
