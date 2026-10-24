@@ -1191,7 +1191,7 @@ def self_check():
     authored = json.loads(TWISTS.read_text(encoding="utf-8"))
     fps = gallery.from_rust(rust)[1]["fps"]
     twist = read_twists(authored, words["prompts"], CHARACTERS, fps)
-    assert len(twist["characters"]) == 4 and all(len(c["after"]) == 4 for c in twist["characters"]), \
+    assert len(twist["characters"]) == 5 and all(len(c["after"]) == 4 for c in twist["characters"]), \
         "the twist toy lost a Character or a prompt"
     assert all(p["text"] in readme for p in twist["prompts"]), "a twist prompt is not the README's, word for word"
 

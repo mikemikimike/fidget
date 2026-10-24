@@ -43,9 +43,9 @@ test("each prompt is the README's, word for word", () => {
   assert.deepEqual(data().prompts.map((p) => p.name), TWISTS.prompts.map((p) => p.name));
 });
 
-test("four Characters each carry a before line and an after line for every prompt", () => {
+test("five Characters each carry a before line and an after line for every prompt", () => {
   const cast = data().characters;
-  assert.deepEqual(cast.map((c) => c.character), ["bmo", "black-mage", "cat", "trump"]);
+  assert.deepEqual(cast.map((c) => c.character), ["bmo", "black-mage", "cat", "trump", "buddy-bot"]);
   cast.forEach((one, i) => {
     const authored = TWISTS.characters[i];
     assert.equal(one.before.line, authored.before.line);
