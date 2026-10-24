@@ -3483,12 +3483,18 @@ struct Attachment {
     /// Bumped on every swap. A switch still reaping the previous child checks
     /// this before it spawns, so a newer pick is the one that starts.
     switch_gen: u64,
+    attached_token: Option<Attached>,
 }
+
+/// Witness that `attach` was called. Zero-sized.
+#[derive(Debug, Clone, Copy)]
+pub struct Attached(());
 
 static ATTACHED: Mutex<Attachment> = Mutex::new(Attachment {
     session: None,
     forward: None,
     switch_gen: 0,
+    attached_token: None,
 });
 
 fn attachment() -> MutexGuard<'static, Attachment> {
@@ -3500,15 +3506,17 @@ fn attachment() -> MutexGuard<'static, Attachment> {
 /// Read the source, the variable, else `saved` from Settings, and hold the
 /// Session until the row moves it or the process exits. Process-global because
 /// the session is one per app and a Retarget rebuilds `DirectorSettings`.
-pub(crate) fn attach(target: Option<Target>, forward: Forward) -> Option<Arc<Session>> {
+pub(crate) fn attach(target: Option<Target>, forward: Forward) -> Attached {
     let mut slot = attachment();
     if slot.forward.is_some() {
-        return slot.session.clone();
+        return slot.attached_token.expect("forward set implies token set");
     }
     let forward = Arc::new(forward);
     slot.forward = Some(Arc::clone(&forward));
     slot.session = open(target, forward);
-    slot.session.clone()
+    let token = Attached(());
+    slot.attached_token = Some(token);
+    token
 }
 
 fn open(target: Option<Target>, forward: Arc<Forward>) -> Option<Arc<Session>> {
@@ -3635,6 +3643,18 @@ fn finish_switch(old: Arc<Session>, spawn_after: Option<Arc<Session>>, switch_ge
 
 pub fn attached() -> Option<Arc<Session>> {
     attachment().session.clone()
+}
+
+/// Get the attach token. Panics if `attach` was never called.
+pub fn attached_token() -> Attached {
+    attachment()
+        .attached_token
+        .expect("attached_token called before attach")
+}
+
+#[cfg(test)]
+pub fn test_token() -> Attached {
+    Attached(())
 }
 
 /// Agent sign-in buttons for the attached session, or nothing when login is

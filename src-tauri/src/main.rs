@@ -5221,10 +5221,7 @@ fn main() {
             #[cfg(windows)]
             drop(spawned_ctrl_c);
             quit_harness_on_interrupt(app.handle().clone());
-            // The Harness attaches before `director_settings` and `config_from`, which
-            // both ask whether one is attached, so a launch never prompts for a key it
-            // would not send.
-            harness::attach(
+            let attached = harness::attach(
                 harness::Target::from_settings(
                     settings.harness_source().as_deref(),
                     &settings.harness_cwd,
@@ -5275,7 +5272,8 @@ fn main() {
             model::on_thought_more(Box::new(move |instance, addition| {
                 show_more_thought(&more_to, instance, addition)
             }));
-            let director = match settings::director_settings(&settings, secrets.as_ref()) {
+            let director = match settings::director_settings(&settings, secrets.as_ref(), attached)
+            {
                 Ok(director) => director,
                 Err(why) => {
                     eprintln!("director: secret store: {why}");

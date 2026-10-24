@@ -890,11 +890,11 @@ pub fn write_director_key(store: &dyn SecretStore, patch: &SettingsPatch) -> Res
 
 /// Env, then the file, then the store. The store is a Keychain dialog on macOS.
 /// A store read error is `Err`, not Unset, or Retarget drops a remote Completer
-/// to Static. Call after `harness::attach`, or a Harness launch reads a key it
-/// never sends.
+/// to Static.
 pub fn director_settings(
     settings: &Settings,
     secrets: &dyn SecretStore,
+    _attached: crate::harness::Attached,
 ) -> Result<DirectorSettings, String> {
     resolve_director(settings, secrets, crate::harness::attached().is_some())
 }
@@ -1245,7 +1245,7 @@ fn stored_key_status(store: &dyn SecretStore) -> (bool, String, String) {
 
 /// Resolve Director settings on the settings thread. The frame loop only applies them.
 fn retarget_payload(settings: &Settings, store: &dyn SecretStore) -> Result<SettingsOp, String> {
-    let director = director_settings(settings, store)?;
+    let director = director_settings(settings, store, crate::harness::attached_token())?;
     let mut cfg = model::config_from(&director);
     cfg.apply_switch(settings.director_enabled);
     Ok(SettingsOp::Retarget {
@@ -3322,7 +3322,7 @@ mod tests {
         // as configured and take the precondition with it.
         model::tests::with_env(None, None, None, || {
             assert!(
-                director_settings(&settings, &FailingStore).is_err(),
+                director_settings(&settings, &FailingStore, crate::harness::test_token()).is_err(),
                 "a store error must not resolve as no key"
             );
             let unset = model::resolve(&settings.director_base_url, &settings.director_model, None);
@@ -3450,8 +3450,9 @@ mod tests {
     fn an_exported_key_leaves_the_store_unread() {
         let settings = endpoint_settings();
         model::tests::with_env(Some("sk-env-key"), None, None, || {
-            let resolved = director_settings(&settings, &FailingStore)
-                .expect("the env owns the key, so the store has nothing to say");
+            let resolved =
+                director_settings(&settings, &FailingStore, crate::harness::test_token())
+                    .expect("the env owns the key, so the store has nothing to say");
             assert_eq!(resolved.api_key, "sk-env-key");
         });
     }
@@ -3463,8 +3464,9 @@ mod tests {
     fn a_blank_exported_key_leaves_the_store_unread_and_still_warns() {
         let settings = endpoint_settings();
         model::tests::with_env(Some("  "), None, None, || {
-            let resolved = director_settings(&settings, &FailingStore)
-                .expect("a blank export is still the env answering");
+            let resolved =
+                director_settings(&settings, &FailingStore, crate::harness::test_token())
+                    .expect("a blank export is still the env answering");
             assert!(resolved.api_key.is_empty());
             assert!(
                 resolved.key_invalid,
