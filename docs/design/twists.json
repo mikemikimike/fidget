@@ -28,14 +28,14 @@
         "black-mage": {"line": "They call her Dancing Queen. I call her kindling.", "behavior": "ponder"},
         "cat": {"line": "They crowned a dancer. I am sitting on her. Curtain.", "behavior": "remark"},
         "trump": {"line": "Perched on Spotify. ABBA. A glittering triumph. I rank this window number one.", "behavior": "settle"},
-        "buddy-bot": {"line": "I bounced. You caught me. Spotify, Dancing Queen still knows how to work a room.", "behavior": "settle"}
+        "buddy-bot": {"line": "Dancing Queen on Spotify? Darling, this window just stole the show.", "behavior": "settle"}
       }
     },
     {
       "name": "Forecast", "match": "weather report", "wake": "You said: \"Three meetings, then the dentist.\"",
       "lines": {
-        "bmo": {"line": "Today is three-meeting weather then dentist. You can play it. I am right here.", "behavior": "report"},
-        "black-mage": {"line": "Gloomy. Three meeting fronts. Dentist later. Chance of Hadoken: high.", "behavior": "ponder"},
+        "bmo": {"line": "Cloudy with three meetings. Then a dentist squall. You will be so brave. I am watching.", "behavior": "report"},
+        "black-mage": {"line": "Forecast: three fronts of tedium. Then the dentist. I recommend Fire-3.", "behavior": "ponder"},
         "cat": {"line": "Cloudy with meetings. Dentist moving in. I remain.", "behavior": "remark"},
         "trump": {"line": "Three-meeting storm. Then the dentist. Brutal forecast. Very unfair Monday.", "behavior": "report"},
         "buddy-bot": {"line": "Meeting clouds till noon, then a dentist front. I'll stay above the Dock."}
