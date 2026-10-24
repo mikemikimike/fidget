@@ -317,6 +317,13 @@ in_background awk '{
   }
 }' "$parsed"
 
+echo ""
+echo "Opaque pixel count:"
+if [ -f "$parsed" ]; then
+  awk '{print $4}' "$parsed" | sort -n | uniq -c |
+    awk '{printf "  %d pixels: %d rebuild(s)\n", $2, $1}'
+fi
+
 in_background rm -f "$parsed"
 
 echo ""
