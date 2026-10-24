@@ -4,41 +4,41 @@
     {
       "name": "Stunt double", "match": "movie stunt", "wake": "Thrown across the screen.",
       "lines": {
-        "bmo": {"line": "No wires. No net. BMO did its own stunt. Kickflip!", "behavior": "greet"},
-        "black-mage": {"line": "Thrown like a fireball. Acceptable form.", "behavior": "greet"},
-        "cat": {"line": "Four paws. Every time. My stunt double wants a raise.", "behavior": "greet"},
-        "trump": {"line": "Did my own stunt. No double. Stuntmen are calling me, crying.", "behavior": "greet"},
-        "buddy-bot": {"line": "Trust fall! A big one! You're catching me, right?", "behavior": "greet"}
+        "bmo": {"line": "Whoa! I just pulled off my own movie stunt! Did you see me fly?"},
+        "black-mage": {"line": "The fall was planned. Entirely. HADOKEN!"},
+        "cat": {"line": "I do my own stunts. You're welcome."},
+        "trump": {"line": "I meant to do that. Greatest stunt this desktop has ever seen. Hollywood wishes."},
+        "buddy-bot": {"line": "Woo! Midair hero shot. I meant every spin."}
       }
     },
     {
       "name": "Food critic", "match": "food critic", "wake": "You said: \"Leftover pizza.\"",
       "lines": {
-        "bmo": {"line": "Pizza from yesterday is a time traveler. BMO salutes it."},
-        "black-mage": {"line": "Not evil pie. Two stars. One for the cheese, one for the despair."},
-        "cat": {"line": "Pizza. Again. No fish. Two stars, one for the box."},
-        "trump": {"line": "I've ranked your lunches. This one? Top three, easily."},
-        "buddy-bot": {"line": "Day-two pizza! Bold. Want a buddy to find you a vegetable?"}
+        "bmo": {"line": "Leftover pizza! A chilled masterpiece, still singing of last night."},
+        "black-mage": {"line": "A cold corpse of cheese and crust. I give it Fire-3. Hadoken.", "behavior": "ponder"},
+        "cat": {"line": "A chilled empire of cheese, overnighted into disgrace and glory.", "behavior": "remark"},
+        "trump": {"line": "Leftover pizza. Tremendous cold slice. Best lunch this Dock has ever seen."},
+        "buddy-bot": {"line": "Leftover pizza: last night's legend, fridge-aged and still a little famous."}
       }
     },
     {
       "name": "Theatre critic", "match": "theatre critic", "needs": "Needs window names consent.", "wake": "Perched on Spotify, playing Dancing Queen.",
       "lines": {
-        "bmo": {"line": "A green stage. A song about a queen who dances. BMO is crying. Five stars.", "behavior": "fidget"},
-        "black-mage": {"line": "One star. White Mage would like it. Fine. Two.", "behavior": "settle"},
-        "cat": {"line": "Dancing Queen. I am the queen. I am not dancing."},
-        "trump": {"line": "Best seat in the house. I'm sitting on it. Four stars, five with me.", "behavior": "settle"},
-        "buddy-bot": {"line": "Opening night on Spotify! Dancing Queen leads. I'm the whole audience.", "behavior": "settle"}
+        "bmo": {"line": "A glittering disco of a window. I award Dancing Queen every star."},
+        "black-mage": {"line": "They call her Dancing Queen. I call her kindling.", "behavior": "ponder"},
+        "cat": {"line": "They crowned a dancer. I am sitting on her. Curtain.", "behavior": "remark"},
+        "trump": {"line": "Perched on Spotify. ABBA. A glittering triumph. I rank this window number one.", "behavior": "settle"},
+        "buddy-bot": {"line": "I bounced. You caught me. Spotify, Dancing Queen still knows how to work a room.", "behavior": "settle"}
       }
     },
     {
       "name": "Forecast", "match": "weather report", "wake": "You said: \"Three meetings, then the dentist.\"",
       "lines": {
-        "bmo": {"line": "BMO is the weather lady now. High of three meetings. Low of one dentist."},
-        "black-mage": {"line": "Thunder at nine, ten and eleven. Afternoon drilling. Doom, mostly."},
-        "cat": {"line": "Pressure dropping. I feel it in my whiskers. Also, the dentist."},
-        "trump": {"line": "Three meetings, total hurricane. The dentist? Very unfair. Sunny by five."},
-        "buddy-bot": {"line": "UV index: low. Meeting index: high. Dentist warning in effect. I've got you."}
+        "bmo": {"line": "Today is three-meeting weather then dentist. You can play it. I am right here.", "behavior": "report"},
+        "black-mage": {"line": "Gloomy. Three meeting fronts. Dentist later. Chance of Hadoken: high.", "behavior": "ponder"},
+        "cat": {"line": "Cloudy with meetings. Dentist moving in. I remain.", "behavior": "remark"},
+        "trump": {"line": "Three-meeting storm. Then the dentist. Brutal forecast. Very unfair Monday.", "behavior": "report"},
+        "buddy-bot": {"line": "Meeting clouds till noon, then a dentist front. I'll stay above the Dock."}
       }
     }
   ]
