@@ -54,8 +54,8 @@ function Fail([string]$Message) {
 # Patterns for FIDGET_TRACE_BUBBLE=1 stderr output
 $regionPattern = '^(?:\d+ )?overlay (\S+): region rebuild (\d+) rects \(art \d+ \+ hotspots \d+ \+ painted (\d+)\)'
 $followPattern = '^(?:\d+ )?overlay (\S+): pill follows instance=(\S+) chars=(\d+) focused=(\S+)'
-$bubbleShowPattern = '^(?:\d+ )?overlay (\S+): showSpeech|showThinking'
-$bubbleHidePattern = '^(?:\d+ )?overlay (\S+): hideSpeech|hideThinking'
+$bubbleShowPattern = '^(?:\d+ )?overlay (\S+): (?:showSpeech|showThinking)'
+$bubbleHidePattern = '^(?:\d+ )?overlay (\S+): (?:hideSpeech|hideThinking)'
 
 function Check-Trace([string]$File) {
     $sawRegionWithPainted = $false
