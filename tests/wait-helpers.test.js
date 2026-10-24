@@ -101,6 +101,62 @@ test("stop_fidget kills a tree that ignores TERM within about 3 s", () => {
   assert.ok(r.ms >= 2900 && r.ms < 4500, `took ${r.ms} ms`);
 });
 
+// The middle bash is not a last simple command, or bash execs it and the
+// grandchild's parent pid disappears. set -m stays inside the stand-in, so
+// the grandchild's group is not the stand-in's.
+const standInTree = `bash -c 'set -m; bash -c "sleep 60 & wait" & wait'`;
+
+test("stop_fidget reaps a grandchild whose process group is not Fidget's", () => {
+  const r = run(`pid= child= grand=
+trap 'for p in "$pid" "$child" "$grand"; do [ -n "$p" ] && kill -9 "$p" 2> /dev/null || true; done' EXIT
+${standInTree} & pid=$!
+sleep 0.3
+child=$(pgrep -P "$pid" | head -1)
+[ -n "$child" ] || { echo "missing child of $pid"; exit 1; }
+grand=$(pgrep -P "$child" | head -1)
+[ -n "$grand" ] || { echo "missing grandchild of $child"; exit 1; }
+[ "$(ps -o ppid= -p "$grand" | tr -d '[:space:]')" = "$child" ] || { echo "grandchild ppid is $(ps -o ppid= -p "$grand")"; exit 1; }
+fpgid=$(ps -o pgid= -p "$pid" | tr -d '[:space:]')
+cpgid=$(ps -o pgid= -p "$child" | tr -d '[:space:]')
+gpgid=$(ps -o pgid= -p "$grand" | tr -d '[:space:]')
+[ "$gpgid" = "$cpgid" ] && [ "$gpgid" != "$fpgid" ] || { echo "pgid fidget=$fpgid child=$cpgid grand=$gpgid"; exit 1; }
+stop_fidget
+sleep 0.2
+alive=
+kill -0 "$pid" 2> /dev/null && alive="$alive fidget"
+kill -0 "$child" 2> /dev/null && alive="$alive child"
+kill -0 "$grand" 2> /dev/null && alive="$alive grand"
+[ -z "$alive" ] || { echo "still alive:$alive"; exit 1; }`);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(r.ms < 2000, `took ${r.ms} ms`);
+});
+
+// The bystander shares the stand-in's process group. It has to stay alive.
+// Signaling that group would kill it and this script's other jobs.
+test("stop_fidget does not signal its own process group", () => {
+  const r = run(`pid= child= grand= bystander=
+trap 'for p in "$pid" "$child" "$grand" "$bystander"; do [ -n "$p" ] && kill -9 "$p" 2> /dev/null || true; done' EXIT
+sleep 60 & bystander=$!
+${standInTree} & pid=$!
+sleep 0.3
+child=$(pgrep -P "$pid" | head -1)
+[ -n "$child" ] && [ -n "$bystander" ] || { echo "missing child=$child bystander=$bystander"; exit 1; }
+grand=$(pgrep -P "$child" | head -1)
+[ -n "$grand" ] || { echo "missing grandchild of $child"; exit 1; }
+fpgid=$(ps -o pgid= -p "$pid" | tr -d '[:space:]')
+bpgid=$(ps -o pgid= -p "$bystander" | tr -d '[:space:]')
+gpgid=$(ps -o pgid= -p "$grand" | tr -d '[:space:]')
+cpgid=$(ps -o pgid= -p "$child" | tr -d '[:space:]')
+[ "$bpgid" = "$fpgid" ] && [ "$gpgid" = "$cpgid" ] && [ "$gpgid" != "$fpgid" ] || { echo "pgid fidget=$fpgid bystander=$bpgid child=$cpgid grand=$gpgid"; exit 1; }
+stop_fidget
+sleep 0.2
+kill -0 "$bystander" 2> /dev/null || { echo "bystander died"; exit 1; }
+kill "$bystander" 2> /dev/null || true
+wait "$bystander" 2> /dev/null || true
+bystander=`);
+  assert.strictEqual(r.code, 0, r.out);
+});
+
 for (const leaf of ["mac", "x11"]) {
   test(`wait-helpers.${leaf}.sh loads the shared core`, () => {
     const r = run(`for f in wait_for_trace wait_for_marks wait_for_file wait_until wait_for_count stop_fidget in_state wait_for_ax_dump answer_permission; do declare -F "$f" > /dev/null || { echo "missing $f"; exit 1; }; done`, path.join(scenarios, `wait-helpers.${leaf}.sh`));
