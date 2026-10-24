@@ -381,14 +381,22 @@ export function mount(section, data, cue) {
     picker.append(button);
   }
   wear(character(data.cast, data.hero));
-  // The desk starts on the page's own scheme.
+  // Until the visitor picks one, the wallpaper follows the page's scheme, live.
   const walls = section.querySelector("#play-walls");
+  let picked = false;
   const wallpaper = (wall) => {
     desk.dataset.wall = wall;
     for (const button of walls.children) button.setAttribute("aria-pressed", String(button.dataset.wall === wall));
   };
-  wallpaper(getComputedStyle(document.documentElement).colorScheme === "dark" ? "dark" : "light");
-  for (const button of walls.children) button.addEventListener("click", () => wallpaper(button.dataset.wall));
+  const follow = () => picked || wallpaper(getComputedStyle(document.documentElement).colorScheme === "dark" ? "dark" : "light");
+  follow();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", follow);
+  for (const button of walls.children) {
+    button.addEventListener("click", () => {
+      picked = true;
+      wallpaper(button.dataset.wall);
+    });
+  }
   section.querySelector("#play-tiles").hidden = true;
   desk.hidden = false;
 

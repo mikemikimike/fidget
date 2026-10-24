@@ -249,8 +249,8 @@ const picker = `
 </script>`;
 
 // On a phone, by real touches: a finger held still on the Character opens the
-// pill and lifting it pokes nothing, a flick throws, and the wallpaper switch
-// repaints the desk.
+// pill and lifting it pokes nothing, a flick throws, and the wallpaper follows
+// the OS scheme until the switch repaints it.
 const touches = `
 <script>${helpers}
   const once = (target, type) => new Promise((resolve) => target.addEventListener(type, resolve, { once: true }));
@@ -280,8 +280,19 @@ const touches = `
       const center = () => { const box = sprite.getBoundingClientRect(); return [box.left + box.width / 2, box.top + box.height / 2]; };
       const finger = (type, at) => touch(JSON.stringify({ type, points: at ? [{ x: at[0], y: at[1] }] : [] }));
 
+      // Ask the browser for the scheme it isn't showing, by the binding.
+      const dark = matchMedia("(prefers-color-scheme: dark)");
+      const flip = async () => {
+        const changed = once(dark, "change");
+        scheme(dark.matches ? "light" : "dark");
+        await changed;
+        await frame();
+        return look();
+      };
       // The switch goes first: a tap that stops the flick's fling is no click.
       const first = look();
+      const followed = await flip();
+      await flip();
       const seen = {};
       for (const wall of ["busy", "dark", "light"]) {
         const button = walls.find((b) => b.dataset.wall === wall);
@@ -309,13 +320,15 @@ const touches = `
       await away;
       longPress.dismissed = !pill.classList.contains("visible");
 
+      // Flick toward the wider side: one the desk's edge cuts short is too slow to throw.
       let [x, y] = center();
+      const toward = x < box.left + box.width / 2 ? 1 : -1;
       const grabbed = once(sprite, "pointerdown");
       finger("touchStart", [x, y]);
       await grabbed;
-      for (const dx of [-10, -40, -40, -40]) {
+      for (const dx of [10, 40, 40, 40]) {
         await frame();
-        x += dx;
+        x += toward * dx;
         const moved = once(sprite, "pointermove");
         finger("touchMove", [x, y]);
         await moved;
@@ -324,9 +337,10 @@ const touches = `
       finger("touchEnd");
       await hard;
       const thrown = !pill.classList.contains("visible");
+      const kept = await flip();
 
       const fits = walls[0].parentElement.getBoundingClientRect().left > document.getElementById("play-hint").getBoundingClientRect().right;
-      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, hoverDelayMs: tuning.hoverDelayMs, longPress, thrown, first, seen, fits }));
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, hoverDelayMs: tuning.hoverDelayMs, longPress, thrown, first, followed, seen, kept, fits }));
     } catch (err) {
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
     }
@@ -418,7 +432,13 @@ async function play(flags = [], script = probe, size = "1280,900") {
     await cdp.send("Runtime.addBinding", { name: "tapAt" }, sessionId);
     // And touch sends one touch event, for a press that lasts or moves.
     await cdp.send("Runtime.addBinding", { name: "touch" }, sessionId);
+    // And scheme sets the prefers-color-scheme the page sees.
+    await cdp.send("Runtime.addBinding", { name: "scheme" }, sessionId);
     cdp.on(sessionId, "Runtime.bindingCalled", async ({ name, payload }) => {
+      if (name === "scheme") {
+        await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: payload }] }, sessionId);
+        return;
+      }
       if (name === "touch") {
         const { type, points } = JSON.parse(payload);
         await cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points }, sessionId).catch(() => {});
@@ -480,7 +500,7 @@ test("a tap on a Character in the picker swaps the desk's sprite at once, and th
   assert.deepEqual(result.after, { pressed: ["nim"], stored: "nim", nimFrame: true }, "Nim stays pressed, stored and animating");
 });
 
-test("on a phone, a long-press opens the pill and pokes nothing, a flick throws, and the wallpaper switch repaints the desk", { skip: chromeSkip }, async () => {
+test("on a phone, a long-press opens the pill and pokes nothing, a flick throws, and the wallpaper follows the OS scheme until the switch repaints it", { skip: chromeSkip }, async () => {
   const result = await play([], touches, "390,844");
   assert.deepEqual(result.errors, [], "the page threw nothing");
   const { after, ...longPress } = result.longPress;
@@ -491,6 +511,9 @@ test("on a phone, a long-press opens the pill and pokes nothing, a flick throws,
   const stripes = "repeating-linear-gradient(45deg, rgb(200, 107, 74) 0px, rgb(200, 107, 74) 18px";
   assert.deepEqual([result.first.wall, result.first.pressed], ["light", ["light"]], "in a light page the desk starts light");
   assert.ok(result.first.paint.includes("rgb(207, 227, 236)"), result.first.paint);
+  assert.deepEqual([result.followed.wall, result.followed.pressed], ["dark", ["dark"]], "before a pick, the desk follows the OS turning dark");
+  assert.ok(result.followed.paint.includes("rgb(31, 52, 64)"), result.followed.paint);
+  assert.deepEqual([result.kept.wall, result.kept.pressed], ["light", ["light"]], "after a pick, the OS turning dark leaves the picked wallpaper");
   assert.deepEqual(Object.fromEntries(Object.entries(result.seen).map(([wall, seen]) => [wall, seen.pressed])),
     { busy: ["busy"], dark: ["dark"], light: ["light"] }, "the tapped wallpaper is the pressed one");
   assert.ok(result.seen.busy.paint.startsWith(stripes), result.seen.busy.paint);
@@ -500,6 +523,7 @@ test("on a phone, a long-press opens the pill and pokes nothing, a flick throws,
   const dark = await play(["--force-dark-mode"], touches, "390,844");
   assert.deepEqual(dark.errors, [], "the dark page threw nothing");
   assert.deepEqual([dark.first.wall, dark.first.pressed], ["dark", ["dark"]], "in a dark page the desk starts dark");
+  assert.deepEqual(dark.followed.pressed, ["light"], "before a pick, the desk follows the OS turning light");
 });
 
 for (const size of ["1512,945", "1280,800"]) {

@@ -21,14 +21,20 @@
     --paper: #F4F5F8;
     --paper-2: #E9EBF1;
     --ink: #1D2027;
-    --ink-2: #4A5060;
+    --ink-2-light: #4A5060;
+    --ink-2-dark: #B4BAC8;
+    --ink-2: var(--ink-2-light);
     --ink-3: #646A7A;
     --line: #D3D7E0;
     --accent: #2C8C7C;
     --accent-ink: #FFFFFF;
     --win: #FBFCFE;
-    --desk-a: #CFE3EC;
-    --desk-b: #E8D9EC;
+    --desk-light-a: #CFE3EC;
+    --desk-light-b: #E8D9EC;
+    --desk-dark-a: #1F3440;
+    --desk-dark-b: #34283D;
+    --desk-a: var(--desk-light-a);
+    --desk-b: var(--desk-light-b);
     --bevel-hi: #FFFFFF;
     --bevel-lo: #BCC2CF;
     --title-a: #FFFFFF;
@@ -40,14 +46,14 @@
       --paper: #171A22;
       --paper-2: #1E222C;
       --ink: #EEF0F5;
-      --ink-2: #B4BAC8;
+      --ink-2: var(--ink-2-dark);
       --ink-3: #7B8294;
       --line: #313746;
       --accent: #5CC9B5;
       --accent-ink: #14171E;
       --win: #232835;
-      --desk-a: #1F3440;
-      --desk-b: #34283D;
+      --desk-a: var(--desk-dark-a);
+      --desk-b: var(--desk-dark-b);
       --bevel-hi: #E8EBF2;
       --bevel-lo: #7B8294;
       --title-a: #343B4B;
@@ -59,14 +65,14 @@
     --paper: #171A22;
     --paper-2: #1E222C;
     --ink: #EEF0F5;
-    --ink-2: #B4BAC8;
+    --ink-2: var(--ink-2-dark);
     --ink-3: #7B8294;
     --line: #313746;
     --accent: #5CC9B5;
     --accent-ink: #14171E;
     --win: #232835;
-    --desk-a: #1F3440;
-    --desk-b: #34283D;
+    --desk-a: var(--desk-dark-a);
+    --desk-b: var(--desk-dark-b);
     --bevel-hi: #E8EBF2;
     --bevel-lo: #7B8294;
     --title-a: #343B4B;
@@ -276,8 +282,8 @@
   .play-hint.tried { opacity: 0; }
   /* The wallpaper switch, to show the cues read on any desktop. Light and dark
      are the page's own desk colors, busy is cues.html's. */
-  .play-desk[data-wall="light"] { --desk-a: #CFE3EC; --desk-b: #E8D9EC; --desk-ink: #4A5060; }
-  .play-desk[data-wall="dark"] { --desk-a: #1F3440; --desk-b: #34283D; --desk-ink: #B4BAC8; }
+  .play-desk[data-wall="light"] { --desk-a: var(--desk-light-a); --desk-b: var(--desk-light-b); --desk-ink: var(--ink-2-light); }
+  .play-desk[data-wall="dark"] { --desk-a: var(--desk-dark-a); --desk-b: var(--desk-dark-b); --desk-ink: var(--ink-2-dark); }
   .play-desk[data-wall="busy"] { --desk-ink: var(--ink-2);
     background: repeating-linear-gradient(45deg, #C86B4A 0 18px, #E8A66B 18px 36px, #3E7C8B 36px 54px, #EFD7A8 54px 72px); }
   .play-desk[data-wall="busy"] .play-hint { padding: 0 .5rem; border-radius: 999px; background: var(--paper); }
