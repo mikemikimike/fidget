@@ -2003,8 +2003,6 @@ pub struct Settings {
     /// Session Director on. Off leaves Static weights running the life.
     pub director_enabled: bool,
     /// Proactive session wakes. Off keeps the Director for Poke and Summon.
-    /// Older files still spell the key `ambient_wakes`.
-    #[serde(alias = "ambient_wakes")]
     pub proactive_wakes: bool,
     /// Quiet: on screen, not starting things. Persists so a restart stays quiet.
     pub do_not_disturb: bool,
@@ -2091,12 +2089,7 @@ pub struct Settings {
     /// Use the window-names consent (ADR-0032) where the OS granted it: Screen
     /// Recording on macOS, ScreenCast portal on Wayland. Off does not revoke
     /// the grant.
-    #[serde(
-        default,
-        alias = "use_screen_recording",
-        alias = "use_portal_screencast",
-        alias = "use_window_titles"
-    )]
+    #[serde(default)]
     pub use_window_names: bool,
     /// Listen for mouse events so the frame loop can sleep while the desktop is
     /// idle. macOS alone acts on it; the field is unconditional so the
@@ -2596,26 +2589,6 @@ mod tests {
         assert!(Note::On(idle).text().ends_with("(SYSTEM)"));
     }
 
-    /// The alias carries a grant over from the field's old name: reading the
-    /// old document as a default would revoke it without telling the user.
-    /// `use_screen_recording` is the name before that.
-    #[test]
-    fn a_grant_stored_under_an_older_field_name_is_still_a_grant() {
-        for old_name in [
-            "use_window_titles",
-            "use_screen_recording",
-            "use_portal_screencast",
-        ] {
-            let path = temp_path();
-            fs::write(&path, format!(r#"{{"{old_name}":true}}"#)).expect("write");
-            assert!(
-                Settings::load(&path).use_window_names,
-                "{old_name} has to load as the window-names grant"
-            );
-            let _ = fs::remove_file(&path);
-        }
-    }
-
     #[test]
     fn a_saved_light_appearance_loads_as_light() {
         let path = temp_path();
@@ -2905,20 +2878,6 @@ mod tests {
         fs::write(&path, "not json {").expect("write");
 
         assert_eq!(Settings::load(&path), Settings::default());
-        let _ = fs::remove_file(&path);
-    }
-
-    /// A file from before the rename. The old key off must not load as on.
-    #[test]
-    fn an_old_ambient_wakes_key_still_loads_as_off() {
-        let path = temp_path();
-        fs::write(&path, r#"{"ambient_wakes":false}"#).expect("write");
-        let settings = Settings::load(&path);
-        assert!(!settings.proactive_wakes);
-        settings.save(&path).expect("save");
-        let text = fs::read_to_string(&path).expect("read");
-        assert!(text.contains("\"proactive_wakes\": false"), "{text}");
-        assert!(!text.contains("ambient_wakes"), "{text}");
         let _ = fs::remove_file(&path);
     }
 
