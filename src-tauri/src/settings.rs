@@ -894,7 +894,7 @@ pub fn write_director_key(store: &dyn SecretStore, patch: &SettingsPatch) -> Res
 pub fn director_settings(
     settings: &Settings,
     secrets: &dyn SecretStore,
-    _attached: crate::harness::Attached,
+    _: crate::harness::Attached,
 ) -> Result<DirectorSettings, String> {
     resolve_director(settings, secrets, crate::harness::attached().is_some())
 }
@@ -1000,6 +1000,7 @@ fn retarget_off_the_settings_lock(
     settings: &Arc<Mutex<Settings>>,
     snapshot: &Settings,
     store: &dyn SecretStore,
+    attached: crate::harness::Attached,
 ) -> Result<SettingsOp, String> {
     drop(settings.lock().map_err(|error| error.to_string())?);
     #[cfg(test)]
@@ -1008,7 +1009,7 @@ fn retarget_off_the_settings_lock(
         thread::sleep(Duration::from_secs(2));
         RETARGET_STALLING.store(false, Ordering::SeqCst);
     }
-    retarget_payload(snapshot, store)
+    retarget_payload(snapshot, store, attached)
 }
 
 /// Restore the values a Harness did not take, in memory and in the file, so a
@@ -1244,12 +1245,12 @@ fn stored_key_status(store: &dyn SecretStore) -> (bool, String, String) {
 }
 
 /// Resolve Director settings on the settings thread. The frame loop only applies them.
-fn retarget_payload(settings: &Settings, store: &dyn SecretStore) -> Result<SettingsOp, String> {
-    #[cfg(not(test))]
-    let token = crate::harness::attached_token();
-    #[cfg(test)]
-    let token = crate::harness::test_token();
-    let director = director_settings(settings, store, token)?;
+fn retarget_payload(
+    settings: &Settings,
+    store: &dyn SecretStore,
+    attached: crate::harness::Attached,
+) -> Result<SettingsOp, String> {
+    let director = director_settings(settings, store, attached)?;
     let mut cfg = model::config_from(&director);
     cfg.apply_switch(settings.director_enabled);
     Ok(SettingsOp::Retarget {
@@ -1283,6 +1284,7 @@ pub struct SettingsSession {
     /// Last successful store fingerprint. Become-key must not hit Keychain
     /// every focus; a failed read is not cached, so unlocking can recover.
     pub key_cache: Mutex<Option<(bool, String)>>,
+    pub attached: crate::harness::Attached,
 }
 
 impl SettingsSession {
@@ -1395,7 +1397,12 @@ impl SettingsSession {
             if let Some(attached) = crate::harness::attached() {
                 attached.inputs_applied();
             }
-            match retarget_off_the_settings_lock(&self.settings, &snapshot, self.secrets.as_ref()) {
+            match retarget_off_the_settings_lock(
+                &self.settings,
+                &snapshot,
+                self.secrets.as_ref(),
+                self.attached,
+            ) {
                 Ok(op) => {
                     let _ = self.ops.send(op);
                 }
@@ -3326,7 +3333,8 @@ mod tests {
         // as configured and take the precondition with it.
         model::tests::with_env(None, None, None, || {
             assert!(
-                director_settings(&settings, &FailingStore, crate::harness::test_token()).is_err(),
+                director_settings(&settings, &FailingStore, crate::harness::test_attached())
+                    .is_err(),
                 "a store error must not resolve as no key"
             );
             let unset = model::resolve(&settings.director_base_url, &settings.director_model, None);
@@ -3455,7 +3463,7 @@ mod tests {
         let settings = endpoint_settings();
         model::tests::with_env(Some("sk-env-key"), None, None, || {
             let resolved =
-                director_settings(&settings, &FailingStore, crate::harness::test_token())
+                director_settings(&settings, &FailingStore, crate::harness::test_attached())
                     .expect("the env owns the key, so the store has nothing to say");
             assert_eq!(resolved.api_key, "sk-env-key");
         });
@@ -3469,7 +3477,7 @@ mod tests {
         let settings = endpoint_settings();
         model::tests::with_env(Some("  "), None, None, || {
             let resolved =
-                director_settings(&settings, &FailingStore, crate::harness::test_token())
+                director_settings(&settings, &FailingStore, crate::harness::test_attached())
                     .expect("a blank export is still the env answering");
             assert!(resolved.api_key.is_empty());
             assert!(
@@ -3627,7 +3635,13 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let shared = Arc::clone(&settings);
         thread::spawn(move || {
-            let result = retarget_off_the_settings_lock(&shared, &snapshot, &store).map(|_| ());
+            let result = retarget_off_the_settings_lock(
+                &shared,
+                &snapshot,
+                &store,
+                crate::harness::test_attached(),
+            )
+            .map(|_| ());
             let _ = tx.send(result);
         });
         let until = Instant::now() + Duration::from_secs(5);
@@ -4082,7 +4096,7 @@ mod tests {
             let store = MemoryStore::new();
             store.set(DIRECTOR_API_KEY, "sk-stored-key").unwrap();
             let settings = endpoint_settings();
-            match retarget_payload(&settings, &store).unwrap() {
+            match retarget_payload(&settings, &store, crate::harness::test_attached()).unwrap() {
                 SettingsOp::Retarget {
                     settings,
                     enabled,
@@ -4113,7 +4127,7 @@ mod tests {
             store.set(DIRECTOR_API_KEY, "sk-stored-key").unwrap();
             let settings = endpoint_settings();
             assert!(settings.director_enabled, "precondition: the file says on");
-            match retarget_payload(&settings, &store).unwrap() {
+            match retarget_payload(&settings, &store, crate::harness::test_attached()).unwrap() {
                 SettingsOp::Retarget {
                     enabled,
                     configured,
@@ -4351,7 +4365,7 @@ mod tests {
                     settings: director,
                     configured,
                     ..
-                } = retarget_payload(&settings, &store).unwrap()
+                } = retarget_payload(&settings, &store, crate::harness::test_attached()).unwrap()
                 else {
                     panic!("an edited endpoint must send Retarget");
                 };

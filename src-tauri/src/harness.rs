@@ -3483,18 +3483,16 @@ struct Attachment {
     /// Bumped on every swap. A switch still reaping the previous child checks
     /// this before it spawns, so a newer pick is the one that starts.
     switch_gen: u64,
-    attached_token: Option<Attached>,
 }
 
-/// Witness that `attach` was called. Zero-sized.
-#[derive(Debug, Clone, Copy)]
-pub struct Attached(());
+/// Witness that `attach` was called.
+#[derive(Clone, Copy)]
+pub(crate) struct Attached(());
 
 static ATTACHED: Mutex<Attachment> = Mutex::new(Attachment {
     session: None,
     forward: None,
     switch_gen: 0,
-    attached_token: None,
 });
 
 fn attachment() -> MutexGuard<'static, Attachment> {
@@ -3509,14 +3507,12 @@ fn attachment() -> MutexGuard<'static, Attachment> {
 pub(crate) fn attach(target: Option<Target>, forward: Forward) -> Attached {
     let mut slot = attachment();
     if slot.forward.is_some() {
-        return slot.attached_token.expect("forward set implies token set");
+        return Attached(());
     }
     let forward = Arc::new(forward);
     slot.forward = Some(Arc::clone(&forward));
     slot.session = open(target, forward);
-    let token = Attached(());
-    slot.attached_token = Some(token);
-    token
+    Attached(())
 }
 
 fn open(target: Option<Target>, forward: Arc<Forward>) -> Option<Arc<Session>> {
@@ -3645,16 +3641,8 @@ pub fn attached() -> Option<Arc<Session>> {
     attachment().session.clone()
 }
 
-/// Get the attach token. Panics if `attach` was never called.
-#[cfg(not(test))]
-pub fn attached_token() -> Attached {
-    attachment()
-        .attached_token
-        .expect("attached_token called before attach")
-}
-
 #[cfg(test)]
-pub fn test_token() -> Attached {
+pub(crate) fn test_attached() -> Attached {
     Attached(())
 }
 

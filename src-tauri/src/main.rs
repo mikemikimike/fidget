@@ -549,6 +549,7 @@ struct SettingsState {
     /// Taken by the next snapshot. A window that is still loading has no
     /// listeners, so an event aimed at it would be gone.
     reveal: RevealSlot,
+    attached: harness::Attached,
     /// Generation of the Settings window. `settings_loaded` matches it once
     /// navigation finishes. MoveFocus while they differ hangs WebView2.
     settings_built: AtomicU64,
@@ -828,6 +829,7 @@ fn settings_session(app: &tauri::AppHandle, state: &SettingsState) -> SettingsSe
         on_rebind: bind_hide_hotkey,
         secrets: Arc::clone(&state.secrets),
         key_cache: Mutex::new(None),
+        attached: state.attached,
     }
 }
 
@@ -5367,6 +5369,7 @@ fn main() {
                 rules: Arc::clone(&rules),
                 secrets: Arc::clone(&secrets),
                 reveal: RevealSlot::default(),
+                attached,
                 settings_built: AtomicU64::new(0),
                 settings_loaded: AtomicU64::new(0),
                 loading_since: Mutex::new(None),
