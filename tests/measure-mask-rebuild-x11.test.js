@@ -106,3 +106,18 @@ test("updates with none position-only report every one as a full rebuild", async
   assert.match(r.out, /Full rebuild ratio: 1\.00 /);
   assert.match(r.out, /Full rebuilds: 100% of updates/);
 });
+
+test("opaque pixel count histogram groups by pixel count", async () => {
+  const mixedLines = [
+    ready,
+    "mask_rebuild: 126x128 @1x scale, 6300 opaque pixels, 0.5 ms",
+    "mask_rebuild: 37x33 @3x scale, 500 opaque pixels, 0.3 ms",
+    "mask_rebuild: 126x128 @1x scale, 6300 opaque pixels, 0.6 ms (position-only)",
+    "mask_rebuild: 37x33 @3x scale, 500 opaque pixels, 0.4 ms",
+  ];
+  const r = await measure({ lines: mixedLines, args: ["walk", "4", "2"] });
+  assert.strictEqual(r.code, 0, r.out);
+  assert.match(r.out, /Opaque pixel count:/);
+  assert.match(r.out, /  6300 pixels: 2 update\(s\)/);
+  assert.match(r.out, /  500 pixels: 2 update\(s\)/);
+});
