@@ -4526,11 +4526,11 @@ mod tests {
                             }
                             // The reply collapses the row, so a leaf that passes
                             // `hold=<fifo>` opens it once it has the open-row dump.
-                            // 3 s bounds a leaf that never does.
+                            // 10 s bounds a leaf that never does.
                             if let Some(fifo) = std::env::args()
                                 .find_map(|arg| arg.strip_prefix("hold=").map(PathBuf::from))
                             {
-                                hold(&fifo, Duration::from_secs(3));
+                                hold(&fifo, Duration::from_secs(10));
                             }
                             chunk(&session, "fidget\nChat is open.");
                             stop(&id, "end_turn");
