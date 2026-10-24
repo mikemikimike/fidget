@@ -35,6 +35,7 @@ Output:
   - Full rebuild ratio (full_rebuilds / total_updates, lower is better)
   - Average CPU time per rebuild
   - Peak rebuild time
+  - Opaque pixel count histogram
 
 Numbers from a VM are labeled indicative. Physical hardware timing differs.
 
@@ -315,6 +316,14 @@ in_background awk '{
     printf "  Min: %.3f ms\n", min
     printf "  Max: %.3f ms\n", max
   }
+}' "$parsed"
+
+echo ""
+echo "Opaque pixel count:"
+# shellcheck disable=SC2016 # The $4 is awk's.
+in_background awk '!($4 in n) { order[++k] = $4 } { n[$4]++ } END {
+  if (k == 0) { print "  (no opaque pixel counts parsed)"; exit 1 }
+  for (i = 1; i <= k; i++) printf "  %d pixels: %d update(s)\n", order[i], n[order[i]]
 }' "$parsed"
 
 in_background rm -f "$parsed"
