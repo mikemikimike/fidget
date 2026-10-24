@@ -279,8 +279,25 @@ pub fn log_you(app: &tauri::AppHandle, instance: &str, text: impl Into<String>, 
     with_log(app, |log| log.log_you(instance, text, at));
 }
 
-pub fn think(app: &tauri::AppHandle, instance: &str, text: &str, at: SystemTime) {
-    with_log(app, |log| log.think(instance, text, at));
+/// Keep the thought and `show` it under one lock, so a Chat that opens
+/// mid-turn replays this thought or a later one, never an earlier one.
+pub fn think(
+    app: &tauri::AppHandle,
+    instance: &str,
+    text: &str,
+    at: SystemTime,
+    show: impl FnOnce(),
+) {
+    let mut show = Some(show);
+    with_log(app, |log| {
+        log.think(instance, text, at);
+        if let Some(show) = show.take() {
+            show();
+        }
+    });
+    if let Some(show) = show {
+        show();
+    }
 }
 
 /// Peeled planning joined to the turn's thought so far. The addition alone
@@ -343,11 +360,13 @@ pub fn replay(app: &tauri::AppHandle, instance: &str) -> Vec<Turn> {
         .unwrap_or_default()
 }
 
-pub fn thinking(app: &tauri::AppHandle, instance: &str) -> Option<(String, bool)> {
-    let held = app.try_state::<Mutex<Log>>()?;
-    let log = held.lock().ok()?;
-    log.thinking(instance)
-        .map(|(text, over)| (text.to_string(), over))
+/// Replay the thought still on the wire, under the lock `think` shows under.
+pub fn replay_thinking(app: &tauri::AppHandle, instance: &str, replay: impl FnOnce(&str, bool)) {
+    with_log(app, |log| {
+        if let Some((text, over)) = log.thinking(instance) {
+            replay(text, over);
+        }
+    });
 }
 
 /// A dismissed Instance's turns go with it.

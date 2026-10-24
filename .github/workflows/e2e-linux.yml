@@ -85,8 +85,8 @@ jobs:
             > "$TMPDIR/indicator.log" 2>&1 &
           gdbus wait --session --timeout 3 org.kde.StatusNotifierWatcher
           # A fresh runner draws Fidget's first frame seconds late, past a leaf's
-          # 3 s launch wait. One launch here takes that cold start, which can run
-          # past 3 s itself, so this one wait gets 30 s, as on macOS.
+          # 3 s launch wait. One launch here takes that cold start, which can
+          # run past 3 s itself, so this one wait gets 30 s, as on macOS.
           (
             root=$PWD log="$TMPDIR/warmup.log"
             . scripts/scenarios/helpers/wait-helpers.x11.sh

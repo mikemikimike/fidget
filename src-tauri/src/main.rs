@@ -2780,8 +2780,9 @@ fn forward_form(app: &tauri::AppHandle, owner: Owner, form: harness::Elicitation
 /// either Completer lane. The session log holds it until that
 /// Instance's wake files it (ADR-0034).
 fn show_thought(app: &tauri::AppHandle, instance: &str, line: String) {
-    session_log::think(app, instance, &line, SystemTime::now());
-    let _ = app.emit_to(chat_label(instance), CHAT_THOUGHT_EVENT, &line);
+    session_log::think(app, instance, &line, SystemTime::now(), || {
+        let _ = app.emit_to(chat_label(instance), CHAT_THOUGHT_EVENT, &line);
+    });
 }
 
 /// Peeled planning joins thought already streamed, then redraws the whole.
@@ -3595,12 +3596,12 @@ fn chat_ready(
         // A Chat that an ask opened mid-turn missed the thoughts emitted
         // before it listened. A thought is the whole text, so a repeat is
         // harmless.
-        if let Some((text, over)) = session_log::thinking(&app, &instance) {
-            let _ = app.emit_to(&label, CHAT_THOUGHT_EVENT, &text);
+        session_log::replay_thinking(&app, &instance, |text, over| {
+            let _ = app.emit_to(&label, CHAT_THOUGHT_EVENT, text);
             if over {
                 let _ = app.emit_to(&label, CHAT_THOUGHT_EVENT, "");
             }
-        }
+        });
     }
     let _ = chat.0.send(ChatMsg::Listening(instance));
 }

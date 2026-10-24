@@ -156,7 +156,7 @@ func press(_ element: AXUIElement) -> Bool {
 func window(titled title: String) -> AXUIElement? {
     var value: CFTypeRef?
     var err = AXError.cannotComplete
-    // A busy main thread answers cannotComplete at once, so ask again (#1796).
+    // A busy main thread answers cannotComplete at once, so ask again.
     let deadline = Date().addingTimeInterval(3)
     repeat {
         err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
@@ -164,9 +164,10 @@ func window(titled title: String) -> AXUIElement? {
         usleep(100_000)
     } while Date() < deadline
     let windows = value as? [AXUIElement] ?? []
+    if let hit = windows.first(where: { string($0, kAXTitleAttribute) == title }) { return hit }
     let titles = windows.map { string($0, kAXTitleAttribute) ?? "?" }
     lastError = "AXWindows -> \(err.rawValue), titles \(titles)"
-    return windows.first { string($0, kAXTitleAttribute) == title }
+    return nil
 }
 
 func settingsWindow() -> AXUIElement? { window(titled: "Settings") }

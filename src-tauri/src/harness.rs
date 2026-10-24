@@ -4463,10 +4463,9 @@ mod tests {
                             }
                             stop(&id, "end_turn");
                         }
-                        // `scripts/scenarios/ci/streaming-bubble.sh`. Slow enough
-                        // to photograph the bubble mid-sentence. With `hold=<fifo>`
-                        // it stops after words 2 and 5 until the leaf opens it, or
-                        // for 10 s, which bounds a leaf that never does.
+                        // `scripts/scenarios/ci/streaming-bubble.sh`. `hold=`
+                        // pauses after words 2 and 5 for the leaf's captures;
+                        // 10 s bounds a leaf that never opens it.
                         "scenario-streaming" => {
                             chunk(&session, "gre");
                             thread::sleep(Duration::from_millis(600));
