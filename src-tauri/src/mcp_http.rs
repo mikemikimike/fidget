@@ -52,34 +52,49 @@ pub struct Call {
     pub reply: mpsc::Sender<Result<Value, DispatchError>>,
 }
 
+/// A token, or any env value handed to the stdio shim beside it. No `Debug`,
+/// `Display` or `Serialize`, so `expose_to_code` at a hand-off is the only way to read it.
+#[derive(Clone)]
+pub struct SecretString(String);
+
+impl SecretString {
+    pub fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    pub fn expose_to_code(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Where the server is listening, and the token that reaches it.
 #[derive(Clone)]
 pub struct Endpoint {
     pub url: String,
-    token: String,
+    token: SecretString,
 }
 
 impl Endpoint {
-    /// The `Authorization` value a client sends. A method, not a field, and
-    /// `Endpoint` implements neither `Debug` nor `Serialize`, so it cannot be
-    /// logged by accident.
-    pub fn authorization(&self) -> String {
-        format!("Bearer {}", self.token)
+    /// The `Authorization` value a client sends.
+    pub fn authorization(&self) -> SecretString {
+        SecretString::new(format!("Bearer {}", self.token.expose_to_code()))
     }
 
     /// The URL and raw token, for the Settings box that shows a user how to
     /// register this endpoint with a Harness they run themselves. Raw rather
     /// than `Bearer `-prefixed because three of five templates add that prefix.
-    pub fn registration(&self) -> (String, String) {
+    pub fn registration(&self) -> (String, SecretString) {
         (self.url.clone(), self.token.clone())
     }
 
     /// What a stdio shim needs to dial this endpoint, as environment variables
-    /// for the child the Harness spawns. A method so the token leaves this type
-    /// only where it is handed to that process.
-    pub fn stdio_env(&self) -> Vec<(String, String)> {
+    /// for the child the Harness spawns.
+    pub fn stdio_env(&self) -> Vec<(String, SecretString)> {
         vec![
-            (fidget_mcp_server::URL_VAR.to_string(), self.url.clone()),
+            (
+                fidget_mcp_server::URL_VAR.to_string(),
+                SecretString::new(self.url.clone()),
+            ),
             (fidget_mcp_server::TOKEN_VAR.to_string(), self.token.clone()),
         ]
     }
@@ -126,7 +141,7 @@ fn start(calls: mpsc::Sender<Call>) -> std::io::Result<Endpoint> {
     let url = format!("http://127.0.0.1:{}/mcp", listener.local_addr()?.port());
     let endpoint = Endpoint {
         url: url.clone(),
-        token: token.clone(),
+        token: SecretString::new(token.clone()),
     };
 
     thread::Builder::new()
@@ -398,6 +413,16 @@ fn call_tool(params: &Value, calls: &mpsc::Sender<Call>) -> Value {
 mod tests {
     use super::*;
 
+    // Compiles only while `SecretString` implements none of these traits.
+    trait Leaks<A> {
+        fn probe() {}
+    }
+    impl<T: ?Sized> Leaks<()> for T {}
+    impl<T: ?Sized + std::fmt::Debug> Leaks<u8> for T {}
+    impl<T: ?Sized + std::fmt::Display> Leaks<u16> for T {}
+    impl<T: ?Sized + serde::Serialize> Leaks<u32> for T {}
+    const _: fn() = <SecretString as Leaks<_>>::probe;
+
     fn answering(answer: Value) -> (mpsc::Sender<Call>, thread::JoinHandle<Option<Call>>) {
         let (tx, rx) = mpsc::channel::<Call>();
         let handle = thread::spawn(move || {
@@ -635,9 +660,9 @@ mod tests {
     fn the_endpoint_hands_out_a_header_and_not_a_token() {
         let endpoint = Endpoint {
             url: "http://127.0.0.1:1/mcp".to_string(),
-            token: "secret".to_string(),
+            token: SecretString::new("secret".to_string()),
         };
-        assert_eq!(endpoint.authorization(), "Bearer secret");
+        assert_eq!(endpoint.authorization().expose_to_code(), "Bearer secret");
         assert!(!endpoint.url.contains("secret"));
     }
 
@@ -654,7 +679,7 @@ mod tests {
         let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"speak","arguments":{"message":"on screen"}}}"#;
         let request = format!(
             "POST /mcp HTTP/1.1\r\nHost: {address}\r\nAuthorization: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
-            endpoint.authorization(),
+            endpoint.authorization().expose_to_code(),
             body.len()
         );
         stream.write_all(request.as_bytes()).expect("wrote");

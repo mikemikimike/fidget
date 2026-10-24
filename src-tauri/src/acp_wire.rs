@@ -13,6 +13,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::content_mark::chunk_text;
+use crate::mcp_http::SecretString;
 use crate::tool_content::{pieces, places, Place, ToolPiece};
 use agent_client_protocol::schema::v1::{
     AuthMethod, AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
@@ -62,7 +63,10 @@ const CLOSE_WAIT: Duration = Duration::from_secs(2);
 pub enum McpChoice {
     /// The loopback server the app serves, and the `Authorization` value that
     /// reaches it. The only one whose tools reach the character on screen.
-    Http { url: String, authorization: String },
+    Http {
+        url: String,
+        authorization: SecretString,
+    },
     /// A stdio shim the Harness spawns. It relays to the loopback server so
     /// the tools reach the same Instances.
     Stdio(McpLaunch),
@@ -70,8 +74,6 @@ pub enum McpChoice {
 
 impl McpChoice {
     /// What a log line, the Action Log, or a probe may say about this choice.
-    /// Never the token. A credential is not logged, printed, or fingerprinted,
-    /// including one this process minted.
     pub fn label(&self) -> String {
         match self {
             Self::Http { url, .. } => url.clone(),
@@ -348,13 +350,13 @@ pub enum Event {
 }
 
 /// The stdio MCP server handed to `session/new` and `session/load`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct McpLaunch {
     pub path: PathBuf,
     pub args: Vec<String>,
     /// What the shim reads to find the app and authorise itself.
     /// Deliberately absent from `line`.
-    pub env: Vec<(String, String)>,
+    pub env: Vec<(String, SecretString)>,
 }
 
 impl McpLaunch {
@@ -1957,7 +1959,7 @@ fn mcp_server(choice: &McpChoice) -> McpServer {
     match choice {
         McpChoice::Http { url, authorization } => {
             McpServer::Http(McpServerHttp::new("fidget", url.clone()).headers(vec![
-                HttpHeader::new("Authorization", authorization.clone()),
+                HttpHeader::new("Authorization", authorization.expose_to_code()),
             ]))
         }
         McpChoice::Stdio(launch) => McpServer::Stdio(
@@ -1967,7 +1969,7 @@ fn mcp_server(choice: &McpChoice) -> McpServer {
                     launch
                         .env
                         .iter()
-                        .map(|(name, value)| EnvVariable::new(name.clone(), value.clone()))
+                        .map(|(name, value)| EnvVariable::new(name.clone(), value.expose_to_code()))
                         .collect(),
                 ),
         ),
@@ -3011,7 +3013,7 @@ mod tests {
     fn an_http_choice_carries_the_token_in_a_header_and_not_in_the_url() {
         let server = mcp_server(&McpChoice::Http {
             url: "http://127.0.0.1:51234/mcp".to_string(),
-            authorization: "Bearer deadbeef".to_string(),
+            authorization: SecretString::new("Bearer deadbeef".to_string()),
         });
         let wire = serde_json::to_value(&server).expect("serializes");
         assert_eq!(wire["type"], serde_json::json!("http"));
@@ -3063,9 +3065,12 @@ mod tests {
             env: vec![
                 (
                     "FIDGET_MCP_URL".to_string(),
-                    "http://127.0.0.1:51234/mcp".to_string(),
+                    SecretString::new("http://127.0.0.1:51234/mcp".to_string()),
                 ),
-                ("FIDGET_MCP_TOKEN".to_string(), "deadbeef".to_string()),
+                (
+                    "FIDGET_MCP_TOKEN".to_string(),
+                    SecretString::new("deadbeef".to_string()),
+                ),
             ],
         }));
         let wire = serde_json::to_value(&server).expect("serializes");
@@ -3086,7 +3091,7 @@ mod tests {
     fn a_label_never_carries_the_token() {
         let choice = McpChoice::Http {
             url: "http://127.0.0.1:1/mcp".to_string(),
-            authorization: "Bearer secret".to_string(),
+            authorization: SecretString::new("Bearer secret".to_string()),
         };
         assert_eq!(choice.label(), "http://127.0.0.1:1/mcp");
         assert!(!choice.label().contains("secret"));
@@ -3096,7 +3101,10 @@ mod tests {
         let stdio = McpChoice::Stdio(McpLaunch {
             path: PathBuf::from("/opt/fidget-mcp"),
             args: Vec::new(),
-            env: vec![("FIDGET_MCP_TOKEN".to_string(), "secret".to_string())],
+            env: vec![(
+                "FIDGET_MCP_TOKEN".to_string(),
+                SecretString::new("secret".to_string()),
+            )],
         });
         assert_eq!(stdio.label(), "/opt/fidget-mcp");
     }

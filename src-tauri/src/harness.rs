@@ -186,7 +186,7 @@ pub fn from_settings(saved: Option<&str>) -> Option<Launch> {
 }
 
 impl Launch {
-    fn codex_mcp_config(&self) -> Option<(String, String)> {
+    fn codex_mcp_config(&self) -> Option<(String, crate::mcp_http::SecretString)> {
         if self.name != "codex" {
             return None;
         }
@@ -241,7 +241,7 @@ impl Launch {
             if let Some(endpoint) = &endpoint {
                 let (url, token) = endpoint.registration();
                 command.env(fidget_mcp_server::URL_VAR, url);
-                command.env(fidget_mcp_server::TOKEN_VAR, token);
+                command.env(fidget_mcp_server::TOKEN_VAR, token.expose_to_code());
             }
         }
         if self.name == "opencode" && endpoint.is_some() && mcp_available {
@@ -253,7 +253,7 @@ impl Launch {
         }
         if let Some((config, token)) = self.codex_mcp_config() {
             command.env("CODEX_CONFIG", config);
-            command.env(fidget_mcp_server::TOKEN_VAR, token);
+            command.env(fidget_mcp_server::TOKEN_VAR, token.expose_to_code());
         }
         isolate_from_interrupt(&mut command);
         command
@@ -1935,7 +1935,11 @@ impl Session {
         let Some(endpoint) = crate::mcp_http::endpoint() else {
             return;
         };
-        match crate::cursor_mcp::install(cwd, &endpoint.url, &endpoint.authorization()) {
+        match crate::cursor_mcp::install(
+            cwd,
+            &endpoint.url,
+            endpoint.authorization().expose_to_code(),
+        ) {
             Ok(installed) => {
                 if let Ok(mut slot) = self.cursor.lock() {
                     slot.get_or_insert(installed);
@@ -5109,7 +5113,7 @@ mod tests {
             parsed["mcp_servers"][server.as_str()]["default_tools_approval_mode"],
             "approve"
         );
-        assert!(!config.contains(&endpoint.registration().1));
+        assert!(!config.contains(endpoint.registration().1.expose_to_code()));
         assert!(codex_fidget_config(Some("invalid json"), &endpoint).is_none());
         let existing_fidget = codex_fidget_config(
             Some(r#"{"mcp_servers":{"fidget":{"command":"own","default_tools_approval_mode":"prompt"}}}"#),
@@ -11047,7 +11051,7 @@ mod tests {
         let current_exe = dir.join("harness-unit-tests");
         touch(&current_exe);
 
-        assert_eq!(mcp_launch(None, &current_exe), None);
+        assert!(mcp_launch(None, &current_exe).is_none());
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -11067,7 +11071,7 @@ mod tests {
         match mcp_server(&http) {
             Some(McpChoice::Http { url, authorization }) => {
                 assert_eq!(url, endpoint.url);
-                assert!(authorization.starts_with("Bearer "));
+                assert!(authorization.expose_to_code().starts_with("Bearer "));
             }
             other => panic!(
                 "expected the loopback server, got {:?}",
@@ -11107,13 +11111,13 @@ mod tests {
                 .env
                 .iter()
                 .find(|(var, _)| var == name)
-                .map(|(_, value)| value.clone())
+                .map(|(_, value)| value.expose_to_code().to_string())
                 .unwrap_or_else(|| panic!("{name} is not in the environment"))
         };
         assert_eq!(value(fidget_mcp_server::URL_VAR), endpoint.url);
         assert_eq!(
             format!("Bearer {}", value(fidget_mcp_server::TOKEN_VAR)),
-            endpoint.authorization()
+            endpoint.authorization().expose_to_code()
         );
         assert!(
             !launch.line().contains(&value(fidget_mcp_server::TOKEN_VAR)),
