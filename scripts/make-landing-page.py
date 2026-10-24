@@ -67,8 +67,9 @@ HERO = "buddy-bot"
 # The twist toy's lines; its prompts come from the README's Instance Prompt table.
 TWISTS = ROOT / "docs" / "design" / "twists.json"
 # What every README Instance Prompt example assumes, and the page's small print says.
-TWIST_SETUP = ("[Harness]", "its own tools", "**Window and application names** consent")
-TWIST_NEEDS = "Needs an attached Harness that may use its tools, and window names consent."
+TWIST_SETUP = ("[Harness]", "Model API", "**Window and application names** consent")
+# The small print under a prompt that names no setup of its own in twists.json.
+TWIST_NEEDS = "Works with any attached model."
 # GitHub renders an attachment URL alone on its line as a video player.
 ATTACHMENT = re.compile(r"^(https://github\.com/user-attachments/assets/[0-9a-f-]+)[ \t]*$", re.M)
 LATEST = f"{REPO}/releases/latest"
@@ -271,8 +272,8 @@ def read_readme(text):
 def instance_prompts(text):
     """The Give It an Instance Prompt table's prompts, word for word.
 
-    The page's small print names the setup the README says every example
-    assumes, so the build stops when the README stops asking for it.
+    The page's small print names the setup the README says the examples
+    need, so the build stops when the README stops asking for it.
     """
     if "### Give It an Instance Prompt" not in text:
         raise Malformed("README.md has no 'Give It an Instance Prompt' section")
@@ -633,7 +634,7 @@ def read_twists(data, prompts, characters_root, default_fps):
         found = [text for text in prompts if prompt["match"] in text]
         if len(found) != 1:
             raise Malformed(f"twists.json: {prompt['match']!r} matches {len(found)} README Instance Prompts, not one")
-        picked.append({"name": prompt["name"], "text": found[0]})
+        picked.append({"name": prompt["name"], "text": found[0], "needs": prompt.get("needs") or TWIST_NEEDS})
     if not picked:
         raise Malformed("twists.json names no prompts")
     cast = []
@@ -697,7 +698,7 @@ def twist_html(twist):
         "</div>",
         f'<div class="twist-layer"><span>Your own layer</span><p class="twist-prompt" id="twist-prompt">'
         f'{html.escape(prompt["text"])}</p></div>',
-        f'<p class="twist-needs">{TWIST_NEEDS}</p>',
+        f'<p class="twist-needs" id="twist-needs">{html.escape(prompt["needs"])}</p>',
         '<div class="twist-pair">',
         f'<figure><figcaption>Before</figcaption><p class="twist-when">Personality only.</p>'
         f'<div class="say" id="twist-before-say">{html.escape(first["before"]["line"])}</div>'
@@ -1190,7 +1191,7 @@ def self_check():
     authored = json.loads(TWISTS.read_text(encoding="utf-8"))
     fps = gallery.from_rust(rust)[1]["fps"]
     twist = read_twists(authored, words["prompts"], CHARACTERS, fps)
-    assert len(twist["characters"]) == 4 and all(len(c["after"]) == 3 for c in twist["characters"]), \
+    assert len(twist["characters"]) == 4 and all(len(c["after"]) == 4 for c in twist["characters"]), \
         "the twist toy lost a Character or a prompt"
     assert all(p["text"] in readme for p in twist["prompts"]), "a twist prompt is not the README's, word for word"
 
@@ -1208,7 +1209,7 @@ def self_check():
         (lambda d: d["prompts"][0].update(match="you"), "not one"),
         (lambda d: d["characters"][0].update(character="garfield"), "does not ship"),
         (lambda d: d["characters"][2]["after"]["Theatre critic"].update(behavior="conquer"), "declares no 'conquer'"),
-        (lambda d: d["characters"][1]["after"].pop("Machine check"), "not one per prompt"),
+        (lambda d: d["characters"][1]["after"].pop("Forecast"), "not one per prompt"),
         (lambda d: d["characters"][3]["before"].update(line=""), "no before line"),
         (lambda d: d["characters"][0]["after"]["Theatre critic"].pop("when"), "says nothing of when"),
     ):

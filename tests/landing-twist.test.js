@@ -16,7 +16,8 @@ const TWISTS = JSON.parse(readFileSync(join(ROOT, "docs", "design", "twists.json
 const README = readFileSync(join(ROOT, "README.md"), "utf8");
 const PROMPTS = [...README.split("### Give It an Instance Prompt")[1].split("\n## ")[0]
   .matchAll(/^\| `([^`]+)` \|/gm)].map((row) => row[1]);
-const NEEDS = "Needs an attached Harness that may use its tools, and window names consent.";
+const ANY_MODEL = "Works with any attached model.";
+const CONSENT = "Needs window names consent.";
 
 let scratch;
 let page;
@@ -37,7 +38,7 @@ const escaped = (text) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").
 
 test("each prompt is the README's, word for word", () => {
   const shown = data().prompts.map((p) => p.text);
-  assert.equal(shown.length, 3);
+  assert.equal(shown.length, 4);
   for (const text of shown) assert.ok(PROMPTS.includes(text), `the README holds: ${text}`);
   assert.deepEqual(data().prompts.map((p) => p.name), TWISTS.prompts.map((p) => p.name));
 });
@@ -49,7 +50,7 @@ test("four Characters each carry a before line and an after line for every promp
     const authored = TWISTS.characters[i];
     assert.equal(one.before.line, authored.before.line);
     assert.ok(one.before.loop.frames[0].startsWith(`characters/${one.character}/`));
-    assert.equal(one.after.length, 3);
+    assert.equal(one.after.length, 4);
     one.after.forEach((line, p) => {
       const written = authored.after[TWISTS.prompts[p].name];
       assert.equal(line.line, written.line);
@@ -59,18 +60,24 @@ test("four Characters each carry a before line and an after line for every promp
   });
 });
 
-test("without JavaScript BMO answers the rubber duck prompt", () => {
+test("without JavaScript BMO answers the stunt double prompt", () => {
   const body = section();
   const bmo = TWISTS.characters[0];
   assert.ok(body.includes(`<p class="twist-prompt" id="twist-prompt">${escaped(data().prompts[0].text)}</p>`));
   assert.ok(body.includes(`<div class="say" id="twist-before-say">${escaped(bmo.before.line)}</div>`));
-  assert.ok(body.includes(`<div class="say" id="twist-after-say">${escaped(bmo.after["Rubber duck"].line)}</div>`));
+  assert.ok(body.includes(`<div class="say" id="twist-after-say">${escaped(bmo.after["Stunt double"].line)}</div>`));
   assert.match(body, /<div class="twist-pick" id="twist-pick" hidden>/, "the pickers wait for JavaScript");
 });
 
-test("the setup, the label and the README link are always on show", () => {
+test("only Theatre critic asks for window names consent in the small print", () => {
+  assert.deepEqual(data().prompts.map((p) => [p.name, p.needs]), [
+    ["Stunt double", ANY_MODEL], ["Food critic", ANY_MODEL], ["Theatre critic", CONSENT], ["Forecast", ANY_MODEL],
+  ]);
+  assert.ok(section().includes(`<p class="twist-needs" id="twist-needs">${ANY_MODEL}</p>`));
+});
+
+test("the label and the README link are always on show", () => {
   const body = section();
-  assert.ok(body.includes(`<p class="twist-needs">${NEEDS}</p>`));
   assert.ok(body.includes('<p class="twist-label">Authored samples. The site never calls a model.</p>'));
   assert.ok(body.includes('<a href="https://github.com/omesser/fidget#give-it-an-instance-prompt">Write your own: how →</a>'));
 });
@@ -98,6 +105,7 @@ const pickEverything = `
         seen.push({
           prefix: line.startsWith(partial),
           prompt: say("twist-prompt") === twist.prompts[p].text,
+          needs: say("twist-needs") === twist.prompts[p].needs,
           before: say("twist-before-say") === one.before.line,
           when: say("twist-when") === one.after[p].when,
           sprites: document.getElementById("twist-before-sprite").getAttribute("src").startsWith("characters/" + one.character + "/")
@@ -117,7 +125,7 @@ async function pick(args) {
 
 function expected(typedIn) {
   return TWISTS.characters.flatMap((one, i) => TWISTS.prompts.map((prompt) => ({
-    prefix: true, prompt: true, before: true, when: true, sprites: true,
+    prefix: true, prompt: true, needs: true, before: true, when: true, sprites: true,
     pressed: [data().characters[i].name, prompt.name], partial: !typedIn,
   })));
 }

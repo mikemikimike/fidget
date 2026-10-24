@@ -176,15 +176,15 @@ An Instance Prompt is your own text for one fidget, layered on top of its Charac
 
 Every example below assumes this setup:
 
-- A [Harness](#harness-support) is attached. A Model API can't run tools.
-- The Harness is allowed to use its own tools.
-- The **Window and application names** consent is on in Settings → Privacy. Fidget then reads app names and window titles only, never pixels, and it [never takes screenshots](#computer-use).
+- **Model:** A [Harness](#harness-support) or a Model API is attached. Stunt double, Food critic and Forecast work with either.
+- **Consent:** Only Theatre critic needs the **Window and application names** consent, on in Settings → Privacy. Fidget then reads app names and window titles only, never pixels, and it [never takes screenshots](#computer-use).
 
 | Paste and edit | How it reacts on a wake |
 |---|---|
-| `If my editor stays in front for a long stretch, ask me to explain the bug to you, like a rubber duck.` | Sees the editor in front on a wake and asks you to walk it through the bug. |
+| `When I throw you, react like you just pulled off your own movie stunt.` | Throw it across the screen and it takes the landing as its own stunt. |
+| `When I tell you what I'm eating, review it like a food critic, in one dramatic line.` | Tell it what you're eating in the chat and it reviews the dish in one line. |
 | `You're a theatre critic. When you're perched on a window, review that app in one dramatic line.` | Perch it on a window and it reviews the app it's standing on. |
-| `When I ask you to check something on my machine, do it, then report back in one line, in character.` | Does the check with your Harness's tools and reports back in one line, in character. |
+| `When I tell you how my day's going, give it as a weather report.` | Tell it how your day is going and it answers with a forecast. |
 
 ## How It Works
 

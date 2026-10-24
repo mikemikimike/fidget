@@ -689,6 +689,7 @@
       const one = twist.characters.find((c) => c.character === pick.character);
       const answer = one.after[pick.prompt];
       byId("twist-prompt").textContent = twist.prompts[pick.prompt].text;
+      byId("twist-needs").textContent = twist.prompts[pick.prompt].needs;
       byId("twist-before-say").textContent = one.before.line;
       byId("twist-when").textContent = answer.when;
       [one.before.loop, answer.loop].forEach((loop, i) => {
