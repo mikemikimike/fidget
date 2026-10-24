@@ -3,11 +3,10 @@
 // helper the leaf dot-sources, so no window or app launch runs.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
 
+import { runFullscreenOverClick } from "./fullscreen-over-click-win.js";
 import { resolvePwsh } from "./pwsh-resolve.js";
 
 const leaves = ["poke-mid-climb.win.ps1", "question-bubble.win.ps1"].map((name) =>
@@ -16,31 +15,11 @@ const leaves = ["poke-mid-climb.win.ps1", "question-bubble.win.ps1"].map((name) 
 const resolved = resolvePwsh();
 const skip = resolved.kind === "ready" ? false : resolved.reason;
 
-function decisionFiles(leaf) {
-  const files = [leaf];
-  const text = readFileSync(leaf, "utf8");
-  for (const match of text.matchAll(/['"]([^'"]+\.ps1)['"]/g)) {
-    const full = normalize(join(dirname(leaf), match[1].replaceAll("\\", "/")));
-    if (existsSync(full) && !files.includes(full)) files.push(full);
-  }
-  return files;
-}
-
 function run(leaf, body) {
-  const loader = `
-$ErrorActionPreference = 'Stop'
-$loaded = $false
-foreach ($file in ($env:LEAF_FILES -split '\\|')) {
-  if (-not (Test-Path -LiteralPath $file)) { continue }
-  $tokens = $null; $errors = $null
-  $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
-  if ($errors.Count -gt 0) { throw "parse errors in $($file): $($errors | Out-String)" }
-  foreach ($fn in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Get-FullscreenOverClick' }, $true)) {
-    Invoke-Expression $fn.Extent.Text
-    $loaded = $true
-  }
-}
-if (-not $loaded) { throw "Get-FullscreenOverClick is not the skip decision. A frontmost fullscreen window still skips the leaf." }
+  return runFullscreenOverClick(
+    resolved,
+    leaf,
+    `
 $screens = @(@{ Left = 0; Top = 0; Width = 1920; Height = 1080 }, @{ Left = 1920; Top = 0; Width = 2560; Height = 1440 }, @{ Left = 0; Top = 1080; Width = 1920; Height = 1080 })
 function Win($procId, $title, $left, $top, $right, $bottom, $exStyle = 0, $cloaked = $false) {
   @{ Pid = $procId; Class = $title; Title = $title; Left = $left; Top = $top; Right = $right; Bottom = $bottom; ExStyle = $exStyle; Cloaked = $cloaked }
@@ -52,17 +31,8 @@ function Over($windows) {
   $hit = Get-FullscreenOverClick $windows $screens 960 540 7
   if ($hit) { $hit.Title } else { 'none' }
 }
-${body}`;
-  const out = spawnSync(
-    resolved.command,
-    [...(resolved.args ?? []), "-NoProfile", "-NonInteractive", "-Command", loader],
-    {
-      env: { ...process.env, LEAF_FILES: decisionFiles(leaf).join("|"), TERM: "dumb" },
-      encoding: "utf8",
-    },
+${body}`,
   );
-  assert.equal(out.status, 0, out.stderr);
-  return out.stdout.trim().split(/\r?\n/);
 }
 
 for (const leaf of leaves) {
