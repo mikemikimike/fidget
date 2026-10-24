@@ -223,6 +223,7 @@ pub(crate) fn env_or_file(var: &str, file: &str) -> String {
 }
 
 /// Build Director on/off from already-resolved settings.
+/// Reads the attachment, so must run after `harness::attach`.
 pub fn config_from(settings: &DirectorSettings) -> DirectorConfig {
     let configured = crate::harness::attached().is_some()
         || !settings.api_key.is_empty()

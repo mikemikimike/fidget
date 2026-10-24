@@ -549,6 +549,7 @@ struct SettingsState {
     /// Taken by the next snapshot. A window that is still loading has no
     /// listeners, so an event aimed at it would be gone.
     reveal: RevealSlot,
+    /// Proves `harness::attach` ran.
     attached: harness::Attached,
     /// Generation of the Settings window. `settings_loaded` matches it once
     /// navigation finishes. MoveFocus while they differ hangs WebView2.
