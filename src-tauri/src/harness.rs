@@ -186,7 +186,7 @@ pub fn from_settings(saved: Option<&str>) -> Option<Launch> {
 }
 
 impl Launch {
-    fn codex_mcp_config(&self) -> Option<(String, String)> {
+    fn codex_mcp_config(&self) -> Option<(String, crate::mcp_http::Secret)> {
         if self.name != "codex" {
             return None;
         }
@@ -241,7 +241,7 @@ impl Launch {
             if let Some(endpoint) = &endpoint {
                 let (url, token) = endpoint.registration();
                 command.env(fidget_mcp_server::URL_VAR, url);
-                command.env(fidget_mcp_server::TOKEN_VAR, token);
+                command.env(fidget_mcp_server::TOKEN_VAR, token.expose());
             }
         }
         if self.name == "opencode" && endpoint.is_some() && mcp_available {
@@ -253,7 +253,7 @@ impl Launch {
         }
         if let Some((config, token)) = self.codex_mcp_config() {
             command.env("CODEX_CONFIG", config);
-            command.env(fidget_mcp_server::TOKEN_VAR, token);
+            command.env(fidget_mcp_server::TOKEN_VAR, token.expose());
         }
         isolate_from_interrupt(&mut command);
         command
@@ -5103,7 +5103,7 @@ mod tests {
             parsed["mcp_servers"][server.as_str()]["default_tools_approval_mode"],
             "approve"
         );
-        assert!(!config.contains(&endpoint.registration().1));
+        assert!(!config.contains(endpoint.registration().1.expose()));
         assert!(codex_fidget_config(Some("invalid json"), &endpoint).is_none());
         let existing_fidget = codex_fidget_config(
             Some(r#"{"mcp_servers":{"fidget":{"command":"own","default_tools_approval_mode":"prompt"}}}"#),

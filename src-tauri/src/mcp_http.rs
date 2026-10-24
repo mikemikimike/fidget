@@ -52,8 +52,8 @@ pub struct Call {
     pub reply: mpsc::Sender<Result<Value, DispatchError>>,
 }
 
-/// A credential. No `Debug`, `Display` or `Serialize`, so `expose` at a
-/// hand-off is the only way to read it.
+/// A token, or any env value handed to the stdio shim beside it. No `Debug`,
+/// `Display` or `Serialize`, so `expose` at a hand-off is the only way to read it.
 #[derive(Clone)]
 pub struct Secret(String);
 
@@ -83,8 +83,8 @@ impl Endpoint {
     /// The URL and raw token, for the Settings box that shows a user how to
     /// register this endpoint with a Harness they run themselves. Raw rather
     /// than `Bearer `-prefixed because three of five templates add that prefix.
-    pub fn registration(&self) -> (String, String) {
-        (self.url.clone(), self.token.expose().to_string())
+    pub fn registration(&self) -> (String, Secret) {
+        (self.url.clone(), self.token.clone())
     }
 
     /// What a stdio shim needs to dial this endpoint, as environment variables
@@ -412,6 +412,16 @@ fn call_tool(params: &Value, calls: &mpsc::Sender<Call>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Compiles only while `Secret` implements none of these traits.
+    trait Leaks<A> {
+        fn probe() {}
+    }
+    impl<T: ?Sized> Leaks<()> for T {}
+    impl<T: ?Sized + std::fmt::Debug> Leaks<u8> for T {}
+    impl<T: ?Sized + std::fmt::Display> Leaks<u16> for T {}
+    impl<T: ?Sized + serde::Serialize> Leaks<u32> for T {}
+    const _: fn() = <Secret as Leaks<_>>::probe;
 
     fn answering(answer: Value) -> (mpsc::Sender<Call>, thread::JoinHandle<Option<Call>>) {
         let (tx, rx) = mpsc::channel::<Call>();

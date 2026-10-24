@@ -556,7 +556,7 @@ pub fn byo_rows(harness: &str) -> (String, String, String) {
     match crate::mcp_http::endpoint() {
         Some(endpoint) => {
             let (url, token) = endpoint.registration();
-            byo_registration(harness, &url, &token)
+            byo_registration(harness, &url, token.expose())
         }
         None => (
             String::new(),
