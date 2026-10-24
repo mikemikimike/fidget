@@ -1,6 +1,7 @@
 // "Give it your own twist" on the built landing page: the README's Instance
-// Prompts word for word, every Character's before and after line from
-// docs/design/twists.json, and the pickers, clicked in headless Chrome.
+// Prompts word for word, each prompt's one wake and every Character's line
+// for it from docs/design/twists.json, and the pickers, clicked in headless
+// Chrome.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -18,6 +19,8 @@ const PROMPTS = [...README.split("### Give It an Instance Prompt")[1].split("\n#
   .matchAll(/^\| `([^`]+)` \|/gm)].map((row) => row[1]);
 const ANY_MODEL = "Works with any attached model.";
 const CONSENT = "Needs window names consent.";
+const LABEL = "Examples pre-generated with real in-app and character prompts. The site isn't connected to an LLM. "
+  + "Download Fidget to try the real thing.";
 
 let scratch;
 let page;
@@ -43,29 +46,29 @@ test("each prompt is the README's, word for word", () => {
   assert.deepEqual(data().prompts.map((p) => p.name), TWISTS.prompts.map((p) => p.name));
 });
 
-test("five Characters each carry a before line and an after line for every prompt", () => {
+test("each prompt carries one wake that every Character answers", () => {
+  assert.deepEqual(data().prompts.map((p) => p.wake), [
+    "Thrown across the screen.", 'You said: "Leftover pizza."', "Perched on a browser.",
+    'You said: "Three meetings, then the dentist."',
+  ]);
   const cast = data().characters;
   assert.deepEqual(cast.map((c) => c.character), ["bmo", "black-mage", "cat", "trump", "buddy-bot"]);
-  cast.forEach((one, i) => {
-    const authored = TWISTS.characters[i];
-    assert.equal(one.before.line, authored.before.line);
-    assert.ok(one.before.loop.frames[0].startsWith(`characters/${one.character}/`));
-    assert.equal(one.after.length, 4);
-    one.after.forEach((line, p) => {
-      const written = authored.after[TWISTS.prompts[p].name];
-      assert.equal(line.line, written.line);
-      assert.equal(line.when, written.when || TWISTS.prompts[p].when);
-      assert.ok(line.loop.frames.length > 0);
+  for (const one of cast) {
+    assert.equal(one.lines.length, 4);
+    one.lines.forEach((said, p) => {
+      assert.equal(said.line, TWISTS.prompts[p].lines[one.character].line);
+      assert.ok(said.loop.frames[0].startsWith(`characters/${one.character}/`));
+      assert.deepEqual(Object.keys(said).sort(), ["line", "loop"], "a Character's line carries no wake of its own");
     });
-  });
+  }
 });
 
-test("without JavaScript BMO answers the stunt double prompt", () => {
+test("without JavaScript BMO answers the stunt double wake, and nothing shows a Before", () => {
   const body = section();
-  const bmo = TWISTS.characters[0];
   assert.ok(body.includes(`<p class="twist-prompt" id="twist-prompt">${escaped(data().prompts[0].text)}</p>`));
-  assert.ok(body.includes(`<div class="say" id="twist-before-say">${escaped(bmo.before.line)}</div>`));
-  assert.ok(body.includes(`<div class="say" id="twist-after-say">${escaped(bmo.after["Stunt double"].line)}</div>`));
+  assert.ok(body.includes(`<p class="twist-when" id="twist-when">Thrown across the screen.</p>`));
+  assert.ok(body.includes(`<div class="say" id="twist-say">${escaped(TWISTS.prompts[0].lines.bmo.line)}</div>`));
+  assert.doesNotMatch(body, /Before|Personality only|twist-before|twist-arrow/);
   assert.match(body, /<div class="twist-pick" id="twist-pick" hidden>/, "the pickers wait for JavaScript");
 });
 
@@ -78,14 +81,14 @@ test("only Theatre critic asks for window names consent in the small print", () 
 
 test("the label and the README link are always on show", () => {
   const body = section();
-  assert.ok(body.includes('<p class="twist-label">Authored samples. The site never calls a model.</p>'));
+  assert.ok(body.includes(`<p class="twist-label">${escaped(LABEL)}</p>`));
   assert.ok(body.includes('<a href="https://github.com/omesser/fidget#give-it-an-instance-prompt">Write your own: how →</a>'));
 });
 
 const pickEverything = `
   const say = (id) => document.getElementById(id).textContent;
   const typed = (line) => new Promise((done) => {
-    const target = document.getElementById("twist-after-say");
+    const target = document.getElementById("twist-say");
     if (target.textContent === line) return done();
     const watch = new MutationObserver(() => {
       if (target.textContent === line) { watch.disconnect(); done(); }
@@ -99,17 +102,15 @@ const pickEverything = `
       document.querySelector('#twist-pick [data-character="' + one.character + '"]').click();
       for (let p = 0; p < twist.prompts.length; p++) {
         document.querySelector('#twist-pick [data-prompt="' + p + '"]').click();
-        const line = one.after[p].line;
-        const partial = say("twist-after-say");
+        const line = one.lines[p].line;
+        const partial = say("twist-say");
         await typed(line);
         seen.push({
           prefix: line.startsWith(partial),
           prompt: say("twist-prompt") === twist.prompts[p].text,
           needs: say("twist-needs") === twist.prompts[p].needs,
-          before: say("twist-before-say") === one.before.line,
-          when: say("twist-when") === one.after[p].when,
-          sprites: document.getElementById("twist-before-sprite").getAttribute("src").startsWith("characters/" + one.character + "/")
-            && one.after[p].loop.frames.includes(document.getElementById("twist-after-sprite").getAttribute("src")),
+          wake: say("twist-when") === twist.prompts[p].wake,
+          sprite: one.lines[p].loop.frames.includes(document.getElementById("twist-sprite").getAttribute("src")),
           pressed: [...document.querySelectorAll("#twist-pick [aria-pressed=true]")].map((b) => b.textContent),
           partial: partial === line,
         });
@@ -125,15 +126,15 @@ async function pick(args) {
 
 function expected(typedIn) {
   return TWISTS.characters.flatMap((one, i) => TWISTS.prompts.map((prompt) => ({
-    prefix: true, prompt: true, needs: true, before: true, when: true, sprites: true,
+    prefix: true, prompt: true, needs: true, wake: true, sprite: true,
     pressed: [data().characters[i].name, prompt.name], partial: !typedIn,
   })));
 }
 
-test("every Character and prompt pair shows its lines, the after line typing in", { skip: chromeSkip }, async () => {
+test("every Character and prompt pair shows its lines, the line typing in", { skip: chromeSkip }, async () => {
   assert.deepEqual(await pick([]), { shown: true, seen: expected(true) });
 });
 
-test("under reduced motion the after line lands whole", { skip: chromeSkip }, async () => {
+test("under reduced motion the line lands whole", { skip: chromeSkip }, async () => {
   assert.deepEqual(await pick(["--force-prefers-reduced-motion"]), { shown: true, seen: expected(false) });
 });

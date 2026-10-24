@@ -70,6 +70,9 @@ TWISTS = ROOT / "docs" / "design" / "twists.json"
 TWIST_SETUP = ("[Harness]", "Model API", "**Window and application names** consent")
 # The small print under a prompt that names no setup of its own in twists.json.
 TWIST_NEEDS = "Works with any attached model."
+# The small print under the twist toy.
+TWIST_LABEL = ("Examples pre-generated with real in-app and character prompts. The site isn't connected to an LLM. "
+               "Download Fidget to try the real thing.")
 # GitHub renders an attachment URL alone on its line as a video player.
 ATTACHMENT = re.compile(r"^(https://github\.com/user-attachments/assets/[0-9a-f-]+)[ \t]*$", re.M)
 LATEST = f"{REPO}/releases/latest"
@@ -623,68 +626,56 @@ def sprite(loop_, alt, extra=""):
 
 
 def read_twists(data, prompts, characters_root, default_fps):
-    """The twist toy: each authored prompt matched to one README prompt, and
-    each Character's before line and its after line for every prompt.
+    """The twist toy: each authored prompt matched to one README prompt, with
+    the one wake every Character answers and each Character's line for it.
 
-    A line plays its Behavior's first animation when it names one, else idle
-    before the prompt and talk after it.
+    A line plays its Behavior's first animation when it names one, else talk.
     """
+    cast = []
+    for name in data.get("characters") or []:
+        package = characters_root / str(name)
+        if not (package / "character.manifest").is_file() or name in gallery.WITHHELD:
+            raise Malformed(f"twists.json names {name!r}, which characters/ does not ship")
+        declared = manifest(package)
+        cast.append({"character": name, "name": declared.get("name") or name, "declared": declared, "package": package,
+                     "pixel": declared.get("render_mode") != "smooth", "lines": []})
+    if not cast:
+        raise Malformed("twists.json names no Characters")
     picked = []
     for prompt in data.get("prompts") or []:
         found = [text for text in prompts if prompt["match"] in text]
         if len(found) != 1:
             raise Malformed(f"twists.json: {prompt['match']!r} matches {len(found)} README Instance Prompts, not one")
-        picked.append({"name": prompt["name"], "text": found[0], "needs": prompt.get("needs") or TWIST_NEEDS})
-    if not picked:
-        raise Malformed("twists.json names no prompts")
-    cast = []
-    for one in data.get("characters") or []:
-        name = one.get("character")
-        package = characters_root / str(name)
-        if not (package / "character.manifest").is_file() or name in gallery.WITHHELD:
-            raise Malformed(f"twists.json names {name!r}, which characters/ does not ship")
-        declared = manifest(package)
-
-        def spoken(written, animation, label):
+        if not prompt.get("wake"):
+            raise Malformed(f"twists.json gives {prompt['name']} no wake")
+        lines = prompt.get("lines") or {}
+        if set(lines) != {one["character"] for one in cast}:
+            raise Malformed(f"twists.json gives {prompt['name']} lines for {sorted(lines)}, not one per Character")
+        for one in cast:
+            written, animation = lines[one["character"]], "talk"
             if not written.get("line"):
-                raise Malformed(f"twists.json gives {name} no {label} line")
+                raise Malformed(f"twists.json gives {one['character']} no {prompt['name']} line")
             behavior = written.get("behavior")
             if behavior is not None:
-                play = declared.get("behaviors", {}).get(behavior, {}).get("play")
+                play = one["declared"].get("behaviors", {}).get(behavior, {}).get("play")
                 if not play:
-                    raise Malformed(f"twists.json: {name} declares no {behavior!r} Behavior")
+                    raise Malformed(f"twists.json: {one['character']} declares no {behavior!r} Behavior")
                 animation = play[0]
-            return {"line": written["line"], "loop": loop(package, declared, animation, default_fps)}
-
-        answers = one.get("after") or {}
-        if set(answers) != {p["name"] for p in data["prompts"]}:
-            raise Malformed(f"twists.json gives {name} after lines for {sorted(answers)}, not one per prompt")
-        after = []
-        for prompt in data["prompts"]:
-            written = answers[prompt["name"]]
-            when = written.get("when") or prompt.get("when")
-            if not when:
-                raise Malformed(f"twists.json says nothing of when {name} answers {prompt['name']}")
-            after.append({**spoken(written, "talk", f"{prompt['name']} after"), "when": when})
-        cast.append({"character": name, "name": declared.get("name") or name,
-                     "pixel": declared.get("render_mode") != "smooth",
-                     "before": spoken(one.get("before") or {}, "idle", "before"), "after": after})
-    if not cast:
-        raise Malformed("twists.json names no Characters")
-    return {"prompts": picked, "characters": cast}
+            one["lines"].append({"line": written["line"],
+                                 "loop": loop(one["package"], one["declared"], animation, default_fps)})
+        picked.append({"name": prompt["name"], "text": found[0], "needs": prompt.get("needs") or TWIST_NEEDS,
+                       "wake": prompt["wake"]})
+    if not picked:
+        raise Malformed("twists.json names no prompts")
+    return {"prompts": picked, "characters": [{k: one[k] for k in ("character", "name", "pixel", "lines")} for one in cast]}
 
 
 def twist_html(twist):
     """The toy as it stands without JavaScript: the first Character on the
     first prompt, the pickers hidden, and every line in #twist-data."""
     first, prompt = twist["characters"][0], twist["prompts"][0]
-    answer = first["after"][0]
+    said = first["lines"][0]
     pixel = ' class="pixel"' if first["pixel"] else ""
-
-    def art(side, loop_):
-        return (f'<div class="twist-art"><img id="twist-{side}-sprite" src="{loop_["frames"][0]}" '
-                f'alt="{html.escape(first["name"])}"{pixel}></div>')
-
     characters = "".join(
         f'<button type="button" data-character="{c["character"]}" aria-pressed="{str(i == 0).lower()}">'
         f'{html.escape(c["name"])}</button>' for i, c in enumerate(twist["characters"]))
@@ -699,14 +690,15 @@ def twist_html(twist):
         f'<div class="twist-layer"><span>Your own layer</span><p class="twist-prompt" id="twist-prompt">'
         f'{html.escape(prompt["text"])}</p></div>',
         f'<p class="twist-needs" id="twist-needs">{html.escape(prompt["needs"])}</p>',
-        '<div class="twist-pair">',
-        f'<figure><figcaption>Before</figcaption><p class="twist-when">Personality only.</p>'
-        f'<div class="say" id="twist-before-say">{html.escape(first["before"]["line"])}</div>'
-        + art("before", first["before"]["loop"]) + "</figure>",
-        '<span class="twist-arrow" aria-hidden="true">→</span>',
-        f'<figure><figcaption>After</figcaption><p class="twist-when" id="twist-when">{html.escape(answer["when"])}</p>'
-        f'<div class="say" id="twist-after-say">{html.escape(answer["line"])}</div>'
-        + art("after", answer["loop"]) + "</figure>",
+        '<figure class="twist-scene">',
+        f'<p class="twist-when" id="twist-when">{html.escape(prompt["wake"])}</p>',
+        f'<div class="say" id="twist-say">{html.escape(said["line"])}</div>',
+        f'<div class="twist-art"><img id="twist-sprite" src="{said["loop"]["frames"][0]}" '
+        f'alt="{html.escape(first["name"])}"{pixel}></div>',
+        "</figure>",
+        '<div class="twist-foot">',
+        f'<p class="twist-label">{html.escape(TWIST_LABEL)}</p>',
+        '<a href="https://github.com/omesser/fidget#give-it-an-instance-prompt">Write your own: how →</a>',
         "</div>",
         # Escaped so the JSON can never close the <script> element it sits in.
         f'<script type="application/json" id="twist-data">{json.dumps(twist).replace("<", "\\u003c")}</script>',
@@ -1191,7 +1183,7 @@ def self_check():
     authored = json.loads(TWISTS.read_text(encoding="utf-8"))
     fps = gallery.from_rust(rust)[1]["fps"]
     twist = read_twists(authored, words["prompts"], CHARACTERS, fps)
-    assert len(twist["characters"]) == 5 and all(len(c["after"]) == 4 for c in twist["characters"]), \
+    assert len(twist["characters"]) == 5 and all(len(c["lines"]) == 4 for c in twist["characters"]), \
         "the twist toy lost a Character or a prompt"
     assert all(p["text"] in readme for p in twist["prompts"]), "a twist prompt is not the README's, word for word"
 
@@ -1207,11 +1199,11 @@ def self_check():
     for change, wanted in (
         (lambda d: d["prompts"][0].update(match="rubber chicken"), "matches 0 README"),
         (lambda d: d["prompts"][0].update(match="you"), "not one"),
-        (lambda d: d["characters"][0].update(character="garfield"), "does not ship"),
-        (lambda d: d["characters"][2]["after"]["Theatre critic"].update(behavior="conquer"), "declares no 'conquer'"),
-        (lambda d: d["characters"][1]["after"].pop("Forecast"), "not one per prompt"),
-        (lambda d: d["characters"][3]["before"].update(line=""), "no before line"),
-        (lambda d: d["characters"][0]["after"]["Theatre critic"].pop("when"), "says nothing of when"),
+        (lambda d: d["characters"].__setitem__(0, "garfield"), "does not ship"),
+        (lambda d: d["prompts"][2]["lines"]["cat"].update(behavior="conquer"), "declares no 'conquer'"),
+        (lambda d: d["prompts"][3]["lines"].pop("black-mage"), "not one per Character"),
+        (lambda d: d["prompts"][1]["lines"]["trump"].update(line=""), "no Food critic line"),
+        (lambda d: d["prompts"][2].pop("wake"), "no wake"),
     ):
         assert wanted in (twist_fails(change) or ""), f"a broken twists.json passed, wanting {wanted!r}"
     unset = readme.replace("**Window and application names** consent", "**Window names** setting")
