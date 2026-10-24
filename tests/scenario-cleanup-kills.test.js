@@ -634,6 +634,92 @@ test(
 );
 
 test(
+  "quit_textedit names a failed document list instead of another open document",
+  { skip: process.platform === "win32" && "needs bash and an osascript stub" },
+  async () => {
+    const box = sandbox();
+    const owned = path.join(box.dir, "scenario-one.txt");
+    const standin = spawn("sleep", ["30"], { stdio: "ignore" });
+    try {
+      const { run, logged } = runOwnedCleanup(
+        "chat-close-pill-type.sh",
+        box,
+        standin,
+        {
+          fn: "quit_textedit",
+          owned,
+          osascript: [
+            'case "$*" in',
+            '*"count every document"*) exit 1 ;;',
+            "esac",
+            "exit 0",
+          ].join("\n"),
+        },
+      );
+      const ended = await reaped(standin);
+      fs.rmSync(box.dir, { recursive: true, force: true });
+
+      assert.equal(
+        run.status,
+        1,
+        `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+      );
+      assert.match(
+        run.stderr,
+        /TextEdit's documents could not be listed\. This run will not quit it\./,
+      );
+      assert.doesNotMatch(
+        run.stderr,
+        /TextEdit has another document open\. This run will not quit it\./,
+      );
+      assert.doesNotMatch(logged, /quit saving no/);
+      assert.equal(ended, false, "quit_textedit quit TextEdit without a document count");
+    } finally {
+      try {
+        standin.kill();
+      } catch {
+        // Still alive is what this test wants.
+      }
+    }
+  },
+);
+
+test(
+  "textedit_osascript does not call osascript when the 3s cap is missing",
+  { skip: process.platform === "win32" && "needs bash" },
+  () => {
+    const box = sandbox();
+    const called = path.join(box.dir, "osascript-called");
+    box.stub("osascript", `: > ${JSON.stringify(called)}; sleep 30; exit 0`);
+    const script = path.join(box.dir, "uncapped.sh");
+    fs.writeFileSync(
+      script,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        `. ${JSON.stringify(path.join(scenarios, "helpers", "wait-helpers.mac.sh"))}`,
+        "textedit_osascript -e 'tell application \"TextEdit\" to count every document'",
+        "echo should-not-run",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const started = Date.now();
+    const run = spawnSync("bash", [script], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${box.bin}:/usr/bin:/bin` },
+    });
+    const ms = Date.now() - started;
+    const calledOsascript = fs.existsSync(called);
+    fs.rmSync(box.dir, { recursive: true, force: true });
+    assert.notEqual(run.status, 0, run.stdout + run.stderr);
+    assert.doesNotMatch(run.stdout, /should-not-run/);
+    assert.ok(ms < 1000, `took ${ms} ms`);
+    assert.equal(calledOsascript, false);
+  },
+);
+
+test(
   "quit_textedit quits when the only open document is the run's",
   {
     skip:

@@ -57,13 +57,10 @@ seed_tour_shown() { # <home>
   echo '{"first_run_tour_shown": true}' > "$1/Library/Application Support/fidget/settings.json"
 }
 
-# The leaf bounds every Apple event at 3s. A direct call would hold the trap.
+# No bare osascript. Without the leaf's 3s cap a hung TextEdit holds the trap.
 textedit_osascript() {
-  if declare -F capped > /dev/null; then
-    capped 3 osascript "$@"
-  else
-    osascript "$@"
-  fi
+  declare -F capped > /dev/null || return 1
+  capped 3 osascript "$@"
 }
 
 # Quit and signal pid only when TextEdit reports zero documents after these

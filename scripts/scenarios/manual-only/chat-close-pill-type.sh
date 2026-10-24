@@ -101,6 +101,9 @@ quit_textedit() {
   [ -n "${textedit_pid:-}" ] || return 0
   local rc=0
   close_opened_documents "$textedit_pid" || rc=$?
+  if [ "$rc" -eq 2 ]; then
+    fail "TextEdit's documents could not be listed. This run will not quit it."
+  fi
   if [ "$rc" -ne 0 ]; then
     fail "TextEdit has another document open. This run will not quit it."
   fi
