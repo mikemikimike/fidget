@@ -4463,18 +4463,24 @@ mod tests {
                             }
                             stop(&id, "end_turn");
                         }
-                        // `scripts/scenarios/ci/streaming-bubble.sh`. Slow enough
-                        // to photograph the bubble mid-sentence.
+                        // `scripts/scenarios/ci/streaming-bubble.sh`. `hold=`
+                        // pauses after words 2 and 5 for the leaf's captures;
+                        // 10 s bounds a leaf that never opens it.
                         "scenario-streaming" => {
                             chunk(&session, "gre");
                             thread::sleep(Duration::from_millis(600));
                             chunk(&session, "et\n");
+                            let fifo = std::env::args()
+                                .find_map(|arg| arg.strip_prefix("hold=").map(PathBuf::from));
                             for (n, word) in "Watch these words arrive one at a time."
                                 .split_inclusive(' ')
                                 .enumerate()
                             {
                                 chunk(&session, word);
                                 record(count, &format!("word {}", n + 1));
+                                if let Some(fifo) = fifo.as_ref().filter(|_| n == 1 || n == 4) {
+                                    hold(fifo, Duration::from_secs(10));
+                                }
                                 thread::sleep(Duration::from_millis(700));
                             }
                             record(count, "spoken");
@@ -4520,11 +4526,11 @@ mod tests {
                             }
                             // The reply collapses the row, so a leaf that passes
                             // `hold=<fifo>` opens it once it has the open-row dump.
-                            // 3 s bounds a leaf that never does.
+                            // 10 s bounds a leaf that never does.
                             if let Some(fifo) = std::env::args()
                                 .find_map(|arg| arg.strip_prefix("hold=").map(PathBuf::from))
                             {
-                                hold(&fifo, Duration::from_secs(3));
+                                hold(&fifo, Duration::from_secs(10));
                             }
                             chunk(&session, "fidget\nChat is open.");
                             stop(&id, "end_turn");

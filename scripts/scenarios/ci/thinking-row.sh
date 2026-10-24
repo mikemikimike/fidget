@@ -79,7 +79,8 @@ wait_for_marks 3 "$marks" '^asked$' || fail "no wake reached the Harness; see $l
 # `chat: <label> is open` is the line a fresh Chat writes; it never writes
 # `is not minimized`, which is a deminiaturize transition.
 wait_for_trace 3 "$trace" '^[0-9]+ chat: chat-[^ ]+ is open$' || fail "Chat never logged open; see $trace"
-[ -n "$("$tools/window-id" "$pid" BMO 2> /dev/null)" ] || fail "Chat did not open for the ask"
+# The window server lists Chat a moment after it logs open.
+wait_for_ax 3 "$pid" "$tools/window-id" "$pid" BMO || fail "Chat did not open for the ask"
 wait_for_marks 3 "$marks" '^thought 2$' || fail "no thinking turn; see $log"
 capture mid-thought ▾
 # Opening the FIFO releases the Harness's held reply. Read-write never blocks,

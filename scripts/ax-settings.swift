@@ -154,8 +154,20 @@ func press(_ element: AXUIElement) -> Bool {
 }
 
 func window(titled title: String) -> AXUIElement? {
-    let windows = attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []
-    return windows.first { string($0, kAXTitleAttribute) == title }
+    var value: CFTypeRef?
+    var err = AXError.cannotComplete
+    // A busy main thread answers cannotComplete at once, so ask again.
+    let deadline = Date().addingTimeInterval(3)
+    repeat {
+        err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
+        if err != .cannotComplete { break }
+        usleep(100_000)
+    } while Date() < deadline
+    let windows = value as? [AXUIElement] ?? []
+    if let hit = windows.first(where: { string($0, kAXTitleAttribute) == title }) { return hit }
+    let titles = windows.map { string($0, kAXTitleAttribute) ?? "?" }
+    lastError = "AXWindows -> \(err.rawValue), titles \(titles)"
+    return nil
 }
 
 func settingsWindow() -> AXUIElement? { window(titled: "Settings") }
@@ -571,7 +583,7 @@ case "dump":
     let wanted = args.count >= 3 ? args[2] : "Settings"
     // `frames` appends each element's x,y,w,h, for a layout assertion.
     let withFrames = args.count >= 4 && args[3] == "frames"
-    guard settledWindow(titled: wanted) != nil else { die("\(wanted) is not open") }
+    guard settledWindow(titled: wanted) != nil else { die("\(wanted) is not open (\(lastError))") }
     func walk(_ element: AXUIElement, depth: Int) {
         guard depth < 30 else { return }
         let role = string(element, kAXRoleAttribute) ?? "?"
