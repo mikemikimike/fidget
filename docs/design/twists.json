@@ -4,41 +4,41 @@
     {
       "name": "Stunt double", "match": "movie stunt", "wake": "Thrown across the screen.",
       "lines": {
-        "bmo": {"line": "Whoa! I just pulled off my own movie stunt! Did you see me fly?"},
-        "black-mage": {"line": "The fall was planned. Entirely. HADOKEN!"},
-        "cat": {"line": "I do my own stunts. You're welcome."},
-        "trump": {"line": "I meant to do that. Greatest stunt this desktop has ever seen. Hollywood wishes."},
+        "bmo": {"line": "Watch this, watch this. I did that stunt on purpose. Wheee!"},
+        "black-mage": {"line": "The hat stays on. Stunt's mine."},
+        "cat": {"line": "I flew. Intentionally. You may clap."},
+        "trump": {"line": "I meant to do that. Greatest stunt in desktop history. Hollywood called. They lost."},
         "buddy-bot": {"line": "Woo! Midair hero shot. I meant every spin."}
       }
     },
     {
       "name": "Food critic", "match": "food critic", "wake": "You said: \"Leftover pizza.\"",
       "lines": {
-        "bmo": {"line": "Leftover pizza! A chilled masterpiece, still singing of last night."},
+        "bmo": {"line": "This leftover pizza is a cold brave triangle whose cheese waited all night just to see you again."},
         "black-mage": {"line": "A cold corpse of cheese and crust. I give it Fire-3. Hadoken.", "behavior": "ponder"},
-        "cat": {"line": "A chilled empire of cheese, overnighted into disgrace and glory.", "behavior": "remark"},
-        "trump": {"line": "Leftover pizza. Tremendous cold slice. Best lunch this Dock has ever seen."},
+        "cat": {"line": "Yesterday's pizza, judged at noon: cold, shameless, still convinced it is dinner. I supervised. You're welcome.", "behavior": "remark"},
+        "trump": {"line": "Leftover pizza. Cold. Magnificent. A slice so great other lunches should be ashamed."},
         "buddy-bot": {"line": "Leftover pizza: last night's legend, fridge-aged and still a little famous."}
       }
     },
     {
       "name": "Theatre critic", "match": "theatre critic", "needs": "Needs window names consent.", "wake": "Perched on Spotify, playing Dancing Queen.",
       "lines": {
-        "bmo": {"line": "A glittering disco of a window. I award Dancing Queen every star."},
+        "bmo": {"line": "A queen is dancing under me and I am the tiniest critic. Five stars. I mean every one."},
         "black-mage": {"line": "They call her Dancing Queen. I call her kindling.", "behavior": "ponder"},
         "cat": {"line": "They crowned a dancer. I am sitting on her. Curtain.", "behavior": "remark"},
-        "trump": {"line": "Perched on Spotify. ABBA. A glittering triumph. I rank this window number one.", "behavior": "settle"},
-        "buddy-bot": {"line": "Dancing Queen on Spotify? Darling, this window just stole the show.", "behavior": "settle"}
+        "trump": {"line": "Stuck the landing. Dancing Queen? Tremendous production. I give this window raves. Believe me.", "behavior": "settle"},
+        "buddy-bot": {"line": "Spotify unfurls Friday night like a sequined curtain, and Dancing Queen still owns the house.", "behavior": "settle"}
       }
     },
     {
       "name": "Forecast", "match": "weather report", "wake": "You said: \"Three meetings, then the dentist.\"",
       "lines": {
-        "bmo": {"line": "Cloudy with three meetings. Then a dentist squall. You will be so brave. I am watching.", "behavior": "report"},
-        "black-mage": {"line": "Forecast: three fronts of tedium. Then the dentist. I recommend Fire-3.", "behavior": "ponder"},
+        "bmo": {"line": "Weather report. Three meeting-clouds stacked up. Then a dentist front. Your teeth are going on a quest. I will be right here.", "behavior": "report"},
+        "black-mage": {"line": "Overcast. Three meetings. Dentist later. Chance of fireball: high.", "behavior": "ponder"},
         "cat": {"line": "Cloudy with meetings. Dentist moving in. I remain.", "behavior": "remark"},
-        "trump": {"line": "Three-meeting storm. Then the dentist. Brutal forecast. Very unfair Monday.", "behavior": "report"},
-        "buddy-bot": {"line": "Meeting clouds till noon, then a dentist front. I'll stay above the Dock."}
+        "trump": {"line": "Forecast: three meetings rolling in. Then the dentist. Very stormy Monday. Tremendous, if you like pain.", "behavior": "report"},
+        "buddy-bot": {"line": "Overcast with three meeting clouds. Then a sharp dentist front. Grey Monday, but I’m right here."}
       }
     }
   ]
