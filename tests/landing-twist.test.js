@@ -78,8 +78,12 @@ test("the setup, the label and the README link are always on show", () => {
 const pickEverything = `
   const say = (id) => document.getElementById(id).textContent;
   const typed = (line) => new Promise((done) => {
-    const check = () => (say("twist-after-say") === line ? done() : setTimeout(check, 20));
-    check();
+    const target = document.getElementById("twist-after-say");
+    if (target.textContent === line) return done();
+    const watch = new MutationObserver(() => {
+      if (target.textContent === line) { watch.disconnect(); done(); }
+    });
+    watch.observe(target, { childList: true, characterData: true, subtree: true });
   });
   window.addEventListener("load", async () => {
     const twist = JSON.parse(document.getElementById("twist-data").textContent);
