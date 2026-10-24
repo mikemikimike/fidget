@@ -3646,6 +3646,7 @@ pub fn attached() -> Option<Arc<Session>> {
 }
 
 /// Get the attach token. Panics if `attach` was never called.
+#[cfg(not(test))]
 pub fn attached_token() -> Attached {
     attachment()
         .attached_token

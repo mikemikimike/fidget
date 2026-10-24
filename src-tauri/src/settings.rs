@@ -1245,7 +1245,11 @@ fn stored_key_status(store: &dyn SecretStore) -> (bool, String, String) {
 
 /// Resolve Director settings on the settings thread. The frame loop only applies them.
 fn retarget_payload(settings: &Settings, store: &dyn SecretStore) -> Result<SettingsOp, String> {
-    let director = director_settings(settings, store, crate::harness::attached_token())?;
+    #[cfg(not(test))]
+    let token = crate::harness::attached_token();
+    #[cfg(test)]
+    let token = crate::harness::test_token();
+    let director = director_settings(settings, store, token)?;
     let mut cfg = model::config_from(&director);
     cfg.apply_switch(settings.director_enabled);
     Ok(SettingsOp::Retarget {
