@@ -559,6 +559,6 @@ test("the playground reads as Oded asked: its title and gestures, two windows th
   assert.ok(play.indexOf(cta) > play.indexOf('id="play-cues"'), "the linked Download line sits below the desk, not in the chat");
   const titles = [...page.matchAll(/<h2>(.*?)<\/h2>/g)].map((m) => m[1]);
   const at = titles.indexOf("Live Playground");
-  assert.deepEqual(titles.slice(at, at + 4),
-    ["Live Playground", "Packaged Fidgets", "Talks to the agent you already use", "How it works"]);
+  assert.deepEqual(titles.slice(at, at + 5),
+    ["Live Playground", "Packaged Fidgets", "Talks to the agent you already use", "Give it your own twist", "How it works"]);
 });
