@@ -5,7 +5,8 @@
 //! before: the state and Behavior the verb found, how many times in a row the
 //! same verb arrived, and the short run of states and Behaviors behind it.
 //! Kept by the Shell, one per Instance, fed once per tick, and read when a
-//! wake is built. No timestamps or ages: the window is short enough to mean now.
+//! wake is built. A wake gets no timestamps or ages: the window is short
+//! enough to mean now.
 
 use std::collections::VecDeque;
 use std::time::Duration;

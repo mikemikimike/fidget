@@ -53,7 +53,7 @@ pub(super) fn support_below(
 ///
 /// Only narrows the candidates; nearest support still wins over frontmost.
 /// Taking the first match in z-order would drop the sprite through an edge it
-/// can plainly see whenever the window in front sits above it and is no support.
+/// can see whenever the window in front sits above it and is no support.
 pub(super) fn is_perch(index: usize, x: f64, snapshot: &WorldSnapshot, clearance: f64) -> bool {
     let window = &snapshot.windows[index].rect;
     window.spans_x(x)
@@ -82,23 +82,23 @@ pub(super) fn footing(
     swallowing: impl Fn(&Window) -> bool,
 ) -> Option<Support> {
     // The floor is exempt: it is under every window and the sprite is drawn in
-    // front of them all, so ground in front of a window is not the trapped-inside
-    // case (DESIGN.md decision 7). Anything behind the Dock contains the floor.
+    // front of them all, so the floor is never the trapped-inside case
+    // (DESIGN.md decision 7). Anything behind the Dock contains the floor.
     if floor_under(position.x, snapshot) == Some(position.y) {
         return support_below(position, snapshot, clearance);
     }
 
     // The Perch it is on: a window whose top edge is exactly its own height.
     // Without one it stands on nothing and falls; a Perch moving out from under
-    // it leaves it in the air, not on the first window that happens to contain it.
+    // it leaves it in the air, not on the first window that contains it.
     let perch = snapshot
         .windows
         .iter()
         .position(|window| window.rect.spans_x(position.x) && window.rect.y == position.y)?;
 
-    // Only a window in front of the Perch can swallow the sprite: what is behind
-    // the Perch is behind the sprite too. And an edge you cannot see is gone, so
-    // a hidden Perch falls rather than floating in mid-air after alt-tab.
+    // Only a window in front of the Perch can swallow the sprite: what is
+    // behind the Perch is behind the sprite too. An unseen edge is gone, so a
+    // hidden Perch falls rather than floating in mid-air after alt-tab.
     let held = (is_perch(perch, position.x, snapshot, clearance)
         && !snapshot.windows[..perch].iter().any(&swallowing))
     .then_some(Support {
@@ -233,7 +233,7 @@ pub(super) fn dock_side_reached(
 
     // Behind the Dock's own display, not merely its x-range, or a display
     // stacked below would keep every sprite on its floor behind the Dock. The
-    // Dock's center picks the display; its bottom, not the Dock's, is the floor.
+    // Dock's center picks the display, whose bottom is the floor.
     let center = (dock.x + dock.width / 2.0, dock.y + dock.height / 2.0);
     snapshot.displays.iter().find(|display| {
         display.spans_x(center.0)
@@ -258,7 +258,7 @@ pub(super) fn dock_side_reached(
     };
     // In the margin the side is a wall only for a sprite moving into the Dock,
     // as `wall_reached` treats a display edge. Strictly behind there is no such
-    // reprieve either way: the way out from under a real Dock is long and unseen.
+    // reprieve: the way out from under a real Dock is long and unseen.
     if !behind && !into_dock {
         return None;
     }

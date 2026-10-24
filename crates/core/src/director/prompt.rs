@@ -1,12 +1,8 @@
 use super::{Context, Doing, Happened, Lately, State, Step, CHAT_LIMIT};
 
-/// The opening turn: who this is, what it may propose, and this moment. Who
-/// this is comes in two authored layers, the package's Personality Prompt then
-/// this Instance's own (ADR-0012). Later wakes send `follow_up` only.
-///
-/// `blank` empties the built-in layers and keeps the user's Instance Prompt:
-/// Blank AI is the control run for the shipped prompt. The empty strings keep
-/// their seats so the Prompt tab shows what was sent, and the reply is prose.
+/// The opening turn: Personality Prompt, Instance Prompt (ADR-0012), roster
+/// and moment; later wakes send `follow_up`. `blank` empties the built-in
+/// layers for the control run, keeping the rest; its reply is prose.
 pub(crate) fn character_prompt(
     context: &Context,
     behaviors: impl IntoIterator<Item = impl AsRef<str>>,
@@ -44,16 +40,9 @@ pub(crate) fn character_prompt(
     }
 }
 
-/// The app-level layer of the Character Prompt: voice rules, Behavior roster,
-/// reply contract. Empty under Blank AI. The Prompt tab draws this frozen so
-/// an emptied control run is visible, not a missing block.
-///
-/// Every word here is paid on every wake, by an HTTP Director with a small
-/// context as much as by a Harness, and it crowds the Character and Instance
-/// prompts that carry the personality. So it says only what nothing else can:
-/// the roster, which no tool schema advertises, and the reply shape the parser
-/// needs. The tools describe themselves over MCP, so naming them here would
-/// only be a second copy to drift.
+/// The app layer of the Character Prompt: voice rules, roster, reply contract.
+/// Empty under Blank AI, which the Prompt tab shows frozen. Paid every wake,
+/// so the tools describe themselves over MCP; a copy here would drift.
 pub fn app_instructions(
     behaviors: impl IntoIterator<Item = impl AsRef<str>>,
     blank: bool,
@@ -106,10 +95,9 @@ pub fn happened_word(happened: &Happened) -> &'static str {
     }
 }
 
-/// The line the user typed, read back out of a stored wake prompt (the inverse
-/// of `follow_up`'s `they said:`). Reads it only after the moment's own
-/// `what just happened: spoken to` header, since the Personality Prompt may quote
-/// `they said:`. Used by `session_log::drawn` in src-tauri.
+/// The line the user typed, read back out of a stored wake prompt: the inverse
+/// of `follow_up`'s `they said:`. Searched only after the moment's own header,
+/// since the Personality Prompt may quote `they said:` too.
 pub fn typed_line(prompt: &str) -> Option<&str> {
     let header = format!(
         "what just happened: {}",

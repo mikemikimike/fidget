@@ -805,7 +805,7 @@ mod tests {
         let character = test_character(name);
         let id = roster.spawn(&character, name.to_string(), Point { x: 100.0, y: 100.0 });
 
-        // Fifty ticks is enough for a spawn to reach Grounded before a proposal.
+        // Fifty ticks let a spawn reach Grounded before a proposal.
         let mut snapshot = test_snapshot();
         for _ in 0..50 {
             if let Some(instance) = roster.get_mut(&id) {
@@ -963,8 +963,7 @@ mod tests {
     }
 
     /// MCP Expression path for a hop: enqueue succeeds and the Engine leaves
-    /// the floor. An undeclared name still reports success and changes nothing
-    /// on screen (`an_undeclared_behavior_is_still_enqueued_and_the_engine_refuses`).
+    /// the floor.
     #[test]
     fn play_behavior_jump_leaves_the_ground() {
         use crate::character::{Behavior, Primitive};
@@ -1107,7 +1106,8 @@ mod tests {
         assert_eq!(played["reason"], spoke["reason"]);
     }
 
-    /// Break: empty message or behavior reporting success, or becoming DispatchError.
+    /// Fails if an empty message or behavior reports success, or stops being
+    /// a DispatchError.
     #[test]
     fn empty_message_and_empty_behavior_keep_the_existing_failure_shape() {
         let temp = tempfile::tempdir().expect("temp dir is creatable");
