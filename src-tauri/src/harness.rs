@@ -5029,7 +5029,23 @@ mod tests {
         /// Let the stalled `session/new` answer. One release, the first open only.
         fn release_open_stall(&mut self) {
             let listener = self.release.take().expect("no open stall is waiting");
-            let (mut stream, _) = listener.accept().expect("the stalled open never connected");
+            // A blocking accept turns a fake that died before connecting into a hang.
+            listener.set_nonblocking(true).expect("nonblocking accept");
+            let start = Instant::now();
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(pair) => break pair,
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            start.elapsed() < Duration::from_secs(2),
+                            "the stalled open never connected"
+                        );
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(err) => panic!("accept failed: {err}"),
+                }
+            };
+            stream.set_nonblocking(false).expect("blocking write");
             stream.write_all(&[1]).expect("release the stalled open");
         }
     }
