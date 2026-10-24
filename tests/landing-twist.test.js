@@ -48,7 +48,7 @@ test("each prompt is the README's, word for word", () => {
 
 test("each prompt carries one wake that every Character answers", () => {
   assert.deepEqual(data().prompts.map((p) => p.wake), [
-    "Thrown across the screen.", 'You said: "Leftover pizza."', "Perched on a browser.",
+    "Thrown across the screen.", 'You said: "Leftover pizza."', "Perched on Spotify.",
     'You said: "Three meetings, then the dentist."',
   ]);
   const cast = data().characters;
