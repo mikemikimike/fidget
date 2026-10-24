@@ -27,7 +27,7 @@
         "bmo": {"line": "A queen is dancing under me and I am the tiniest critic. Five stars. I mean every one."},
         "black-mage": {"line": "They call her Dancing Queen. I call her kindling.", "behavior": "ponder"},
         "cat": {"line": "They crowned a dancer. I am sitting on her. Curtain.", "behavior": "remark"},
-        "trump": {"line": "Stuck the landing. Dancing Queen? Tremendous production. I give this window raves. Believe me.", "behavior": "settle"},
+        "trump": {"line": "Dancing Queen. A glittering ABBA spectacular. Five stars. Greatest show this desktop has ever hosted.", "behavior": "settle"},
         "buddy-bot": {"line": "Spotify unfurls Friday night like a sequined curtain, and Dancing Queen still owns the house.", "behavior": "settle"}
       }
     },
