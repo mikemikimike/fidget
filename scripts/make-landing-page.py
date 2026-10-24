@@ -66,7 +66,7 @@ COUNTER = '<script data-goatcounter="https://fidget.goatcounter.com/count" async
 HERO = "buddy-bot"
 # The twist toy's lines; its prompts come from the README's Instance Prompt table.
 TWISTS = ROOT / "docs" / "design" / "twists.json"
-# What every README Instance Prompt example assumes, and the page's small print says.
+# What the README's Instance Prompt setup list names, so the page's small print stays true.
 TWIST_SETUP = ("[Harness]", "Model API", "**Window and application names** consent")
 # The small print under a prompt that names no setup of its own in twists.json.
 TWIST_NEEDS = "Works with any attached model."

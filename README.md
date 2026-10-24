@@ -174,10 +174,10 @@ the Director's countdown. Answers need a Director; see [Get It](#get-it).
 
 An Instance Prompt is your own text for one fidget, layered on top of its Character's personality. To write one, double-click the fidget to summon it, open the **Prompt** tab, and type in the **Your own layer** box. That box is the Instance Prompt. Paste one of the examples below and edit it to fit. Saving starts a new conversation, and the Instance Prompt stays with that fidget if you switch its Character.
 
-Every example below assumes this setup:
+The examples below need this setup:
 
-- **Model:** A [Harness](#harness-support) or a Model API is attached. Stunt double, Food critic and Forecast work with either.
-- **Consent:** Only Theatre critic needs the **Window and application names** consent, on in Settings → Privacy. Fidget then reads app names and window titles only, never pixels, and it [never takes screenshots](#computer-use).
+- **Model:** A [Harness](#harness-support) or a Model API is attached. Three of the four examples need nothing more.
+- **Consent:** Only the theatre critic example needs the **Window and application names** consent, on in Settings → Privacy. Fidget then reads app names and window titles only, never pixels, and it [never takes screenshots](#computer-use).
 
 | Paste and edit | How it reacts on a wake |
 |---|---|
