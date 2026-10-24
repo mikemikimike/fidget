@@ -9814,6 +9814,35 @@ mod tests {
         );
     }
 
+    /// The stalled open has to stay unanswered until the session is dropped.
+    /// A stall that ends on its own lets `session/new` succeed before a slow
+    /// runner's cancel lands.
+    #[test]
+    fn a_stalled_open_does_not_finish_on_its_own() {
+        let (fx, session) = Fixture::new("stall-open");
+        let session = Arc::new(session);
+        let worker = {
+            let session = Arc::clone(&session);
+            thread::spawn(move || session.complete(&asking("hi"), &|_| {}))
+        };
+        assert!(fx.wait_for("open-stall", 1), "the open never stalled");
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = done_tx.send(worker.join());
+        });
+        let still_open = done_rx.recv_timeout(SURFACE_STALL + Duration::from_secs(1));
+        assert!(
+            still_open.is_err(),
+            "the open finished without a cancel: {still_open:?}"
+        );
+        session.shutdown();
+        let ended = done_rx.recv_timeout(Duration::from_secs(2));
+        assert!(
+            matches!(ended, Ok(Ok(Err(_)))),
+            "dropping the session did not end the open: {ended:?}"
+        );
+    }
+
     /// `session/new` holds the wire thread, so an inline reap waits out `REAP`.
     /// The switch returns while that open is still asleep.
     #[test]
