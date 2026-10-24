@@ -3486,7 +3486,8 @@ struct Attachment {
 }
 
 /// Witness that `attach` was called.
-#[derive(Clone, Copy)]
+/// A Harness launch must not read a key it never sends.
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Attached(());
 
 static ATTACHED: Mutex<Attachment> = Mutex::new(Attachment {

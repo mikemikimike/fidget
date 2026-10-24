@@ -850,6 +850,7 @@ pub enum SettingsOp {
         enabled: bool,
         proactive_allowed: bool,
         configured: bool,
+        attached: crate::harness::Attached,
     },
     /// Director switch or Completer source changed: already-open Chat
     /// surfaces must re-run `attached()` from a full opening. Not a second
@@ -1251,13 +1252,14 @@ fn retarget_payload(
     attached: crate::harness::Attached,
 ) -> Result<SettingsOp, String> {
     let director = director_settings(settings, store, attached)?;
-    let mut cfg = model::config_from(&director);
+    let mut cfg = model::config_from(&director, attached);
     cfg.apply_switch(settings.director_enabled);
     Ok(SettingsOp::Retarget {
         settings: director,
         enabled: cfg.enabled,
         proactive_allowed: settings.proactive_wakes,
         configured: cfg.configured,
+        attached,
     })
 }
 
@@ -1414,13 +1416,14 @@ impl SettingsSession {
                             &snapshot.director_model,
                             None,
                         );
-                        let mut cfg = model::config_from(&director);
+                        let mut cfg = model::config_from(&director, self.attached);
                         cfg.apply_switch(snapshot.director_enabled);
                         let _ = self.ops.send(SettingsOp::Retarget {
                             settings: director,
                             enabled: cfg.enabled,
                             proactive_allowed: snapshot.proactive_wakes,
                             configured: cfg.configured,
+                            attached: self.attached,
                         });
                     }
                 }
@@ -3339,7 +3342,7 @@ mod tests {
             );
             let unset = model::resolve(&settings.director_base_url, &settings.director_model, None);
             assert!(
-                !model::config_from(&unset).configured,
+                !model::config_from(&unset, crate::harness::test_attached()).configured,
                 "precondition: unset remote is Static"
             );
         });
@@ -3409,7 +3412,7 @@ mod tests {
             assert_eq!(store.reads(), 1, "the HTTP Completer needs the key now");
             assert_eq!(director.api_key, "sk-saved-key");
 
-            let mut config = model::config_from(&director);
+            let mut config = model::config_from(&director, crate::harness::test_attached());
             config.apply_switch(settings.director_enabled);
             assert!(config.configured);
             assert!(!config.enabled, "precondition: the switch is off");
@@ -3428,7 +3431,7 @@ mod tests {
         let settings = endpoint_settings();
         model::tests::with_env(None, None, None, || {
             let director = resolve_director(&settings, &store, false).expect("resolve");
-            let config = model::config_from(&director);
+            let config = model::config_from(&director, crate::harness::test_attached());
             assert_eq!(store.reads(), 1, "precondition: startup read the key");
 
             // What the frame loop does to put a Completer in front of a wake,
@@ -4102,6 +4105,7 @@ mod tests {
                     enabled,
                     configured,
                     proactive_allowed,
+                    ..
                 } => {
                     assert_eq!(settings.api_key, "sk-stored-key");
                     assert!(configured);

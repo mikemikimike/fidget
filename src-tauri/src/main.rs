@@ -5283,7 +5283,7 @@ fn main() {
                     model::resolve(&settings.director_base_url, &settings.director_model, None)
                 }
             };
-            let mut config = model::config_from(&director);
+            let mut config = model::config_from(&director, attached);
             config.apply_switch(settings.director_enabled);
             config.proactive_allowed = settings.proactive_wakes;
             let inspect = Arc::new(Mutex::new(config.inspect(&director)));
