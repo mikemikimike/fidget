@@ -292,10 +292,13 @@ export function frameOf(loop, elapsed) {
 
 // Press decoding as in input.rs: a Grab once a press moves dragThreshold or
 // is held dragDelayMs, else a Poke on release. A drag keeps the feet's offset
-// from the press point, taken at the Grab. Returns a check for a press
-// under way.
-export function decodePresses(target, tuning, { local, feetNow, apply, grabbable = () => true, onPress = () => {} }) {
+// from the press point, taken at the Grab. Returns a check for a press under way.
+export function decodePresses(target, tuning, { local, feetNow, apply, grabbable = () => true, onPress = () => {}, onLongPress }) {
   let press = null;
+  const longPressed = () => {
+    press = null;
+    onLongPress();
+  };
   const grab = () => {
     if (!press || press.held) return;
     clearTimeout(press.timer);
@@ -308,7 +311,11 @@ export function decodePresses(target, tuning, { local, feetNow, apply, grabbable
     event.preventDefault();
     target.setPointerCapture(event.pointerId);
     const at = local(event);
-    const timer = grabbable() ? setTimeout(grab, tuning.dragDelayMs) : 0;
+    // A finger has no hover: with onLongPress, one held still for hoverDelayMs
+    // calls it in place of the mouse's dwell and ends the press, poking nothing.
+    let timer = 0;
+    if (onLongPress && event.pointerType === "touch") timer = setTimeout(longPressed, tuning.hoverDelayMs);
+    else if (grabbable()) timer = setTimeout(grab, tuning.dragDelayMs);
     press = { from: at, last: at, held: false, timer };
     onPress();
   });
@@ -374,6 +381,22 @@ export function mount(section, data, cue) {
     picker.append(button);
   }
   wear(character(data.cast, data.hero));
+  // Until the visitor picks one, the wallpaper follows the page's scheme, live.
+  const walls = section.querySelector("#play-walls");
+  let picked = false;
+  const wallpaper = (wall) => {
+    desk.dataset.wall = wall;
+    for (const button of walls.children) button.setAttribute("aria-pressed", String(button.dataset.wall === wall));
+  };
+  const follow = () => picked || wallpaper(getComputedStyle(document.documentElement).colorScheme === "dark" ? "dark" : "light");
+  follow();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", follow);
+  for (const button of walls.children) {
+    button.addEventListener("click", () => {
+      picked = true;
+      wallpaper(button.dataset.wall);
+    });
+  }
   section.querySelector("#play-tiles").hidden = true;
   desk.hidden = false;
 
@@ -480,6 +503,7 @@ export function mount(section, data, cue) {
     local,
     feetNow,
     onPress: () => clearTimeout(dwell),
+    onLongPress: showPill,
     apply: (event) => {
       if (event.type === "grab") hidePill();
       if (event.type === "grab" || event.type === "poke") hint.classList.add("tried");

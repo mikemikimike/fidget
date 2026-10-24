@@ -21,14 +21,20 @@
     --paper: #F4F5F8;
     --paper-2: #E9EBF1;
     --ink: #1D2027;
-    --ink-2: #4A5060;
+    --ink-2-light: #4A5060;
+    --ink-2-dark: #B4BAC8;
+    --ink-2: var(--ink-2-light);
     --ink-3: #646A7A;
     --line: #D3D7E0;
     --accent: #2C8C7C;
     --accent-ink: #FFFFFF;
     --win: #FBFCFE;
-    --desk-a: #CFE3EC;
-    --desk-b: #E8D9EC;
+    --desk-light-a: #CFE3EC;
+    --desk-light-b: #E8D9EC;
+    --desk-dark-a: #1F3440;
+    --desk-dark-b: #34283D;
+    --desk-a: var(--desk-light-a);
+    --desk-b: var(--desk-light-b);
     --bevel-hi: #FFFFFF;
     --bevel-lo: #BCC2CF;
     --title-a: #FFFFFF;
@@ -40,14 +46,14 @@
       --paper: #171A22;
       --paper-2: #1E222C;
       --ink: #EEF0F5;
-      --ink-2: #B4BAC8;
+      --ink-2: var(--ink-2-dark);
       --ink-3: #7B8294;
       --line: #313746;
       --accent: #5CC9B5;
       --accent-ink: #14171E;
       --win: #232835;
-      --desk-a: #1F3440;
-      --desk-b: #34283D;
+      --desk-a: var(--desk-dark-a);
+      --desk-b: var(--desk-dark-b);
       --bevel-hi: #E8EBF2;
       --bevel-lo: #7B8294;
       --title-a: #343B4B;
@@ -59,14 +65,14 @@
     --paper: #171A22;
     --paper-2: #1E222C;
     --ink: #EEF0F5;
-    --ink-2: #B4BAC8;
+    --ink-2: var(--ink-2-dark);
     --ink-3: #7B8294;
     --line: #313746;
     --accent: #5CC9B5;
     --accent-ink: #14171E;
     --win: #232835;
-    --desk-a: #1F3440;
-    --desk-b: #34283D;
+    --desk-a: var(--desk-dark-a);
+    --desk-b: var(--desk-dark-b);
     --bevel-hi: #E8EBF2;
     --bevel-lo: #7B8294;
     --title-a: #343B4B;
@@ -271,9 +277,22 @@
   .play-sprite { position: absolute; left: 0; top: 0; z-index: 10; cursor: grab; touch-action: none; }
   .play-sprite img { display: block; width: 100%; height: 100%; pointer-events: none; }
   .play-sprite img.pixel { image-rendering: pixelated; }
-  .play-hint { position: absolute; left: 12px; top: 10px; margin: 0; font-size: .85rem; color: var(--ink-2);
+  .play-hint { position: absolute; left: 12px; top: 10px; margin: 0; font-size: .85rem; color: var(--desk-ink);
     transition: opacity .6s; pointer-events: none; }
   .play-hint.tried { opacity: 0; }
+  /* The wallpaper switch, to show the cues read on any desktop. Light and dark
+     are the page's own desk colors, busy is cues.html's. */
+  .play-desk[data-wall="light"] { --desk-a: var(--desk-light-a); --desk-b: var(--desk-light-b); --desk-ink: var(--ink-2-light); }
+  .play-desk[data-wall="dark"] { --desk-a: var(--desk-dark-a); --desk-b: var(--desk-dark-b); --desk-ink: var(--ink-2-dark); }
+  .play-desk[data-wall="busy"] { --desk-ink: var(--ink-2);
+    background: repeating-linear-gradient(45deg, #C86B4A 0 18px, #E8A66B 18px 36px, #3E7C8B 36px 54px, #EFD7A8 54px 72px); }
+  .play-desk[data-wall="busy"] .play-hint { padding: 0 .5rem; border-radius: 999px; background: var(--paper); }
+  .play-walls { position: absolute; right: 10px; top: 8px; z-index: 9; display: flex; gap: 2px; padding: 2px;
+    border: 1px solid var(--line); border-radius: 999px; background: var(--paper); }
+  .play-walls button { padding: .1rem .6rem; border: 0; border-radius: 999px; background: transparent; color: var(--ink-2);
+    font: inherit; font-size: .75rem; cursor: pointer; touch-action: manipulation; }
+  .play-walls button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .play-walls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* The page character: a layer over the viewport that takes no pointer, so
      only the sprite, its Hide chip and its bubble do. */
   .fidget { position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none; }
@@ -380,6 +399,9 @@
     <div class="play-picker" id="play-picker" role="group" aria-label="Pick a character"></div>
     <div class="play-desk" id="play-desk" hidden>
       <p class="play-hint" id="play-hint">Poke it. Drag it. Throw it.</p>
+      <div class="play-walls" id="play-walls" role="group" aria-label="Wallpaper">
+        <button type="button" data-wall="light">Light</button><button type="button" data-wall="dark">Dark</button><button type="button" data-wall="busy">Busy</button>
+      </div>
       <div class="play-win dark" data-win="dark" data-at="0.5 0.45">
         <div class="bar"><i></i><i></i><i></i><span class="drag-me">drag me</span></div>
         <div class="lines"><div style="width:64%"></div><div style="width:82%"></div><div style="width:46%"></div></div>
@@ -411,7 +433,7 @@
     <ul class="play-how">
       <li><b>Left-click</b> to poke</li>
       <li><b>Click and hold</b> to drag it around and drop it</li>
-      <li><b>Hover</b> on Fidget to get the quick-message pill and type something, even while Chat is open</li>
+      <li><b>Hover</b> on Fidget, or <b>long-press</b> it on touch, to get the quick-message pill and type something, even while Chat is open</li>
       <li><b>Double-click</b> to summon chat</li>
     </ul>
     </div>
