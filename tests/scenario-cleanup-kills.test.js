@@ -586,6 +586,74 @@ function pathInClose(owned) {
   return new RegExp(`whose path is.*${escaped}`);
 }
 
+// TextEdit reports the physical path. The leaf stores mktemp's path, which on
+// macOS goes through /var, a symlink to /private/var.
+test(
+  "close_run_documents closes the physical path when the stored path is a symlink",
+  { skip: process.platform === "win32" && "needs bash and symlinks" },
+  async () => {
+    const box = sandbox();
+    const realDir = fs.mkdtempSync(path.join(box.dir, "real-"));
+    const link = path.join(box.dir, "via");
+    fs.symlinkSync(realDir, link);
+    const owned = path.join(link, "scenario-one.txt");
+    fs.writeFileSync(owned, "abc");
+    const physical = fs.realpathSync(owned);
+    assert.notEqual(physical, owned);
+
+    const log = path.join(box.dir, "osascript.log");
+    box.stub(
+      "osascript",
+      [
+        `echo "$*" >> ${JSON.stringify(log)}`,
+        'case "$*" in',
+        '*"count every document"*) echo 1; exit 0 ;;',
+        "esac",
+        "exit 0",
+      ].join("\n"),
+    );
+    const standin = spawn("sleep", ["30"], { stdio: "ignore" });
+    const script = path.join(box.dir, "close.sh");
+    fs.writeFileSync(
+      script,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        `. ${JSON.stringify(path.join(scenarios, "helpers", "wait-helpers.mac.sh"))}`,
+        'capped() { local seconds=$1; shift; "$@"; }',
+        `close_run_documents ${standin.pid} ${JSON.stringify(owned)} || true`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    try {
+      const run = spawnSync("bash", [script], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${box.bin}:/usr/bin:/bin`,
+          TMPDIR: box.dir,
+        },
+      });
+      const ended = await reaped(standin);
+      const logged = fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
+      fs.rmSync(box.dir, { recursive: true, force: true });
+
+      assert.equal(run.status, 0, `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`);
+      assert.equal(ended, false, "cleanup quit TextEdit while a document was still open");
+      const closes = [...logged.matchAll(/whose path is "([^"]+)"/g)].map((match) => match[1]);
+      assert.deepEqual(closes, [physical]);
+      assert.doesNotMatch(logged, /quit saving no/);
+    } finally {
+      try {
+        standin.kill();
+      } catch {
+        // Still alive is what this test wants.
+      }
+    }
+  },
+);
+
 test(
   "quit_textedit refuses before quit or kill when another document is open",
   { skip: process.platform === "win32" && "needs bash and an osascript stub" },

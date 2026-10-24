@@ -68,10 +68,17 @@ textedit_osascript() {
 # still be open. Returns 0 clear, 1 blocked, 2 unknown.
 close_run_documents() { # <pid> <path>...
   [ -n "${1:-}" ] || return 0
-  local pid=$1 path escaped count status=0
+  local pid=$1 path escaped count status=0 physical
   shift
   for path in "$@"; do
-    escaped=$path
+    # TextEdit reports the physical path. A close by the symlink path mktemp
+    # returns matches nothing, so the document stays open and the count never
+    # reaches zero.
+    physical=$path
+    if [ -d "$(dirname "$path")" ]; then
+      physical=$(cd "$(dirname "$path")" && pwd -P)/$(basename "$path")
+    fi
+    escaped=$physical
     escaped=${escaped//\\/\\\\}
     escaped=${escaped//\"/\\\"}
     textedit_osascript -e "tell application \"TextEdit\" to close (every document whose path is \"$escaped\") saving no" > /dev/null 2>&1 || true
