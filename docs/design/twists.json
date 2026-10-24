@@ -22,7 +22,7 @@
       }
     },
     {
-      "name": "Theatre critic", "match": "theatre critic", "needs": "Needs window names consent.", "wake": "Perched on Spotify.",
+      "name": "Theatre critic", "match": "theatre critic", "needs": "Needs window names consent.", "wake": "Perched on Spotify, playing Dancing Queen.",
       "lines": {
         "bmo": {"line": "A green stage. A song about a queen who dances. BMO is crying. Five stars.", "behavior": "fidget"},
         "black-mage": {"line": "One star. White Mage would like it. Fine. Two.", "behavior": "settle"},
