@@ -1935,7 +1935,7 @@ impl Session {
         let Some(endpoint) = crate::mcp_http::endpoint() else {
             return;
         };
-        match crate::cursor_mcp::install(cwd, &endpoint.url, &endpoint.authorization()) {
+        match crate::cursor_mcp::install(cwd, &endpoint.url, endpoint.authorization().expose()) {
             Ok(installed) => {
                 if let Ok(mut slot) = self.cursor.lock() {
                     slot.get_or_insert(installed);
@@ -11041,7 +11041,7 @@ mod tests {
         let current_exe = dir.join("harness-unit-tests");
         touch(&current_exe);
 
-        assert_eq!(mcp_launch(None, &current_exe), None);
+        assert!(mcp_launch(None, &current_exe).is_none());
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -11061,7 +11061,7 @@ mod tests {
         match mcp_server(&http) {
             Some(McpChoice::Http { url, authorization }) => {
                 assert_eq!(url, endpoint.url);
-                assert!(authorization.starts_with("Bearer "));
+                assert!(authorization.expose().starts_with("Bearer "));
             }
             other => panic!(
                 "expected the loopback server, got {:?}",
@@ -11101,13 +11101,13 @@ mod tests {
                 .env
                 .iter()
                 .find(|(var, _)| var == name)
-                .map(|(_, value)| value.clone())
+                .map(|(_, value)| value.expose().to_string())
                 .unwrap_or_else(|| panic!("{name} is not in the environment"))
         };
         assert_eq!(value(fidget_mcp_server::URL_VAR), endpoint.url);
         assert_eq!(
             format!("Bearer {}", value(fidget_mcp_server::TOKEN_VAR)),
-            endpoint.authorization()
+            endpoint.authorization().expose()
         );
         assert!(
             !launch.line().contains(&value(fidget_mcp_server::TOKEN_VAR)),
