@@ -379,7 +379,14 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
         );
         box.stub(
           "osascript",
-          `echo osascript >> ${JSON.stringify(box.touched)}; exit 1`,
+          [
+            `echo osascript >> ${JSON.stringify(box.touched)}`,
+            'case "$*" in',
+            '*"count every document"*) echo 0; exit 0 ;;',
+            '*"whose path is"*scenario-one.txt*) exit 0 ;;',
+            "esac",
+            "exit 1",
+          ].join("\n"),
         );
         for (const tool of ["pkill", "killall"]) {
           box.stub(tool, `echo ${tool} >> ${JSON.stringify(box.touched)}; exit 0`);
@@ -411,6 +418,404 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
   );
 }
 
+// The count after closing this run's paths is the whole decision. Zero may
+// quit. Anything else, including a failed count, leaves TextEdit running.
+const BLOCKED_LEFT_RUNNING =
+  /TextEdit has another document open, so this run left it running\./;
+const UNKNOWN_LEFT_RUNNING =
+  /TextEdit's documents could not be listed, so this run left it running\./;
+
+function runOwnedCleanup(leaf, box, standin, { fn, owned, osascript }) {
+  const log = path.join(box.dir, "osascript.log");
+  box.stub(
+    "osascript",
+    [`echo "$*" >> ${JSON.stringify(log)}`, osascript].join("\n"),
+  );
+  const script = path.join(box.dir, "cleanup.sh");
+  const lines = [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    `. ${JSON.stringify(path.join(scenarios, "helpers", "wait-helpers.mac.sh"))}`,
+    'fail() { echo "FAIL: $*" >&2; exit 1; }',
+    'capped() { local seconds=$1; shift; "$@"; }',
+    `out=${JSON.stringify(box.dir)}`,
+    `textedit_pid=${standin.pid}`,
+    "textedit_opened=()",
+  ];
+  if (owned) lines.push(`textedit_opened+=(${JSON.stringify(owned)})`);
+  lines.push(functionSource(leaf, fn), fn, "");
+  fs.writeFileSync(script, lines.join("\n"), { mode: 0o755 });
+  const run = spawnSync("bash", [script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${box.bin}:/usr/bin:/bin`,
+      TMPDIR: box.dir,
+    },
+  });
+  const logged = fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
+  return { run, logged };
+}
+
+for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
+  test(
+    `close_textedit in ${leaf} closes only the run's document and does not quit while another document is open`,
+    { skip: process.platform === "win32" && "needs bash and an osascript stub" },
+    async () => {
+      const box = sandbox();
+      const owned = path.join(box.dir, "scenario-one.txt");
+      const standin = spawn("sleep", ["30"], { stdio: "ignore" });
+      try {
+        const { run, logged } = runOwnedCleanup(leaf, box, standin, {
+          fn: "close_textedit",
+          owned,
+          osascript: [
+            'case "$*" in',
+            '*"count every document"*) echo 1; exit 0 ;;',
+            "esac",
+            "exit 0",
+          ].join("\n"),
+        });
+        const ended = await reaped(standin);
+        fs.rmSync(box.dir, { recursive: true, force: true });
+
+        assert.equal(
+          run.status,
+          0,
+          `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+        );
+        assert.equal(ended, false, "cleanup quit TextEdit while another document was open");
+        assert.match(run.stderr, BLOCKED_LEFT_RUNNING);
+        const closes = logged.split("\n").filter((line) => line.includes("whose path is"));
+        assert.equal(closes.length, 1);
+        assert.match(closes[0], pathInClose(owned));
+        assert.doesNotMatch(logged, /close every document/);
+        assert.doesNotMatch(logged, /quit saving no/);
+      } finally {
+        try {
+          standin.kill();
+        } catch {
+          // Still alive is what this test wants. A dead one already failed above.
+        }
+      }
+    },
+  );
+
+  test(
+    `close_textedit in ${leaf} quits TextEdit when every open document is one the run opened`,
+    { skip: process.platform === "win32" && "needs bash and an osascript stub" },
+    async () => {
+      const box = sandbox();
+      const owned = path.join(box.dir, "scenario-one.txt");
+      const standin = spawn("sleep", ["30"], { stdio: "ignore" });
+      try {
+        const { run, logged } = runOwnedCleanup(leaf, box, standin, {
+          fn: "close_textedit",
+          owned,
+          osascript: [
+            'case "$*" in',
+            '*"count every document"*) echo 0; exit 0 ;;',
+            "esac",
+            "exit 0",
+          ].join("\n"),
+        });
+        const ended = await reaped(standin);
+        fs.rmSync(box.dir, { recursive: true, force: true });
+
+        assert.equal(
+          run.status,
+          0,
+          `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+        );
+        assert.equal(ended, true, "cleanup left TextEdit running with no document open");
+        assert.match(logged, pathInClose(owned));
+        assert.match(logged, /quit saving no/);
+        assert.doesNotMatch(logged, /close every document/);
+      } finally {
+        try {
+          standin.kill();
+        } catch {
+          // The function's kill already reaped it.
+        }
+      }
+    },
+  );
+
+  test(
+    `close_textedit in ${leaf} leaves TextEdit running when its documents cannot be listed`,
+    { skip: process.platform === "win32" && "needs bash and an osascript stub" },
+    async () => {
+      const box = sandbox();
+      const owned = path.join(box.dir, "scenario-one.txt");
+      const standin = spawn("sleep", ["30"], { stdio: "ignore" });
+      try {
+        const { run, logged } = runOwnedCleanup(leaf, box, standin, {
+          fn: "close_textedit",
+          owned,
+          osascript: [
+            'case "$*" in',
+            '*"count every document"*) exit 1 ;;',
+            "esac",
+            "exit 0",
+          ].join("\n"),
+        });
+        const ended = await reaped(standin);
+        fs.rmSync(box.dir, { recursive: true, force: true });
+
+        assert.equal(
+          run.status,
+          0,
+          `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+        );
+        assert.equal(ended, false, "cleanup quit TextEdit without a document count");
+        assert.match(run.stderr, UNKNOWN_LEFT_RUNNING);
+        assert.doesNotMatch(logged, /quit saving no/);
+      } finally {
+        try {
+          standin.kill();
+        } catch {
+          // Still alive is what this test wants.
+        }
+      }
+    },
+  );
+}
+
+function pathInClose(owned) {
+  const escaped = owned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`whose path is.*${escaped}`);
+}
+
+test(
+  "quit_textedit refuses before quit or kill when another document is open",
+  { skip: process.platform === "win32" && "needs bash and an osascript stub" },
+  async () => {
+    const box = sandbox();
+    const owned = path.join(box.dir, "scenario-one.txt");
+    const standin = spawn("sleep", ["30"], { stdio: "ignore" });
+    try {
+      const { run, logged } = runOwnedCleanup(
+        "chat-close-pill-type.sh",
+        box,
+        standin,
+        {
+          fn: "quit_textedit",
+          owned,
+          osascript: [
+            'case "$*" in',
+            '*"count every document"*) echo 1; exit 0 ;;',
+            "esac",
+            "exit 0",
+          ].join("\n"),
+        },
+      );
+      const ended = await reaped(standin);
+      fs.rmSync(box.dir, { recursive: true, force: true });
+
+      assert.equal(
+        run.status,
+        1,
+        `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+      );
+      assert.match(
+        run.stderr,
+        /TextEdit has another document open\. This run will not quit it\./,
+      );
+      assert.doesNotMatch(logged, /quit saving no/);
+      assert.equal(ended, false, "quit_textedit quit TextEdit while another document was open");
+    } finally {
+      try {
+        standin.kill();
+      } catch {
+        // Still alive is what this test wants.
+      }
+    }
+  },
+);
+
+test(
+  "quit_textedit names a failed document list instead of another open document",
+  { skip: process.platform === "win32" && "needs bash and an osascript stub" },
+  async () => {
+    const box = sandbox();
+    const owned = path.join(box.dir, "scenario-one.txt");
+    const standin = spawn("sleep", ["30"], { stdio: "ignore" });
+    try {
+      const { run, logged } = runOwnedCleanup(
+        "chat-close-pill-type.sh",
+        box,
+        standin,
+        {
+          fn: "quit_textedit",
+          owned,
+          osascript: [
+            'case "$*" in',
+            '*"count every document"*) exit 1 ;;',
+            "esac",
+            "exit 0",
+          ].join("\n"),
+        },
+      );
+      const ended = await reaped(standin);
+      fs.rmSync(box.dir, { recursive: true, force: true });
+
+      assert.equal(
+        run.status,
+        1,
+        `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+      );
+      assert.match(
+        run.stderr,
+        /TextEdit's documents could not be listed\. This run will not quit it\./,
+      );
+      assert.doesNotMatch(
+        run.stderr,
+        /TextEdit has another document open\. This run will not quit it\./,
+      );
+      assert.doesNotMatch(logged, /quit saving no/);
+      assert.equal(ended, false, "quit_textedit quit TextEdit without a document count");
+    } finally {
+      try {
+        standin.kill();
+      } catch {
+        // Still alive is what this test wants.
+      }
+    }
+  },
+);
+
+test(
+  "textedit_osascript does not call osascript when the 3s cap is missing",
+  { skip: process.platform === "win32" && "needs bash" },
+  () => {
+    const box = sandbox();
+    const called = path.join(box.dir, "osascript-called");
+    box.stub("osascript", `: > ${JSON.stringify(called)}; sleep 30; exit 0`);
+    const script = path.join(box.dir, "uncapped.sh");
+    fs.writeFileSync(
+      script,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        `. ${JSON.stringify(path.join(scenarios, "helpers", "wait-helpers.mac.sh"))}`,
+        "textedit_osascript -e 'tell application \"TextEdit\" to count every document'",
+        "echo should-not-run",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const started = Date.now();
+    const run = spawnSync("bash", [script], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${box.bin}:/usr/bin:/bin` },
+    });
+    const ms = Date.now() - started;
+    const calledOsascript = fs.existsSync(called);
+    fs.rmSync(box.dir, { recursive: true, force: true });
+    assert.notEqual(run.status, 0, run.stdout + run.stderr);
+    assert.doesNotMatch(run.stdout, /should-not-run/);
+    assert.ok(ms < 1000, `took ${ms} ms`);
+    assert.equal(calledOsascript, false);
+  },
+);
+
+test(
+  "quit_textedit quits when the only open document is the run's",
+  {
+    skip:
+      process.platform !== "darwin" &&
+      "wait_for_exit watches the pid with caffeinate on macOS",
+  },
+  () => {
+    const box = sandbox();
+    const owned = path.join(box.dir, "scenario-one.txt");
+    const log = path.join(box.dir, "osascript.log");
+    const standin = spawn(
+      "/bin/sh",
+      [
+        "-c",
+        "trap 'kill \"$sleeper\" 2> /dev/null; exit 0' TERM; sleep 60 & sleeper=$!; wait",
+      ],
+      { stdio: "ignore" },
+    );
+    try {
+      box.stub(
+        "osascript",
+        [
+          `echo "$*" >> ${JSON.stringify(log)}`,
+          'case "$*" in',
+          `*"quit saving no"*) ( sleep 1; kill -TERM ${standin.pid} ) > /dev/null 2>&1 & ;;`,
+          '*"count every document"*) echo 0; exit 0 ;;',
+          "esac",
+          "exit 0",
+        ].join("\n"),
+      );
+      const script = path.join(box.dir, "quit.sh");
+      fs.writeFileSync(
+        script,
+        [
+          "#!/usr/bin/env bash",
+          "set -euo pipefail",
+          `. ${JSON.stringify(path.join(scenarios, "helpers", "wait-helpers.mac.sh"))}`,
+          'fail() { echo "FAIL: $*" >&2; exit 1; }',
+          'capped() { local seconds=$1; shift; "$@"; }',
+          `out=${JSON.stringify(box.dir)}`,
+          `textedit_pid=${standin.pid}`,
+          "textedit_opened=()",
+          `textedit_opened+=(${JSON.stringify(owned)})`,
+          functionSource("chat-close-pill-type.sh", "quit_textedit"),
+          "quit_textedit",
+          'echo "pid=${textedit_pid:-empty}"',
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      const run = spawnSync("bash", [script], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${box.bin}:/usr/bin:/bin`,
+          TMPDIR: box.dir,
+        },
+      });
+      const logged = fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
+      fs.rmSync(box.dir, { recursive: true, force: true });
+
+      assert.equal(
+        run.status,
+        0,
+        `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+      );
+      assert.match(run.stdout, /^pid=empty$/m);
+      assert.match(logged, /quit saving no/);
+      assert.match(logged, pathInClose(owned));
+      assert.doesNotMatch(logged, /close every document/);
+    } finally {
+      standin.kill();
+    }
+  },
+);
+
+test("each TextEdit open records the path it opened", () => {
+  function appendsAfterOpens(name) {
+    const lines = fs.readFileSync(findLeaf(name), "utf8").split("\n");
+    const found = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*#/.test(lines[i])) continue;
+      if (!/\bopen\s+(?:-g\s+)?-a\s+TextEdit\b/.test(lines[i])) continue;
+      found.push(lines[i + 1]);
+    }
+    return found;
+  }
+  assert.deepEqual(appendsAfterOpens("chat-close-pill-type.sh"), [
+    'textedit_opened+=("$out/$one")',
+    'textedit_opened+=("$out/$two")',
+  ]);
+  assert.deepEqual(appendsAfterOpens("pill-two-displays.sh"), [
+    'textedit_opened+=("$out/$one")',
+  ]);
+});
+
 // Case 8 refuses a running TextEdit, so case 7's clear has to wait out a quit
 // that is still exiting.
 test(
@@ -441,11 +846,16 @@ test(
           "exit 0",
         ].join("\n"),
       );
-      // The quit returns at once; TextEdit exits a moment later.
+      // The quit returns at once; TextEdit exits a moment later. A count of
+      // zero is what lets that quit run. Any other count leaves the pid set.
       box.stub(
         "osascript",
         [
-          `case "$*" in *"quit saving no"*) ( sleep 1; kill -TERM ${standin.pid} ) > /dev/null 2>&1 & ;; esac`,
+          'case "$*" in',
+          '*"count every document"*) echo 0; exit 0 ;;',
+          '*"whose path is"*) exit 0 ;;',
+          `*"quit saving no"*) ( sleep 1; kill -TERM ${standin.pid} ) > /dev/null 2>&1 & ;;`,
+          "esac",
           "exit 0",
         ].join("\n"),
       );
@@ -462,6 +872,7 @@ test(
           'capped() { local seconds=$1; shift; "$@"; }',
           `out=${JSON.stringify(box.dir)}`,
           `textedit_pid=${standin.pid}`,
+          "textedit_opened=()",
           functionSource("chat-close-pill-type.sh", "quit_textedit"),
           functionSource("chat-close-pill-type.sh", "refuse_running_textedit"),
           "quit_textedit",
