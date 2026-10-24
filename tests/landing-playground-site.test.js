@@ -326,15 +326,11 @@ const touches = `
       const grabbed = once(sprite, "pointerdown");
       finger("touchStart", [x, y]);
       await grabbed;
-      for (const dx of [10, 40, 40, 40]) {
-        await frame();
-        x += toward * dx;
-        const moved = once(sprite, "pointermove");
-        finger("touchMove", [x, y]);
-        await moved;
-      }
+      // The moves and the lift go as one batch: spaced out by page round trips on
+      // a busy runner, they span more than velocityWindowMs and read as a drop.
+      const flick = [10, 40, 40, 40].map((dx) => ({ type: "touchMove", points: [{ x: (x += toward * dx), y }] }));
       const hard = cueIn(layer, ".cue-puff.hard");
-      finger("touchEnd");
+      touch(JSON.stringify([...flick, { type: "touchEnd", points: [] }]));
       await hard;
       const thrown = !pill.classList.contains("visible");
       const kept = await flip();
@@ -430,7 +426,8 @@ async function play(flags = [], script = probe, size = "1280,900") {
     const [width, height] = size.split(",").map(Number);
     if (width < 500) await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true }, sessionId);
     await cdp.send("Runtime.addBinding", { name: "tapAt" }, sessionId);
-    // And touch sends one touch event, for a press that lasts or moves.
+    // And touch sends one touch event, or a batch back to back, for a press that
+    // lasts or moves.
     await cdp.send("Runtime.addBinding", { name: "touch" }, sessionId);
     // And scheme sets the prefers-color-scheme the page sees.
     await cdp.send("Runtime.addBinding", { name: "scheme" }, sessionId);
@@ -440,8 +437,9 @@ async function play(flags = [], script = probe, size = "1280,900") {
         return;
       }
       if (name === "touch") {
-        const { type, points } = JSON.parse(payload);
-        await cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points }, sessionId).catch(() => {});
+        // A batch is sent before any reply comes back, so a busy runner can't space it out.
+        await Promise.all([JSON.parse(payload)].flat().map(({ type, points }) =>
+          cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points }, sessionId).catch(() => {})));
         return;
       }
       if (name !== "tapAt") return;
