@@ -1,7 +1,6 @@
-// "The same moment" on the landing page: three authored scenes from
-// docs/design/moments.json, each with three Characters reacting their own way.
-// The generator refuses a Behavior or a quote the packages do not have, so
-// these tests read the built page and click it in headless Chrome.
+// "The same moment" on the built landing page: every scene in
+// docs/design/moments.json, the first one showing without JavaScript, and the
+// button that cycles them, clicked in headless Chrome.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

@@ -866,17 +866,18 @@ def self_check():
         "a FAQ question with no answer built a page"
 
     authored = json.loads(MOMENTS.read_text(encoding="utf-8"))
+    fps = gallery.from_rust(rust)[1]["fps"]
 
     def moment_fails(change):
         data = json.loads(json.dumps(authored))
         change(data["scenes"][0])
         try:
-            read_moments(data, CHARACTERS, 4)
+            read_moments(data, CHARACTERS, fps)
         except Malformed as caught:
             return str(caught)
         return None
 
-    scenes = read_moments(authored, CHARACTERS, 4)
+    scenes = read_moments(authored, CHARACTERS, fps)
     assert len(scenes) >= 3 and all(len(s["cast"]) == 3 for s in scenes), "the moments lost a scene or a column"
     assert scenes[0]["cast"][0]["loop"]["frames"][0].startswith("characters/cat/"), \
         "a moment's sprite is not its Character's art"
