@@ -335,7 +335,7 @@ pub enum Event {
     /// one replaces the last; the Action Log gets none. `session` is the
     /// turn's, because one child serves every Instance.
     Thought { session: String, text: String },
-    /// Between-turn agent text accumulated in `Inbound` and flushed
+    /// Between-turn agent text accumulated in a session's `Stream` and flushed
     /// when a session transitions (Ask, Elicit, Prompt, or Close).
     InboundWake { session: String, speech: String },
     /// A forwarded ask that can no longer be answered. Every Chat surface
@@ -1201,9 +1201,8 @@ pub(crate) fn kill_harness_tree(pid: u32) {
         // SAFETY: getpgid queries the child's group; errors yield pgid <= 0 and skip killpg.
         let pgid = unsafe { libc::getpgid(pid as libc::pid_t) };
         if killable_group(pgid) {
-            // SIGKILL, not SIGTERM. Claude's ACP adapter dumps
-            // `Query closed before response received` on a polite
-            // signal, which is the dump this isolation exists to avoid.
+            // SIGKILL, not SIGTERM: Claude's ACP adapter dumps
+            // `Query closed before response received` on a polite signal.
             // SAFETY: killable_group verified pgid is not our own process group.
             let _ = unsafe { libc::killpg(pgid, libc::SIGKILL) };
         }
@@ -1431,20 +1430,11 @@ async fn serve(
                             Incoming::Ask(request, responder) => {
                                 held.ask(Owner::Turn, &request, responder)
                             }
-                            // A session-less form during sign-in is the sign-in's.
-                            // A link that outlives the turn is the session's. Neither
-                            // is cancelled by `end_turn`, and the budget runs on.
-                            Incoming::Elicit(request, responder) => {
-                                let owner = if signing_in && elicitation_session(&request).is_none()
-                                {
-                                    Owner::SignIn
-                                } else if outlives_turn(&request) {
-                                    Owner::Session
-                                } else {
-                                    Owner::Turn
-                                };
-                                held.form(owner, &request, responder)
-                            }
+                            Incoming::Elicit(request, responder) => held.form(
+                                elicit_owner(&request, signing_in, true),
+                                &request,
+                                responder,
+                            ),
                             Incoming::Complete(link) => held.complete(&link),
                         }
                     }
@@ -2038,19 +2028,22 @@ fn incoming_session(message: &Incoming) -> Option<SessionId> {
     }
 }
 
-/// The session id from an elicitation request, when it's session-scoped.
-fn elicitation_session(request: &CreateElicitationRequest) -> Option<SessionId> {
-    match &request.mode {
-        ElicitationMode::Url(link) => match &link.scope {
-            ElicitationScope::Session(scope) => Some(scope.session_id.clone()),
-            _ => None,
-        },
-        ElicitationMode::Form(form) => match &form.scope {
-            ElicitationScope::Session(scope) => Some(scope.session_id.clone()),
-            _ => None,
-        },
+/// The session a form or link is scoped to, when it has one.
+fn elicitation_scope(request: &CreateElicitationRequest) -> Option<&ElicitationSessionScope> {
+    let scope = match &request.mode {
+        ElicitationMode::Url(link) => &link.scope,
+        ElicitationMode::Form(form) => &form.scope,
+        _ => return None,
+    };
+    match scope {
+        ElicitationScope::Session(scope) => Some(scope),
         _ => None,
     }
+}
+
+/// The session id from an elicitation request, when it's session-scoped.
+fn elicitation_session(request: &CreateElicitationRequest) -> Option<SessionId> {
+    elicitation_scope(request).map(|scope| scope.session_id.clone())
 }
 
 /// One `McpChoice` in the protocol's own words.
@@ -2087,9 +2080,8 @@ fn claude_mcp_meta(approve: bool) -> Option<Meta> {
 }
 
 /// `session/load` when asked and answered, else `session/new`. Raw requests
-/// rather than the SDK's session builders. Those tear the connection down
-/// when the Harness refuses, and `auth_required` is a refusal we recover from.
-/// It owns its inputs, so `serve` can hold it as the job beside commands.
+/// rather than the SDK's session builders, which tear the connection down
+/// when the Harness refuses; `auth_required` is a refusal we recover from.
 async fn open(
     cx: &ConnectionTo<Agent>,
     load: Option<String>,
@@ -2434,10 +2426,7 @@ fn elicitation_response(
 /// A different `messageId` is the next message. A missing id stays with the
 /// message already open, as a harness that omits it does.
 fn message_changed(open: Option<&MessageId>, next: Option<&MessageId>) -> bool {
-    match (open, next) {
-        (Some(open), Some(next)) => open != next,
-        _ => false,
-    }
+    matches!((open, next), (Some(open), Some(next)) if open != next)
 }
 
 /// The next message starts a paragraph. A mark that already closed on a blank
@@ -2523,11 +2512,7 @@ fn show(heard: Heard<'_>, session: &SessionId, stream: &mut Stream, on_event: &O
 /// line stays, blank ones too, because the Thinking row draws the whole
 /// thought and a paragraph break is something the harness wrote.
 pub(crate) fn thought_to_show(thought: &str) -> Option<&str> {
-    if thought.trim().is_empty() {
-        None
-    } else {
-        Some(thought)
-    }
+    (!thought.trim().is_empty()).then_some(thought)
 }
 
 /// Answer text with its `<think>` and `<thinking>` blocks peeled off as it
@@ -2550,23 +2535,12 @@ impl Answer {
         let mut rest = std::mem::take(&mut self.held) + chunk;
         let mut thought = String::new();
         loop {
-            let found_open = OPEN
+            let found = OPEN
                 .iter()
-                .filter_map(|tag| rest.find(tag).map(|at| (at, tag.len(), true)))
+                .map(|tag| (tag, true))
+                .chain(CLOSE.iter().map(|tag| (tag, false)))
+                .filter_map(|(tag, open)| rest.find(tag).map(|at| (at, tag.len(), open)))
                 .min();
-            let found_close = CLOSE
-                .iter()
-                .filter_map(|tag| rest.find(tag).map(|at| (at, tag.len(), false)))
-                .min();
-            let found = match (found_open, found_close) {
-                (Some((at_o, len_o, _)), Some((at_c, _, _))) if at_o < at_c => {
-                    Some((at_o, len_o, true))
-                }
-                (Some(_), Some((at_c, len_c, _))) => Some((at_c, len_c, false)),
-                (Some(o), None) => Some(o),
-                (None, Some(c)) => Some(c),
-                (None, None) => None,
-            };
 
             let Some((at, len, is_open)) = found else {
                 let keep = OPEN
@@ -2633,26 +2607,24 @@ impl Answer {
     }
 }
 
+/// Who a form belongs to. A session-less one during sign-in is the sign-in's.
+/// During a turn, only a session-scoped URL with no tool call outlives it:
+/// `end_turn` leaves that one, and the budget keeps running.
+fn elicit_owner(request: &CreateElicitationRequest, signing_in: bool, in_turn: bool) -> Owner {
+    if signing_in && elicitation_scope(request).is_none() {
+        Owner::SignIn
+    } else if in_turn && !outlives_turn(request) {
+        Owner::Turn
+    } else {
+        Owner::Session
+    }
+}
+
 /// A link scoped to the session and no tool call, as an MCP server's sign-in
 /// after `session/new` is. It belongs to the session, not the turn it lands in.
 fn outlives_turn(request: &CreateElicitationRequest) -> bool {
-    session_link(request).is_some_and(|scope| scope.tool_call_id.is_none())
-}
-
-/// A link tied to a tool call, which blocks its turn until answered.
-fn on_tool_call(request: &CreateElicitationRequest) -> bool {
-    session_link(request).is_some_and(|scope| scope.tool_call_id.is_some())
-}
-
-/// The scope of a URL form tied to a session rather than a request.
-fn session_link(request: &CreateElicitationRequest) -> Option<&ElicitationSessionScope> {
-    match &request.mode {
-        ElicitationMode::Url(link) => match &link.scope {
-            ElicitationScope::Session(scope) => Some(scope),
-            _ => None,
-        },
-        _ => None,
-    }
+    matches!(request.mode, ElicitationMode::Url(_))
+        && elicitation_scope(request).is_some_and(|scope| scope.tool_call_id.is_none())
 }
 
 /// The Harness's open questions, and each session's stream with no prompt
@@ -2702,8 +2674,6 @@ impl Held<'_> {
     }
 
     /// One message with no `session/prompt` open, held as a turn would hold it.
-    /// `signing_in` is whether Fidget's own `authenticate` is in flight; a form
-    /// sent then is the sign-in's.
     fn between_turns(&mut self, message: Incoming, signing_in: bool) {
         match message {
             Incoming::Update(update) => {
@@ -2724,17 +2694,15 @@ impl Held<'_> {
                 self.end_inbound(&request.session_id);
                 self.ask(Owner::Session, &request, responder)
             }
-            // A session-less form during sign-in is the sign-in's, as in a turn.
             Incoming::Elicit(request, responder) => {
-                let owner = match elicitation_session(&request) {
-                    Some(session) => {
-                        self.end_inbound(&session);
-                        Owner::Session
-                    }
-                    None if signing_in => Owner::SignIn,
-                    None => Owner::Session,
-                };
-                self.form(owner, &request, responder)
+                if let Some(session) = elicitation_session(&request) {
+                    self.end_inbound(&session);
+                }
+                self.form(
+                    elicit_owner(&request, signing_in, false),
+                    &request,
+                    responder,
+                )
             }
             Incoming::Complete(link) => self.complete(&link),
         }
@@ -2748,7 +2716,9 @@ impl Held<'_> {
         responder: Responder<CreateElicitationResponse>,
     ) {
         let mut form = elicitation_form(request, responder.id().to_string());
-        form.waits = form.url.is_some() && owner != Owner::SignIn && !on_tool_call(request);
+        form.waits = form.url.is_some()
+            && owner != Owner::SignIn
+            && !elicitation_scope(request).is_some_and(|scope| scope.tool_call_id.is_some());
         let link = match &request.mode {
             ElicitationMode::Url(link) => Some(link.elicitation_id.clone()),
             _ => None,
