@@ -299,8 +299,10 @@ ${[10, 10, 10, 10, 210].map(frame).join("\n")}
   assert.deepStrictEqual(r.lines.slice(0, 4), ["10", "False", "False", "False"], r.err);
 });
 
-test("Windows: Wait-ForRest keeps waiting while the sprite walks, past 3 s", { skip: noPwsh }, (t) => {
-  const r = ps(t, `$t = "$W/p.log"
+const menuLeaf = path.join(scenarios, "..", "ci", "control-click-menu.win.ps1");
+
+function walkThenRest(t, call) {
+  return ps(t, `$t = "$W/p.log"
 Set-Content "$W/walk.sh" @'
 for i in $(seq 1 16); do echo "1 frame: 1 Grounded pos(1,1) sprite($((i * 10)),20) walk#1 x" >> "$1"; sleep 0.25; done
 for i in 1 2 3 4 5; do echo "1 frame: 1 Grounded pos(1,1) sprite(160,20) idle#1 x" >> "$1"; done
@@ -310,13 +312,37 @@ $p.ArgumentList.Add("$W/walk.sh")
 $p.ArgumentList.Add($t)
 $p.UseShellExecute = $false
 $null = [Diagnostics.Process]::Start($p)
-$start = Get-NowMs
+${call}`);
+}
+
+test("Windows: Wait-ForRest keeps waiting while the sprite walks, past 3 s", { skip: noPwsh }, (t) => {
+  const r = walkThenRest(t, `$start = Get-NowMs
 $rest = Wait-ForRest $t
 $took = (Get-NowMs) - $start
 Write-Output $took
 Write-Output $(if ($rest) { $rest.X } else { "null" })`);
   assert.strictEqual(r.code, 0, r.err);
   assert.ok(Number(r.lines[0]) >= 3500 && Number(r.lines[0]) < 6000, `took ${r.lines[0]} ms`);
+  assert.strictEqual(r.lines[1], "160", r.err);
+});
+
+// The leaf's Wait-Settled, not the helper: on main this is Wait-Until 3 and
+// fails a walk that lasts past 3 s with "sprite did not settle within 3s".
+test("Windows: control-click-menu Wait-Settled keeps waiting while the sprite walks, past 3 s", { skip: noPwsh }, (t) => {
+  const r = walkThenRest(t, `$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile('${menuLeaf}', [ref]$tokens, [ref]$errors)
+$fn = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq "Wait-Settled" }, $true)
+if ($fn.Count -ne 1) { throw "missing Wait-Settled" }
+Invoke-Expression $fn[0].Extent.Text
+function Fail($m) { throw $m }
+$traceFile = $t
+$start = Get-NowMs
+$rest = Wait-Settled
+$took = (Get-NowMs) - $start
+Write-Output $took
+Write-Output $(if ($rest) { $rest.X } else { "null" })`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.ok(Number(r.lines[0]) >= 3500 && Number(r.lines[0]) < 6000, `took ${r.lines[0]} ms: ${r.err}`);
   assert.strictEqual(r.lines[1], "160", r.err);
 });
 
