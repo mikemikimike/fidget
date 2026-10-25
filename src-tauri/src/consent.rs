@@ -1254,4 +1254,17 @@ mod tests {
             row.costs
         );
     }
+
+    /// A row the probe never grants is a checkbox that never turns on.
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn every_windows_capability_can_be_granted() {
+        for capability in CAPABILITIES {
+            assert!(
+                WindowsProbe.granted(capability.id),
+                "{:?} is listed but can never be granted",
+                capability.id
+            );
+        }
+    }
 }
