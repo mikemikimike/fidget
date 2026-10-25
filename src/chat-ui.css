@@ -1526,21 +1526,30 @@ body {
   color: var(--chat-accent-ink);
 }
 
-/* A settled ask's handle: what was asked gives way to the width, what won
-   stays whole. The choices under it dim, so they read as a record. */
+/* A settled ask's handle: what was asked gives way to the width first, and
+   what won ellipsizes only when it alone is wider than the row. The choices
+   under it dim, so they read as a record. */
 .row.ask .who-label {
   display: flex;
   min-width: 0;
 }
 
 .ask-heading {
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ask-answer,
+.ask-answer {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
 .row.ask .who-label::after {
   flex: none;
   white-space: pre;

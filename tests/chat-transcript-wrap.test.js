@@ -112,6 +112,7 @@ function measure() {
     await ready("chat");
     await ready("chat-tool");
     await ready("chat-permission");
+    await ready("chat-permission-settled");
     await until(() => !document.getElementById("line").disabled);
     emit("chat", { you: true, said: "play some jojo", busy: false, reacting_to: null, thought: false, at: null, error: null, streaming: false });
     emit("chat", { you: false, said: ${JSON.stringify(REPLY)}, busy: false, reacting_to: null, thought: false, at: null, error: null, streaming: false });
@@ -126,17 +127,24 @@ function measure() {
     await until(() => document.querySelector('#log .row.ask [data-option="allow-always"]') && document.querySelector("#log .md-wide pre") && document.querySelector("#log > .note"));
     const { applyChatUiClass } = await import("./chat-ui-class.js");
     const report = [];
-    for (const theme of ${JSON.stringify(THEMES)}) {
-      applyChatUiClass(document.documentElement, theme);
-      for (const palette of ${JSON.stringify(PALETTES)}) {
-        document.documentElement.dataset.chatPalette = palette;
-        for (const width of ${JSON.stringify(WIDTHS)}) {
-          document.body.style.width = width + "px";
-          await settle();
-          report.push({ theme, palette, width, ...overflow() });
+    const sweep = async (ask) => {
+      for (const theme of ${JSON.stringify(THEMES)}) {
+        applyChatUiClass(document.documentElement, theme);
+        for (const palette of ${JSON.stringify(PALETTES)}) {
+          document.documentElement.dataset.chatPalette = palette;
+          for (const width of ${JSON.stringify(WIDTHS)}) {
+            document.body.style.width = width + "px";
+            await settle();
+            report.push({ ask, theme, palette, width, ...overflow() });
+          }
         }
       }
-    }
+    };
+    await sweep("pending");
+    // Folded on the longest answer: its handle must give way too.
+    emit("chat-permission-settled", { request: "7", option: "allow-always" });
+    await until(() => document.querySelector('#log .row.ask[data-state="settled"] .ask-answer'));
+    await sweep("settled");
     console.log("__PROBE_RESULT__" + JSON.stringify(report));
   }
   window.addEventListener("load", () => run().catch((why) => {
@@ -149,14 +157,14 @@ function measure() {
 }
 
 test(
-  "a long code line or path keeps every row, the ask card included, inside the log at 420 and 320",
+  "a long code line or path keeps every row, the ask card pending or folded, inside the log at 420 and 320",
   { skip: chromeSkip, timeout: 60000 },
   async () => {
     const report = await measure();
     assert.equal(report.error, undefined, report.error);
-    assert.equal(report.length, THEMES.length * PALETTES.length * WIDTHS.length);
+    assert.equal(report.length, 2 * THEMES.length * PALETTES.length * WIDTHS.length);
     for (const at of report) {
-      const where = `${at.theme} ${at.palette} at ${at.width}px`;
+      const where = `${at.ask} ask, ${at.theme} ${at.palette} at ${at.width}px`;
       assert.deepEqual(at.past, [], `${where}: drawn past the log's right edge`);
       assert.equal(at.logScrolls, false, `${where}: the log scrolls sideways`);
       assert.equal(at.pageScrolls, false, `${where}: Chat scrolls sideways`);
