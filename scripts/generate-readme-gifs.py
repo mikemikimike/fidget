@@ -9,9 +9,9 @@ from pathlib import Path
 
 from PIL import Image
 
-# GIF has no partial alpha and Pillow turns a faint pixel into an opaque speck,
-# so 64 drops edge samples. Nim's foot shadow is alpha 76, so a higher cut
-# deletes it. The cut is on alpha, never on black: pupils are opaque #000.
+# GIF has no partial alpha and Pillow turns a faint pixel into an opaque speck.
+# 64 drops edge samples and keeps Nim's alpha-76 shadow. The cut is on alpha,
+# never on black, because pupils are opaque #000.
 ALPHA_CUTOFF = 64
 
 # Brighter than the shell's own edge. The check ignores pixels the source
@@ -167,6 +167,19 @@ def assert_no_white_fringe(gif_frames, source_frames, label):
                     )
 
 
+def assert_shadow_kept(gif_frames, source_frames, label):
+    """Translucent source pixels, Nim's alpha-76 shadow, must survive the cut."""
+    kept = [
+        gif_frame.getpixel((x, y))[3]
+        for gif_frame, source in zip(gif_frames, source_frames)
+        for y in range(source.height)
+        for x in range(source.width)
+        if 0 < source.getpixel((x, y))[3] < UNCOVERED
+    ]
+    assert kept, f"{label} has no shadow to keep"
+    assert all(kept), f"{label} lost its shadow to the alpha cutoff"
+
+
 def self_check():
     """A near-clear white edge pixel stays clear; an opaque black pupil does not."""
     synthetic = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
@@ -196,9 +209,12 @@ def self_check():
             scale_frame(Image.open(path).convert("RGBA"), TARGET_HEIGHT)
             for path in frame_paths(chars_dir, character, animation, count)
         ]
-        assert_no_white_fringe(gif_rgba_frames(out_dir / name), sources, name)
+        gif_frames = gif_rgba_frames(out_dir / name)
+        assert_no_white_fringe(gif_frames, sources, name)
+        if character == "nim":
+            assert_shadow_kept(gif_frames, sources, name)
 
-    print("self-check: white fringe absent, black pupils kept")
+    print("self-check: white fringe absent, black pupils and Nim's shadow kept")
 
 
 def main(argv=None):
@@ -206,7 +222,7 @@ def main(argv=None):
     parser.add_argument(
         "--self-check",
         action="store_true",
-        help="assert showcase GIFs have no white fringe and keep black pupils",
+        help="assert showcase GIFs drop the white fringe and keep pupils and shadow",
     )
     args = parser.parse_args(argv)
     repo_root = Path(__file__).parent.parent
