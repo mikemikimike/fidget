@@ -804,7 +804,7 @@ struct ArtUrls {
     characters: BTreeMap<String, CharacterArt>,
 }
 
-/// JSON of every Character's art. Encoded once at setup; `character` copies it.
+/// Cached `ArtUrls` JSON. A newtype so managed state cannot collide with another String.
 struct ArtJson(String);
 
 fn encode_art_json(art: &ArtUrls) -> ArtJson {
@@ -6503,15 +6503,19 @@ mod tests {
     }
 
     /// `character` copies this string onto the wire. Encoding it on each invoke
-    /// is the 90–118 ms debug hold; the body must stay the bundled art's JSON.
+    /// is 90–118 ms on the main thread in a debug build (as of 2026-10).
     #[test]
     fn characters_response_matches_the_json_of_the_bundled_art() {
-        let art = ArtUrls {
-            characters: bundled_character_art(),
-        };
-        let expected = serde_json::to_string(&art).expect("ArtUrls serializes");
-        let response = character_response(&encode_art_json(&art));
-        assert_eq!(character_json_body(response), expected);
+        let characters = bundled_character_art();
+        assert!(
+            characters.contains_key("BMO") && characters.contains_key("Buddy Bot"),
+            "the repo ships BMO and Buddy Bot"
+        );
+        let expected = serde_json::json!({ "characters": &characters });
+        let response = character_response(&encode_art_json(&ArtUrls { characters }));
+        let body: serde_json::Value =
+            serde_json::from_str(&character_json_body(response)).expect("character returns JSON");
+        assert_eq!(body, expected);
     }
 
     /// The invariant `art_urls` exists to hold: the webview indexes this list
