@@ -808,7 +808,7 @@ struct ArtUrls {
 struct ArtJson(String);
 
 fn encode_art_json(art: &ArtUrls) -> ArtJson {
-    ArtJson(serde_json::to_string(art).expect("ArtUrls is a map of strings"))
+    ArtJson(serde_json::to_string(art).expect("ArtUrls always serializes"))
 }
 
 fn character_response(json: &ArtJson) -> tauri::ipc::Response {
@@ -816,8 +816,8 @@ fn character_response(json: &ArtJson) -> tauri::ipc::Response {
 }
 
 /// The art of every Character on screen, fetched once when the webview
-/// loads. Encoded once at setup: encoding ~4.7 MB of data URLs on each
-/// invoke is 90–118 ms on the main thread in a debug build (as of 2026-10).
+/// loads. A command rather than an event: setup would race the overlay's
+/// listener. Encoded once; the art does not change while the app runs.
 #[tauri::command]
 fn character(json: tauri::State<'_, ArtJson>) -> tauri::ipc::Response {
     character_response(json.inner())
