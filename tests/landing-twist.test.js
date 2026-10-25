@@ -5,12 +5,12 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { after, before, test } from "node:test";
+import { before, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromeSkip, probePage } from "./chrome-cdp.js";
+import { tempDir } from "./temp-path.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const TWISTS = JSON.parse(readFileSync(join(ROOT, "docs", "design", "twists.json"), "utf8"));
@@ -25,14 +25,12 @@ const LABEL = "Examples pre-generated with real in-app and character prompts. Th
 let scratch;
 let page;
 
-before(() => {
-  scratch = mkdtempSync(join(tmpdir(), "landing-twist-"));
+before((t) => {
+  scratch = tempDir(t, "landing-twist-");
   execFileSync("python3", [join(ROOT, "scripts", "make-landing-page.py"), "--out", scratch],
     { cwd: ROOT, stdio: "pipe" });
   page = readFileSync(join(scratch, "index.html"), "utf8");
 });
-
-after(() => rmSync(scratch, { recursive: true, force: true }));
 
 const section = () => page.match(/<section id="twist">([\s\S]*?)<\/section>/)[1];
 const data = () => JSON.parse(section().match(/<script type="application\/json" id="twist-data">([\s\S]*?)<\/script>/)[1]);
