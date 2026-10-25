@@ -824,6 +824,21 @@ impl Wire {
     /// `authenticate` for an agent method, and nothing else. The response body
     /// is not a session: the caller still has to open one.
     pub fn authenticate(&self, method_id: &str) -> Result<(), String> {
+        match self
+            .start_authenticate(method_id)?
+            .recv_timeout(SIGN_IN_WAIT)
+        {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => Err("sign-in timed out".to_string()),
+            Err(RecvTimeoutError::Disconnected) => Err("harness exited".to_string()),
+        }
+    }
+
+    /// `authenticate`'s send. Its reply comes on the returned channel.
+    pub(crate) fn start_authenticate(
+        &self,
+        method_id: &str,
+    ) -> Result<sync_mpsc::Receiver<Result<(), String>>, String> {
         let (reply, rx) = sync_mpsc::channel();
         self.tx
             .send(Msg::Authenticate {
@@ -831,11 +846,7 @@ impl Wire {
                 reply,
             })
             .map_err(|_| "harness exited".to_string())?;
-        match rx.recv_timeout(SIGN_IN_WAIT) {
-            Ok(result) => result,
-            Err(RecvTimeoutError::Timeout) => Err("sign-in timed out".to_string()),
-            Err(RecvTimeoutError::Disconnected) => Err("harness exited".to_string()),
-        }
+        Ok(rx)
     }
 
     /// `session/close` for a session this process will not store. Best effort:
@@ -2713,14 +2724,15 @@ impl Held<'_> {
                 self.end_inbound(&request.session_id);
                 self.ask(Owner::Session, &request, responder)
             }
+            // A session-less form during sign-in is the sign-in's, as in a turn.
             Incoming::Elicit(request, responder) => {
-                if let Some(session) = elicitation_session(&request) {
-                    self.end_inbound(&session);
-                }
-                let owner = if signing_in {
-                    Owner::SignIn
-                } else {
-                    Owner::Session
+                let owner = match elicitation_session(&request) {
+                    Some(session) => {
+                        self.end_inbound(&session);
+                        Owner::Session
+                    }
+                    None if signing_in => Owner::SignIn,
+                    None => Owner::Session,
                 };
                 self.form(owner, &request, responder)
             }

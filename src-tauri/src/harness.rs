@@ -4223,26 +4223,14 @@ mod tests {
                             say(json!({"jsonrpc": "2.0", "id": auth, "result": {}}));
                         }
                     }
-                    // Stalls on another thread, so this loop reads on.
-                    if script == "stall-open-reading" && recorded(count, "new") == 1 {
-                        record(count, "open-stall");
-                        let (id, path) = (id.clone(), count.map(Path::to_path_buf));
-                        thread::spawn(move || {
-                            if open_stall_released() {
-                                record(path.as_deref(), "answering-new");
-                                say(
-                                    json!({"jsonrpc": "2.0", "id": id, "result": {"sessionId": "fresh-id"}}),
-                                );
-                            }
-                        });
-                        continue;
-                    }
                     // After `authenticate`, so the first refusal that puts the
                     // landing up stays quick and only the sign-in open stalls.
                     if ((script == "stall-open" || script == "sign-in-link-open")
                         && recorded(count, "new") == 1)
-                        || (matches!(script, "stall-second-open" | "stall-second-open-ask")
-                            && recorded(count, "new") == 2)
+                        || (matches!(
+                            script,
+                            "stall-second-open" | "stall-second-open-ask" | "ask-then-link-open"
+                        ) && recorded(count, "new") == 2)
                     {
                         record(count, "open-stall");
                         // Stay unanswered until the test writes a byte, or this
@@ -4285,7 +4273,9 @@ mod tests {
                         }
                         // Reminder on the new session before `session/new`
                         // answers, so the ask is queued during the open drain.
-                        if matches!(script, "ask-on-open" | "stall-second-open-ask") {
+                        if matches!(script, "ask-on-open" | "stall-second-open-ask")
+                            || (script == "ask-then-link-open" && n == 1)
+                        {
                             say(
                                 json!({"jsonrpc": "2.0", "id": 99, "method": "session/request_permission", "params": {
                                     "sessionId": &session,
@@ -4296,6 +4286,10 @@ mod tests {
                                     ],
                                 }}),
                             );
+                        }
+                        // A link no session scopes, queued behind the open.
+                        if script == "ask-then-link-open" && n == 2 {
+                            device_link(&id);
                         }
                         say(json!({"jsonrpc": "2.0", "id": id, "result": result}));
                         record(count, "answered-new");
@@ -4336,6 +4330,10 @@ mod tests {
                         // URL elicitation, and `authenticate` waits on it.
                         device_link(&id);
                         pending_auth = Some(id);
+                    } else if script == "sign-in-session-form" {
+                        // A session's form, then the sign-in's answer.
+                        strategy_form(&session);
+                        say(json!({"jsonrpc": "2.0", "id": id, "result": {}}));
                     } else if matches!(script, "sign-in-link-turn" | "sign-in-link-open") {
                         // The link comes later, in a turn or an open.
                         pending_auth = Some(id);
@@ -4959,7 +4957,7 @@ mod tests {
                 "stall-open"
                     | "stall-second-open"
                     | "stall-second-open-ask"
-                    | "stall-open-reading"
+                    | "ask-then-link-open"
                     | "sign-in-link-open"
             )
             .then(|| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
@@ -5090,11 +5088,7 @@ mod tests {
         }
 
         fn wait_for(&self, what: &str, n: usize) -> bool {
-            self.seen_within(what, n, Duration::from_secs(5))
-        }
-
-        fn seen_within(&self, what: &str, n: usize, within: Duration) -> bool {
-            let until = Instant::now() + within;
+            let until = Instant::now() + Duration::from_secs(5);
             while Instant::now() < until {
                 if self.count(what) >= n {
                     return true;
@@ -10110,30 +10104,75 @@ mod tests {
         wire.shutdown();
     }
 
-    /// `authenticate` waits behind an open, so the Harness never has it and
-    /// `session/new` in flight at once.
+    /// An Authenticate behind an open is not yet a sign-in, so a link the
+    /// open's drain holds is the session's and outlives the sign-in.
     #[test]
-    fn an_authenticate_during_an_open_waits_for_the_open() {
-        let (mut fx, _session) = Fixture::new("stall-open-reading");
-        let wire = fake_wire(&fx, "stall-open-reading", Box::new(|_| {}));
+    fn a_link_held_before_a_queued_sign_in_starts_outlives_it() {
+        let (mut fx, _session) = Fixture::new("ask-then-link-open");
+        let (asked_tx, asked) = mpsc::channel();
+        let (forms_tx, forms) = mpsc::channel();
+        let (settled_tx, settled) = mpsc::channel();
+        let senders = Mutex::new((asked_tx, forms_tx, settled_tx));
+        let on_event: crate::acp_wire::OnEvent = Box::new(move |event| {
+            let senders = senders.lock().unwrap();
+            match event {
+                Event::Permission { ask, .. } => drop(senders.0.send(ask.request)),
+                Event::Elicitation { form, .. } => drop(senders.1.send(form)),
+                Event::PermissionSettled { request, .. } => drop(senders.2.send(request)),
+                _ => {}
+            }
+        });
+        let wire = fake_wire(&fx, "ask-then-link-open", on_event);
+        assert!(open_fake(&wire, &fx.cwd).is_ok(), "the first open");
+        let ask = asked
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the first open's ask");
         let opener = {
             let (wire, cwd) = (Arc::clone(&wire), fx.cwd.clone());
             thread::spawn(move || open_fake(&wire, &cwd).map(|opened| opened.id))
         };
-        assert!(fx.wait_for("open-stall", 1), "the open never stalled");
-        let signer = {
-            let wire = Arc::clone(&wire);
-            thread::spawn(move || wire.authenticate("fake"))
-        };
-        // The stall is on another thread, so a sent `authenticate` is read.
-        let early = fx.seen_within("authenticate", 1, Duration::from_millis(500));
+        assert!(
+            fx.wait_for("open-stall", 1),
+            "the second open never stalled"
+        );
+        let signed = wire.start_authenticate("fake").expect("sent");
+        // One sender, so the wire has taken the Authenticate once this settles.
+        wire.answer(&ask, "allow");
+        assert_eq!(settled.recv_timeout(Duration::from_secs(5)), Ok(ask));
         fx.release_open_stall();
-        assert_eq!(opener.join().unwrap(), Ok("fresh-id".to_string()));
-        assert_eq!(signer.join().unwrap(), Ok(()));
-        assert!(!early, "authenticate was sent during session/new");
-        let log = std::fs::read_to_string(&fx.count).unwrap();
-        let at = |what: &str| log.lines().position(|line| line == what);
-        assert!(at("answering-new") < at("authenticate"), "{log}");
+        assert_eq!(opener.join().unwrap(), Ok("fresh-id-2".to_string()));
+        assert_eq!(signed.recv_timeout(Duration::from_secs(5)), Ok(Ok(())));
+        let form = forms
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the open's link");
+        assert!(form.waits, "the open's link went to the sign-in");
+        wire.answer_elicitation(&form.request, ElicitationAnswer::Accept("open".into()));
+        assert!(
+            fx.wait_for("elicit-url:accept", 1),
+            "the link did not take its answer, cancels sent: {}",
+            fx.count("elicit-url:cancel")
+        );
+        wire.shutdown();
+    }
+
+    /// A session's form during a sign-in is the session's, so the sign-in's
+    /// finish leaves it.
+    #[test]
+    fn a_session_form_during_a_sign_in_outlives_it() {
+        let (fx, _session) = Fixture::new("sign-in-session-form");
+        let (on_event, forms, _settled) = form_events();
+        let wire = fake_wire(&fx, "sign-in-session-form", on_event);
+        assert!(open_fake(&wire, &fx.cwd).is_ok(), "the open");
+        assert_eq!(wire.authenticate("fake"), Ok(()));
+        let form = forms
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the session's form");
+        wire.answer_elicitation(&form.request, ElicitationAnswer::Accept("balanced".into()));
+        assert!(
+            fx.wait_for("elicit:accept", 1),
+            "the form did not take its answer, cancels sent: {}",
+            fx.count("elicit:cancel")
+        );
         wire.shutdown();
     }
 
