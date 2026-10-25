@@ -1,6 +1,6 @@
-// The verify scripts find the overlay among windows of the app's own class.
-// Placeholder windows share that class, so each filter must skip both
-// placeholder sizes. Fake X tools and the PowerShell parser stand in for a display.
+// The verify scripts find the overlay among the app's own windows, and
+// placeholder windows share that class. Fake X tools and the PowerShell
+// parser stand in for a display, so each filter is checked on both sizes.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -13,6 +13,8 @@ import { tempDir } from "./temp-path.js";
 const scripts = path.join(import.meta.dirname, "..", "scripts");
 const x11Lib = path.join(scripts, "lib", "x11.sh");
 const winScript = path.join(scripts, "verify-settings-webview-phase2-win.ps1");
+const resolved = resolvePwsh();
+const skip = resolved.kind === "ready" ? false : resolved.reason;
 
 function bash(body, env = {}) {
   const out = spawnSync("bash", ["-c", `set -euo pipefail; source "$X11_LIB"; ${body}`], {
@@ -58,9 +60,6 @@ test("find_overlay_window finds nothing when only placeholders exist", (t) => {
   assert.equal(r.stdout, "");
 });
 
-const resolved = resolvePwsh();
-const skip = resolved.kind === "ready" ? false : resolved.reason;
-
 // Loads $PlaceholderPx and Get-OverlayMinSize through the parser, so no
 // Win32 call runs, then prints `body`'s output one value per line.
 function pwsh(body) {
@@ -85,17 +84,19 @@ test("the Windows script names both Tauri placeholder sizes", { skip }, () => {
   assert.deepEqual(pwsh("$PlaceholderPx"), [10, 200]);
 });
 
-for (const monitor of [
-  { width: 1024, height: 768 },
-  { width: 1920, height: 1080 },
+// The floor is 400 px, lowered to half a monitor smaller than 800 px.
+for (const { monitor, floor } of [
+  { monitor: { width: 1024, height: 768 }, floor: [400, 384] },
+  { monitor: { width: 1920, height: 1080 }, floor: [400, 400] },
 ]) {
-  test(`the overlay floor on ${monitor.width}x${monitor.height} is above both placeholders`, { skip }, () => {
+  test(`the overlay floor on ${monitor.width}x${monitor.height} is ${floor.join("x")}, above both placeholders`, { skip }, () => {
     const [minW, minH, ...placeholders] = pwsh(
       `$m = Get-OverlayMinSize @(@{ width = ${monitor.width}; height = ${monitor.height} }); $m.width; $m.height; $PlaceholderPx`,
     );
+    assert.deepEqual([minW, minH], floor);
     for (const px of placeholders) {
       assert.ok(px < minW && px < minH, `${px}x${px} placeholder passes a ${minW}x${minH} floor`);
     }
-    assert.ok(monitor.width >= minW && monitor.height >= minH, "the display-sized overlay is below the floor");
+    assert.ok(monitor.width >= minW && monitor.height >= minH, "the floor is above a display-sized overlay");
   });
 }

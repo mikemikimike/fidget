@@ -67,8 +67,8 @@ cleanup() {
   fi
 }
 
-# GDK leaves 10x10 placeholders, and ~200x200 ones with a Settings webview, under
-# the app's WM_CLASS.
+# GDK leaves 10x10 placeholders, and ~200x200 ones with a Settings webview,
+# under the app's WM_CLASS.
 # shellcheck disable=SC2034  # read by tests/overlay-placeholder-filter.test.js
 GDK_PLACEHOLDER_PX=(10 200)
 

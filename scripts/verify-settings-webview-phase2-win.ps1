@@ -208,7 +208,7 @@ function Test-HwndAbove([IntPtr]$Front, [IntPtr]$Back, $Stack) {
 }
 
 # Tauri leaves 10x10 placeholders, and ~200x200 ones once a Settings webview
-# exists. Pinned by tests/overlay-placeholder-filter.test.js.
+# exists.
 $PlaceholderPx = @(10, 200)
 
 function Get-OverlayMinSize($monitors) {
