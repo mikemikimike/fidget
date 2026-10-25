@@ -5854,4 +5854,26 @@ mod tests {
             "cursor-agent fragment must not include lifecycle key, got {cursor_snippet:?}"
         );
     }
+
+    /// The Alternatively lines are what a user pastes into a config file.
+    #[test]
+    fn codex_and_opencode_steps_fill_the_url_and_the_token() {
+        let codex = byo_registration("codex", "http://127.0.0.1:5051/mcp", "beef").steps;
+        assert!(
+            codex.contains("url = \"http://127.0.0.1:5051/mcp\""),
+            "{codex:?}"
+        );
+        assert!(
+            codex.contains("http_headers = { \"Authorization\" = \"Bearer beef\" }"),
+            "{codex:?}"
+        );
+
+        let opencode = byo_registration("opencode", "http://127.0.0.1:5051/mcp", "beef").steps;
+        assert!(
+            opencode.contains(
+                "{ \"mcp\": { \"fidget\": { \"type\": \"remote\", \"url\": \"http://127.0.0.1:5051/mcp\", \"oauth\": false, \"headers\": { \"Authorization\": \"Bearer beef\" } } } }"
+            ),
+            "{opencode:?}"
+        );
+    }
 }
