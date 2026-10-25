@@ -245,23 +245,16 @@ mod tests {
     const URL: &str = "http://127.0.0.1:54321/mcp";
     const AUTH: &str = "Bearer per-run-token";
 
-    fn dir(name: &str) -> PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("fidget-cursor-mcp-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("temp dir");
-        path
-    }
-
     fn read(path: &Path) -> Value {
         serde_json::from_str(&fs::read_to_string(path).expect("the file")).expect("JSON")
     }
 
     #[test]
     fn the_fidget_allow_outlives_detach_after_a_fresh_attach() {
-        let cwd = dir("allow-fresh");
-        let installed = install(&cwd, URL, AUTH).expect("installed");
-        allow_tools(&cwd).expect("allowed");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
+        let installed = install(cwd, URL, AUTH).expect("installed");
+        allow_tools(cwd).expect("allowed");
 
         installed.remove();
         assert_eq!(
@@ -276,7 +269,8 @@ mod tests {
 
     #[test]
     fn allowing_again_keeps_one_rule_beside_the_projects_own() {
-        let cwd = dir("allow-existing");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(CLI_FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         fs::write(
@@ -292,35 +286,37 @@ mod tests {
             }
         });
 
-        let installed = install(&cwd, URL, AUTH).expect("installed");
-        allow_tools(&cwd).expect("allowed");
-        allow_tools(&cwd).expect("allowed again");
+        let installed = install(cwd, URL, AUTH).expect("installed");
+        allow_tools(cwd).expect("allowed");
+        allow_tools(cwd).expect("allowed again");
         assert_eq!(read(&file), expected);
 
         installed.remove();
-        let installed = install(&cwd, URL, AUTH).expect("installed again");
-        allow_tools(&cwd).expect("allowed on the next attach");
+        let installed = install(cwd, URL, AUTH).expect("installed again");
+        allow_tools(cwd).expect("allowed on the next attach");
         installed.remove();
         assert_eq!(read(&file), expected);
     }
 
     #[test]
     fn a_rule_already_there_leaves_the_file_byte_for_byte() {
-        let cwd = dir("allow-user-owned");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(CLI_FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         let text = r#"{"permissions":{"allow":["Mcp(fidget:*)"],"deny":[]}}"#;
         fs::write(&file, text).unwrap();
 
-        let installed = install(&cwd, URL, AUTH).expect("installed");
-        allow_tools(&cwd).expect("already allowed");
+        let installed = install(cwd, URL, AUTH).expect("installed");
+        allow_tools(cwd).expect("already allowed");
         installed.remove();
         assert_eq!(fs::read_to_string(&file).unwrap(), text);
     }
 
     #[test]
     fn a_rule_already_there_without_deny_gains_an_empty_deny_list() {
-        let cwd = dir("allow-no-deny");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(CLI_FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         fs::write(
@@ -329,8 +325,8 @@ mod tests {
         )
         .unwrap();
 
-        allow_tools(&cwd).expect("filled the missing deny");
-        allow_tools(&cwd).expect("converged");
+        allow_tools(cwd).expect("filled the missing deny");
+        allow_tools(cwd).expect("converged");
         assert_eq!(
             read(&file),
             json!({
@@ -345,25 +341,27 @@ mod tests {
 
     #[test]
     fn a_deny_that_is_not_an_array_is_left_untouched() {
-        let cwd = dir("deny-invalid");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(CLI_FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         let text = r#"{"permissions":{"allow":["Mcp(fidget:*)"],"deny":"all"}}"#;
         fs::write(&file, text).unwrap();
 
-        let err = allow_tools(&cwd).expect_err("accepted a non-array deny");
+        let err = allow_tools(cwd).expect_err("accepted a non-array deny");
         assert!(err.contains("permissions.deny"), "{err}");
         assert_eq!(fs::read_to_string(&file).unwrap(), text);
     }
 
     #[test]
     fn malformed_cli_permissions_are_left_untouched() {
-        let cwd = dir("allow-invalid");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(CLI_FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         fs::write(&file, r#"{"permissions":{"allow":"all"}}"#).unwrap();
 
-        let err = allow_tools(&cwd).expect_err("accepted invalid allow");
+        let err = allow_tools(cwd).expect_err("accepted invalid allow");
         assert!(err.contains("permissions.allow"), "{err}");
         assert_eq!(
             fs::read_to_string(&file).unwrap(),
@@ -373,7 +371,8 @@ mod tests {
 
     #[test]
     fn install_keeps_a_foreign_server_and_writes_the_loopback_entry() {
-        let cwd = dir("foreign");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         let other = json!({"command": "echo", "args": ["hi"], "env": {"K": "v"}});
@@ -383,7 +382,7 @@ mod tests {
         )
         .unwrap();
 
-        install(&cwd, URL, AUTH).expect("installed");
+        install(cwd, URL, AUTH).expect("installed");
 
         let root = read(&file);
         assert_eq!(root["keep"], json!(1));
@@ -398,18 +397,19 @@ mod tests {
     /// land and an unchanged one has to cost nothing.
     #[test]
     fn a_new_token_rewrites_the_entry_and_the_same_one_does_not() {
-        let cwd = dir("rewrite");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(FILE);
-        install(&cwd, URL, AUTH).expect("installed");
+        install(cwd, URL, AUTH).expect("installed");
         let bytes = fs::read(&file).unwrap();
         let mtime = fs::metadata(&file).unwrap().modified().unwrap();
         thread::sleep(Duration::from_millis(20));
 
-        install(&cwd, URL, AUTH).expect("installed again");
+        install(cwd, URL, AUTH).expect("installed again");
         assert_eq!(fs::read(&file).unwrap(), bytes);
         assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), mtime);
 
-        install(&cwd, "http://127.0.0.1:9999/mcp", "Bearer next-run").expect("a later run");
+        install(cwd, "http://127.0.0.1:9999/mcp", "Bearer next-run").expect("a later run");
         let root = read(&file);
         assert_eq!(
             root["mcpServers"]["fidget"]["url"],
@@ -427,13 +427,14 @@ mod tests {
     fn the_file_holding_the_token_is_owner_only() {
         use std::os::unix::fs::PermissionsExt;
 
-        let cwd = dir("mode");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         fs::write(&file, "{}").unwrap();
         fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
 
-        install(&cwd, URL, AUTH).expect("installed");
+        install(cwd, URL, AUTH).expect("installed");
 
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o777,
@@ -443,12 +444,13 @@ mod tests {
 
     #[test]
     fn remove_keeps_a_file_we_did_not_create_and_its_foreign_server() {
-        let cwd = dir("theirs");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         fs::write(&file, r#"{"mcpServers":{"other":{"command":"echo"}}}"#).unwrap();
 
-        install(&cwd, URL, AUTH).expect("installed").remove();
+        install(cwd, URL, AUTH).expect("installed").remove();
 
         let root = read(&file);
         assert_eq!(root, json!({"mcpServers": {"other": {"command": "echo"}}}));
@@ -456,12 +458,13 @@ mod tests {
 
     #[test]
     fn remove_leaves_no_token_on_disk() {
-        let cwd = dir("notoken");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         fs::write(&file, r#"{"mcpServers":{"other":{"command":"echo"}}}"#).unwrap();
 
-        let installed = install(&cwd, URL, AUTH).expect("installed");
+        let installed = install(cwd, URL, AUTH).expect("installed");
         assert!(fs::read_to_string(&file).unwrap().contains(AUTH));
         installed.remove();
 
@@ -470,12 +473,13 @@ mod tests {
 
     #[test]
     fn an_unparsable_file_is_an_error_and_untouched() {
-        let cwd = dir("broken");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let cwd = tmp.path();
         let file = cwd.join(DIR).join(FILE);
         fs::create_dir_all(cwd.join(DIR)).unwrap();
         fs::write(&file, "{not json").unwrap();
 
-        let err = install(&cwd, URL, AUTH).expect_err("wrote over garbage");
+        let err = install(cwd, URL, AUTH).expect_err("wrote over garbage");
 
         assert!(err.contains(FILE), "{err}");
         assert_eq!(fs::read_to_string(&file).unwrap(), "{not json");
@@ -502,11 +506,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn enable_runs_the_cli_once_in_the_cwd() {
-        let bin = dir("enable-bin");
-        let cwd = dir("enable-cwd");
-        let (cli, log) = fake_cli(&bin, 0);
+        let bin = tempfile::tempdir().expect("temp dir");
+        let bin = bin.path();
+        let cwd = tempfile::tempdir().expect("temp dir");
+        let cwd = cwd.path();
+        let (cli, log) = fake_cli(bin, 0);
 
-        enable(&cli, &cwd).expect("enabled");
+        enable(&cli, cwd).expect("enabled");
 
         let seen = fs::read_to_string(&log).unwrap();
         assert_eq!(
@@ -521,9 +527,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_failing_enable_is_an_error() {
-        let bin = dir("enable-fail");
-        let (cli, _log) = fake_cli(&bin, 1);
-        let err = enable(&cli, &bin).expect_err("exit 1 passed");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let bin = tmp.path();
+        let (cli, _log) = fake_cli(bin, 1);
+        let err = enable(&cli, bin).expect_err("exit 1 passed");
         assert!(err.contains("mcp enable"), "{err}");
     }
 }
