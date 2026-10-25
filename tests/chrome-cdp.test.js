@@ -3,7 +3,7 @@ import { chmodSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { chromePath, chromeSkip, launchWithPipe, createPageTarget, cleanupChrome } from "./chrome-cdp.js";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 // A stand-in for Chrome that speaks CDP over fds 3 and 4. It ignores every call
 // until `readyAfterMs` has passed, like a Chrome still starting, then answers

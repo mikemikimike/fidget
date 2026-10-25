@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "make-landing-page.py");

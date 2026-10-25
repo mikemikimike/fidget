@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 import { DROP_MS, analyze, compare, report, summarizeTimestamps, unwrapProcessLog } from "../scripts/frame-cadence.mjs";
 
 // Five Engine ticks of a walk, one 40 ms late, and the display frames an overlay

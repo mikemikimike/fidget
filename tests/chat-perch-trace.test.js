@@ -4,7 +4,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const script = fileURLToPath(new URL("../scripts/scenarios/manual-only/chat-perch.sh", import.meta.url));
 

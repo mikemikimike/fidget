@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const scenarios = join(import.meta.dirname, "..", "scripts", "scenarios");
 // A leaf moves to ci/ once a job proves it, so look in both folders.

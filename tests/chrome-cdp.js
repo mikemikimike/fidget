@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { makeTempDir } from "./temp.js";
+import { makeTempDir } from "./temp-path.js";
 
 // Every CDP call, the first included, gets 3s. CI warms Chrome up once before the
 // tests, so a slow first start fails loudly instead of hiding behind a longer wait.

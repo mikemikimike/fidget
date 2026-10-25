@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const helpers = join(import.meta.dirname, "..", "scripts", "bench-linux-helpers.sh");
 

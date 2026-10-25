@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const TESTS = dirname(fileURLToPath(import.meta.url));
 
@@ -31,8 +31,8 @@ function sources(dir) {
 const offenders = (pattern, allowed) =>
   sources(TESTS).filter((file) => !allowed.includes(file) && pattern.test(readFileSync(join(TESTS, file), "utf8")));
 
-test("only temp.js makes temp dirs", () => {
-  assert.deepEqual(offenders(/\bmkdtemp\w*\s*[(]/, ["temp.js"]), []);
+test("only temp-path.js makes temp dirs", () => {
+  assert.deepEqual(offenders(/\bmkdtemp\w*\s*[(]/, ["temp-path.js"]), []);
 });
 
 // chrome-cdp.test.js only reads the flag back from its fake Chrome.

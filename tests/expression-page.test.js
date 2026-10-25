@@ -10,7 +10,7 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { bubbleDuration } from "../src/bubble.js";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "make-expression-page.py");

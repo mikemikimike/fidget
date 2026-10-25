@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 // The run takes about 12 s alone. Beside the other Chrome tests on a busy

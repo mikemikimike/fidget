@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const helpers = path.join(import.meta.dirname, "..", ".agents", "skills", "verify-fidget", "helpers");
 

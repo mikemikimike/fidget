@@ -8,7 +8,7 @@ import { once } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const scenarios = path.join(import.meta.dirname, "..", "scripts", "scenarios");
 

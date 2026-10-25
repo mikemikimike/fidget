@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const script = path.join(import.meta.dirname, "..", "scripts", "measure-mask-rebuild-x11.sh");
 const ready = "overlay: 1 display";

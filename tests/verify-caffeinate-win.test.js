@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { resolvePwsh } from "./pwsh-resolve.js";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const script = join(
   import.meta.dirname,

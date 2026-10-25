@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const PROBE_MS = 30000;

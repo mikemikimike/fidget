@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { test } from "node:test";
-import { tempDir } from "./temp.js";
+import { tempDir } from "./temp-path.js";
 
 const scenarios = path.join(import.meta.dirname, "..", "scripts", "scenarios", "helpers");
 const helper = path.join(scenarios, "wait-helpers.sh");
