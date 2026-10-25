@@ -11,6 +11,9 @@
 # Asserts: no "Question for you" bubble before the Poke; the click lands as a
 #   Poke; after it, the bubble reads "Question for you in the" with a "chat"
 #   link button.
+# Skips (exit 2, preflight.txt) only when a fullscreen window is stacked over
+#   the click and would take it. Any other fullscreen app is left alone.
+#   hide-in-fullscreen is off, so Fidget neither fades nor moves.
 #
 # Usage: question-bubble.win.ps1 --go <fidget binary> <fidget test binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -145,77 +148,6 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = $utf8
 $OutputEncoding = $utf8
 
-Add-Type -AssemblyName System.Windows.Forms
-
-$preflightCode = @"
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
-public class PreflightCheck {
-    public delegate bool Callback(IntPtr hWnd, IntPtr lParam);
-    [DllImport("user32.dll")] public static extern bool EnumWindows(Callback cb, IntPtr lParam);
-    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int index);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lp, int n);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lp, int n);
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
-    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
-    public const int GWL_STYLE = -16;
-    public const int GWL_EXSTYLE = -20;
-    public const int WS_VISIBLE = 0x10000000;
-    public const int WS_EX_TOOLWINDOW = 0x00000080;
-    public const int DWMWA_CLOAKED = 14;
-}
-"@
-Add-Type -TypeDefinition $preflightCode
-
-function Get-FrontmostFullscreenApp {
-    $screens = [System.Windows.Forms.Screen]::AllScreens
-    $state = @{ Hit = $null }
-    [PreflightCheck]::EnumWindows({
-        param($hwnd, $lParam)
-        if ($null -eq $state.Hit) {
-            $visible = [PreflightCheck]::IsWindowVisible($hwnd)
-            if (-not $visible) { return $true }
-            $style = [PreflightCheck]::GetWindowLong($hwnd, [PreflightCheck]::GWL_STYLE)
-            if (($style -band [PreflightCheck]::WS_VISIBLE) -eq 0) { return $true }
-            $exStyle = [PreflightCheck]::GetWindowLong($hwnd, [PreflightCheck]::GWL_EXSTYLE)
-            if (($exStyle -band [PreflightCheck]::WS_EX_TOOLWINDOW) -ne 0) { return $true }
-            $cloaked = 0
-            $hr = [PreflightCheck]::DwmGetWindowAttribute($hwnd, [PreflightCheck]::DWMWA_CLOAKED, [ref]$cloaked, [System.Runtime.InteropServices.Marshal]::SizeOf([type][int]))
-            if ($hr -eq 0 -and $cloaked -ne 0) { return $true }
-            $rect = New-Object PreflightCheck+RECT
-            if (-not [PreflightCheck]::GetWindowRect($hwnd, [ref]$rect)) { return $true }
-            $width = $rect.Right - $rect.Left
-            $height = $rect.Bottom - $rect.Top
-            if ($width -le 0 -or $height -le 0) { return $true }
-            foreach ($screen in $screens) {
-                $sb = $screen.Bounds
-                if ([Math]::Abs($rect.Left - $sb.Left) -le 1 -and [Math]::Abs($rect.Top - $sb.Top) -le 1 -and [Math]::Abs($width - $sb.Width) -le 1 -and [Math]::Abs($height - $sb.Height) -le 1) {
-                    $cls = New-Object System.Text.StringBuilder 256
-                    [PreflightCheck]::GetClassName($hwnd, $cls, $cls.Capacity) | Out-Null
-                    $title = New-Object System.Text.StringBuilder 512
-                    [PreflightCheck]::GetWindowText($hwnd, $title, $title.Capacity) | Out-Null
-                    $state.Hit = @{Class=$cls.ToString(); Title=$title.ToString()}
-                    return $false
-                }
-            }
-        }
-        return $true
-    }, [IntPtr]::Zero) | Out-Null
-    return $state.Hit
-}
-
-$fullscreenApp = Get-FrontmostFullscreenApp
-if ($fullscreenApp) {
-    $preflightFile = Join-Path $out "preflight.txt"
-    Set-Content -LiteralPath $preflightFile -Value "Class: $($fullscreenApp.Class)`nTitle: $($fullscreenApp.Title)" -Encoding utf8
-    [Console]::Error.WriteLine("SKIP: fullscreen app '$($fullscreenApp.Title)' is frontmost; close or minimize it and re-run")
-    [Console]::Error.WriteLine("evidence in $out")
-    exit 2
-}
-
 $axPs1 = Join-Path $out "ax.ps1"
 $ax = Join-Path $root "scripts\ax-window-win.ps1"
 [System.IO.File]::WriteAllLines($axPs1, @(
@@ -281,6 +213,8 @@ try {
     if (-not $size) { Fail "no sprite size in $traceFile" }
     $w = [int]$size.Matches[0].Groups[1].Value
     $h = [int]$size.Matches[0].Groups[2].Value
+    . (Join-Path $PSScriptRoot "..\helpers\fullscreen-over-click.win.ps1")
+    Skip-IfFullscreenOverClick ($settled.X + [int]($w / 2)) ($settled.Y + [int]($h / 2)) $proc.Id $out "click"
 
     $attemptsFile = Join-Path $out "poke-attempts.txt"
     $maxAttempts = 3
