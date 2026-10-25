@@ -3015,9 +3015,8 @@ mod tests {
         assert_eq!(view.instances[0].name, "Nim");
         assert_eq!(view.instances[0].character, "nim");
         assert!(!view.api_key_set);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         {
-            #[cfg(target_os = "macos")]
             assert_eq!(
                 view.consent.iter().map(|row| row.title).collect::<Vec<_>>(),
                 [
@@ -3026,20 +3025,22 @@ mod tests {
                     "Input Monitoring"
                 ]
             );
-            #[cfg(target_os = "windows")]
-            {
-                assert_eq!(
-                    view.consent.iter().map(|row| row.title).collect::<Vec<_>>(),
-                    ["Accessibility", "Window and Application Names"]
-                );
-                assert!(!view.consent[1].granted);
-            }
             assert!(
                 view.consent[0].granted,
                 "the checkbox follows settings intent, not the OS grant"
             );
-            #[cfg(target_os = "macos")]
             assert!(!view.consent[1].granted);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(
+                view.consent.iter().map(|row| row.title).collect::<Vec<_>>(),
+                ["Window and Application Names"]
+            );
+            assert!(
+                !view.consent[0].granted,
+                "the checkbox follows settings intent, not the OS grant"
+            );
         }
         #[cfg(target_os = "linux")]
         {
