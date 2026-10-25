@@ -353,8 +353,8 @@ log.addEventListener("click", (event) => {
 const asks = new Map();
 
 // An ask is a fold, open while it waits. Settling shuts it with what was asked
-// and what won in the handle: the cue that the answer landed, and a way back
-// to the question.
+// and what won in the handle. Its buttons come in filled, or the log would
+// scroll to a bottom without them.
 function askRow(request, heading, body, buttons) {
   const row = el("row ask");
   const toggle = el("who thinking-toggle", "button");
@@ -375,7 +375,8 @@ function askRow(request, heading, body, buttons) {
 // Disabled at once so a second click cannot be sent, but nothing is marked
 // chosen until the Shell says what won: see `retire`. Focus moves to the
 // handle, or it would fall out of the log with the button that held it.
-function sendOnce(row, buttons) {
+function sendOnce(buttons) {
+  const row = buttons.closest(".row.ask");
   if (row.contains(document.activeElement)) {
     row.querySelector(".thinking-toggle").focus();
   }
@@ -428,19 +429,13 @@ function asked(ask) {
   const body = el("said");
   drawAskDetails(body, ask);
   const buttons = el("options");
-  const row = askRow(
-    ask.request,
-    firstLine(body.querySelector(".ask-title")?.textContent ?? "", `${them} · asks`),
-    body,
-    buttons,
-  );
   for (const option of ask.options) {
     const button = el("", "button");
     button.type = "button";
     button.textContent = option.name || option.id;
     button.dataset.option = option.id;
     button.addEventListener("click", () => {
-      sendOnce(row, buttons);
+      sendOnce(buttons);
       invoke("permission_answer", { request: ask.request, option: option.id }).catch((why) => {
         console.error("chat: the answer did not reach the Harness:", why);
         note("That answer did not get through.");
@@ -448,7 +443,12 @@ function asked(ask) {
     });
     buttons.append(button);
   }
-  return row;
+  return askRow(
+    ask.request,
+    firstLine(body.querySelector(".ask-title")?.textContent ?? "", `${them} · asks`),
+    body,
+    buttons,
+  );
 }
 
 // The caret of the turn on the wire moves under an ask raised mid-turn, or
@@ -476,14 +476,13 @@ function elicited(form) {
     body.append(link);
   }
   const buttons = el("options");
-  const row = askRow(form.request, firstLine(said, `${them} · asks`), body, buttons);
   for (const choice of elicitChoices(form)) {
     const button = el("", "button");
     button.type = "button";
     button.textContent = choice.name;
     button.dataset.option = choice.value ?? "decline";
     button.addEventListener("click", () => {
-      sendOnce(row, buttons);
+      sendOnce(buttons);
       const opened = choice.url ? invoke("open_link", { url: choice.url }) : Promise.resolve();
       opened
         .then(() => invoke("elicitation_answer", { request: form.request, value: choice.value }))
@@ -494,7 +493,7 @@ function elicited(form) {
     });
     buttons.append(button);
   }
-  return row;
+  return askRow(form.request, firstLine(said, `${them} · asks`), body, buttons);
 }
 
 const applyChatAppearance = mountChatAppearance(document.documentElement);

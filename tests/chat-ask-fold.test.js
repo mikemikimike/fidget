@@ -103,10 +103,20 @@ function surface(theme) {
     await ready("chat-permission-settled");
     await until(() => !document.getElementById("line").disabled);
 
+    const log = document.getElementById("log");
+    for (let i = 0; i < 60; i += 1) {
+      const filler = document.createElement("div");
+      filler.className = "row them";
+      filler.textContent = "earlier line " + i;
+      log.append(filler);
+    }
+    log.scrollTop = log.scrollHeight;
     handlers["chat-permission"]({ payload: ${JSON.stringify(PERMISSION)} });
     await until(() => document.querySelector('#log .row.ask [data-option="allow-once"]'));
     const row = document.querySelector("#log .row.ask");
     const pending = look(row);
+    const lastChoice = [...row.querySelectorAll(".options button")].at(-1).getBoundingClientRect();
+    const overflow = Math.round(lastChoice.bottom - log.getBoundingClientRect().bottom);
     const allow = row.querySelector('[data-option="allow-once"]');
     allow.focus();
     allow.click();
@@ -139,7 +149,7 @@ function surface(theme) {
     const cancelled = look(goneRow);
 
     console.log("__PROBE_RESULT__" + JSON.stringify({
-      pending, sent, focusOnHandle, answered, reopened, calls, form, cancelled,
+      pending, overflow, sent, focusOnHandle, answered, reopened, calls, form, cancelled,
     }));
   }
   window.addEventListener("load", drive);
@@ -168,6 +178,7 @@ for (const theme of ["minimal", "terminal", "glass"]) {
     assert.equal(report.pending.toggleLooksLikeAChoice, false, "the fold handle is painted as an answer button");
     assert.deepEqual(report.pending.choices, OPEN);
     assert.equal(report.pending.dim, 1);
+    assert.ok(report.overflow <= 0, `a new ask's last choice sits ${report.overflow}px below the full log`);
 
     assert.equal(report.sent.expanded, "true", "the row stays open until the Shell says what won");
     assert.equal(report.sent.choices.every((choice) => choice.disabled), true);
