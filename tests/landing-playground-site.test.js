@@ -3,7 +3,8 @@
 // a slow drop perches on the window, the desk stops painting while scrolled out
 // of view, reduced motion keeps the still tiles, a double-click opens the chat
 // mock, hovering or a long-press opens the quick-message pill, the wallpaper
-// switch repaints the desk, and the picker swaps the sprite.
+// switch repaints the desk, the picker swaps the sprite, and every picker
+// button shows its sprite at the same size.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -242,6 +243,60 @@ const picker = `
         nimFrame: Object.values(data.cast.nim.loops).some((loop) => loop.frames.includes(img.getAttribute("src"))) };
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors, before, swapped, after,
         cast: Object.values(data.cast).map((one) => one.name), nimWidth: data.cast.nim.size[0] + "px" }));
+    } catch (err) {
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
+    }
+  });
+</script>`;
+
+// Each picker button's sprite, measured where it paints: the opaque pixels of
+// its idle frame, read from a canvas, mapped through the img's rendered box
+// (object-fit included) and clipped by its overflow-hidden ancestors.
+const faces = `
+<script>${helpers}
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    try {
+      const opaque = (img) => {
+        const canvas = document.createElement("canvas");
+        [canvas.width, canvas.height] = [img.naturalWidth, img.naturalHeight];
+        const context = canvas.getContext("2d");
+        context.drawImage(img, 0, 0);
+        const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+        let [left, top, right, bottom] = [canvas.width, canvas.height, 0, 0];
+        for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+          if (!data[(y * canvas.width + x) * 4 + 3]) continue;
+          [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x + 1), Math.max(bottom, y + 1)];
+        }
+        return { left, top, right, bottom };
+      };
+      const painted = (img) => {
+        const box = img.getBoundingClientRect();
+        if (getComputedStyle(img).objectFit !== "contain") return box;
+        const scale = Math.min(box.width / img.naturalWidth, box.height / img.naturalHeight);
+        const [width, height] = [img.naturalWidth * scale, img.naturalHeight * scale];
+        return { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2, width, height };
+      };
+      const sizes = {};
+      for (const button of document.querySelectorAll("#play-picker button")) {
+        const img = button.querySelector("img");
+        await img.decode();
+        const art = opaque(img);
+        const box = painted(img);
+        const [sx, sy] = [box.width / img.naturalWidth, box.height / img.naturalHeight];
+        let seen = { left: box.left + art.left * sx, top: box.top + art.top * sy, right: box.left + art.right * sx, bottom: box.top + art.bottom * sy };
+        for (let clip = img.parentElement; clip; clip = clip.parentElement) {
+          if (getComputedStyle(clip).overflow === "visible") continue;
+          const c = clip.getBoundingClientRect();
+          seen = { left: Math.max(seen.left, c.left), top: Math.max(seen.top, c.top), right: Math.min(seen.right, c.right), bottom: Math.min(seen.bottom, c.bottom) };
+        }
+        const style = getComputedStyle(button);
+        sizes[button.dataset.id] = { side: Math.round(Math.max(seen.right - seen.left, seen.bottom - seen.top) * 10) / 10,
+          inside: seen.left >= button.getBoundingClientRect().left && seen.right <= button.getBoundingClientRect().right,
+          room: button.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          pixel: getComputedStyle(img).imageRendering };
+      }
+      console.log("__PROBE_RESULT__" + JSON.stringify({ errors, sizes }));
     } catch (err) {
       console.log("__PROBE_RESULT__" + JSON.stringify({ errors: [...errors, String(err)] }));
     }
@@ -492,6 +547,19 @@ test("a tap on a Character in the picker swaps the desk's sprite at once, and th
     "the picker lists every cast Character, Buddy Bot pressed");
   assert.deepEqual(result.swapped, { alt: "Nim", width: result.nimWidth, idle: true }, "the tap swapped the desk to Nim before any frame");
   assert.deepEqual(result.after, { pressed: ["nim"], stored: "nim", nimFrame: true }, "Nim stays pressed, stored and animating");
+});
+
+test("every Character's sprite fills its picker button the same, whatever padding its frame has", { skip: chromeSkip }, async () => {
+  const result = await play([], faces);
+  assert.deepEqual(result.errors, [], "the page threw nothing");
+  const cast = JSON.parse(readFileSync(join(site, "index.html"), "utf8")
+    .match(/<script type="application\/json" id="play-data">([\s\S]*?)<\/script>/)[1]).cast;
+  assert.deepEqual(Object.keys(result.sizes), Object.keys(cast), "a button per cast Character");
+  for (const [id, seen] of Object.entries(result.sizes)) {
+    assert.ok(seen.inside, `${id}'s sprite stays inside its button`);
+    assert.ok(Math.abs(seen.side - seen.room) <= 1, `${id}'s sprite spans ${seen.side}px of the button's ${seen.room}px: ${JSON.stringify(result.sizes)}`);
+    assert.equal(seen.pixel, cast[id].pixel ? "pixelated" : "auto", `${id} keeps its render mode`);
+  }
 });
 
 test("on a phone, a long-press opens the pill and pokes nothing, a flick throws, and the wallpaper follows the OS scheme until the switch repaints it", { skip: chromeSkip }, async () => {
