@@ -2,7 +2,7 @@
 //! No SDK type leaves the file. Reversing the crate choice rewrites this
 //! file only. The frame loop never sees it.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -1279,13 +1279,17 @@ async fn serve(
     // What each open session last listed. A set answers with the whole list, and a
     // model set can change which effort option exists.
     let mut options: HashMap<SessionId, Vec<SessionConfigOption>> = HashMap::new();
-    loop {
+    // Held while `session/new` is the reader of `rx`, then run after it answers.
+    let mut deferred: VecDeque<Msg> = VecDeque::new();
+    'serve: loop {
         enum Step {
             Auth(Result<(), String>),
             Command(Msg),
             Stop,
         }
-        let step = {
+        let step = if let Some(command) = deferred.pop_front() {
+            Step::Command(command)
+        } else {
             // Copied before the future borrows `auth`. The `if` below would
             // otherwise fight that borrow, and the device flow would go back
             // to being the only command the loop can run.
@@ -1362,7 +1366,10 @@ async fn serve(
                 reply,
             }) => {
                 let loading = load.clone().map(SessionId::new);
-                let opened = open(
+                // A shutdown during `session/new` has to answer the opener and
+                // leave. Waiting the request out lets the open succeed after
+                // the switch meant to drop it.
+                let mut open_fut = std::pin::pin!(open(
                     cx,
                     load,
                     &cwd,
@@ -1370,9 +1377,21 @@ async fn serve(
                     claude_mcp_approval,
                     &model,
                     effort.as_deref(),
-                )
-                .await
-                .map(|(id, listed, applied, foreign_model)| {
+                ));
+                let opened = loop {
+                    tokio::select! {
+                        biased;
+                        opened = &mut open_fut => break opened,
+                        command = rx.recv() => match command {
+                            Some(Msg::Shutdown) | None => {
+                                let _ = reply.send(Err(OpenError::Lost));
+                                break 'serve;
+                            }
+                            Some(command) => deferred.push_back(command),
+                        },
+                    }
+                };
+                let opened = opened.map(|(id, listed, applied, foreign_model)| {
                     options.insert(id.clone(), listed);
                     (id, applied, foreign_model)
                 });

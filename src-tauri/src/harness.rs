@@ -3851,6 +3851,20 @@ mod tests {
         }
     }
 
+    /// A closed socket is the session going away. The open must not answer that.
+    fn open_stall_released() -> bool {
+        let Some(addr) = std::env::args()
+            .find_map(|arg| arg.strip_prefix("release=").map(|addr| addr.to_string()))
+        else {
+            return false;
+        };
+        let Ok(mut stream) = std::net::TcpStream::connect(addr) else {
+            return false;
+        };
+        let mut buf = [0u8; 1];
+        std::io::Read::read(&mut stream, &mut buf).ok() == Some(1)
+    }
+
     /// Whether a leaf opened `fifo` before `bound`. Opening a FIFO's read end
     /// blocks until a writer opens it; on a timeout that open stays blocked in
     /// its thread, which the fixture's exit ends.
@@ -4164,9 +4178,15 @@ mod tests {
                     }
                     // After `authenticate`, so the first refusal that puts the
                     // landing up stays quick and only the sign-in open stalls.
-                    if script == "stall-open"
-                        || (script == "stall-sign-in" && recorded(count, "authenticate") > 0)
-                    {
+                    if script == "stall-open" && recorded(count, "new") == 1 {
+                        record(count, "open-stall");
+                        // Stay unanswered until the test writes a byte, or this
+                        // process dies with the session. A sleep can expire
+                        // before the cancel lands.
+                        if !open_stall_released() {
+                            return;
+                        }
+                    } else if script == "stall-sign-in" && recorded(count, "authenticate") > 0 {
                         record(count, "open-stall");
                         thread::sleep(SURFACE_STALL);
                     }
@@ -4842,6 +4862,8 @@ mod tests {
         cwd: PathBuf,
         count: PathBuf,
         forwarded: Receiver<Forwarded>,
+        /// Accepts one byte that lets a `stall-open` child answer `session/new`.
+        release: Option<std::net::TcpListener>,
     }
 
     impl Fixture {
@@ -4865,13 +4887,19 @@ mod tests {
                 dir.clone()
             };
             let count = dir.join("count.txt");
+            let release = (script == "stall-open")
+                .then(|| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+            let mut argv = vec![
+                fake_agent_wrapper().to_string_lossy().to_string(),
+                format!("script={script}"),
+                format!("count={}", count.display()),
+            ];
+            if let Some(listener) = &release {
+                argv.push(format!("release={}", listener.local_addr().unwrap()));
+            }
             let launch = Launch {
                 name: "fake".into(),
-                argv: vec![
-                    fake_agent_wrapper().to_string_lossy().to_string(),
-                    format!("script={script}"),
-                    format!("count={}", count.display()),
-                ],
+                argv,
             };
             let (tx, forwarded) = mpsc::channel();
             let session = Session::new(
@@ -4889,6 +4917,7 @@ mod tests {
                     cwd,
                     count,
                     forwarded,
+                    release,
                 },
                 session,
             )
@@ -4995,6 +5024,29 @@ mod tests {
                 thread::sleep(Duration::from_millis(20));
             }
             false
+        }
+
+        /// Let the stalled `session/new` answer. One release, the first open only.
+        fn release_open_stall(&mut self) {
+            let listener = self.release.take().expect("no open stall is waiting");
+            // A blocking accept turns a fake that died before connecting into a hang.
+            listener.set_nonblocking(true).expect("nonblocking accept");
+            let start = Instant::now();
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(pair) => break pair,
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            start.elapsed() < Duration::from_secs(2),
+                            "the stalled open never connected"
+                        );
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(err) => panic!("accept failed: {err}"),
+                }
+            };
+            stream.set_nonblocking(false).expect("blocking write");
+            stream.write_all(&[1]).expect("release the stalled open");
         }
     }
 
@@ -9474,7 +9526,7 @@ mod tests {
 
     #[test]
     fn a_drop_during_session_open_is_not_put_back() {
-        let (fx, session) = Fixture::new("stall-open");
+        let (mut fx, session) = Fixture::new("stall-open");
         let session = Arc::new(session);
         let worker = {
             let session = Arc::clone(&session);
@@ -9488,6 +9540,7 @@ mod tests {
             elapsed < Duration::from_millis(500),
             "the character tick waited {elapsed:?} on session/new"
         );
+        fx.release_open_stall();
         let first = worker.join().unwrap();
         assert!(
             first.is_err(),
@@ -9814,8 +9867,38 @@ mod tests {
         );
     }
 
-    /// `session/new` holds the wire thread, so an inline reap waits out `REAP`.
-    /// The switch returns while that open is still asleep.
+    /// The stalled open has to stay unanswered until the session is dropped.
+    /// A stall that ends on its own lets `session/new` succeed before a slow
+    /// runner's cancel lands.
+    #[test]
+    fn a_stalled_open_does_not_finish_on_its_own() {
+        let (fx, session) = Fixture::new("stall-open");
+        let session = Arc::new(session);
+        let worker = {
+            let session = Arc::clone(&session);
+            thread::spawn(move || session.complete(&asking("hi"), &|_| {}))
+        };
+        assert!(fx.wait_for("open-stall", 1), "the open never stalled");
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = done_tx.send(worker.join());
+        });
+        let still_open = done_rx.recv_timeout(SURFACE_STALL + Duration::from_secs(1));
+        assert!(
+            still_open.is_err(),
+            "the open finished without a cancel: {still_open:?}"
+        );
+        session.shutdown();
+        let ended = done_rx.recv_timeout(Duration::from_secs(2));
+        assert!(
+            matches!(ended, Ok(Ok(Err(_)))),
+            "dropping the session did not end the open: {ended:?}"
+        );
+    }
+
+    /// Switching source returns on the UI thread. The open stays unanswered
+    /// until shutdown cancels it, so the switch does not wait the stall out
+    /// and the wake does not come back succeeded.
     #[test]
     fn retarget_does_not_wait_out_a_session_open() {
         let (fx, session) = Fixture::new("stall-open");
@@ -9871,24 +9954,21 @@ mod tests {
         }
         let _clear = Clear;
         FAIL_SWITCH_SPAWN.store(true, Ordering::SeqCst);
-        let start = Instant::now();
         retarget(None, false);
-        let waited = start.elapsed();
         {
             let mut slot = attachment();
             slot.session = None;
             slot.forward = None;
         }
         assert!(
-            waited >= Duration::from_millis(1000),
-            "the failed switch returned in {waited:?} without waiting out the reap"
-        );
-        assert!(
             !session.wanted.load(Ordering::SeqCst),
             "the old child was dropped without shutdown"
         );
         assert!(session.current_wire().is_none());
-        let _ = worker.join();
+        assert!(
+            worker.join().unwrap().is_err(),
+            "the open survived the inline reap"
+        );
     }
 
     #[test]
