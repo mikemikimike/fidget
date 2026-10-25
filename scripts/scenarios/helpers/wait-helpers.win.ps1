@@ -232,10 +232,12 @@ function Get-LastSpriteSpot([string]$TraceFile) {
 
 # Wait for the sprite to rest. Each frame where it moved (walking, climbing or
 # falling) is progress and restarts the 3 s window, so a long walk is fine.
+# Return the rest the check already saw: a walk frame after that is not "not at rest".
 function Wait-ForRest([string]$TraceFile) {
     $dir = Split-Path -Parent $TraceFile
     if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { $dir = $script:WatchDir }
     $script:restSpot = Get-LastSpriteSpot $TraceFile
+    $script:restAt = $null
     while ($true) {
         if ($at = Get-SpriteAtRest $TraceFile) { return $at }
         $script:restDecision = "wait"
@@ -243,11 +245,11 @@ function Wait-ForRest([string]$TraceFile) {
             $now = Get-LastSpriteSpot $TraceFile
             $moved = [bool]($script:restSpot -and $now -and ($now.X -ne $script:restSpot.X -or $now.Y -ne $script:restSpot.Y))
             if ($now) { $script:restSpot = $now }
-            if (Get-SpriteAtRest $TraceFile) { $script:restDecision = "done"; return $true }
+            if ($script:restAt = Get-SpriteAtRest $TraceFile) { $script:restDecision = "done"; return $true }
             if ($moved) { $script:restDecision = "progress"; return $true }
             $false
         }
-        if ($script:restDecision -ceq "done") { return (Get-SpriteAtRest $TraceFile) }
+        if ($script:restDecision -ceq "done") { return $script:restAt }
         if ($script:restDecision -cne "progress") { return $null }
     }
 }

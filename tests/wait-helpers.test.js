@@ -230,8 +230,15 @@ function Later($c) { $p = New-Object Diagnostics.ProcessStartInfo "bash"; $p.Arg
 $W = '${dir}'
 $data = Initialize-ScenarioData $W
 ${body}`;
-  const r = spawnSync("pwsh", ["-NoProfile", "-Command", script], { encoding: "utf8" });
-  return { code: r.status, lines: r.stdout.trim().split("\n").map((l) => l.trim()), err: r.stderr };
+  // Above the longest wait here (~6 s). Without this, a stuck Wait-ForRest
+  // sits until node:test's 60 s.
+  const r = spawnSync("pwsh", ["-NoProfile", "-Command", script], { encoding: "utf8", timeout: 15_000 });
+  const timedOut = r.error && r.error.code === "ETIMEDOUT";
+  return {
+    code: r.status,
+    lines: r.stdout.trim().split("\n").map((l) => l.trim()),
+    err: timedOut ? `ps() timed out after 15s\n${r.stderr}` : r.stderr,
+  };
 }
 
 test("Windows: Wait-ForMarks returns soon after the line lands", { skip: noPwsh }, (t) => {
@@ -344,6 +351,29 @@ Write-Output $(if ($rest) { $rest.X } else { "null" })`);
   assert.strictEqual(r.code, 0, r.err);
   assert.ok(Number(r.lines[0]) >= 3500 && Number(r.lines[0]) < 6000, `took ${r.lines[0]} ms: ${r.err}`);
   assert.strictEqual(r.lines[1], "160", r.err);
+});
+
+test("Windows: Wait-ForRest keeps the rest it already saw when a walk frame lands", { skip: noPwsh }, (t) => {
+  const r = ps(t, `$t = "$W/p.log"
+1..4 | % { Add-Content $t "1 frame: 1 Grounded pos(1,1) sprite(160,20) idle#1 x" }
+$orig = (Get-Command Get-SpriteAtRest).ScriptBlock
+function Get-SpriteAtRest([string]$TraceFile) {
+    $at = & $orig $TraceFile
+    if ($at -and -not $script:walkAfterRest) {
+        $script:walkAfterRest = $true
+        Add-Content $TraceFile "1 frame: 1 Grounded pos(1,1) sprite(200,20) walk#1 x"
+    }
+    return $at
+}
+Later "echo '1 frame: 1 Grounded pos(1,1) sprite(160,20) idle#1 x' >> $t"
+$start = Get-NowMs
+$rest = Wait-ForRest $t
+$took = (Get-NowMs) - $start
+Write-Output $(if ($rest) { $rest.X } else { "null" })
+Write-Output $took`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.strictEqual(r.lines[0], "160", `re-read after rest: ${r.lines[0]} ${r.err}`);
+  assert.ok(Number(r.lines[1]) < 2000, `took ${r.lines[1]} ms`);
 });
 
 test("Windows: Wait-ForRest gives up 3 s after the last move", { skip: noPwsh }, (t) => {
