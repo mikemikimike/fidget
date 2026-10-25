@@ -15,9 +15,10 @@ use std::path::Path;
 #[cfg(unix)]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
+use fidget_core::input::PressFold;
 use fidget_core::overlay_region::OverlayRect;
 use fidget_core::quick_message::QmDraft;
 use fidget_core::sensing::ActivitySource;
@@ -66,6 +67,8 @@ impl Witness {
 
 static OVERLAY_PRIMARY: Witness = Witness::new();
 static OVERLAY_SECONDARY: Witness = Witness::new();
+static PRIMARY_FOLD: Mutex<PressFold> = Mutex::new(PressFold::new());
+static SECONDARY_FOLD: Mutex<PressFold> = Mutex::new(PressFold::new());
 
 /// Which Instance is typing a quick message. A level, not a press edge:
 /// the hold lasts as long as the field has the caret.
@@ -1029,37 +1032,42 @@ fn os_double_click_interval_ms() -> Option<u32> {
     windows::double_click_interval_ms()
 }
 
+fn fold_button(fold: &Mutex<PressFold>, session: bool, witness: bool) -> bool {
+    fold.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .held(session, witness)
+}
+
+fn folded_buttons(session: ButtonsDown) -> ButtonsDown {
+    ButtonsDown {
+        primary: fold_button(&PRIMARY_FOLD, session.primary, overlay_primary_down()),
+        secondary: fold_button(&SECONDARY_FOLD, session.secondary, overlay_secondary_down()),
+    }
+}
+
 /// Which mouse buttons are down, or were pressed since the last call: session
-/// poll OR overlay witness, a Control-click as secondary. The frame loop asks
-/// once per tick, so "since the last call" means "since the last tick".
+/// poll and overlay witness folded per press, a Control-click as secondary.
+/// If the poll saw this press, its up wins; the witness covers a miss.
 #[cfg(target_os = "macos")]
 pub fn buttons_down() -> ButtonsDown {
-    macos::control_click(ButtonsDown {
-        primary: overlay_primary_down() || macos::primary_button_down(),
-        secondary: overlay_secondary_down() || macos::secondary_button_down(),
-    })
+    macos::control_click(folded_buttons(ButtonsDown {
+        primary: macos::primary_button_down(),
+        secondary: macos::secondary_button_down(),
+    }))
 }
 
-/// X11 on Linux: one XQueryPointer for both buttons, or the overlay latch.
-/// Wayland has only the overlay latch (no global pointer). Poll before the
-/// latches so both consuming reads still happen exactly once each.
+/// X11: one XQueryPointer for both buttons, folded with the overlay latch.
+/// Wayland has only the latch (no global pointer). Poll before the latches
+/// so both consuming reads still happen exactly once each.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn buttons_down() -> ButtonsDown {
-    let session = x11::buttons_down();
-    ButtonsDown {
-        primary: overlay_primary_down() || session.primary,
-        secondary: overlay_secondary_down() || session.secondary,
-    }
+    folded_buttons(x11::buttons_down())
 }
 
-/// Windows: GetAsyncKeyState for both buttons, or the overlay latch.
+/// Windows: GetAsyncKeyState for both buttons, folded with the overlay latch.
 #[cfg(not(unix))]
 pub fn buttons_down() -> ButtonsDown {
-    let session = windows::buttons_down();
-    ButtonsDown {
-        primary: overlay_primary_down() || session.primary,
-        secondary: overlay_secondary_down() || session.secondary,
-    }
+    folded_buttons(windows::buttons_down())
 }
 
 /// Where the Free tier comes from: what the user is in, and how long since they

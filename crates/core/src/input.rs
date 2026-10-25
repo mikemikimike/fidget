@@ -262,6 +262,32 @@ impl Pointer {
     }
 }
 
+/// Session poll and overlay witness for one button. If the poll saw this
+/// press go down, its up wins over a late witness; the witness counts only
+/// for a press the poll never saw.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PressFold {
+    session_saw: bool,
+}
+
+impl PressFold {
+    pub const fn new() -> Self {
+        Self { session_saw: false }
+    }
+
+    /// Whether this tick's button is held, after folding the two signals.
+    pub fn held(&mut self, session: bool, witness: bool) -> bool {
+        if session {
+            self.session_saw = true;
+        }
+        let held = if self.session_saw { session } else { witness };
+        if !session && !witness {
+            self.session_saw = false;
+        }
+        held
+    }
+}
+
 /// Which Instance the pointer is acting on: `hits` is the alpha hit-test per
 /// Instance in draw order, `holding` the Instance mid-Grab. One cursor and
 /// several sprites need one arbiter, or one press would pick up two sprites.
@@ -377,6 +403,50 @@ mod tests {
         pointer.update(true, false, false, at(120.0, 100.0), TICK);
 
         assert_eq!(click(&mut pointer), vec![Verb::Poke]);
+    }
+
+    /// A session poll that already released this press wins over a late
+    /// overlay witness, so a click does not become a Grab after 180 ms.
+    #[test]
+    fn a_session_release_stays_a_poke_when_the_witness_is_late() {
+        let mut fold = PressFold::new();
+        let mut pointer = Pointer::default();
+        let mut verbs = Vec::new();
+        let cursor = at(100.0, 100.0);
+
+        verbs.extend(pointer.update(true, fold.held(true, true), false, cursor, TICK));
+        for _ in 0..DRAG_DELAY_MS / TICK + 2 {
+            verbs.extend(pointer.update(true, fold.held(false, true), false, cursor, TICK));
+        }
+        verbs.extend(pointer.update(true, fold.held(false, false), false, cursor, TICK));
+
+        assert_eq!(
+            verbs.iter().filter(|verb| **verb == Verb::Poke).count(),
+            1,
+            "the session release is a Poke, got {verbs:?}"
+        );
+        assert!(
+            !verbs.contains(&Verb::Grab),
+            "a late witness must not turn the click into a Grab, got {verbs:?}"
+        );
+    }
+
+    /// A press the session poll never saw is still a press: the overlay is
+    /// the only witness when the poll misses a click on our window.
+    #[test]
+    fn a_press_the_session_poll_missed_is_still_held() {
+        let mut fold = PressFold::new();
+        let mut pointer = Pointer::default();
+        let cursor = at(100.0, 100.0);
+
+        pointer.update(true, fold.held(false, true), false, cursor, TICK);
+        let grabbed = (0..DRAG_DELAY_MS / TICK + 2)
+            .map(|_| pointer.update(true, fold.held(false, true), false, cursor, TICK))
+            .any(|verbs| verbs.contains(&Verb::Grab));
+        assert!(
+            grabbed,
+            "a witness-only press must still become a Grab if held"
+        );
     }
 
     #[test]
