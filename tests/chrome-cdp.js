@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { tempDir } from "./temp.js";
+import { makeTempDir } from "./temp.js";
 
 // Every CDP call, the first included, gets 3s. CI warms Chrome up once before the
 // tests, so a slow first start fails loudly instead of hiding behind a longer wait.
@@ -36,8 +36,7 @@ export const chromeSkip = chromePath ? false : "headless Chromium is not install
 // Chrome's profile and its TMPDIR both live in `dir`, so everything it writes
 // goes with the dir in cleanupChrome, even after a hard kill.
 export function launchWithPipe(chrome, args) {
-  let removeDir;
-  const dir = tempDir({ after: (remove) => { removeDir = remove; } }, "fidget-chrome-");
+  const { dir, remove: removeDir } = makeTempDir("fidget-chrome-");
   const tmp = join(dir, "tmp");
   mkdirSync(tmp);
   const proc = spawn(chrome, [
