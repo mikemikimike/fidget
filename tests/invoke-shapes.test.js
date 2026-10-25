@@ -179,8 +179,8 @@ fn greet(app: tauri::AppHandle, first_name: String, title: Option<String>, state
 #[tauri::command]
 async fn ping(state: tauri::State<'_, Things>) -> bool { true }
 #[tauri::command(async)]
-fn poke() {}
-tauri::generate_handler![greet, ping, poke]
+fn off_thread() {}
+tauri::generate_handler![greet, ping, off_thread]
 `;
 
 test("the checker passes object-keyed calls and rejects the shapes Tauri drops", () => {
@@ -219,12 +219,12 @@ test("the checker tells a main-thread command from one that runs off it", () => 
   const commands = commandsOf(RUST);
   assert.equal(commands.get("greet").async, false, "a bare command stays on the main thread");
   assert.equal(commands.get("ping").async, true, "async fn is off the main thread");
-  assert.equal(commands.get("poke").async, true, "command(async) is off the main thread");
+  assert.equal(commands.get("off_thread").async, true, "command(async) is off the main thread");
 });
 
 // As of 2026-10, Tauri runs a sync command on the main thread. The overlay
 // reporter holds the matching pointerup until that invoke resolves, so a stall
-// there past 180 ms turns a click on the sprite into a Grab (#1795).
+// there past 180 ms turns a click on the sprite into a Grab.
 test("overlay button reports run off the main thread", () => {
   const rust = readFileSync(join(root, "src-tauri/src/main.rs"), "utf8");
   const commands = commandsOf(rust);
