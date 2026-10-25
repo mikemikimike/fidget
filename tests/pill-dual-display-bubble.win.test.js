@@ -4,12 +4,12 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import { resolvePwsh } from "./pwsh-resolve.js";
+import { tempDir } from "./temp.js";
 
 const script = join(
   import.meta.dirname,
@@ -57,26 +57,22 @@ function pwshHostAborted(run) {
 }
 
 function checkTrace(t, lines) {
-  const dir = mkdtempSync(join(tmpdir(), "pill-dual-"));
+  const dir = tempDir(t, "pill-dual-");
   const trace = join(dir, "trace.txt");
   writeFileSync(trace, `${lines.join("\n")}\n`);
-  try {
-    const run = spawnSync(
-      resolved.command,
-      [...(resolved.args ?? []), "-NoProfile", "-NonInteractive", "-File", script, "--go", "fidget"],
-      {
-        encoding: "utf8",
-        env: { ...process.env, FIDGET_SCENARIO_TRACE: trace },
-      },
-    );
-    if (run.status !== 0 && pwshHostAborted(run)) {
-      t.skip("pwsh aborted before the bubble check ran");
-      return null;
-    }
-    return run;
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  const run = spawnSync(
+    resolved.command,
+    [...(resolved.args ?? []), "-NoProfile", "-NonInteractive", "-File", script, "--go", "fidget"],
+    {
+      encoding: "utf8",
+      env: { ...process.env, FIDGET_SCENARIO_TRACE: trace },
+    },
+  );
+  if (run.status !== 0 && pwshHostAborted(run)) {
+    t.skip("pwsh aborted before the bubble check ran");
+    return null;
   }
+  return run;
 }
 
 test("a real overlay show stays visible across a line that only mentions hideThinking", { skip }, (t) => {
