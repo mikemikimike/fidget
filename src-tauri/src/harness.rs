@@ -2354,6 +2354,12 @@ impl Session {
             &inputs.model,
             inputs.effort.as_deref(),
         ) {
+            // A detach while `session/new` was in flight can lose the race to
+            // its answer. The wire is going, so the id is not stored.
+            Ok(_) if !self.wanted.load(Ordering::SeqCst) => {
+                wire.shutdown();
+                return Err("harness detached".to_string());
+            }
             Ok(opened) => opened,
             Err(error) => {
                 if let OpenError::Refused(field, why) = &error {
@@ -4050,6 +4056,27 @@ mod tests {
         say(link);
     }
 
+    /// A form-mode elicitation with one enum field, answered as id 100.
+    fn strategy_form(session: &str) {
+        say(
+            json!({"jsonrpc": "2.0", "id": 100, "method": "elicitation/create", "params": {
+                "sessionId": session,
+                "mode": "form",
+                "message": "How should I approach this refactoring?",
+                "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                        "strategy": {
+                            "type": "string",
+                            "enum": ["conservative", "balanced", "aggressive"]
+                        }
+                    },
+                    "required": ["strategy"]
+                }
+            }}),
+        );
+    }
+
     fn stop(id: &Value, reason: &str) {
         say(json!({"jsonrpc": "2.0", "id": id, "result": {"stopReason": reason}}));
     }
@@ -4179,7 +4206,8 @@ mod tests {
                     // After `authenticate`, so the first refusal that puts the
                     // landing up stays quick and only the sign-in open stalls.
                     if (script == "stall-open" && recorded(count, "new") == 1)
-                        || (script == "stall-second-open" && recorded(count, "new") == 2)
+                        || (matches!(script, "stall-second-open" | "stall-second-open-ask")
+                            && recorded(count, "new") == 2)
                     {
                         record(count, "open-stall");
                         // Stay unanswered until the test writes a byte, or this
@@ -4222,7 +4250,7 @@ mod tests {
                         }
                         // Reminder on the new session before `session/new`
                         // answers, so the ask is queued during the open drain.
-                        if script == "ask-on-open" {
+                        if matches!(script, "ask-on-open" | "stall-second-open-ask") {
                             say(
                                 json!({"jsonrpc": "2.0", "id": 99, "method": "session/request_permission", "params": {
                                     "sessionId": &session,
@@ -4235,6 +4263,11 @@ mod tests {
                             );
                         }
                         say(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+                        record(count, "answered-new");
+                        // A plain form, unprompted, that waits between turns.
+                        if script == "form-held" {
+                            strategy_form(&session);
+                        }
                         if script == "mcp-link" || script == "mcp-link-complete-turn" {
                             mcp_link(&session, None);
                         }
@@ -4462,25 +4495,8 @@ mod tests {
                         }
                         "elicitation" => {
                             pending_prompt = Some(id);
-                            say(
-                                json!({"jsonrpc": "2.0", "id": 100, "method": "elicitation/create", "params": {
-                                    "sessionId": &session,
-                                    "mode": "form",
-                                    "message": "How should I approach this refactoring?",
-                                    "requestedSchema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "strategy": {
-                                                "type": "string",
-                                                "enum": ["conservative", "balanced", "aggressive"]
-                                            }
-                                        },
-                                        "required": ["strategy"]
-                                    }
-                                }}),
-                            );
+                            strategy_form(&session);
                         }
-                        "stall-second-open" if prompts > 1 => pending_prompt = Some(id),
                         "slow" | "load-slow" | "load-deaf" | "deaf-busy" if prompts == 1 => {
                             pending_prompt = Some(id)
                         }
@@ -4901,8 +4917,11 @@ mod tests {
                 dir.clone()
             };
             let count = dir.join("count.txt");
-            let release = matches!(script, "stall-open" | "stall-second-open")
-                .then(|| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+            let release = matches!(
+                script,
+                "stall-open" | "stall-second-open" | "stall-second-open-ask"
+            )
+            .then(|| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
             let mut argv = vec![
                 fake_agent_wrapper().to_string_lossy().to_string(),
                 format!("script={script}"),
@@ -9012,6 +9031,35 @@ mod tests {
         session.shutdown();
     }
 
+    /// A sign-in that finishes retires only the rows it asked for. A plain
+    /// form the Harness sent between turns stays answerable after it.
+    #[test]
+    fn a_plain_form_held_between_turns_survives_a_finished_sign_in() {
+        let (fx, session) = Fixture::new("form-held");
+        let key = SessionKey {
+            instance: "buddy-1".to_string(),
+            character: "bmo".to_string(),
+            blank: false,
+        };
+        assert!(session.attach(Some(&key)).is_ok());
+        let form = fx.form();
+        assert!(form.url.is_none(), "a plain form, not a link");
+        let wire = session.current_wire().expect("attached");
+        assert_eq!(wire.authenticate("fake"), Ok(()));
+        session.answer_elicitation(&form.request, ElicitationAnswer::Accept("balanced".into()));
+        assert!(
+            fx.wait_for("elicit:accept", 1),
+            "the held form did not take its answer, cancels sent: {}",
+            fx.count("elicit:cancel")
+        );
+        assert_eq!(
+            fx.count("elicit:cancel"),
+            0,
+            "the sign-in cancelled the form"
+        );
+        session.shutdown();
+    }
+
     /// The attach path's translation, on the turn path. The session
     /// stays open: the token died, not the child, and the next answer is the
     /// proof the user signed in somewhere else.
@@ -9911,11 +9959,11 @@ mod tests {
     }
 
     /// A prompt sent while another Instance's `session/new` is in flight waits
-    /// for the open, and so does the cancel its timeout sends. The cancel
-    /// still has to reach the agent once that prompt's turn starts, or the
-    /// agent stays busy and every later prompt on the wire is refused.
+    /// for the open. A cancel that lands first drops it unsent, with the stop a
+    /// cancelled turn gives, so the agent never starts a turn nobody wants and
+    /// the next prompt on the wire still works.
     #[test]
-    fn a_cancel_queued_behind_a_prompt_reaches_the_agent() {
+    fn a_prompt_cancelled_behind_an_open_is_never_sent_and_the_next_one_works() {
         let (mut fx, session) = Fixture::new("stall-second-open");
         assert!(
             session.complete(&asking("hi"), &|_| {}).is_ok(),
@@ -9927,7 +9975,7 @@ mod tests {
             let cwd = fx.cwd.clone();
             thread::spawn(move || {
                 wire.open(None, &cwd, None, false, Duration::from_secs(10), "", None)
-                    .map(|_| ())
+                    .map(|opened| opened.id)
             })
         };
         assert!(
@@ -9937,14 +9985,79 @@ mod tests {
         let turn = wire.prompt("fresh-id", "second", Duration::from_millis(300), &|_| {});
         assert_eq!(turn, Err(TurnError::Timeout));
         fx.release_open_stall();
-        assert!(opener.join().unwrap().is_ok(), "the second open failed");
-        assert!(
-            fx.wait_for("prompt", 2),
-            "the queued prompt never reached the agent"
-        );
-        let cancelled = fx.wait_for("cancel", 1);
+        let opened = opener.join().unwrap().expect("the second open failed");
+        let next = wire.prompt(&opened, "third", Duration::from_secs(10), &|_| {});
+        let (prompts, cancels) = (fx.count("prompt"), fx.count("cancel"));
         session.shutdown();
-        assert!(cancelled, "the queued cancel never reached the agent");
+        assert_eq!(
+            next,
+            Ok(Reply::whole("Hello".to_string())),
+            "the next prompt"
+        );
+        assert_eq!(prompts, 2, "the cancelled prompt reached the agent");
+        assert_eq!(cancels, 0, "a cancel went out for a turn never sent");
+    }
+
+    /// A Shutdown waiting when the wire comes free ends an open whose
+    /// `session/new` answer is already written. The opener hears `Lost`, so a
+    /// detaching Session never stores the id. The wire is held in `on_event`,
+    /// settling an ask, while the answer is written and the Shutdown is sent.
+    /// Both ready in one poll cannot be staged on the one-thread runtime; the
+    /// biased order puts `rx` before the job for that case.
+    #[test]
+    fn a_shutdown_beats_a_ready_session_new_answer() {
+        let (mut fx, _session) = Fixture::new("stall-second-open-ask");
+        let release = fx.release.as_ref().expect("a release listener");
+        let mut command = Command::new(fake_agent_wrapper());
+        command
+            .arg("script=stall-second-open-ask")
+            .arg(format!("count={}", fx.count.display()))
+            .arg(format!("release={}", release.local_addr().unwrap()))
+            .current_dir(&fx.cwd);
+        let (asked_tx, asked) = mpsc::channel();
+        let (busy_tx, busy) = mpsc::channel();
+        let (gate_tx, gate) = mpsc::channel::<()>();
+        let gate = Mutex::new(gate);
+        let on_event: crate::acp_wire::OnEvent = Box::new(move |event| match event {
+            Event::Permission { ask, .. } => {
+                let _ = asked_tx.send(ask.request);
+            }
+            // Holds the wire thread until the gate's sender is dropped.
+            Event::PermissionSettled { .. } => {
+                let _ = busy_tx.send(());
+                let _ = gate.lock().unwrap().recv();
+            }
+            _ => {}
+        });
+        let wire = Arc::new(Wire::spawn(command, Duration::from_secs(10), on_event).unwrap());
+        let open = |wire: &Wire, cwd: &Path| {
+            wire.open(None, cwd, None, false, Duration::from_secs(10), "", None)
+        };
+        assert!(open(&wire, &fx.cwd).is_ok(), "the first open");
+        let request = asked
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the first open's ask");
+        let opener = {
+            let wire = Arc::clone(&wire);
+            let cwd = fx.cwd.clone();
+            thread::spawn(move || open(&wire, &cwd))
+        };
+        assert!(
+            fx.wait_for("open-stall", 1),
+            "the second open never stalled"
+        );
+        wire.answer(&request, "allow");
+        busy.recv_timeout(Duration::from_secs(5))
+            .expect("the wire never settled the ask");
+        fx.release_open_stall();
+        assert!(
+            fx.wait_for("answered-new", 2),
+            "the second open was never answered"
+        );
+        wire.shutdown();
+        drop(gate_tx);
+        let opened = opener.join().unwrap().map(|opened| opened.id);
+        assert_eq!(opened, Err(OpenError::Lost));
     }
 
     /// Switching source returns on the UI thread. The open stays unanswered
