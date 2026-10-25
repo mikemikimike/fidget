@@ -882,16 +882,32 @@ pub fn overlays_composited() -> bool {
     x11::composited()
 }
 
-/// Whether a compositor blends a see-through window. Only X11 can lack one.
+/// Whether Chat and Settings draw right in a see-through window.
 /// Main thread: the first call reads GDK's answer.
 #[cfg(all(unix, not(target_os = "macos")))]
-pub fn see_through_blends() -> bool {
-    x11::composited_now()
+pub fn see_through_draws() -> bool {
+    see_through_draws_with(x11::composited_now(), webkit_version(), |name| {
+        std::env::var_os(name)
+    })
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn see_through_draws_with(
+    composited: bool,
+    _webkit: Option<(u32, u32)>,
+    _var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> bool {
+    composited
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn webkit_version() -> Option<(u32, u32)> {
+    None
 }
 
 /// Windows and macOS always composite.
 #[cfg(any(target_os = "macos", not(unix)))]
-pub fn see_through_blends() -> bool {
+pub fn see_through_draws() -> bool {
     true
 }
 
@@ -1437,17 +1453,50 @@ mod tests {
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn chat_and_settings_are_see_through_only_where_a_compositor_blends() {
+        let clean = |_: &str| None;
         x11::set_composited_for_test(false);
-        assert!(!see_through_blends(), "no compositor builds them opaque");
+        let opaque = see_through_draws_with(x11::composited_now(), Some((2, 54)), clean);
+        assert!(!opaque, "no compositor builds them opaque");
         x11::set_composited_for_test(true);
-        assert!(see_through_blends(), "a compositor keeps them see-through");
+        let see_through = see_through_draws_with(x11::composited_now(), Some((2, 54)), clean);
+        assert!(see_through, "a compositor keeps them see-through");
+    }
+
+    /// Production change that would fail this: Chat built see-through while
+    /// WebKitGTK 2.54's non-accelerated renderer draws it, so the compositor
+    /// shows the desktop through every pixel it didn't repaint (#1734).
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn chat_and_settings_are_opaque_where_webkit_repaints_only_damage() {
+        const DMABUF: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+        const COMPOSITING: &str = "WEBKIT_DISABLE_COMPOSITING_MODE";
+        fn check(webkit: Option<(u32, u32)>, vars: &[(&str, &str)], want: bool) {
+            let var = |name: &str| {
+                let found = vars.iter().find(|(set, _)| *set == name);
+                found.map(|(_, value)| std::ffi::OsString::from(value))
+            };
+            let got = see_through_draws_with(true, webkit, var);
+            assert_eq!(got, want, "WebKitGTK {webkit:?} with {vars:?}");
+        }
+        check(Some((2, 54)), &[], true);
+        check(Some((2, 54)), &[(DMABUF, "1")], false);
+        check(Some((2, 54)), &[(DMABUF, "")], false);
+        check(Some((2, 54)), &[(DMABUF, "0")], true);
+        check(Some((2, 54)), &[(COMPOSITING, "1")], false);
+        check(Some((2, 54)), &[(COMPOSITING, "")], true);
+        check(Some((2, 54)), &[(COMPOSITING, "0")], true);
+        check(Some((3, 0)), &[(DMABUF, "1")], false);
+        check(Some((2, 52)), &[(DMABUF, "1"), (COMPOSITING, "1")], true);
+        check(Some((2, 50)), &[(DMABUF, "1"), (COMPOSITING, "1")], true);
+        check(None, &[(DMABUF, "1")], false);
+        check(None, &[], true);
     }
 
     /// Off X11 the window manager always composites, so nothing changes there.
     #[cfg(any(target_os = "macos", not(unix)))]
     #[test]
     fn windows_and_macos_always_blend_a_see_through_window() {
-        assert!(see_through_blends());
+        assert!(see_through_draws());
     }
 
     /// The frame loop copies this slot into each Instance every tick, so a
