@@ -276,11 +276,12 @@
   .play-picker { display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem; padding: .35rem .6rem;
     background: var(--title-b); border-bottom: 1px solid var(--bevel-lo); }
   .play-picker button { width: 44px; height: 44px; padding: 4px; border: 2px solid transparent; border-radius: 10px;
-    background: transparent; cursor: pointer; }
+    display: grid; place-items: center; background: transparent; cursor: pointer; }
   .play-picker button:hover { background: var(--title-a); }
   .play-picker button[aria-pressed="true"] { border-color: var(--accent); background: var(--title-a); }
   .play-picker button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .play-picker img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .play-picker .face { position: relative; overflow: hidden; }
+  .play-picker img { position: absolute; display: block; max-width: none; }
   .play-picker img.pixel { image-rendering: pixelated; }
   /* Gestures left of the panel once .wrap is at its full 68rem, so the desk keeps ~750px.
      The DOM stays panel then gestures, so the stacked layout keeps that order. */

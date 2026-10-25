@@ -52,6 +52,7 @@ import struct
 import sys
 import tempfile
 import tomllib
+import zlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
@@ -492,14 +493,53 @@ def said(package):
     return lines
 
 
+def opaque_box(art, name):
+    """The smallest x, y, width, height holding every visible pixel of an 8-bit RGBA PNG."""
+    width, height, depth, color, interlace = *struct.unpack(">II", art[16:24]), art[24], art[25], art[28]
+    if (depth, color, interlace) != (8, 6, 0):
+        raise Malformed(f"{name} is not an 8-bit RGBA PNG without interlacing")
+    at, data = 8, b""
+    while at < len(art):
+        size, kind = struct.unpack(">I4s", art[at:at + 8])
+        if kind == b"IDAT":
+            data += art[at + 8:at + 8 + size]
+        at += 12 + size
+    raw, stride = zlib.decompress(data), width * 4
+    above, xs, ys = bytearray(stride), [], []
+    for y in range(height):
+        kind, row = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            left, up, corner = row[i - 4] if i >= 4 else 0, above[i], above[i - 4] if i >= 4 else 0
+            if kind == 1:
+                row[i] = (row[i] + left) & 255
+            elif kind == 2:
+                row[i] = (row[i] + up) & 255
+            elif kind == 3:
+                row[i] = (row[i] + (left + up) // 2) & 255
+            elif kind == 4:
+                guess = left + up - corner
+                near = min((abs(guess - left), 0, left), (abs(guess - up), 1, up), (abs(guess - corner), 2, corner))
+                row[i] = (row[i] + near[2]) & 255
+        seen = [x for x in range(width) if row[x * 4 + 3]]
+        if seen:
+            xs += (seen[0], seen[-1])
+            ys.append(y)
+        above = row
+    if not ys:
+        return [0, 0, width, height]
+    return [min(xs), ys[0], max(xs) + 1 - min(xs), ys[-1] + 1 - ys[0]]
+
+
 def player(package, declared, member, defaults):
     """What the playground and the page character need to play one Character."""
     loops = {name: loop(package, declared, name, defaults["fps"]) for name in PLAY_LOOPS}
     art = (package / declared["animations"]["idle"]["frames"][0]).read_bytes()
     width, height = struct.unpack(">II", art[16:24])
     scale = declared.get("scale", defaults["scale"])
+    # The picker shows only this box, so padding around the art doesn't shrink the sprite.
+    face = opaque_box(art, f"{package.name}/{declared['animations']['idle']['frames'][0]}")
     return {"name": member["name"], "pixel": member["pixel"], "size": [width * scale, height * scale],
-            "loops": loops, "lines": said(package)}
+            "face": [n * scale for n in face], "loops": loops, "lines": said(package)}
 
 
 def read_cast(characters_root, defaults):
@@ -1097,6 +1137,12 @@ def self_check():
             "the desk's double-click or hover delay is not the app's"
         assert desk["cast"][HERO]["loops"]["land"] == {"frames": [f"characters/{HERO}/frames/idle-0.png"], "fps": 10,
                                                        "once": True}, "the desk's land loop is not the manifest's"
+        # One opaque pixel at (2, 1) in a 4x3 frame, its rows Up- and Paeth-filtered.
+        rows = (b"\x02" + bytes(16) + b"\x04" + bytes(8) + b"\x01\x02\x03\xff\xff\xfe\xfd\x01"
+                + b"\x02" + bytes(8) + b"\xff\xfe\xfd\x01" + bytes(4))
+        dot = (b"\x89PNG\r\n\x1a\n" + struct.pack(">I4sIIBBBBBI", 13, b"IHDR", 4, 3, 8, 6, 0, 0, 0, 0)
+               + struct.pack(">I4s", len(zlib.compress(rows)), b"IDAT") + zlib.compress(rows) + bytes(4))
+        assert opaque_box(dot, "dot") == [2, 1, 1, 1], f"the picker crops a frame to {opaque_box(dot, 'dot')}"
         assert desk["cast"][HERO]["lines"] == ["Hello there.", "Beep."], \
             "the lines are not the quotes after heard to say:, up to the blank line"
         assert list(desk["cast"]) == [HERO, *sorted(p.name for p in scratch.iterdir() if p.name != HERO)], \
