@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum CapabilityId {
-    /// Reading Dock or taskbar bounds and window geometry.
-    #[cfg(not(target_os = "linux"))]
+    /// Reading the Dock's bounds. Windows offers no row until a UI Automation
+    /// probe can read the taskbar's.
+    #[cfg(target_os = "macos")]
     Accessibility,
     /// Reading window titles and the owning application names under one
     /// consent. macOS prompts through TCC Screen Recording; Linux through
@@ -45,7 +46,7 @@ impl ConsentRow {
     pub fn row_id(&self) -> String {
         use crate::settings::form;
         match self.id {
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             CapabilityId::Accessibility => form::CONSENT_ACCESSIBILITY_ID,
             #[cfg(target_os = "macos")]
             CapabilityId::WindowNames => form::CONSENT_SCREEN_RECORDING_ID,
@@ -92,12 +93,6 @@ pub const CAPABILITIES: &[Capability] = &[
 #[cfg(target_os = "windows")]
 pub const CAPABILITIES: &[Capability] = &[
     Capability {
-        id: CapabilityId::Accessibility,
-        title: "Accessibility",
-        buys: "Exact taskbar geometry, so the sprite does not walk into the taskbar.",
-        costs: "Windows UI Automation. The fidget reads the taskbar's bounds; it does not control your computer.",
-    },
-    Capability {
         id: CapabilityId::WindowNames,
         title: "Window and Application Names",
         buys: "Other applications' window titles, and which application each window belongs to.",
@@ -123,7 +118,7 @@ pub const CAPABILITIES: &[Capability] = &[
 ))]
 pub struct Null;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 static WANT_ACCESSIBILITY: AtomicBool = AtomicBool::new(false);
 static WANT_WINDOW_NAMES: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
@@ -136,7 +131,7 @@ static GRANTED_WINDOW_NAMES: AtomicBool = AtomicBool::new(false);
 /// the user unchecks; Dock geometry and titles must still follow this.
 pub fn wanted(id: CapabilityId) -> bool {
     match id {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         CapabilityId::Accessibility => WANT_ACCESSIBILITY.load(Ordering::Relaxed),
         CapabilityId::WindowNames => WANT_WINDOW_NAMES.load(Ordering::Relaxed),
         #[cfg(target_os = "macos")]
@@ -151,7 +146,7 @@ pub fn usable(id: CapabilityId, probe: &dyn Probe) -> bool {
 
 pub fn set_wanted(id: CapabilityId, on: bool) {
     match id {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         CapabilityId::Accessibility => WANT_ACCESSIBILITY.store(on, Ordering::Relaxed),
         CapabilityId::WindowNames => WANT_WINDOW_NAMES.store(on, Ordering::Relaxed),
         #[cfg(target_os = "macos")]
@@ -218,15 +213,11 @@ impl Probe for LinuxPortal {
 impl Probe for WindowsProbe {
     fn granted(&self, id: CapabilityId) -> bool {
         match id {
-            CapabilityId::Accessibility => false,
             CapabilityId::WindowNames => true,
         }
     }
 
-    fn prompt(&self, _id: CapabilityId) {
-        // Windows Accessibility would prompt here; the probe does not exist
-        // yet.
-    }
+    fn prompt(&self, _id: CapabilityId) {}
 }
 
 /// The name the Windows process list shows for the exe at `exe`.
@@ -636,7 +627,7 @@ pub fn listed_under_hint(name: &str) -> String {
 #[cfg(target_os = "windows")]
 pub fn pane_intro(listed_as: &str) -> String {
     format!(
-        "Window and Application Names requires no system permission. Other grants will prompt when needed. {}",
+        "Window and Application Names requires no system permission. {}",
         listed_under_hint(listed_as)
     )
 }
@@ -780,7 +771,7 @@ mod tests {
             ]
         );
         #[cfg(target_os = "windows")]
-        assert_eq!(ids, ["consent_accessibility", "consent_window_titles"]);
+        assert_eq!(ids, ["consent_window_titles"]);
         #[cfg(target_os = "linux")]
         assert_eq!(ids, ["consent_screen_cast"]);
     }
@@ -808,100 +799,72 @@ mod tests {
             assert!(!rows[0].granted);
         }
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
         {
-            #[cfg(target_os = "macos")]
-            {
-                assert_eq!(rows.len(), 3);
-            }
-            #[cfg(target_os = "windows")]
-            {
-                assert_eq!(rows.len(), 2);
-            }
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].id, CapabilityId::WindowNames);
+            assert_eq!(rows[0].title, "Window and Application Names");
+            assert!(
+                rows[0].buys.contains("title") && rows[0].buys.contains("application"),
+                "WindowNames has to say titles and applications are what it buys, got {:?}",
+                rows[0].buys
+            );
+            assert!(
+                rows[0].costs.contains("No system permission required"),
+                "WindowNames has to say no system permission required, got {:?}",
+                rows[0].costs
+            );
+            assert!(!rows[0].granted);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(rows.len(), 3);
 
             assert_eq!(rows[0].id, CapabilityId::Accessibility);
             assert_eq!(rows[0].title, "Accessibility");
-            #[cfg(target_os = "macos")]
-            {
-                assert!(
-                    rows[0].buys.contains("Dock"),
-                    "Accessibility has to say what the Dock grant buys, got {:?}",
-                    rows[0].buys
-                );
-                assert!(
-                    rows[0].costs.contains("Accessibility"),
-                    "Accessibility has to name the macOS grant, got {:?}",
-                    rows[0].costs
-                );
-            }
-            #[cfg(target_os = "windows")]
-            {
-                assert!(
-                    rows[0].buys.contains("taskbar"),
-                    "Accessibility has to say what the taskbar grant buys, got {:?}",
-                    rows[0].buys
-                );
-                assert!(
-                    rows[0].costs.contains("Automation"),
-                    "Accessibility has to name the Windows grant, got {:?}",
-                    rows[0].costs
-                );
-            }
+            assert!(
+                rows[0].buys.contains("Dock"),
+                "Accessibility has to say what the Dock grant buys, got {:?}",
+                rows[0].buys
+            );
+            assert!(
+                rows[0].costs.contains("Accessibility"),
+                "Accessibility has to name the macOS grant, got {:?}",
+                rows[0].costs
+            );
             assert!(!rows[0].granted);
 
-            #[cfg(target_os = "macos")]
-            {
-                assert_eq!(rows[1].id, CapabilityId::WindowNames);
-                assert_eq!(
-                    serde_json::to_value(&rows[1]).expect("the consent row serializes"),
-                    serde_json::json!({
-                        "id": "WindowNames",
-                        "title": "Window and application names",
-                        "buys": "Window titles, and which application each window belongs to.",
-                        "costs": "macOS Screen Recording. The fidget reads the names of what is open; it does not capture the screen.",
-                        "granted": false,
-                    })
-                );
-            }
+            assert_eq!(rows[1].id, CapabilityId::WindowNames);
+            assert_eq!(
+                serde_json::to_value(&rows[1]).expect("the consent row serializes"),
+                serde_json::json!({
+                    "id": "WindowNames",
+                    "title": "Window and application names",
+                    "buys": "Window titles, and which application each window belongs to.",
+                    "costs": "macOS Screen Recording. The fidget reads the names of what is open; it does not capture the screen.",
+                    "granted": false,
+                })
+            );
 
-            #[cfg(target_os = "windows")]
-            {
-                assert_eq!(rows[1].id, CapabilityId::WindowNames);
-                assert_eq!(rows[1].title, "Window and Application Names");
-                assert!(
-                    rows[1].buys.contains("title") && rows[1].buys.contains("application"),
-                    "WindowNames has to say titles and applications are what it buys, got {:?}",
-                    rows[1].buys
-                );
-                assert!(
-                    rows[1].costs.contains("No system permission required"),
-                    "WindowNames has to say no system permission required, got {:?}",
-                    rows[1].costs
-                );
-                assert!(!rows[1].granted);
-            }
-
-            #[cfg(target_os = "macos")]
-            {
-                assert_eq!(rows[2].id, CapabilityId::InputMonitoring);
-                assert_eq!(rows[2].title, "Input Monitoring");
-                assert!(
-                    rows[2].buys.contains("mouse"),
-                    "Input Monitoring has to say hearing the mouse is what it buys, got {:?}",
-                    rows[2].buys
-                );
-                assert!(
-                    rows[2].costs.contains("Input Monitoring"),
-                    "Input Monitoring has to name the macOS grant, got {:?}",
-                    rows[2].costs
-                );
-                assert!(
-                    rows[2].costs.contains("never what you type"),
-                    "the row has to say the tap is mouse-only, got {:?}",
-                    rows[2].costs
-                );
-                assert!(!rows[2].granted);
-            }
+            assert_eq!(rows[2].id, CapabilityId::InputMonitoring);
+            assert_eq!(rows[2].title, "Input Monitoring");
+            assert!(
+                rows[2].buys.contains("mouse"),
+                "Input Monitoring has to say hearing the mouse is what it buys, got {:?}",
+                rows[2].buys
+            );
+            assert!(
+                rows[2].costs.contains("Input Monitoring"),
+                "Input Monitoring has to name the macOS grant, got {:?}",
+                rows[2].costs
+            );
+            assert!(
+                rows[2].costs.contains("never what you type"),
+                "the row has to say the tap is mouse-only, got {:?}",
+                rows[2].costs
+            );
+            assert!(!rows[2].granted);
         }
     }
 
@@ -910,27 +873,8 @@ mod tests {
     /// using it.
     #[test]
     fn rows_report_wanted_capabilities() {
-        #[cfg(target_os = "linux")]
-        {
-            let all_off = rows(|_id| false);
-            assert_eq!(all_off.len(), 1);
-            assert!(!all_off[0].granted);
-
-            let portal_on = rows(|id| id == CapabilityId::WindowNames);
-            assert!(portal_on[0].granted);
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let rows = rows(|id| id == CapabilityId::Accessibility);
-            assert!(rows[0].granted);
-            #[cfg(target_os = "macos")]
-            {
-                assert!(!rows[1].granted);
-            }
-            #[cfg(target_os = "windows")]
-            {
-                assert!(!rows[1].granted);
-            }
+        for row in rows(|id| id == CapabilityId::WindowNames) {
+            assert_eq!(row.granted, row.id == CapabilityId::WindowNames, "{row:?}");
         }
     }
 
@@ -961,18 +905,9 @@ mod tests {
     /// like the app is asking again for something the user already gave.
     #[test]
     fn enabling_a_granted_capability_does_not_prompt() {
-        #[cfg(target_os = "linux")]
-        {
-            let probe = Fake::granting(&[CapabilityId::WindowNames]);
-            enable(CapabilityId::WindowNames, &probe);
-            assert!(probe.prompted.lock().expect("prompt log").is_empty());
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let probe = Fake::granting(&[CapabilityId::Accessibility]);
-            enable(CapabilityId::Accessibility, &probe);
-            assert!(probe.prompted.lock().expect("prompt log").is_empty());
-        }
+        let probe = Fake::granting(&[CapabilityId::WindowNames]);
+        enable(CapabilityId::WindowNames, &probe);
+        assert!(probe.prompted.lock().expect("prompt log").is_empty());
     }
 
     /// A `cargo run` from Cursor is listed as Cursor, not fidget. The hint has
@@ -1055,21 +990,10 @@ mod tests {
     #[test]
     fn the_null_probe_grants_nothing_and_prompts_for_nothing() {
         let probe = Null;
-        #[cfg(target_os = "linux")]
-        {
-            assert!(!probe.granted(CapabilityId::WindowNames));
-            probe.prompt(CapabilityId::WindowNames);
-            assert!(!probe.granted(CapabilityId::WindowNames));
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            assert!(!probe.granted(CapabilityId::Accessibility));
-            #[cfg(target_os = "macos")]
-            {
-                assert!(!probe.granted(CapabilityId::WindowNames));
-                probe.prompt(CapabilityId::WindowNames);
-                assert!(!probe.granted(CapabilityId::WindowNames));
-            }
+        for capability in CAPABILITIES {
+            assert!(!probe.granted(capability.id));
+            probe.prompt(capability.id);
+            assert!(!probe.granted(capability.id));
         }
     }
 

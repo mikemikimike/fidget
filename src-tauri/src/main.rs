@@ -5071,7 +5071,7 @@ fn main() {
             if let Ok(version) = tauri::webview_version() {
                 fidget::eprintln_and_log!("webkit: WebKitGTK {version}");
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             consent::set_wanted(
                 consent::CapabilityId::Accessibility,
                 settings.use_accessibility,

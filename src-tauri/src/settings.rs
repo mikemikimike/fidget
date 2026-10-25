@@ -1340,7 +1340,7 @@ impl SettingsSession {
         if let Some(raw) = patch.completer.director_api_key.as_deref() {
             self.remember_written_key(raw);
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         let prompt_ax = patch.use_accessibility == Some(true);
         let prompt_wt = patch.use_window_names == Some(true);
         #[cfg(target_os = "macos")]
@@ -1366,7 +1366,7 @@ impl SettingsSession {
         // Seeded before `retarget_payload`, which rebuilds the Endpoint from
         // the live timeout and turn ceiling.
         apply_and_seed(&mut settings, patch);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         consent::set_wanted(CapabilityId::Accessibility, settings.use_accessibility);
         consent::set_wanted(CapabilityId::WindowNames, settings.use_window_names);
         if let Ok(mut rules) = self.rules.lock() {
@@ -1448,7 +1448,7 @@ impl SettingsSession {
         if let Some(spec) = rebind {
             (self.on_rebind)(&self.app, &spec);
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         if prompt_ax {
             self.enable_consent(CapabilityId::Accessibility);
         }
@@ -1618,8 +1618,8 @@ pub enum BoolField {
     /// is ungated.
     Capturable,
     // The consent rows. All three platforms offer WindowNames; Accessibility is
-    // macOS and Windows. The patch fields are not gated; the file carries them.
-    #[cfg(not(target_os = "linux"))]
+    // macOS only. The patch fields are not gated; the file carries them.
+    #[cfg(target_os = "macos")]
     UseAccessibility,
     UseWindowNames,
     /// The idle event tap, which macOS alone has a grant to ask for.
@@ -1684,7 +1684,7 @@ impl SettingsPatch {
             BoolField::DirectorBlank => self.completer.director_blank = Some(value),
             BoolField::PiProjectMcp => self.completer.pi_project_mcp = Some(value),
             BoolField::Capturable => self.capturable = Some(value),
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             BoolField::UseAccessibility => self.use_accessibility = Some(value),
             BoolField::UseWindowNames => self.use_window_names = Some(value),
             #[cfg(target_os = "macos")]
@@ -1964,7 +1964,7 @@ impl Settings {
 
     pub fn wants_consent(&self, id: CapabilityId) -> bool {
         match id {
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             CapabilityId::Accessibility => self.use_accessibility,
             CapabilityId::WindowNames => self.use_window_names,
             #[cfg(target_os = "macos")]
@@ -3142,7 +3142,7 @@ mod tests {
 
         // Consent rows must appear in row_values by their row_id.
         let values = view.row_values();
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         {
             assert_eq!(
                 values.get(form::CONSENT_ACCESSIBILITY_ID),

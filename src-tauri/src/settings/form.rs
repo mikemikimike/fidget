@@ -431,7 +431,7 @@ pub const SPAWN_ID: &str = "spawn";
 pub const MEMORY_OPEN_ID: &str = "memory_open";
 pub const MEMORY_WIPE_ID: &str = "memory_wipe";
 /// The consent rows, gated so each id exists only where its row does.
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 pub const CONSENT_ACCESSIBILITY_ID: &str = "consent_accessibility";
 #[cfg(not(target_os = "linux"))]
 pub const CONSENT_SCREEN_RECORDING_ID: &str = "consent_screen_recording";
@@ -1334,6 +1334,7 @@ fn privacy_sections(live: &Live) -> Vec<FormSection> {
 
     #[cfg(not(target_os = "linux"))]
     let consent_rows = vec![
+        #[cfg(target_os = "macos")]
         FormRow::Checkbox {
             id: CONSENT_ACCESSIBILITY_ID.to_string(),
             label: "Accessibility".to_string(),
@@ -2129,7 +2130,7 @@ pub(crate) mod tests {
             } else {
                 String::new()
             },
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             use_accessibility: true,
             ..crate::settings::Settings::default()
         };
@@ -3122,11 +3123,7 @@ pub(crate) mod tests {
 
             #[cfg(target_os = "windows")]
             {
-                assert_eq!(
-                    consent.rows.len(),
-                    2,
-                    "Windows has Accessibility and WindowNames"
-                );
+                assert_eq!(consent.rows.len(), 1, "Windows has WindowNames only");
                 let listed = crate::consent::process_listed_as();
                 assert!(
                     comment.contains(&listed),
