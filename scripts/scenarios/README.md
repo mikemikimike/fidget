@@ -213,6 +213,13 @@ server for the overlay's bounding shape: shaped with no compositor and after
 picom stops, unshaped under picom. `no-compositor-clip.py` paints the root through a pixmap, because picom
 draws `_XROOTPMAP_ID` and not a solid root colour.
 
+`see-through-chat` is X11 only. It starts its own Xvfb display with xfwm4
+compositing off and launches Fidget three times with Chat and Settings open,
+reading each window's colour depth: 24 (opaque) with no compositor, 32
+(see-through) under picom, and under picom with
+`WEBKIT_DISABLE_DMABUF_RENDERER=1`, 24 when the WebKitGTK that Fidget logs as
+loaded is 2.54 or newer and 32 below it (#1734). An AppImage bundles its own.
+
 `chat-close-pill-type` also has an `.x11.sh` leaf. It starts
 its own Xvfb display with xfwm4 and mousepad, so it leaves your display alone,
 and skips when one of those, `xdotool`, `xprop` or `inotifywait` is missing.
