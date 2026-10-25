@@ -395,7 +395,6 @@ fn harness_state(harness: Option<&crate::harness::HarnessInspect>) -> String {
 }
 
 /// What to paste to point a user-run Harness at this app's MCP server.
-/// Templates add `Bearer ` themselves.
 pub struct ByoRegistration {
     pub snippet: String,
     pub steps: String,
@@ -404,6 +403,7 @@ pub struct ByoRegistration {
     pub paste_token: Option<String>,
 }
 
+/// `token` is the raw token. Templates add `Bearer ` themselves.
 fn byo_registration(harness: &str, url: &str, token: &str) -> ByoRegistration {
     match harness {
         // Remove first: Claude Code answers a re-add by keeping the old URL and
@@ -556,8 +556,8 @@ pub fn byo_harness_in_force(settings: &Settings) -> String {
     }
 }
 
-/// The registration box's rows for `harness`. Empty when the loopback server
-/// did not bind this run, the only way there is nothing to show.
+/// The registration box's rows for `harness`. The snippet is empty when the
+/// loopback server did not bind this run, the only way there is nothing to show.
 pub fn byo_rows(harness: &str) -> ByoRegistration {
     match crate::mcp_http::endpoint() {
         Some(endpoint) => {
@@ -5790,7 +5790,7 @@ mod tests {
     }
 
     /// Hermes shows the raw token separately for interactive paste. Others
-    /// embed it in the snippet and return empty token.
+    /// embed it in the snippet and return no paste token.
     #[test]
     fn hermes_returns_separate_token_others_do_not() {
         let token = byo_registration("hermes", "http://127.0.0.1:5051/mcp", "beef").paste_token;
@@ -5807,7 +5807,7 @@ mod tests {
             let token = byo_registration(harness, "http://127.0.0.1:5051/mcp", "beef").paste_token;
             assert!(
                 token.is_none(),
-                "{harness} must return empty token (embeds in snippet)"
+                "{harness} must return no paste token (embeds in snippet)"
             );
         }
     }
