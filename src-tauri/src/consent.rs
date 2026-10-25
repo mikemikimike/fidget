@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum CapabilityId {
-    /// Reading the Dock's bounds. Windows offers no row until a UI Automation
-    /// probe can read the taskbar's.
+    /// Reading the Dock's bounds. Windows has no probe for the
+    /// taskbar's, so no row.
     #[cfg(target_os = "macos")]
     Accessibility,
     /// Reading window titles and the owning application names under one
@@ -218,122 +218,6 @@ impl Probe for WindowsProbe {
     }
 
     fn prompt(&self, _id: CapabilityId) {}
-}
-
-/// The name the Windows process list shows for the exe at `exe`.
-/// A checkout, or an unreadable `exe`, shows the parent that launched it, so
-/// the user sees their terminal. NSIS installs per user (`%LOCALAPPDATA%`).
-#[cfg(any(test, target_os = "windows"))]
-fn process_list_name_for(
-    exe: Option<&std::path::Path>,
-    parent_chain: impl FnOnce() -> Option<String>,
-) -> String {
-    if exe.is_some_and(crate::login_item::exe_is_bundled) {
-        return "Fidget".into();
-    }
-    parent_chain().unwrap_or_else(|| "Fidget".into())
-}
-
-#[cfg(target_os = "windows")]
-mod windows {
-    use std::collections::HashMap;
-
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-
-    pub fn process_list_name() -> String {
-        let exe = std::env::current_exe().ok();
-        super::process_list_name_for(exe.as_deref(), parent_chain_name)
-    }
-
-    /// One snapshot of the process list, closed once by `Drop`.
-    struct Snapshot(HANDLE);
-
-    impl Drop for Snapshot {
-        fn drop(&mut self) {
-            // SAFETY: the handle came from CreateToolhelp32Snapshot and the
-            // type is neither Copy nor Clone, so this is its only close.
-            unsafe { CloseHandle(self.0) };
-        }
-    }
-
-    impl Snapshot {
-        fn processes() -> Option<Self> {
-            // SAFETY: TH32CS_SNAPPROCESS takes no pid and nothing goes in by
-            // pointer; failure arrives as INVALID_HANDLE_VALUE, which the next
-            // line rejects rather than taking ownership of.
-            let handle = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-            (handle != INVALID_HANDLE_VALUE).then_some(Self(handle))
-        }
-
-        fn table(&self) -> HashMap<u32, (u32, String)> {
-            // SAFETY: PROCESSENTRY32W is integers and a `[u16; 260]`, so
-            // all-zeroes is a valid value for it. `dwSize` is the one field the
-            // API requires the caller to fill, and the next line fills it.
-            let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
-            entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
-
-            let mut table = HashMap::new();
-            // SAFETY: `self.0` is live for as long as `self`, and `entry` is an
-            // initialized local carrying its `dwSize` — the two things the walk
-            // asks of the caller. It writes only into `entry`.
-            if unsafe { Process32FirstW(self.0, &mut entry) } == 0 {
-                return table;
-            }
-            loop {
-                table.insert(
-                    entry.th32ProcessID,
-                    (entry.th32ParentProcessID, parse_exe_name(&entry.szExeFile)),
-                );
-                // SAFETY: as Process32FirstW above; a zero return ends the walk.
-                if unsafe { Process32NextW(self.0, &mut entry) } == 0 {
-                    return table;
-                }
-            }
-        }
-    }
-
-    fn parent_chain_name() -> Option<String> {
-        let current_pid = std::process::id();
-        let table = Snapshot::processes()?.table();
-
-        let mut pid = current_pid;
-        for _ in 0..24 {
-            pid = table.get(&pid)?.0;
-            if pid == 0 || pid == current_pid {
-                return None;
-            }
-            let name = &table.get(&pid)?.1;
-            // An empty name is as unusable as a toolchain one: keep walking.
-            if !name.is_empty() && !is_toolchain(name) {
-                return Some(name.clone());
-            }
-        }
-        None
-    }
-
-    pub(super) fn is_toolchain(name: &str) -> bool {
-        // Skip Rust toolchain processes: a `cargo run` from Cursor is
-        // cargo → Cursor, so the first non-toolchain parent is what Privacy
-        // will list. Mirrors macOS bundled_ancestor_name skipping Helpers.
-        matches!(
-            name.to_lowercase().as_str(),
-            "cargo" | "rustc" | "rustup" | "rust-analyzer" | "rls"
-        )
-    }
-
-    fn parse_exe_name(sz_exe: &[u16; 260]) -> String {
-        let end = sz_exe.iter().position(|&c| c == 0).unwrap_or(260);
-        let name = String::from_utf16_lossy(&sz_exe[..end]);
-        name.trim_end_matches(".exe")
-            .split('\\')
-            .next_back()
-            .unwrap_or(&name)
-            .to_string()
-    }
 }
 
 #[cfg(target_os = "linux")]
@@ -617,19 +501,10 @@ pub fn linux_pane_intro() -> String {
         .to_string()
 }
 
-/// Windows-specific hint: names the process Privacy will list.
+/// Windows pane intro. Its one row needs no system permission.
 #[cfg(target_os = "windows")]
-pub fn listed_under_hint(name: &str) -> String {
-    format!("Windows lists this process as {name}.")
-}
-
-/// Windows pane intro: names the process Privacy will list.
-#[cfg(target_os = "windows")]
-pub fn pane_intro(listed_as: &str) -> String {
-    format!(
-        "Window and Application Names requires no system permission. {}",
-        listed_under_hint(listed_as)
-    )
+pub fn windows_pane_intro() -> String {
+    "Window and Application Names requires no system permission.".to_string()
 }
 
 /// The name the OS privacy list shows. Packaged builds are this app;
@@ -640,11 +515,7 @@ pub fn process_listed_as() -> String {
     {
         macos::tcc_list_name()
     }
-    #[cfg(target_os = "windows")]
-    {
-        windows::process_list_name()
-    }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    #[cfg(not(target_os = "macos"))]
     {
         "Fidget".into()
     }
@@ -672,63 +543,7 @@ pub fn live() -> &'static dyn Probe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     use std::sync::Mutex;
-
-    #[test]
-    fn a_checkout_is_named_for_its_parent_and_an_installed_app_for_itself() {
-        let parent = || Some("WindowsTerminal".to_string());
-        #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
-        let mut checkouts = vec![
-            "/work/fidget/target/debug/fidget.exe",
-            "/work/fidget/target/x86_64-pc-windows-msvc/debug/fidget.exe",
-            "/work/fidget/target/x86_64-pc-windows-msvc/release/fidget.exe",
-        ];
-        // A backslash separates only on Windows; the Windows job runs these.
-        #[cfg(target_os = "windows")]
-        checkouts.extend([
-            r"C:\work\fidget\target\debug\fidget.exe",
-            r"C:\work\fidget\target\release\fidget.exe",
-            r"C:\work\fidget\target\x86_64-pc-windows-msvc\release\fidget.exe",
-            r"target\release\fidget.exe",
-        ]);
-        for exe in checkouts {
-            assert_eq!(
-                process_list_name_for(Some(Path::new(exe)), parent),
-                "WindowsTerminal",
-                "{exe}"
-            );
-        }
-        // macOS decides by the `.app` bundle, so Windows layouts cannot share
-        // one list with it.
-        #[cfg(target_os = "macos")]
-        let installed = vec!["/Applications/Fidget.app/Contents/MacOS/fidget"];
-        #[cfg(not(target_os = "macos"))]
-        #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
-        let mut installed = vec!["/usr/bin/fidget"];
-        #[cfg(target_os = "windows")]
-        installed.extend([
-            r"C:\Program Files\Fidget\fidget.exe",
-            r"C:\Users\me\AppData\Local\Fidget\fidget.exe",
-            r"D:\Portable\Fidget\fidget.exe",
-        ]);
-        for exe in installed {
-            assert_eq!(
-                process_list_name_for(Some(Path::new(exe)), parent),
-                "Fidget",
-                "{exe}"
-            );
-        }
-    }
-
-    #[test]
-    fn an_unreadable_exe_path_falls_back_to_the_parent() {
-        assert_eq!(
-            process_list_name_for(None, || Some("WindowsTerminal".into())),
-            "WindowsTerminal"
-        );
-        assert_eq!(process_list_name_for(None, || None), "Fidget");
-    }
 
     struct Fake {
         granted: Vec<CapabilityId>,
@@ -1057,72 +872,11 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "windows")]
-    fn windows_hint_names_process_without_macos_vocabulary() {
-        let hint = listed_under_hint("Cursor");
-        assert!(
-            hint.contains("Cursor"),
-            "the user has to see the process name Privacy will list, got {hint:?}"
-        );
-        assert!(
-            !hint.contains("macOS"),
-            "Windows hint must not mention macOS, got {hint:?}"
-        );
-        assert!(
-            !hint.contains("Privacy & Security"),
-            "Windows hint must not mention macOS Privacy & Security pane, got {hint:?}"
-        );
-        assert!(
-            !hint.contains("TCC"),
-            "Windows hint must not mention TCC, got {hint:?}"
-        );
-        assert!(
-            !hint.contains("Accessibility"),
-            "Windows hint must not mention macOS Accessibility, got {hint:?}"
-        );
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
     fn windows_pane_intro_is_not_macos_specific() {
-        let intro = pane_intro(&process_listed_as());
-        assert!(!intro.is_empty(), "Windows intro must not be empty");
-        assert!(
-            intro.contains(&process_listed_as()),
-            "Windows intro must name the process, got {intro:?}"
-        );
-        assert!(
-            !intro.contains("macOS"),
-            "Windows intro must not mention macOS, got {intro:?}"
-        );
-        assert!(
-            !intro.contains("Privacy & Security"),
-            "Windows intro must not mention macOS Privacy & Security, got {intro:?}"
-        );
-        assert!(
-            !intro.contains("TCC"),
-            "Windows intro must not mention TCC, got {intro:?}"
-        );
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn windows_toolchain_classification() {
-        use crate::consent::windows::is_toolchain;
-
-        assert!(is_toolchain("cargo"));
-        assert!(is_toolchain("rustc"));
-        assert!(is_toolchain("rustup"));
-        assert!(is_toolchain("rust-analyzer"));
-        assert!(is_toolchain("rls"));
-        assert!(is_toolchain("Cargo")); // case insensitive
-
-        assert!(!is_toolchain("Cursor"));
-        assert!(!is_toolchain("Code"));
-        assert!(!is_toolchain("WindowsTerminal"));
-        assert!(!is_toolchain("powershell"));
-        assert!(!is_toolchain("pwsh"));
-        assert!(!is_toolchain("cmd"));
-        assert!(!is_toolchain("Fidget"));
+        let intro = windows_pane_intro();
+        for macos in ["macOS", "Privacy & Security", "TCC"] {
+            assert!(!intro.contains(macos), "{macos} in {intro:?}");
+        }
     }
 
     #[test]

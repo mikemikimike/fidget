@@ -3087,7 +3087,7 @@ mod tests {
     #[test]
     fn unchecking_consent_stops_using_it_without_a_file_grant() {
         let mut settings = Settings::default();
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         {
             settings.apply(SettingsPatch {
                 use_accessibility: Some(true),

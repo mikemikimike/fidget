@@ -1805,8 +1805,10 @@ pub struct Live {
 
 impl Live {
     pub fn current() -> Self {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         let consent_intro = consent::pane_intro(&consent::process_listed_as());
+        #[cfg(target_os = "windows")]
+        let consent_intro = consent::windows_pane_intro();
         #[cfg(target_os = "linux")]
         let consent_intro = consent::linux_pane_intro();
         Self {
@@ -3124,11 +3126,6 @@ pub(crate) mod tests {
             #[cfg(target_os = "windows")]
             {
                 assert_eq!(consent.rows.len(), 1, "Windows has WindowNames only");
-                let listed = crate::consent::process_listed_as();
-                assert!(
-                    comment.contains(&listed),
-                    "Windows prose must name the process Privacy will list ({listed}), got {comment:?}"
-                );
                 assert!(
                     !comment.contains("macOS"),
                     "Windows prose must not mention macOS, got {comment:?}"
