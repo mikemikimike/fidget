@@ -33,7 +33,9 @@ function fakeX(t, windows) {
   write("xdotool", windows.map((w) => `echo ${w.id}`).join("\n"));
   const byId = (line) => `case "$2" in\n${windows.map((w) => `  ${w.id}) ${line(w)} ;;`).join("\n")}\nesac`;
   write("xprop", byId((w) => `echo 'WM_NAME(STRING) = "${w.name}"'`));
-  write("xwininfo", byId((w) => `printf '  Width: %s\\n  Height: %s\\n' ${w.w} ${w.h}`));
+  // One write, as the real tool's stdio buffer gives. The filter's awk exits
+  // after Width, so a split write fails the pipeline with SIGPIPE.
+  write("xwininfo", byId((w) => `cat <<EOF\n  Width: ${w.w}\n  Height: ${w.h}\nEOF\n`));
   return `${dir}${path.delimiter}${process.env.PATH}`;
 }
 
