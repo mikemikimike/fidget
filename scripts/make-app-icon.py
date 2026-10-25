@@ -61,7 +61,8 @@ def head_box(art):
 
     The head is scaled against the body, not against the source canvas, so its
     own bounds have to be found rather than assumed. It sits on a flat dark
-    field, so anything far enough off the most common colour is head.
+    field, so anything far enough off the most common colour is head. A field
+    with no such pixel exits the script.
     """
     flat = max(art.getcolors(art.width * art.height))[1]
     pixels = art.load()
@@ -74,6 +75,8 @@ def head_box(art):
                     if box is None
                     else (min(box[0], x), min(box[1], y), max(box[2], x + 1), max(box[3], y + 1))
                 )
+    if box is None:
+        raise SystemExit("logo-512.png has no head to find")
     return box
 
 
