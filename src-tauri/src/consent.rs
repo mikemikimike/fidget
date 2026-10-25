@@ -510,15 +510,9 @@ pub fn windows_pane_intro() -> String {
 /// The name the OS privacy list shows. Packaged builds are this app;
 /// `cargo run` is listed under the responsible parent, the IDE or terminal
 /// that launched it.
+#[cfg(target_os = "macos")]
 pub fn process_listed_as() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        macos::tcc_list_name()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        "Fidget".into()
-    }
+    macos::tcc_list_name()
 }
 
 pub fn live() -> &'static dyn Probe {
@@ -769,6 +763,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn process_listed_as_is_not_empty() {
         assert!(!process_listed_as().is_empty());
     }

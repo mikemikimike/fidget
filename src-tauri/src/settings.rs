@@ -186,8 +186,6 @@ pub struct SettingsView {
     pub variable_texts: HashMap<String, String>,
     /// Live OS grants, not a file field. The window rereads them on become-key.
     pub consent: Vec<ConsentRow>,
-    /// The name Privacy & Security will show for this process.
-    pub consent_listed_as: String,
     /// Which Chat UI design is selected: minimal, terminal, or glass.
     pub chat_ui: String,
     pub chat_appearance: ChatAppearance,
@@ -622,7 +620,6 @@ impl SettingsView {
             caffeinate_system: settings.caffeinate_system,
             variable_texts: variable_texts(settings),
             consent: consent::rows(|id| settings.wants_consent(id)),
-            consent_listed_as: String::new(),
             chat_ui: settings.chat_ui.clone(),
             chat_appearance: settings.chat_appearance,
         }
@@ -1311,7 +1308,7 @@ impl SettingsSession {
             }
             Err(_) => (None, None),
         };
-        let mut view = SettingsView::from_parts(
+        SettingsView::from_parts(
             &settings,
             &self.memory_path,
             last_payload,
@@ -1319,9 +1316,7 @@ impl SettingsSession {
             instances,
             self.key_status_for_view(),
             harness,
-        );
-        view.consent_listed_as = consent::process_listed_as();
-        view
+        )
     }
 
     /// Flip on: persist intent, then the system prompt if the OS has not
