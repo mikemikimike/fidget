@@ -79,7 +79,8 @@ function commandsOf(rust) {
   const handler = rust.match(/generate_handler!\[([^\]]*)\]/);
   const registered = new Set(handler[1].split(",").map((name) => name.trim()).filter(Boolean));
   const commands = new Map();
-  for (const found of rust.matchAll(/#\[tauri::command\]\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*\(/g)) {
+  const command = /#\[tauri::command(\([^)]*\))?\]\s*(?:pub\s+)?(async\s+)?fn\s+(\w+)\s*\(/g;
+  for (const found of rust.matchAll(command)) {
     const open = found.index + found[0].length;
     const params = splitTop(signatureParams(rust, open), true)
       .map((param) => param.match(/^(?:mut\s+)?(\w+)\s*:\s*(.+)$/s))
@@ -88,7 +89,9 @@ function commandsOf(rust) {
         key: name.replace(/_(\w)/g, (_, c) => c.toUpperCase()),
         optional: /^Option</.test(type.trim()),
       }));
-    if (registered.has(found[1])) commands.set(found[1], params);
+    const name = found[3];
+    const offThread = Boolean(found[1]?.includes("async") || found[2]);
+    if (registered.has(name)) commands.set(name, { params, async: offThread });
   }
   return commands;
 }
@@ -128,8 +131,9 @@ function keysOf(arg) {
 }
 
 function shapeProblems(where, name, args, commands) {
-  const params = commands.get(name);
-  if (!params) return [`${where}: "${name}" is not a registered command`];
+  const entry = commands.get(name);
+  if (!entry) return [`${where}: "${name}" is not a registered command`];
+  const params = entry.params;
   if (args.length > 1) return [`${where}: "${name}" takes one object, not ${args.length} arguments`];
   const keys = args.length === 0 ? [] : keysOf(args[0]);
   if (keys === null) return [`${where}: "${name}" needs an object literal keyed by its parameters`];
@@ -174,7 +178,9 @@ const RUST = `
 fn greet(app: tauri::AppHandle, first_name: String, title: Option<String>, state: tauri::State<'_, Things>) {}
 #[tauri::command]
 async fn ping(state: tauri::State<'_, Things>) -> bool { true }
-tauri::generate_handler![greet, ping]
+#[tauri::command(async)]
+fn poke() {}
+tauri::generate_handler![greet, ping, poke]
 `;
 
 test("the checker passes object-keyed calls and rejects the shapes Tauri drops", () => {
@@ -206,5 +212,27 @@ test("every renderer invoke names a registered command with its parameters as ke
   assert.deepEqual(problems, []);
   for (const name of ["overlay_report_qm_draft", "overlay_trace_bubble", "names_hint_act"]) {
     assert.ok(checked.has(name), `${name} was found and checked`);
+  }
+});
+
+test("the checker tells a main-thread command from one that runs off it", () => {
+  const commands = commandsOf(RUST);
+  assert.equal(commands.get("greet").async, false, "a bare command stays on the main thread");
+  assert.equal(commands.get("ping").async, true, "async fn is off the main thread");
+  assert.equal(commands.get("poke").async, true, "command(async) is off the main thread");
+});
+
+// As of 2026-10, Tauri runs a sync command on the main thread. The overlay
+// reporter holds the matching pointerup until that invoke resolves, so a stall
+// there past 180 ms turns a click on the sprite into a Grab (#1795).
+test("overlay button reports run off the main thread", () => {
+  const rust = readFileSync(join(root, "src-tauri/src/main.rs"), "utf8");
+  const commands = commandsOf(rust);
+  for (const name of ["overlay_primary", "overlay_secondary"]) {
+    assert.equal(
+      commands.get(name)?.async,
+      true,
+      `${name} must be async so a busy main thread cannot hold the release`,
+    );
   }
 });

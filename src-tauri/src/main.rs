@@ -2084,9 +2084,10 @@ fn roster_specs(roster: &Roster) -> Vec<InstanceSpec> {
         .collect()
 }
 
-/// The overlay heard the primary button. The frame loop polls a session
-/// query that can miss a click on this window; this is the other witness.
-#[tauri::command]
+/// The overlay heard the primary button. `async` so a busy main thread cannot
+/// hold the release: as of 2026-10, a sync command runs there, and a stall
+/// past 180 ms turns a click into a Grab.
+#[tauri::command(async)]
 fn overlay_primary(down: bool) {
     platform::set_overlay_primary(down);
 }
@@ -2154,9 +2155,10 @@ fn overlay_report_qm_draft(
     platform::set_qm_draft(instance, payload);
 }
 
-/// Same witness for the right button. Without it a right-click on the sprite
-/// is swallowed by the webview and the session poll never sees a Menu.
-#[tauri::command]
+/// Same witness for the right button, or the session poll never sees a Menu.
+/// `async` for the same main-thread stall as the primary: as of 2026-10,
+/// a sync command runs there and a late release sticks the latch.
+#[tauri::command(async)]
 fn overlay_secondary(down: bool) {
     platform::set_overlay_secondary(down);
 }
