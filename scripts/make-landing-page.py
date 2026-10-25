@@ -72,7 +72,7 @@ TWIST_SETUP = ("[Harness]", "Model API", "**Window and application names** conse
 TWIST_NEEDS = "Works with any attached model."
 # The small print under the twist toy.
 TWIST_LABEL = ("Examples pre-generated with real in-app and character prompts. The site isn't connected to an LLM. "
-               "Download Fidget to try the real thing.")
+               '<a href="#get">Download Fidget</a> to try the real thing.')
 # GitHub renders an attachment URL alone on its line as a video player.
 ATTACHMENT = re.compile(r"^(https://github\.com/user-attachments/assets/[0-9a-f-]+)[ \t]*$", re.M)
 LATEST = f"{REPO}/releases/latest"
@@ -687,17 +687,20 @@ def twist_html(twist):
         f'<div role="group" aria-label="Character"><span>Character</span>{characters}</div>',
         f'<div role="group" aria-label="Prompt"><span>Prompt</span>{prompts}</div>',
         "</div>",
-        f'<div class="twist-layer"><span>Your own layer</span><p class="twist-prompt" id="twist-prompt">'
-        f'{html.escape(prompt["text"])}</p></div>',
+        '<figure class="twist-layer"><figcaption>What you\'d type in the app\'s Prompt tab</figcaption>'
+        f'<blockquote class="twist-prompt" id="twist-prompt">{html.escape(prompt["text"])}</blockquote></figure>',
         f'<p class="twist-needs" id="twist-needs">{html.escape(prompt["needs"])}</p>',
         '<figure class="twist-scene">',
-        f'<p class="twist-when" id="twist-when">{html.escape(prompt["wake"])}</p>',
-        f'<div class="say" id="twist-say">{html.escape(said["line"])}</div>',
+        '<p class="twist-when"><span class="twist-what">What happened:</span> '
+        f'<span id="twist-when">{html.escape(prompt["wake"])}</span></p>',
+        # The bubble types a character at a time; screen readers get the whole line from the live region.
+        f'<div class="say" id="twist-say" aria-hidden="true">{html.escape(said["line"])}</div>'
+        f'<p class="twist-live" id="twist-live" aria-live="polite">{html.escape(said["line"])}</p>',
         f'<div class="twist-art"><img id="twist-sprite" src="{said["loop"]["frames"][0]}" '
         f'alt="{html.escape(first["name"])}"{pixel}></div>',
         "</figure>",
         '<div class="twist-foot">',
-        f'<p class="twist-label">{html.escape(TWIST_LABEL)}</p>',
+        f'<p class="twist-label">{TWIST_LABEL}</p>',
         '<a href="https://github.com/omesser/fidget#give-it-an-instance-prompt">Write your own: how →</a>',
         "</div>",
         # Escaped so the JSON can never close the <script> element it sits in.

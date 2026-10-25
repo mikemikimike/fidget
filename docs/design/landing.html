@@ -28,6 +28,8 @@
     --line: #D3D7E0;
     --accent: #2C8C7C;
     --accent-ink: #FFFFFF;
+    /* A fill behind small --accent-ink text: 5.14:1, where --accent gives 4.08:1. */
+    --accent-strong: #267A6C;
     --win: #FBFCFE;
     --desk-light-a: #CFE3EC;
     --desk-light-b: #E8D9EC;
@@ -51,6 +53,7 @@
       --line: #313746;
       --accent: #5CC9B5;
       --accent-ink: #14171E;
+      --accent-strong: #5CC9B5;
       --win: #232835;
       --desk-a: var(--desk-dark-a);
       --desk-b: var(--desk-dark-b);
@@ -70,6 +73,7 @@
     --line: #313746;
     --accent: #5CC9B5;
     --accent-ink: #14171E;
+    --accent-strong: #5CC9B5;
     --win: #232835;
     --desk-a: var(--desk-dark-a);
     --desk-b: var(--desk-dark-b);
@@ -183,15 +187,17 @@
   .twist-pick button { font: inherit; font-size: .88rem; padding: .3rem .8rem; border-radius: 999px;
     border: 1px solid var(--line); background: var(--win); color: var(--ink); cursor: pointer; }
   .twist-pick button:hover { border-color: var(--accent); }
-  .twist-pick button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .twist-pick button[aria-pressed="true"] { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-ink); }
   .twist-pick button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* The app's Prompt tab "Your own layer" box, read-only here. */
-  .twist-layer span { display: block; margin-bottom: .35rem; font-size: .88rem; font-weight: 600; }
-  .twist-prompt { margin: 0; min-height: calc(1.5em * 2 + 20px); padding: 10px 12px; border: 1px solid var(--line);
-    border-radius: 8px; background: var(--win); font-size: 13px; line-height: 1.5; }
+  /* The app's Prompt tab text, quoted rather than drawn as a field. */
+  .twist-layer { margin: 0; }
+  .twist-layer figcaption { margin-bottom: .35rem; font-size: .88rem; font-weight: 600; }
+  .twist-prompt { margin: 0; min-height: calc(1.5em * 2); padding: .1rem 0 .1rem .9rem; border-left: 3px solid var(--accent);
+    font-size: .95rem; font-style: italic; line-height: 1.5; }
   .twist-needs { margin: .45rem 0 1.5rem; font-size: .8rem; color: var(--ink-3); }
   .twist-scene { margin: 0 auto; max-width: 28rem; display: flex; flex-direction: column; align-items: center; }
   .twist-when { align-self: flex-start; margin: .15rem 0 .6rem; font-size: .85rem; font-style: italic; color: var(--ink-2); }
+  .twist-what { font-style: normal; font-weight: 600; }
   /* The hero's bubble, set in the column instead of on the desk. */
   .twist-scene .say { position: relative; left: auto; bottom: auto; max-width: none; align-self: stretch;
     min-height: calc(1.55em * 2 + 20px); margin-bottom: 16px; }
@@ -203,6 +209,7 @@
   .twist-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem;
     margin-top: 1.5rem; }
   .twist-label { margin: 0; font-size: .8rem; color: var(--ink-3); }
+  .twist-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   footer { border-top: 1px solid var(--line); padding: 2rem 0 3rem; color: var(--ink-3);
     font-size: .9rem; display: flex; flex-wrap: wrap; gap: 1.25rem; }
@@ -664,7 +671,22 @@
     const byId = (id) => document.getElementById(id);
     const sprite = { img: byId("twist-sprite"), loop: twist.characters[0].lines[0].loop, timer: 0 };
     const pick = { character: twist.characters[0].character, prompt: 0 };
+    const say = byId("twist-say");
+    const lines = twist.characters.flatMap((c) => c.lines.map((l) => l.line));
     let typing = 0;
+    // The bubble keeps the longest line's height at this width, so neither typing
+    // nor a new pick moves the sprite and small print below it.
+    function reserve() {
+      const shown = say.textContent;
+      say.style.minHeight = "";
+      let tallest = 0;
+      for (const line of lines) {
+        say.textContent = line;
+        tallest = Math.max(tallest, say.getBoundingClientRect().height);
+      }
+      say.textContent = shown;
+      say.style.minHeight = `${tallest}px`;
+    }
     function animate() {
       clearInterval(sprite.timer);
       sprite.img.src = sprite.loop.frames[0];
@@ -690,7 +712,7 @@
         const on = button.dataset.character === pick.character || Number(button.dataset.prompt) === pick.prompt;
         button.setAttribute("aria-pressed", String(on));
       }
-      const say = byId("twist-say");
+      byId("twist-live").textContent = answer.line;
       clearInterval(typing);
       say.textContent = still ? answer.line : "";
       if (still) return;
@@ -709,7 +731,9 @@
       show();
     });
     document.addEventListener("visibilitychange", animate);
+    addEventListener("resize", reserve);
     byId("twist-pick").hidden = false;
+    reserve();
     animate();
   }
 </script>
