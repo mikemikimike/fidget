@@ -207,11 +207,15 @@ function Test-HwndAbove([IntPtr]$Front, [IntPtr]$Back, $Stack) {
   return ($fi -ge 0) -and ($bi -ge 0) -and ($fi -lt $bi)
 }
 
+# Tauri leaves 10x10 placeholders, and ~200x200 ones once a Settings webview
+# exists. Pinned by tests/overlay-placeholder-filter.test.js.
+$PlaceholderPx = @(10, 200)
+
 function Get-OverlayMinSize($monitors) {
-  # 400 is above Tauri 10x10 and ~200x200 placeholders. Lower only when a
-  # monitor's half-size is smaller, matching the X11 ROOT/2 idea.
-  $minW = 400
-  $minH = 400
+  # Twice the largest placeholder. Lower only when a monitor's half-size is
+  # smaller, matching the X11 ROOT/2 idea.
+  $minW = 2 * [int]($PlaceholderPx | Measure-Object -Maximum).Maximum
+  $minH = $minW
   foreach ($m in @($monitors)) {
     $mw = [int]($m.width / 2)
     $mh = [int]($m.height / 2)
