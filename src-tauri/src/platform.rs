@@ -892,9 +892,8 @@ pub fn see_through_draws() -> bool {
 }
 
 /// Uncomposited, X11 shows alpha as black. WebKitGTK 2.54's non-accelerated
-/// renderer repaints only damage, so a compositor shows the desktop through
-/// the rest (#1734). WebKit's own variables pick that renderer; its fallback
-/// when the GPU path fails is not seen here. An unknown version counts as 2.54.
+/// renderer, which WebKit's own variables pick, repaints only damage and leaves
+/// the rest see-through. An unknown version counts as 2.54.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn see_through_draws_with(
     composited: bool,
@@ -1473,7 +1472,7 @@ mod tests {
 
     /// Production change that would fail this: Chat built see-through while
     /// WebKitGTK 2.54's non-accelerated renderer draws it, so the compositor
-    /// shows the desktop through every pixel it didn't repaint (#1734).
+    /// shows the desktop through every pixel it didn't repaint.
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn chat_and_settings_are_opaque_where_webkit_repaints_only_damage() {
@@ -1504,7 +1503,7 @@ mod tests {
     /// Off X11 the window manager always composites, so nothing changes there.
     #[cfg(any(target_os = "macos", not(unix)))]
     #[test]
-    fn windows_and_macos_always_blend_a_see_through_window() {
+    fn windows_and_macos_always_draw_a_see_through_window() {
         assert!(see_through_draws());
     }
 
