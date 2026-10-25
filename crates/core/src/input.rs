@@ -449,6 +449,27 @@ mod tests {
         );
     }
 
+    /// After a click the session poll saw, a later press only the overlay
+    /// feels must still be held: the fold forgets that earlier press.
+    #[test]
+    fn a_witness_only_press_after_a_session_click_is_still_held() {
+        let mut fold = PressFold::new();
+        let mut pointer = Pointer::default();
+        let cursor = at(100.0, 100.0);
+
+        pointer.update(true, fold.held(true, true), false, cursor, TICK);
+        pointer.update(true, fold.held(false, false), false, cursor, TICK);
+
+        pointer.update(true, fold.held(false, true), false, cursor, TICK);
+        let grabbed = (0..DRAG_DELAY_MS / TICK + 2)
+            .map(|_| pointer.update(true, fold.held(false, true), false, cursor, TICK))
+            .any(|verbs| verbs.contains(&Verb::Grab));
+        assert!(
+            grabbed,
+            "a witness-only press after a session click must still become a Grab"
+        );
+    }
+
     #[test]
     fn a_click_on_the_sprite_is_a_poke_and_never_moves_it() {
         let mut pointer = Pointer::default();
