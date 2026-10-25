@@ -1243,10 +1243,12 @@ struct PendingElicit {
 }
 
 /// Lent by `serve`, which runs Fidget's side of the Harness connection, to
-/// `turn` for one `session/prompt`: Fidget's commands (`rx`), the Harness's
-/// requests and updates (`incoming`), and the forms and asks that outlive it.
+/// `turn` for one `session/prompt`: Fidget's commands (`deferred` during an
+/// open, then `rx`), the Harness's requests and updates (`incoming`), and the
+/// forms and asks that outlive it.
 struct Serving<'a> {
     rx: &'a mut mpsc::UnboundedReceiver<Msg>,
+    deferred: &'a mut VecDeque<Msg>,
     incoming: &'a mut mpsc::UnboundedReceiver<Incoming>,
     held: &'a mut Vec<PendingElicit>,
     held_asks: &'a mut Vec<PendingAsk>,
@@ -1454,6 +1456,7 @@ async fn serve(
                 end_inbound(&mut inbound, &id, on_event);
                 let serving = Serving {
                     rx: &mut rx,
+                    deferred: &mut deferred,
                     incoming: &mut incoming,
                     held: &mut forms,
                     held_asks: &mut asks,
@@ -2212,6 +2215,18 @@ fn effort_config_id(options: &[SessionConfigOption]) -> Option<SessionConfigId> 
         .map(|option| option.id.clone())
 }
 
+/// The next command in the order it was sent. Those held during an open came
+/// before anything still in `rx`.
+async fn next_command(
+    deferred: &mut VecDeque<Msg>,
+    rx: &mut mpsc::UnboundedReceiver<Msg>,
+) -> Option<Msg> {
+    match deferred.pop_front() {
+        Some(command) => Some(command),
+        None => rx.recv().await,
+    }
+}
+
 /// One prompt turn. Chunks accumulate, other updates become `Event`s, and a
 /// permission request is held open until `Answer` or `Cancel`.
 /// "The turn finished" is read here, not on an idle `state_update` from ACP v2.
@@ -2225,6 +2240,7 @@ async fn turn(
 ) -> Result<Reply, TurnError> {
     let Serving {
         rx,
+        deferred,
         incoming,
         held,
         held_asks,
@@ -2325,7 +2341,7 @@ async fn turn(
                     Err(error) => Err(TurnError::Failed(error_text(error))),
                 };
             }
-            command = rx.recv() => match command {
+            command = next_command(deferred, rx) => match command {
                 Some(Msg::Cancel) => {
                     let _ = cx.send_notification(CancelNotification::new(session.clone()));
                     end_turn(session, &mut asks, &mut forms, &mut thought, on_event);

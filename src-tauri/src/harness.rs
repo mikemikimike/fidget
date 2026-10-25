@@ -4178,7 +4178,9 @@ mod tests {
                     }
                     // After `authenticate`, so the first refusal that puts the
                     // landing up stays quick and only the sign-in open stalls.
-                    if script == "stall-open" && recorded(count, "new") == 1 {
+                    if (script == "stall-open" && recorded(count, "new") == 1)
+                        || (script == "stall-second-open" && recorded(count, "new") == 2)
+                    {
                         record(count, "open-stall");
                         // Stay unanswered until the test writes a byte, or this
                         // process dies with the session. A sleep can expire
@@ -4478,6 +4480,7 @@ mod tests {
                                 }}),
                             );
                         }
+                        "stall-second-open" if prompts > 1 => pending_prompt = Some(id),
                         "slow" | "load-slow" | "load-deaf" | "deaf-busy" if prompts == 1 => {
                             pending_prompt = Some(id)
                         }
@@ -4898,7 +4901,7 @@ mod tests {
                 dir.clone()
             };
             let count = dir.join("count.txt");
-            let release = (script == "stall-open")
+            let release = matches!(script, "stall-open" | "stall-second-open")
                 .then(|| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
             let mut argv = vec![
                 fake_agent_wrapper().to_string_lossy().to_string(),
@@ -9905,6 +9908,43 @@ mod tests {
             matches!(ended, Ok(Ok(Err(_)))),
             "dropping the session did not end the open: {ended:?}"
         );
+    }
+
+    /// A prompt sent while another Instance's `session/new` is in flight waits
+    /// for the open, and so does the cancel its timeout sends. The cancel
+    /// still has to reach the agent once that prompt's turn starts, or the
+    /// agent stays busy and every later prompt on the wire is refused.
+    #[test]
+    fn a_cancel_queued_behind_a_prompt_reaches_the_agent() {
+        let (mut fx, session) = Fixture::new("stall-second-open");
+        assert!(
+            session.complete(&asking("hi"), &|_| {}).is_ok(),
+            "first turn"
+        );
+        let wire = session.current_wire().expect("attached");
+        let opener = {
+            let wire = Arc::clone(&wire);
+            let cwd = fx.cwd.clone();
+            thread::spawn(move || {
+                wire.open(None, &cwd, None, false, Duration::from_secs(10), "", None)
+                    .map(|_| ())
+            })
+        };
+        assert!(
+            fx.wait_for("open-stall", 1),
+            "the second open never stalled"
+        );
+        let turn = wire.prompt("fresh-id", "second", Duration::from_millis(300), &|_| {});
+        assert_eq!(turn, Err(TurnError::Timeout));
+        fx.release_open_stall();
+        assert!(opener.join().unwrap().is_ok(), "the second open failed");
+        assert!(
+            fx.wait_for("prompt", 2),
+            "the queued prompt never reached the agent"
+        );
+        let cancelled = fx.wait_for("cancel", 1);
+        session.shutdown();
+        assert!(cancelled, "the queued cancel never reached the agent");
     }
 
     /// Switching source returns on the UI thread. The open stays unanswered
