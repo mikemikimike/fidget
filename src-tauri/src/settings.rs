@@ -394,60 +394,67 @@ fn harness_state(harness: Option<&crate::harness::HarnessInspect>) -> String {
     }
 }
 
-/// What to paste to point a user-run Harness at this app's MCP server:
-/// (snippet, instructions, raw_token), the token only for Hermes. Templates add
-/// `Bearer ` themselves.
-fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, String) {
+/// What to paste to point a user-run Harness at this app's MCP server.
+/// Templates add `Bearer ` themselves.
+pub struct ByoRegistration {
+    pub snippet: String,
+    pub steps: String,
+    /// The raw token to paste at the Harness's own prompt. Only Hermes asks;
+    /// the others carry the token inside the snippet.
+    pub paste_token: Option<String>,
+}
+
+fn byo_registration(harness: &str, url: &str, token: &str) -> ByoRegistration {
     match harness {
         // Remove first: Claude Code answers a re-add by keeping the old URL and
         // token and exiting 0, and both change every launch. No `-s project`:
         // it writes a checked-in `.mcp.json`, which would commit the token.
-        "claude" => (
-            format!(
+        "claude" => ByoRegistration {
+            snippet: format!(
                 "claude mcp remove fidget 2>/dev/null\n\
                  claude mcp add --transport http fidget \"{url}\" \
                  --header \"Authorization: Bearer {token}\""
             ),
-            "Run both lines in a terminal, then exit your Claude session and start a \
+            steps: "Run both lines in a terminal, then exit your Claude session and start a \
              new one with `claude`. The remove is not optional: re-adding a name Claude \
              Code already knows keeps the old URL and token and reports success. Add `-s \
              user` only if you want the same entry in every project. `claude mcp list` \
              says whether it connected."
                 .to_string(),
-            String::new(),
-        ),
-        "codex" => (
-            format!(
+            paste_token: None,
+        },
+        "codex" => ByoRegistration {
+            snippet: format!(
                 "export FIDGET_MCP_TOKEN='{token}'\n\
                  codex mcp add fidget --url '{url}' --bearer-token-env-var FIDGET_MCP_TOKEN"
             ),
-            "Run both lines in a terminal where Codex will inherit the environment, then \
+            steps: "Run both lines in a terminal where Codex will inherit the environment, then \
              run `mcpServer/refresh` from your Codex session to pick up the change. If \
              `mcpServer/refresh` is unavailable, exit your Codex session and open a new \
              one. Alternatively, add or update `[mcp_servers.fidget]` in \
              `~/.codex/config.toml` with `url = \"{url}\"` and `http_headers = {{ \
              \"Authorization\" = \"Bearer {token}\" }}`."
                 .to_string(),
-            String::new(),
-        ),
+            paste_token: None,
+        },
         // Remove first: `copilot mcp add` refuses a name it holds, and the URL
         // and token change every launch. Whether a running session re-reads its
         // config is unmeasured, so the steps ask for a new session.
-        "copilot" => (
-            format!(
+        "copilot" => ByoRegistration {
+            snippet: format!(
                 "copilot mcp remove fidget 2>/dev/null\n\
                  copilot mcp add --transport http fidget \"{url}\" \
                  --header \"Authorization: Bearer {token}\""
             ),
-            "Run both lines in a terminal, then start a new `copilot` session. The \
+            steps: "Run both lines in a terminal, then start a new `copilot` session. The \
              remove is not optional: `copilot mcp add` refuses a name it already \
              holds. This writes `~/.copilot/mcp-config.json` (user scope). \
              `copilot mcp list` says whether it is registered."
                 .to_string(),
-            String::new(),
-        ),
-        "cursor-agent" => (
-            format!(
+            paste_token: None,
+        },
+        "cursor-agent" => ByoRegistration {
+            snippet: format!(
                 "{{\n\
                  \x20 \"mcpServers\": {{\n\
                  \x20   \"fidget\": {{\n\
@@ -459,15 +466,15 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, S
                  \x20 }}\n\
                  }}"
             ),
-            "A fragment for `.cursor/mcp.json` (project) or `~/.cursor/mcp.json`, \
+            steps: "A fragment for `.cursor/mcp.json` (project) or `~/.cursor/mcp.json`, \
              not a command. Add or update the `fidget` entry under `mcpServers`, \
              then run `cursor-agent mcp enable fidget` in a terminal and start a \
              new session. `cursor-agent mcp list` reports."
                 .to_string(),
-            String::new(),
-        ),
-        "pi" => (
-            format!(
+            paste_token: None,
+        },
+        "pi" => ByoRegistration {
+            snippet: format!(
                 "{{\n\
                  \x20 \"mcpServers\": {{\n\
                  \x20   \"fidget\": {{\n\
@@ -480,28 +487,28 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, S
                  \x20 }}\n\
                  }}"
             ),
-            "A fragment for `.mcp.json` (project) or `~/.pi/agent/mcp.json`, not a \
+            steps: "A fragment for `.mcp.json` (project) or `~/.pi/agent/mcp.json`, not a \
              command. Add or update the `fidget` entry under `mcpServers`. Then run \
              `/reload` followed by `/mcp reconnect fidget` in your Pi session."
                 .to_string(),
-            String::new(),
-        ),
-        "grok" => (
-            format!(
+            paste_token: None,
+        },
+        "grok" => ByoRegistration {
+            snippet: format!(
                 "grok mcp add fidget \"{url}\" --transport http \
                  --header \"Authorization: Bearer {token}\""
             ),
-            "Run it in a terminal; `grok mcp add` overwrites in place, so re-running it \
+            steps: "Run it in a terminal; `grok mcp add` overwrites in place, so re-running it \
              after a relaunch is enough. It defaults to user scope (`~/.grok/config.toml`). \
              Add `--scope project` only if you want project-local config (careful: shareable \
              config should not commit the token). Then in your live Grok session, run `/mcps` \
              and press `r` to reload. `grok mcp doctor fidget` reports."
                 .to_string(),
-            String::new(),
-        ),
-        "hermes" => (
-            format!("hermes mcp add fidget --url '{url}' --auth header"),
-            format!(
+            paste_token: None,
+        },
+        "hermes" => ByoRegistration {
+            snippet: format!("hermes mcp add fidget --url '{url}' --auth header"),
+            steps: format!(
                 "Run it in a terminal, then paste the raw token (no `Bearer` prefix) at the \
                  interactive prompt. This stores `MCP_FIDGET_API_KEY` in `~/.hermes/.env` \
                  and adds the header `Bearer ${{MCP_FIDGET_API_KEY}}`. Then run `/reload-mcp` \
@@ -510,16 +517,16 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, S
                  → `Authorization: \"Bearer <token>\"`; keep the indentation exactly. \
                  `hermes mcp test fidget` reports."
             ),
-            token.to_string(),
-        ),
+            paste_token: Some(token.to_string()),
+        },
         // Restart, not `/reload`: OpenCode reads its config once at start, and
         // `/reload` (sst/opencode#6719) is an open feature request, not a
         // shipped command.
-        "opencode" => (
-            format!(
+        "opencode" => ByoRegistration {
+            snippet: format!(
                 "opencode mcp add fidget --url '{url}' --header \"Authorization=Bearer {token}\""
             ),
-            "Run it in a terminal, then restart your OpenCode session. OpenCode does not \
+            steps: "Run it in a terminal, then restart your OpenCode session. OpenCode does not \
              re-read MCP mid-session. If OpenCode tries OAuth, set `\"oauth\": false` in \
              the config. Alternatively, merge this flat `mcp.fidget` content into \
              `opencode.jsonc` (not nested `mcp.servers`): `{{ \"mcp\": {{ \"fidget\": \
@@ -527,16 +534,16 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> (String, String, S
              {{ \"Authorization\": \"Bearer {token}\" }} }} }} }}`. `opencode mcp list` \
              reports."
                 .to_string(),
-            String::new(),
-        ),
-        _ => (
-            format!("URL:   {url}\nToken: {token}"),
-            format!(
+            paste_token: None,
+        },
+        _ => ByoRegistration {
+            snippet: format!("URL:   {url}\nToken: {token}"),
+            steps: format!(
                 "No generated snippet for {harness:?}. Point the Harness at that URL over \
                  Streamable HTTP and have it send `Authorization: Bearer <token>`."
             ),
-            String::new(),
-        ),
+            paste_token: None,
+        },
     }
 }
 
@@ -549,22 +556,21 @@ pub fn byo_harness_in_force(settings: &Settings) -> String {
     }
 }
 
-/// The registration box's snippet, instructions and raw token for `harness`.
-/// Empty when the loopback server did not bind this run, the only way there is
-/// nothing to show.
-pub fn byo_rows(harness: &str) -> (String, String, String) {
+/// The registration box's rows for `harness`. Empty when the loopback server
+/// did not bind this run, the only way there is nothing to show.
+pub fn byo_rows(harness: &str) -> ByoRegistration {
     match crate::mcp_http::endpoint() {
         Some(endpoint) => {
             let (url, token) = endpoint.registration();
             byo_registration(harness, &url, token.expose_to_code())
         }
-        None => (
-            String::new(),
-            "The loopback MCP server did not start this run, so there is nothing to \
+        None => ByoRegistration {
+            snippet: String::new(),
+            steps: "The loopback MCP server did not start this run, so there is nothing to \
              register. Restarting Fidget is the fix; stderr says why it failed."
                 .to_string(),
-            String::new(),
-        ),
+            paste_token: None,
+        },
     }
 }
 
@@ -579,7 +585,7 @@ impl SettingsView {
         harness: Option<crate::harness::HarnessInspect>,
     ) -> Self {
         let (api_key_set, api_key_fingerprint, api_key_error) = api_key;
-        let (byo_snippet, byo_steps, byo_token) = byo_rows(&byo_harness_in_force(settings));
+        let byo = byo_rows(&byo_harness_in_force(settings));
         Self {
             // The value in force, as the Development rows show theirs: an
             // exported switch reads as it exported, however the file has it.
@@ -612,9 +618,9 @@ impl SettingsView {
                 .map(|inspect| inspect.not_applied.clone())
                 .unwrap_or_default(),
             byo_harness: byo_harness_in_force(settings),
-            byo_snippet,
-            byo_steps,
-            byo_token,
+            byo_snippet: byo.snippet,
+            byo_steps: byo.steps,
+            byo_token: byo.paste_token.unwrap_or_default(),
             development_switches: development_switches(settings),
             caffeinate_display: settings.caffeinate_display,
             caffeinate_idle: settings.caffeinate_idle,
@@ -5574,8 +5580,11 @@ mod tests {
     #[test]
     fn every_byo_snippet_carries_the_url_and_the_raw_token() {
         for harness in form::HARNESS_PRESETS {
-            let (snippet, steps, byo_token) =
-                byo_registration(harness, "http://127.0.0.1:5051/mcp", "beef");
+            let ByoRegistration {
+                snippet,
+                steps,
+                paste_token,
+            } = byo_registration(harness, "http://127.0.0.1:5051/mcp", "beef");
 
             assert!(
                 snippet.contains("http://127.0.0.1:5051/mcp")
@@ -5600,8 +5609,9 @@ mod tests {
                         "hermes snippet must have --auth header, got {snippet:?}"
                     );
                     assert_eq!(
-                        byo_token, "beef",
-                        "hermes must show raw token via byo_token, got {byo_token:?}"
+                        paste_token.as_deref(),
+                        Some("beef"),
+                        "hermes must show raw token via paste_token, got {paste_token:?}"
                     );
                     assert!(
                         !snippet.contains("beef"),
@@ -5639,7 +5649,7 @@ mod tests {
 
     #[test]
     fn the_claude_snippet_removes_before_it_adds() {
-        let (snippet, _, _) = byo_registration("claude", "http://127.0.0.1:5051/mcp", "beef");
+        let snippet = byo_registration("claude", "http://127.0.0.1:5051/mcp", "beef").snippet;
         let remove = snippet
             .find("claude mcp remove")
             .expect("the remove line is what makes the snippet re-runnable");
@@ -5662,7 +5672,7 @@ mod tests {
     fn the_file_fragment_harnesses_say_they_are_fragments() {
         let harness = "pi";
         let file = ".mcp.json";
-        let (snippet, steps, _token) =
+        let ByoRegistration { snippet, steps, .. } =
             byo_registration(harness, "http://127.0.0.1:5051/mcp", "beef");
         assert!(
             steps.contains(file),
@@ -5690,7 +5700,7 @@ mod tests {
     /// Codex reads `http_headers`; it silently ignores `headers`.
     #[test]
     fn codex_snippet_is_cli_with_export_and_bearer_token_env_var() {
-        let (snippet, _, _) = byo_registration("codex", "http://127.0.0.1:5051/mcp", "beef");
+        let snippet = byo_registration("codex", "http://127.0.0.1:5051/mcp", "beef").snippet;
         assert!(
             snippet.contains("export FIDGET_MCP_TOKEN="),
             "codex must export the token env var, got {snippet:?}"
@@ -5717,7 +5727,7 @@ mod tests {
     /// not nested mcp.servers.<name> with type: http.
     #[test]
     fn opencode_snippet_is_cli_with_url_and_header() {
-        let (snippet, _, _) = byo_registration("opencode", "http://127.0.0.1:5051/mcp", "beef");
+        let snippet = byo_registration("opencode", "http://127.0.0.1:5051/mcp", "beef").snippet;
         assert!(
             snippet.contains("opencode mcp add"),
             "opencode must use CLI add, got {snippet:?}"
@@ -5739,7 +5749,7 @@ mod tests {
     /// Hermes uses CLI with --auth header and interactive token paste.
     #[test]
     fn hermes_snippet_is_cli_with_auth_header() {
-        let (snippet, steps, _token) =
+        let ByoRegistration { snippet, steps, .. } =
             byo_registration("hermes", "http://127.0.0.1:5051/mcp", "beef");
         assert!(
             snippet.contains("hermes mcp add"),
@@ -5772,7 +5782,7 @@ mod tests {
     /// eight templates is made of.
     #[test]
     fn an_unknown_harness_still_gets_the_url_and_the_token() {
-        let (snippet, steps, _token) =
+        let ByoRegistration { snippet, steps, .. } =
             byo_registration("custom", "http://127.0.0.1:5051/mcp", "beef");
         assert!(snippet.contains("http://127.0.0.1:5051/mcp"));
         assert!(snippet.contains("beef"));
@@ -5783,16 +5793,20 @@ mod tests {
     /// embed it in the snippet and return empty token.
     #[test]
     fn hermes_returns_separate_token_others_do_not() {
-        let (_, _, token) = byo_registration("hermes", "http://127.0.0.1:5051/mcp", "beef");
-        assert_eq!(token, "beef", "hermes must return the raw token separately");
+        let token = byo_registration("hermes", "http://127.0.0.1:5051/mcp", "beef").paste_token;
+        assert_eq!(
+            token.as_deref(),
+            Some("beef"),
+            "hermes must return the raw token separately"
+        );
 
         for harness in form::HARNESS_PRESETS
             .iter()
             .filter(|name| **name != "hermes")
         {
-            let (_, _, token) = byo_registration(harness, "http://127.0.0.1:5051/mcp", "beef");
+            let token = byo_registration(harness, "http://127.0.0.1:5051/mcp", "beef").paste_token;
             assert!(
-                token.is_empty(),
+                token.is_none(),
                 "{harness} must return empty token (embeds in snippet)"
             );
         }
@@ -5802,7 +5816,7 @@ mod tests {
     /// so the after-steps say restart OpenCode, not run `/reload`.
     #[test]
     fn opencode_byo_after_steps_say_restart_not_reload() {
-        let (_, steps, _) = byo_registration("opencode", "http://127.0.0.1:5051/mcp", "beef");
+        let steps = byo_registration("opencode", "http://127.0.0.1:5051/mcp", "beef").steps;
         assert!(
             !steps.contains("/reload"),
             "opencode steps must not mention /reload, got {steps:?}"
@@ -5816,13 +5830,13 @@ mod tests {
     /// Hermes and Pi reload commands must stay unchanged (regression guard).
     #[test]
     fn hermes_and_pi_still_have_reload_commands() {
-        let (_, hermes_steps, _) = byo_registration("hermes", "http://127.0.0.1:5051/mcp", "beef");
+        let hermes_steps = byo_registration("hermes", "http://127.0.0.1:5051/mcp", "beef").steps;
         assert!(
             hermes_steps.contains("/reload-mcp"),
             "hermes must still mention /reload-mcp, got {hermes_steps:?}"
         );
 
-        let (_, pi_steps, _) = byo_registration("pi", "http://127.0.0.1:5051/mcp", "beef");
+        let pi_steps = byo_registration("pi", "http://127.0.0.1:5051/mcp", "beef").steps;
         assert!(
             pi_steps.contains("/reload"),
             "pi must still mention /reload, got {pi_steps:?}"
@@ -5831,14 +5845,14 @@ mod tests {
 
     #[test]
     fn pi_fragment_emits_lifecycle_eager_cursor_agent_does_not() {
-        let (pi_snippet, _, _) = byo_registration("pi", "http://127.0.0.1:5051/mcp", "beef");
+        let pi_snippet = byo_registration("pi", "http://127.0.0.1:5051/mcp", "beef").snippet;
         assert!(
             pi_snippet.contains(r#""lifecycle": "eager""#),
             "pi fragment must include lifecycle eager, got {pi_snippet:?}"
         );
 
-        let (cursor_snippet, _, _) =
-            byo_registration("cursor-agent", "http://127.0.0.1:5051/mcp", "beef");
+        let cursor_snippet =
+            byo_registration("cursor-agent", "http://127.0.0.1:5051/mcp", "beef").snippet;
         assert!(
             !cursor_snippet.contains("lifecycle"),
             "cursor-agent fragment must not include lifecycle key, got {cursor_snippet:?}"

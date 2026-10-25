@@ -1560,11 +1560,11 @@ fn settings_event_blocking(
             value,
             fills: None,
         } if pick == settings::form::BYO_HARNESS_ID => {
-            let (snippet, steps, token) = settings::byo_rows(&value);
+            let byo = settings::byo_rows(&value);
             return Ok(SettingsEventResponse::PreviewByo {
-                snippet,
-                steps,
-                token,
+                snippet: byo.snippet,
+                steps: byo.steps,
+                token: byo.paste_token.unwrap_or_default(),
             });
         }
         SettingsEventPayload::Pick {
