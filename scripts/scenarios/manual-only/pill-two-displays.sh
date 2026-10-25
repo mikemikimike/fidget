@@ -208,7 +208,8 @@ wait_id_rest() { # <seconds> <id> <case>
 wait_for_line 30 "$log" '^[0-9]+ frame: ' || fail "no frame line within 30 s of launch; see $log"
 wait_id_rest 10 "$(grep -E '^[0-9]+ frame: ' "$log" | awk '{print $NF}' | head -1)" first-sprite ||
   fail "the first sprite never rested; see $log"
-mapfile -t ids < <(grep -E '^[0-9]+ frame: ' "$log" | awk '{print $NF}' | sort -u)
+ids=()
+while read -r id; do ids+=("$id"); done < <(grep -E '^[0-9]+ frame: ' "$log" | awk '{print $NF}' | sort -u)
 [ "${#ids[@]}" -eq 2 ] || fail "two Instances are not drawing; ids: ${ids[*]:-none}"
 ida=${ids[0]} idb=${ids[1]}
 read -r ax_y ay < <(sprite_at "$ida") || fail "no frame for $ida"
@@ -278,7 +279,7 @@ open_pill_on() { # <id> <park> <case>
   read -r sx sy <<< "$at"
   wait_for_next 5 "$log" "^[0-9]+ overlay: draft instance=$1 .* focused=true$" \
     "$tools/warp-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" --event ||
-    fail "$3: the pill did not open; see $log"
+    fail "$3: the pill did not open (last draft: $(grep -E "^[0-9]+ overlay: draft instance=$1 " "$log" | tail -1)); see $log"
 }
 
 open_pill_on "$pill_a_id" park_display1 a-first
