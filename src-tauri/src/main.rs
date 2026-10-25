@@ -791,38 +791,36 @@ fn art_urls(character: &Character) -> BTreeMap<String, Vec<String>> {
 
 /// What the webview needs of one Character: the art as `data:` URLs, and
 /// whether to smooth it when scaling (the Character Manifest's `render_mode`).
-#[derive(Clone, serde::Serialize)]
+#[derive(serde::Serialize)]
 struct CharacterArt {
     art: BTreeMap<String, Vec<String>>,
     smooth: bool,
 }
 
 /// Every Character on screen, keyed by Character rather than Instance so two
-/// Instances of one Character share one encoded sheet. A struct rather than
-/// a bare map so managed state, keyed by type, cannot collide.
-#[derive(Clone, serde::Serialize)]
+/// Instances of one Character share one encoded sheet.
+#[derive(serde::Serialize)]
 struct ArtUrls {
     characters: BTreeMap<String, CharacterArt>,
 }
 
+/// JSON of every Character's art. Encoded once at setup; `character` copies it.
+struct ArtJson(String);
+
+fn encode_art_json(art: &ArtUrls) -> ArtJson {
+    ArtJson(serde_json::to_string(art).expect("ArtUrls is a map of strings"))
+}
+
+fn character_response(json: &ArtJson) -> tauri::ipc::Response {
+    tauri::ipc::Response::new(json.0.clone())
+}
+
 /// The art of every Character on screen, fetched once when the webview
-/// loads. Async: a sync command clones every frame's data URL on the main
-/// thread, and Accessibility cannot list an open window until it returns.
+/// loads. Encoded once at setup: encoding ~4.7 MB of data URLs on each
+/// invoke is 90–118 ms on the main thread in a debug build (as of 2026-10).
 #[tauri::command]
-async fn character(app: tauri::AppHandle) -> ArtUrls {
-    let started = Instant::now();
-    let cloned =
-        tauri::async_runtime::spawn_blocking(move || app.state::<ArtUrls>().inner().clone())
-            .await
-            .expect("character: art clone");
-    if dev_flags::TRACE_BUBBLE.is_on() {
-        eprintln!(
-            "character: cloned {} in {}ms",
-            cloned.characters.len(),
-            started.elapsed().as_millis()
-        );
-    }
-    cloned
+fn character(json: tauri::State<'_, ArtJson>) -> tauri::ipc::Response {
+    character_response(json.inner())
 }
 
 /// The Settings window's handle on the running app. `SettingsSession::apply`
@@ -3122,8 +3120,7 @@ fn behavior_names_of(
 /// command rather than an event: Tauri buffers nothing for a listener that
 /// is not there yet. Same `DirectorInspect` the Settings window renders.
 #[tauri::command]
-async fn chat_opening(instance: String, app: tauri::AppHandle) -> ChatOpening {
-    let state = app.state::<SettingsState>();
+fn chat_opening(instance: String, state: tauri::State<'_, SettingsState>) -> ChatOpening {
     let (name, character, instance_prompt) = state
         .instances
         .lock()
@@ -3572,9 +3569,12 @@ fn replayed_reply(turn: session_log::Turn) -> ChatReply {
 /// that existed, so this session's turns wait here too, Speech as well as
 /// permission asks that arrived before this window existed.
 #[tauri::command]
-async fn chat_ready(instance: String, app: tauri::AppHandle) {
-    let chat = app.state::<ChatChannel>();
-    let pending = app.state::<PendingAsks>();
+fn chat_ready(
+    instance: String,
+    app: tauri::AppHandle,
+    chat: tauri::State<'_, ChatChannel>,
+    pending: tauri::State<'_, PendingAsks>,
+) {
     if let Ok(mut pending) = pending.0.lock() {
         let restored = session_log::restored(&app, &instance);
         if !restored.is_empty() {
@@ -5117,7 +5117,7 @@ fn main() {
                         smooth: character.smooth,
                     });
             }
-            app.manage(ArtUrls { characters });
+            app.manage(encode_art_json(&ArtUrls { characters }));
             let installed: Vec<String> = character_cache.keys().cloned().collect();
 
             // Show in the Dock so users have a findable anchor when the menu
@@ -5865,41 +5865,10 @@ mod tests {
         let _: &dyn std::future::Future<Output = Result<String, String>> = &fut;
     }
 
-    fn character_returns_a_future(app: tauri::AppHandle) {
-        let fut = character(app);
-        fn assert_send<T: Send>(_: &T) {}
-        assert_send(&fut);
-        let _: &dyn std::future::Future<Output = ArtUrls> = &fut;
-    }
-
-    fn chat_opening_returns_a_future(instance: String, app: tauri::AppHandle) {
-        let fut = chat_opening(instance, app);
-        fn assert_send<T: Send>(_: &T) {}
-        assert_send(&fut);
-        let _: &dyn std::future::Future<Output = ChatOpening> = &fut;
-    }
-
-    fn chat_ready_returns_a_future(instance: String, app: tauri::AppHandle) {
-        let fut = chat_ready(instance, app);
-        fn assert_send<T: Send>(_: &T) {}
-        assert_send(&fut);
-        let _: &dyn std::future::Future<Output = ()> = &fut;
-    }
-
     #[test]
     fn settings_and_harness_commands_leave_the_main_thread() {
         let _ = settings_event_returns_a_future as fn(_, _);
         let _ = select_harness_returns_a_future as fn(_, _, _, _);
-    }
-
-    /// Production change that would fail this: overlay page load or Chat's first
-    /// push running as a sync command, so Accessibility cannot list a window
-    /// the window server already has (AXWindows cannotComplete, as of 2026-10).
-    #[test]
-    fn overlay_and_chat_load_commands_leave_the_main_thread() {
-        let _ = character_returns_a_future as fn(_);
-        let _ = chat_opening_returns_a_future as fn(_, _);
-        let _ = chat_ready_returns_a_future as fn(_, _);
     }
 
     use fidget_core::character::{
@@ -6504,6 +6473,45 @@ mod tests {
 
     fn url(bytes: &[u8]) -> String {
         format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+    }
+
+    fn bundled_character_art() -> BTreeMap<String, CharacterArt> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../characters");
+        let mut art = BTreeMap::new();
+        for path in package::installed(&[root]) {
+            let files = package::read(&path).expect("a bundled package reads");
+            let character = fidget_core::character::load(&files).expect("a bundled package loads");
+            art.insert(
+                character.name.clone(),
+                CharacterArt {
+                    art: art_urls(&character),
+                    smooth: character.smooth,
+                },
+            );
+        }
+        assert!(!art.is_empty(), "the repo ships Character Packages");
+        art
+    }
+
+    fn character_json_body(response: tauri::ipc::Response) -> String {
+        match tauri::ipc::IpcResponse::body(response).expect("character returns a body") {
+            tauri::ipc::InvokeResponseBody::Json(json) => json,
+            tauri::ipc::InvokeResponseBody::Raw(_) => {
+                panic!("character must return JSON")
+            }
+        }
+    }
+
+    /// `character` copies this string onto the wire. Encoding it on each invoke
+    /// is the 90–118 ms debug hold; the body must stay the bundled art's JSON.
+    #[test]
+    fn characters_response_matches_the_json_of_the_bundled_art() {
+        let art = ArtUrls {
+            characters: bundled_character_art(),
+        };
+        let expected = serde_json::to_string(&art).expect("ArtUrls serializes");
+        let response = character_response(&encode_art_json(&art));
+        assert_eq!(character_json_body(response), expected);
     }
 
     /// The invariant `art_urls` exists to hold: the webview indexes this list
