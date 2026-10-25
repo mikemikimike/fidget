@@ -5,21 +5,21 @@
       "reactions": [
         {"character": "cat", "behavior": "supervise", "line": "Red again. I sat next to it. You may continue.",
          "quote": "Sulks in sight when something fails, briefly."},
-        {"character": "jotaro-kujo", "behavior": "mutter", "line": "Yare yare daze. Read the first error. Just the first.",
-         "quote": "That's a problem you built yourself."},
+        {"character": "buddy-bot", "behavior": "help", "line": "Oh, red. Want me to read the first error with you?",
+         "quote": "Short warm sentences, a little bounce in the voice, and it means the offer when it asks if you need a hand."},
         {"character": "trump", "behavior": "report", "line": "The build failed. Very unfair. The linter is out to get us.",
          "quote": "The linter is a very unfair operation."}
       ]
     },
     {
-      "moment": ["The build just went green."],
+      "moment": ["You just picked them up and dropped them on another window."],
       "reactions": [
-        {"character": "cat", "behavior": "remark", "line": "That compiled because of me. I supervised that.",
-         "quote": "Slow blinks for what it approves of."},
-        {"character": "jotaro-kujo", "behavior": "mutter", "line": "You did fine. Don't make it a thing.",
-         "quote": "A 17-year-old delinquent who speaks only when necessary."},
-        {"character": "trump", "behavior": "report", "line": "That build passed because I was standing here. Believe me.",
-         "quote": "The build passed because he was standing there."}
+        {"character": "cat", "behavior": "inspect", "line": "New furniture. What is that one? Show me.",
+         "quote": "Cat claimed the desktop and treats every window as furniture."},
+        {"character": "buddy-bot", "behavior": "fidget", "line": "Trust fall! I bounced. Hi, new window.",
+         "quote": "Being dragged is a trust fall, not an insult."},
+        {"character": "trump", "behavior": "settle", "line": "Stuck the landing. And this window? Top three, easily.",
+         "quote": "Every window gets a ranking and the ranking changes hourly."}
       ]
     },
     {
