@@ -9099,6 +9099,37 @@ mod tests {
         session.shutdown();
     }
 
+    /// A session-scoped form held between turns is the session's. The next
+    /// prompted turn's end leaves it, so the user can still answer.
+    #[test]
+    fn a_session_form_held_between_turns_survives_the_next_turn() {
+        let (fx, session) = Fixture::new("form-held");
+        let key = SessionKey {
+            instance: "buddy-1".to_string(),
+            character: "bmo".to_string(),
+            blank: false,
+        };
+        assert!(session.attach(Some(&key)).is_ok());
+        let form = fx.form();
+        assert!(form.url.is_none(), "a plain form, not a link");
+        assert_eq!(
+            session.complete(&asking("hi"), &|_| {}),
+            Ok(Reply::whole("Hello"))
+        );
+        session.answer_elicitation(&form.request, ElicitationAnswer::Accept("balanced".into()));
+        assert!(
+            fx.wait_for("elicit:accept", 1),
+            "the held form did not take its answer, cancels sent: {}",
+            fx.count("elicit:cancel")
+        );
+        assert_eq!(
+            fx.count("elicit:cancel"),
+            0,
+            "the turn's end cancelled the form"
+        );
+        session.shutdown();
+    }
+
     /// The attach path's translation, on the turn path. The session
     /// stays open: the token died, not the child, and the next answer is the
     /// proof the user signed in somewhere else.

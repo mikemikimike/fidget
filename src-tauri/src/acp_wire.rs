@@ -2426,10 +2426,7 @@ fn elicitation_response(
 /// A different `messageId` is the next message. A missing id stays with the
 /// message already open, as a harness that omits it does.
 fn message_changed(open: Option<&MessageId>, next: Option<&MessageId>) -> bool {
-    match (open, next) {
-        (Some(open), Some(next)) => open != next,
-        _ => false,
-    }
+    matches!((open, next), (Some(open), Some(next)) if open != next)
 }
 
 /// The next message starts a paragraph. A mark that already closed on a blank
@@ -2515,11 +2512,7 @@ fn show(heard: Heard<'_>, session: &SessionId, stream: &mut Stream, on_event: &O
 /// line stays, blank ones too, because the Thinking row draws the whole
 /// thought and a paragraph break is something the harness wrote.
 pub(crate) fn thought_to_show(thought: &str) -> Option<&str> {
-    if thought.trim().is_empty() {
-        None
-    } else {
-        Some(thought)
-    }
+    (!thought.trim().is_empty()).then_some(thought)
 }
 
 /// Answer text with its `<think>` and `<thinking>` blocks peeled off as it
@@ -2542,23 +2535,12 @@ impl Answer {
         let mut rest = std::mem::take(&mut self.held) + chunk;
         let mut thought = String::new();
         loop {
-            let found_open = OPEN
+            let found = OPEN
                 .iter()
-                .filter_map(|tag| rest.find(tag).map(|at| (at, tag.len(), true)))
+                .map(|tag| (tag, true))
+                .chain(CLOSE.iter().map(|tag| (tag, false)))
+                .filter_map(|(tag, open)| rest.find(tag).map(|at| (at, tag.len(), open)))
                 .min();
-            let found_close = CLOSE
-                .iter()
-                .filter_map(|tag| rest.find(tag).map(|at| (at, tag.len(), false)))
-                .min();
-            let found = match (found_open, found_close) {
-                (Some((at_o, len_o, _)), Some((at_c, _, _))) if at_o < at_c => {
-                    Some((at_o, len_o, true))
-                }
-                (Some(_), Some((at_c, len_c, _))) => Some((at_c, len_c, false)),
-                (Some(o), None) => Some(o),
-                (None, Some(c)) => Some(c),
-                (None, None) => None,
-            };
 
             let Some((at, len, is_open)) = found else {
                 let keep = OPEN
@@ -2629,7 +2611,7 @@ impl Answer {
 /// During a turn, only a session-scoped URL with no tool call outlives it:
 /// `end_turn` leaves that one, and the budget keeps running.
 fn elicit_owner(request: &CreateElicitationRequest, signing_in: bool, in_turn: bool) -> Owner {
-    if signing_in && elicitation_session(request).is_none() {
+    if signing_in && elicitation_scope(request).is_none() {
         Owner::SignIn
     } else if in_turn && !outlives_turn(request) {
         Owner::Turn
@@ -2641,20 +2623,8 @@ fn elicit_owner(request: &CreateElicitationRequest, signing_in: bool, in_turn: b
 /// A link scoped to the session and no tool call, as an MCP server's sign-in
 /// after `session/new` is. It belongs to the session, not the turn it lands in.
 fn outlives_turn(request: &CreateElicitationRequest) -> bool {
-    session_link(request).is_some_and(|scope| scope.tool_call_id.is_none())
-}
-
-/// A link tied to a tool call, which blocks its turn until answered.
-fn on_tool_call(request: &CreateElicitationRequest) -> bool {
-    session_link(request).is_some_and(|scope| scope.tool_call_id.is_some())
-}
-
-/// The scope of a URL form tied to a session rather than a request.
-fn session_link(request: &CreateElicitationRequest) -> Option<&ElicitationSessionScope> {
-    match &request.mode {
-        ElicitationMode::Url(_) => elicitation_scope(request),
-        _ => None,
-    }
+    matches!(request.mode, ElicitationMode::Url(_))
+        && elicitation_scope(request).is_some_and(|scope| scope.tool_call_id.is_none())
 }
 
 /// The Harness's open questions, and each session's stream with no prompt
@@ -2746,7 +2716,9 @@ impl Held<'_> {
         responder: Responder<CreateElicitationResponse>,
     ) {
         let mut form = elicitation_form(request, responder.id().to_string());
-        form.waits = form.url.is_some() && owner != Owner::SignIn && !on_tool_call(request);
+        form.waits = form.url.is_some()
+            && owner != Owner::SignIn
+            && !elicitation_scope(request).is_some_and(|scope| scope.tool_call_id.is_some());
         let link = match &request.mode {
             ElicitationMode::Url(link) => Some(link.elicitation_id.clone()),
             _ => None,
