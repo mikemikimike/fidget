@@ -5066,6 +5066,11 @@ fn main() {
             // Before anything reads a development switch: the frame loop and
             // the overlay panel load them from `dev_flags`, not the env.
             dev_flags::seed(&settings);
+            // The WebKitGTK this process loaded, which an AppImage bundles.
+            #[cfg(target_os = "linux")]
+            if let Ok(version) = tauri::webview_version() {
+                fidget::eprintln_and_log!("webkit: WebKitGTK {version}");
+            }
             #[cfg(not(target_os = "linux"))]
             consent::set_wanted(
                 consent::CapabilityId::Accessibility,

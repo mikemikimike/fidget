@@ -5,11 +5,11 @@
 #   launches; picom starts after the first.
 # Input: none.
 # Duration: about 6 s; every wait gives up 3 s after its trigger.
-# Grants: Xvfb, xfwm4, xprop, xdotool, xwininfo (x11-utils), picom, pkg-config
-#   and python3.
+# Grants: Xvfb, xfwm4, xprop, xdotool, xwininfo (x11-utils), picom and python3.
 # Asserts: Chat and Settings are opaque (depth 24) with no compositor (#1732),
 #   see-through (depth 32) under picom, and opaque under picom with
-#   WEBKIT_DISABLE_DMABUF_RENDERER=1 when WebKitGTK is 2.54 or newer (#1734).
+#   WEBKIT_DISABLE_DMABUF_RENDERER=1 when the WebKitGTK Fidget loaded, as its
+#   log names it, is 2.54 or newer (#1734).
 #
 # Usage: see-through-chat.x11.sh --go <fidget binary>
 # Without --go it prints this header, which is the takeover prompt, and exits 2.
@@ -20,17 +20,12 @@ if [ "${1:-}" != --go ]; then
   exit 2
 fi
 bin=${2:?usage: see-through-chat.x11.sh --go <fidget binary>}
-for tool in Xvfb xfwm4 xprop xdotool xwininfo picom pkg-config python3 stdbuf flock; do
+for tool in Xvfb xfwm4 xprop xdotool xwininfo picom python3 stdbuf flock; do
   command -v "$tool" > /dev/null 2>&1 || {
     echo "SKIP: $tool is not installed." >&2
     exit 2
   }
 done
-# The system WebKitGTK the binary links, as its -dev package names it.
-webkit=$(pkg-config --modversion webkit2gtk-4.1 2> /dev/null) || {
-  echo "SKIP: pkg-config knows no webkit2gtk-4.1." >&2
-  exit 2
-}
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 . "$root/scripts/scenarios/helpers/wait-helpers.x11.sh"
 out=$(mktemp -d "${TMPDIR:-/tmp}/fidget-scenario-see-through-chat-x11-$(date +%Y%m%d-%H%M%S)-XXXX")
@@ -123,9 +118,13 @@ wait_until 3 python3 "$root/scripts/scenarios/helpers/no-compositor-clip.py" cm 
 stop_fidget
 expect_depth picom 32
 stop_fidget
+# The WebKitGTK the binary loaded, not the system's: an AppImage bundles its own.
+webkit=$(sed -nE 's/^([0-9]+ )?webkit: WebKitGTK ([0-9.]+)$/\2/p' "$log" | head -1)
+[ -n "$webkit" ] || fail "Fidget logged no WebKitGTK version; see $log"
+ok "Fidget loaded WebKitGTK $webkit"
 # WebKitGTK 2.54's non-accelerated renderer repaints only damage (#1734).
 if printf '2.54\n%s\n' "$webkit" | sort -CV; then dmabuf=24; else dmabuf=32; fi
-expect_depth "picom-dmabuf-off-webkit-$webkit" "$dmabuf" WEBKIT_DISABLE_DMABUF_RENDERER=1
+expect_depth picom-dmabuf-off "$dmabuf" WEBKIT_DISABLE_DMABUF_RENDERER=1
 stop_fidget
 
 echo "PASS: evidence in $out" | tee -a "$results"
