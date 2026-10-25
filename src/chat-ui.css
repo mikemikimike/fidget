@@ -319,6 +319,12 @@
   padding-inline-start: 1.2em;
 }
 
+/* An ask has no stamp column, so its handle starts at the row's edge. */
+.chat-ui-terminal .row.ask > .thinking-toggle::before,
+.chat-ui-terminal .row.ask > .thinking-toggle .who-label {
+  grid-column: 1 / -1;
+}
+
 .chat-ui-terminal .row.you .said {
   color: #E4EAF2;
 }
@@ -358,7 +364,7 @@
   gap: 6px;
 }
 
-.chat-ui-terminal .row.ask button {
+.chat-ui-terminal .row.ask .options button {
   font-size: 11.5px;
   padding: 4px 9px;
   border-radius: var(--chat-radius);
@@ -622,7 +628,7 @@
   gap: 8px;
 }
 
-.chat-ui-glass .row.ask button {
+.chat-ui-glass .row.ask .options button {
   font-size: 12.5px;
   font-weight: 700;
   padding: 7px 13px;
@@ -631,7 +637,7 @@
   background: rgba(255,255,255,.08);
 }
 
-.chat-ui-glass .row.ask button.chosen {
+.chat-ui-glass .row.ask .options button.chosen {
   background: rgba(255,255,255,.92);
   border-color: transparent;
   color: #16202C;
@@ -791,12 +797,12 @@
   border-color: rgba(0,0,0,.20);
 }
 
-[data-chat-palette="light"].chat-ui-glass .row.ask button {
+[data-chat-palette="light"].chat-ui-glass .row.ask .options button {
   border-color: rgba(0,0,0,.22);
   background: rgba(0,0,0,.05);
 }
 
-[data-chat-palette="light"].chat-ui-glass .row.ask button.chosen {
+[data-chat-palette="light"].chat-ui-glass .row.ask .options button.chosen {
   background: rgba(22,155,133,.88);
   color: #FFFFFF;
 }
@@ -1233,7 +1239,8 @@ body {
 /* A tool call's handle keeps the Harness title as sent on one line; the
    label's hover title and the details hold the rest. */
 .row.tool > .who,
-.row.tool > .thinking-toggle {
+.row.tool > .thinking-toggle,
+.row.ask > .thinking-toggle {
   max-width: 100%;
   min-width: 0;
 }
@@ -1267,7 +1274,8 @@ body {
   line-height: var(--shared-type-leading);
 }
 
-.row.thinking .said[hidden] {
+.row.thinking .said[hidden],
+.row.ask .said[hidden] {
   display: none;
 }
 
@@ -1485,7 +1493,7 @@ body {
   margin-top: 6px;
 }
 
-.row.ask button {
+.row.ask .options button {
   padding: 2px 10px;
   border: 1px solid var(--chat-accent);
   border-radius: var(--chat-radius-control);
@@ -1500,15 +1508,39 @@ body {
   overflow-wrap: normal;
 }
 
-.row.ask button:disabled {
+.row.ask .options button:disabled {
   border-color: var(--chat-fill-soft);
   color: var(--chat-ink-4);
   cursor: default;
 }
 
-.row.ask button.chosen {
+.row.ask .options button.chosen {
   background: var(--chat-accent);
   color: var(--chat-accent-ink);
+}
+
+/* A settled ask's handle: what was asked gives way to the width, what won
+   stays whole. The choices under it dim, so they read as a record. */
+.row.ask .who-label {
+  display: flex;
+  min-width: 0;
+}
+
+.ask-heading {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-answer,
+.row.ask .who-label::after {
+  flex: none;
+  white-space: pre;
+}
+
+.row.ask[data-state="settled"] .options {
+  opacity: 0.55;
 }
 
 .empty,
