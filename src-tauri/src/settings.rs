@@ -186,8 +186,6 @@ pub struct SettingsView {
     pub variable_texts: HashMap<String, String>,
     /// Live OS grants, not a file field. The window rereads them on become-key.
     pub consent: Vec<ConsentRow>,
-    /// The name Privacy & Security will show for this process.
-    pub consent_listed_as: String,
     /// Which Chat UI design is selected: minimal, terminal, or glass.
     pub chat_ui: String,
     pub chat_appearance: ChatAppearance,
@@ -622,7 +620,6 @@ impl SettingsView {
             caffeinate_system: settings.caffeinate_system,
             variable_texts: variable_texts(settings),
             consent: consent::rows(|id| settings.wants_consent(id)),
-            consent_listed_as: String::new(),
             chat_ui: settings.chat_ui.clone(),
             chat_appearance: settings.chat_appearance,
         }
@@ -1311,7 +1308,7 @@ impl SettingsSession {
             }
             Err(_) => (None, None),
         };
-        let mut view = SettingsView::from_parts(
+        SettingsView::from_parts(
             &settings,
             &self.memory_path,
             last_payload,
@@ -1319,9 +1316,7 @@ impl SettingsSession {
             instances,
             self.key_status_for_view(),
             harness,
-        );
-        view.consent_listed_as = consent::process_listed_as();
-        view
+        )
     }
 
     /// Flip on: persist intent, then the system prompt if the OS has not
@@ -1340,7 +1335,7 @@ impl SettingsSession {
         if let Some(raw) = patch.completer.director_api_key.as_deref() {
             self.remember_written_key(raw);
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         let prompt_ax = patch.use_accessibility == Some(true);
         let prompt_wt = patch.use_window_names == Some(true);
         #[cfg(target_os = "macos")]
@@ -1366,7 +1361,7 @@ impl SettingsSession {
         // Seeded before `retarget_payload`, which rebuilds the Endpoint from
         // the live timeout and turn ceiling.
         apply_and_seed(&mut settings, patch);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         consent::set_wanted(CapabilityId::Accessibility, settings.use_accessibility);
         consent::set_wanted(CapabilityId::WindowNames, settings.use_window_names);
         if let Ok(mut rules) = self.rules.lock() {
@@ -1448,7 +1443,7 @@ impl SettingsSession {
         if let Some(spec) = rebind {
             (self.on_rebind)(&self.app, &spec);
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         if prompt_ax {
             self.enable_consent(CapabilityId::Accessibility);
         }
@@ -1618,8 +1613,8 @@ pub enum BoolField {
     /// is ungated.
     Capturable,
     // The consent rows. All three platforms offer WindowNames; Accessibility is
-    // macOS and Windows. The patch fields are not gated; the file carries them.
-    #[cfg(not(target_os = "linux"))]
+    // macOS only. The patch fields are not gated; the file carries them.
+    #[cfg(target_os = "macos")]
     UseAccessibility,
     UseWindowNames,
     /// The idle event tap, which macOS alone has a grant to ask for.
@@ -1684,7 +1679,7 @@ impl SettingsPatch {
             BoolField::DirectorBlank => self.completer.director_blank = Some(value),
             BoolField::PiProjectMcp => self.completer.pi_project_mcp = Some(value),
             BoolField::Capturable => self.capturable = Some(value),
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             BoolField::UseAccessibility => self.use_accessibility = Some(value),
             BoolField::UseWindowNames => self.use_window_names = Some(value),
             #[cfg(target_os = "macos")]
@@ -1964,7 +1959,7 @@ impl Settings {
 
     pub fn wants_consent(&self, id: CapabilityId) -> bool {
         match id {
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             CapabilityId::Accessibility => self.use_accessibility,
             CapabilityId::WindowNames => self.use_window_names,
             #[cfg(target_os = "macos")]
@@ -3015,9 +3010,8 @@ mod tests {
         assert_eq!(view.instances[0].name, "Nim");
         assert_eq!(view.instances[0].character, "nim");
         assert!(!view.api_key_set);
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         {
-            #[cfg(target_os = "macos")]
             assert_eq!(
                 view.consent.iter().map(|row| row.title).collect::<Vec<_>>(),
                 [
@@ -3026,20 +3020,22 @@ mod tests {
                     "Input Monitoring"
                 ]
             );
-            #[cfg(target_os = "windows")]
-            {
-                assert_eq!(
-                    view.consent.iter().map(|row| row.title).collect::<Vec<_>>(),
-                    ["Accessibility", "Window and Application Names"]
-                );
-                assert!(!view.consent[1].granted);
-            }
             assert!(
                 view.consent[0].granted,
                 "the checkbox follows settings intent, not the OS grant"
             );
-            #[cfg(target_os = "macos")]
             assert!(!view.consent[1].granted);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(
+                view.consent.iter().map(|row| row.title).collect::<Vec<_>>(),
+                ["Window and Application Names"]
+            );
+            assert!(
+                !view.consent[0].granted,
+                "the checkbox follows settings intent, not the OS grant"
+            );
         }
         #[cfg(target_os = "linux")]
         {
@@ -3087,7 +3083,7 @@ mod tests {
     #[test]
     fn unchecking_consent_stops_using_it_without_a_file_grant() {
         let mut settings = Settings::default();
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         {
             settings.apply(SettingsPatch {
                 use_accessibility: Some(true),
@@ -3142,7 +3138,7 @@ mod tests {
 
         // Consent rows must appear in row_values by their row_id.
         let values = view.row_values();
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         {
             assert_eq!(
                 values.get(form::CONSENT_ACCESSIBILITY_ID),
