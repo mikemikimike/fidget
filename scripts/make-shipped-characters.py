@@ -11,22 +11,25 @@ the format against real variance — one generated, one drawn by hand elsewhere.
 Pure standard library: a build step that needs Pillow installed is a build step
 that stops working.
 
-    python3 scripts/make-shipped-characters.py
+    python3 scripts/make-shipped-characters.py [--self-check]
 
 It rewrites characters/nim/frames/ in place. The manifests, the Personality
 Prompts, and all of characters/bmo/ are written by hand and never touched.
 """
 
+import argparse
 import math
 import pathlib
 import struct
+import sys
 import zlib
 
 SIZE = 32
-# The bottom row is where the Character's feet are: `place_sprite` hangs the art
-# a whole height above the contact point, so art that stops short of row 31
-# floats above the floor by however much it stopped short by.
+# `place_sprite` hangs the art a whole height above the contact point, so the
+# bottom row is the floor.
 GROUND = SIZE - 1
+# ALPHA_THRESHOLD in crates/core/src/character.rs: below it a click goes through.
+HIT_ALPHA = 128
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "characters"
 
 CLEAR = (0, 0, 0, 0)
@@ -89,8 +92,7 @@ IRIS = [(0x18, 0x4E, 0x6B, 255), (0x2F, 0x8F, 0xB5, 255), (0x7A, 0xD8, 0xEE, 255
 BLUSH = (0xE0, 0x8C, 0xA8, 255)
 MOUTH = (0x3A, 0x22, 0x3C, 255)
 SPARK = (0xFF, 0xF2, 0xA8, 255)
-# The one translucent colour Nim has. Being under the hit-test threshold as
-# well as under Nim, it is a shadow a click goes straight through.
+# The one translucent colour Nim has.
 SHADOW = (0x2A, 0x1E, 0x3A, 0x4C)
 
 LIGHT = (-0.55, -0.84)
@@ -327,9 +329,7 @@ def write(name, animations):
           f"{len(colours(animations) - {CLEAR})} colours")
 
 
-def main():
-    nim_art = nim_animations()
-
+def check(nim_art):
     # The check the style is held to: a shaded ramp, not a flat reskin. Two
     # Characters that differ only in their palette are a reskin.
     assert len(colours(nim_art) - {CLEAR}) > 16, "Nim fits in a sixteen-colour palette"
@@ -337,6 +337,33 @@ def main():
     assert set(nim_art) == {
         "idle", "walk", "fall", "land", "sit", "sleep", "react", "talk", "hold"
     }
+    for animation, frames in nim_art.items():
+        for index, px in enumerate(frames):
+            label = f"{animation}-{index}"
+            # The Engine plays `fall` off the ground.
+            if animation != "fall":
+                assert any(a for *_, a in px[GROUND]), f"{label} floats above the floor"
+            for row in px:
+                for *_, a in row:
+                    assert a == 255 or a < HIT_ALPHA, f"{label} has a clickable alpha-{a} pixel"
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="assert Nim's frames reach the floor and its shadow takes no clicks",
+    )
+    args = parser.parse_args(argv)
+    nim_art = nim_animations()
+    try:
+        check(nim_art)
+    except AssertionError as failed:
+        sys.exit(f"shipped characters: {failed}")
+    if args.self_check:
+        print("self-check: Nim stands on the floor, its shadow takes no clicks")
+        return
     write("nim", nim_art)
 
 
