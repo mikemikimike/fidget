@@ -806,11 +806,21 @@ struct ArtUrls {
 }
 
 /// The art of every Character on screen, fetched once when the webview
-/// loads. A command rather than an event: setup would race the listener, and
-/// the art does not change while the app runs.
+/// loads. Async: a sync command clones every frame's data URL on the main
+/// thread, and Accessibility cannot list an open window until it returns.
 #[tauri::command]
-fn character(art: tauri::State<'_, ArtUrls>) -> ArtUrls {
-    art.inner().clone()
+async fn character(app: tauri::AppHandle) -> ArtUrls {
+    let started = Instant::now();
+    let cloned =
+        tauri::async_runtime::spawn_blocking(move || app.state::<ArtUrls>().inner().clone())
+            .await
+            .expect("character: art clone");
+    eprintln!(
+        "character: cloned {} in {}ms",
+        cloned.characters.len(),
+        started.elapsed().as_millis()
+    );
+    cloned
 }
 
 /// The Settings window's handle on the running app. `SettingsSession::apply`
@@ -2554,7 +2564,9 @@ fn build_chat(
     if let Some((x, y)) = at {
         builder = builder.position(x, y);
     }
+    let started = Instant::now();
     let window = builder.build()?;
+    eprintln!("chat: {label} built in {}ms", started.elapsed().as_millis());
     let (handle, label) = (app.clone(), label.to_string());
     let observer = platform::observe_minimize(&window, {
         let (handle, label) = (handle.clone(), label.clone());
@@ -3106,7 +3118,8 @@ fn behavior_names_of(
 /// command rather than an event: Tauri buffers nothing for a listener that
 /// is not there yet. Same `DirectorInspect` the Settings window renders.
 #[tauri::command]
-fn chat_opening(instance: String, state: tauri::State<'_, SettingsState>) -> ChatOpening {
+async fn chat_opening(instance: String, app: tauri::AppHandle) -> ChatOpening {
+    let state = app.state::<SettingsState>();
     let (name, character, instance_prompt) = state
         .instances
         .lock()
@@ -3555,12 +3568,9 @@ fn replayed_reply(turn: session_log::Turn) -> ChatReply {
 /// that existed, so this session's turns wait here too, Speech as well as
 /// permission asks that arrived before this window existed.
 #[tauri::command]
-fn chat_ready(
-    instance: String,
-    app: tauri::AppHandle,
-    chat: tauri::State<'_, ChatChannel>,
-    pending: tauri::State<'_, PendingAsks>,
-) {
+async fn chat_ready(instance: String, app: tauri::AppHandle) {
+    let chat = app.state::<ChatChannel>();
+    let pending = app.state::<PendingAsks>();
     if let Ok(mut pending) = pending.0.lock() {
         let restored = session_log::restored(&app, &instance);
         if !restored.is_empty() {
@@ -5851,10 +5861,41 @@ mod tests {
         let _: &dyn std::future::Future<Output = Result<String, String>> = &fut;
     }
 
+    fn character_returns_a_future(app: tauri::AppHandle) {
+        let fut = character(app);
+        fn assert_send<T: Send>(_: &T) {}
+        assert_send(&fut);
+        let _: &dyn std::future::Future<Output = ArtUrls> = &fut;
+    }
+
+    fn chat_opening_returns_a_future(instance: String, app: tauri::AppHandle) {
+        let fut = chat_opening(instance, app);
+        fn assert_send<T: Send>(_: &T) {}
+        assert_send(&fut);
+        let _: &dyn std::future::Future<Output = ChatOpening> = &fut;
+    }
+
+    fn chat_ready_returns_a_future(instance: String, app: tauri::AppHandle) {
+        let fut = chat_ready(instance, app);
+        fn assert_send<T: Send>(_: &T) {}
+        assert_send(&fut);
+        let _: &dyn std::future::Future<Output = ()> = &fut;
+    }
+
     #[test]
     fn settings_and_harness_commands_leave_the_main_thread() {
         let _ = settings_event_returns_a_future as fn(_, _);
         let _ = select_harness_returns_a_future as fn(_, _, _, _);
+    }
+
+    /// Production change that would fail this: overlay page load or Chat's first
+    /// push running as a sync command, so Accessibility cannot list a window
+    /// the window server already has (AXWindows cannotComplete, as of 2026-10).
+    #[test]
+    fn overlay_and_chat_load_commands_leave_the_main_thread() {
+        let _ = character_returns_a_future as fn(_);
+        let _ = chat_opening_returns_a_future as fn(_, _);
+        let _ = chat_ready_returns_a_future as fn(_, _);
     }
 
     use fidget_core::character::{
