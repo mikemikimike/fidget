@@ -2547,8 +2547,8 @@ fn build_chat(
         .title(title)
         .inner_size(CHAT_SIZE.0, CHAT_SIZE.1)
         .min_inner_size(320.0, 320.0)
-        // See-through only where a compositor blends it. Uncomposited, as of 2026-10
-        // WebKitGTK 2.54's non-DMABuf renderer repaints a see-through page black.
+        // See-through only where it draws right: some X11 setups lose an
+        // unrepainted see-through page to black or to the desktop.
         .transparent(platform::see_through_draws())
         .focused(true);
     if let Some((x, y)) = at {

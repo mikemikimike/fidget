@@ -891,18 +891,27 @@ pub fn see_through_draws() -> bool {
     })
 }
 
+/// Uncomposited, X11 shows alpha as black. WebKitGTK 2.54's non-accelerated
+/// renderer repaints only damage, so a compositor shows the desktop through
+/// the rest (#1734). WebKit's own variables pick that renderer; its fallback
+/// when the GPU path fails is not seen here. An unknown version counts as 2.54.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn see_through_draws_with(
     composited: bool,
-    _webkit: Option<(u32, u32)>,
-    _var: impl Fn(&str) -> Option<std::ffi::OsString>,
+    webkit: Option<(u32, u32)>,
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> bool {
-    composited
+    // As WebKit reads them: any DMABuf value but "0", a non-empty compositing one.
+    let unaccelerated = var("WEBKIT_DISABLE_DMABUF_RENDERER").is_some_and(|v| v != "0")
+        || var("WEBKIT_DISABLE_COMPOSITING_MODE").is_some_and(|v| !v.is_empty() && v != "0");
+    composited && !(unaccelerated && webkit.is_none_or(|version| version >= (2, 54)))
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn webkit_version() -> Option<(u32, u32)> {
-    None
+    let version = tauri::webview_version().ok()?;
+    let mut parts = version.split('.').map(str::parse);
+    Some((parts.next()?.ok()?, parts.next()?.ok()?))
 }
 
 /// Windows and macOS always composite.
