@@ -36,6 +36,7 @@ mod cursor_mcp;
 mod debug;
 mod dev_flags;
 mod frame_loop;
+mod glass;
 mod harness;
 mod login_item;
 #[cfg(unix)]
