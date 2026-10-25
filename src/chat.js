@@ -347,26 +347,75 @@ log.addEventListener("click", (event) => {
   });
 });
 
-// The rows still offering buttons, by request id. One request reaches every
-// open window and only one of them takes the click, so the Shell's settled
-// event is what retires the rest.
+// The rows still offering buttons, by request id, with the line each one's
+// handle keeps once settled. One request reaches every open window and only
+// one of them takes the click, so the Shell's settled event retires the rest.
 const asks = new Map();
 
-// A request nothing can answer any more. The buttons go dead, not the row, so
-// the log still says what was asked. `option` is the winner on the Shell's word:
-// the wire drops every answer after the first, so a local click may have lost.
+// An ask is a fold, open while it waits. Settling shuts it with what was asked
+// and what won in the handle: the cue that the answer landed, and a way back
+// to the question.
+function askRow(request, heading, body, buttons) {
+  const row = el("row ask");
+  const toggle = el("who thinking-toggle", "button");
+  toggle.type = "button";
+  const label = el("who-label");
+  label.textContent = `${them} · asks`;
+  toggle.append(label);
+  toggle.addEventListener("click", () => fold(row, toggle.getAttribute("aria-expanded") !== "true"));
+  body.append(buttons);
+  row.append(toggle, body);
+  fold(row, true);
+  asks.set(request, { row, heading });
+  add(row);
+  lowerCaret();
+  return row;
+}
+
+// Disabled at once so a second click cannot be sent, but nothing is marked
+// chosen until the Shell says what won: see `retire`. Focus moves to the
+// handle, or it would fall out of the log with the button that held it.
+function sendOnce(row, buttons) {
+  if (row.contains(document.activeElement)) {
+    row.querySelector(".thinking-toggle").focus();
+  }
+  for (const button of buttons.querySelectorAll("button")) {
+    button.disabled = true;
+  }
+}
+
+// The first line the Harness wrote, which is what a folded handle has room for.
+function firstLine(text, fallback) {
+  return text.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? fallback;
+}
+
+// A request nothing can answer any more: its buttons go dead and the row folds.
+// `option` is the winner on the Shell's word, since a local click may have lost;
+// none means the turn ended or the link finished elsewhere.
 function retire(request, option) {
-  const buttons = asks.get(request);
-  if (!buttons) {
+  const held = asks.get(request);
+  if (!held) {
     return;
   }
   asks.delete(request);
-  for (const button of buttons.querySelectorAll("button")) {
+  const { row, heading } = held;
+  let answer = option ? "Answered" : "Closed";
+  for (const button of row.querySelectorAll(".options button")) {
     button.disabled = true;
+    button.setAttribute("aria-disabled", "true");
     if (option && button.dataset.option === option) {
       button.classList.add("chosen");
+      answer = button.textContent;
     }
   }
+  const what = el("ask-heading", "span");
+  what.textContent = heading;
+  what.title = heading;
+  const won = el("ask-answer", "span");
+  won.textContent = ` · ${answer}`;
+  row.querySelector(".thinking-toggle .who-label").replaceChildren(what, won);
+  row.dataset.state = "settled";
+  fold(row, false);
 }
 
 // A permission request, drawn as the options the Harness offered. A click is
@@ -376,23 +425,22 @@ function asked(ask) {
   if (asks.has(ask.request)) {
     return null;
   }
-  const row = el("row ask");
-  const label = el("who-label");
-  label.textContent = `${them} · asks`;
   const body = el("said");
   drawAskDetails(body, ask);
   const buttons = el("options");
+  const row = askRow(
+    ask.request,
+    firstLine(body.querySelector(".ask-title")?.textContent ?? "", `${them} · asks`),
+    body,
+    buttons,
+  );
   for (const option of ask.options) {
     const button = el("", "button");
     button.type = "button";
     button.textContent = option.name || option.id;
     button.dataset.option = option.id;
     button.addEventListener("click", () => {
-      // Disabled at once so a second click cannot be sent, but nothing is
-      // marked chosen until the Shell says what won: see `retire`.
-      for (const other of buttons.querySelectorAll("button")) {
-        other.disabled = true;
-      }
+      sendOnce(row, buttons);
       invoke("permission_answer", { request: ask.request, option: option.id }).catch((why) => {
         console.error("chat: the answer did not reach the Harness:", why);
         note("That answer did not get through.");
@@ -400,11 +448,6 @@ function asked(ask) {
     });
     buttons.append(button);
   }
-  body.append(buttons);
-  row.append(label, body);
-  asks.set(ask.request, buttons);
-  add(row);
-  lowerCaret();
   return row;
 }
 
@@ -424,26 +467,23 @@ function elicited(form) {
   if (asks.has(form.request)) {
     return null;
   }
-  const row = el("row ask");
-  const label = el("who-label");
-  label.textContent = `${them} · asks`;
+  const said = elicitSays(form);
   const body = el("said");
-  body.textContent = elicitSays(form);
+  body.textContent = said;
   if (form.url) {
     const link = el("ask-code", "code");
     link.textContent = form.url;
     body.append(link);
   }
   const buttons = el("options");
+  const row = askRow(form.request, firstLine(said, `${them} · asks`), body, buttons);
   for (const choice of elicitChoices(form)) {
     const button = el("", "button");
     button.type = "button";
     button.textContent = choice.name;
     button.dataset.option = choice.value ?? "decline";
     button.addEventListener("click", () => {
-      for (const other of buttons.querySelectorAll("button")) {
-        other.disabled = true;
-      }
+      sendOnce(row, buttons);
       const opened = choice.url ? invoke("open_link", { url: choice.url }) : Promise.resolve();
       opened
         .then(() => invoke("elicitation_answer", { request: form.request, value: choice.value }))
@@ -454,11 +494,6 @@ function elicited(form) {
     });
     buttons.append(button);
   }
-  body.append(buttons);
-  row.append(label, body);
-  asks.set(form.request, buttons);
-  add(row);
-  lowerCaret();
   return row;
 }
 

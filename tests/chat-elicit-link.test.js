@@ -72,7 +72,7 @@ function paint(settled = false) {
     handlers["chat-elicitation"]({ payload: ${JSON.stringify(form)} });
     await until(() => document.querySelector(".row.ask"));
     const row = document.querySelector(".row.ask");
-    const buttons = [...row.querySelectorAll("button")];
+    const buttons = [...row.querySelectorAll(".options button")];
     const drawn = {
       code: [...row.querySelectorAll("code")].map((n) => n.textContent),
       buttons: buttons.map((b) => [b.textContent, b.dataset.option]),
