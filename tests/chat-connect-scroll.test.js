@@ -2,14 +2,12 @@
 // Drives src/chat.html.
 
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
-import { chromeSkip, chromePath, injectBase } from "./chrome-cdp.js";
+import { chromeSkip, chromePath, cleanupChrome, createPageTarget, injectBase, launchWithPipe } from "./chrome-cdp.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
@@ -42,24 +40,11 @@ function opening(harness) {
 const initializing = opening({ initializing: true });
 const ready = opening({ alive: true, session: "abcdef0123456789" });
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function withChat(run, { rejectHarness = false } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "chat-connect-scroll-"));
-  const page = join(dir, "harness.html");
   const stub = `
 <script type="module">
   const handlers = {};
@@ -121,84 +106,40 @@ async function withChat(run, { rejectHarness = false } = {}) {
     "<head>",
     `<head>${stub}`,
   ));
-  writeFileSync(page, html);
-
-  const port = await freePort();
-  const child = spawn(
-    chromePath,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      `--remote-debugging-port=${port}`,
-      "--window-size=420,560",
-      pathToFileURL(page).href,
-    ],
-    { stdio: "ignore" },
-  );
-
+  const cdp = launchWithPipe(chromePath, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--allow-file-access-from-files",
+    "--window-size=420,560",
+  ]);
   try {
-    let wsUrl = null;
-    const href = pathToFileURL(page).href;
-    // A cold Chrome on the Ubuntu runner, beside the other Chrome tests, takes over 5 s.
-    const deadline = Date.now() + 30000;
-    let seen = "no reply";
-    while (!wsUrl && Date.now() < deadline) {
-      try {
-        const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-        seen = JSON.stringify(pages.map((item) => [item.type, item.url]));
-        wsUrl = pages.find((item) => item.type === "page" && item.url === href)?.webSocketDebuggerUrl;
-      } catch {}
-      if (!wsUrl) await sleep(100);
-    }
-    assert.ok(wsUrl, `Chrome did not open ${href} for debugging; last saw ${seen}`);
-
-    const ws = new WebSocket(wsUrl);
-    await new Promise((resolve, reject) => {
-      ws.addEventListener("open", resolve);
-      ws.addEventListener("error", reject);
-    });
-    let seq = 0;
-    const pending = new Map();
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.id && pending.has(msg.id)) {
-        pending.get(msg.id)(msg);
-        pending.delete(msg.id);
-      }
-    });
-    const send = (method, params = {}) =>
-      new Promise((resolve) => {
-        const id = ++seq;
-        pending.set(id, resolve);
-        ws.send(JSON.stringify({ id, method, params }));
-      });
+    const page = join(cdp.dir, "harness.html");
+    writeFileSync(page, html);
+    const { sessionId, navigate } = await createPageTarget(cdp);
+    const send = (method, params = {}) => cdp.send(method, params, sessionId);
     const evalJs = async (expression) => {
       const msg = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
-      assert.equal(msg.result?.exceptionDetails, undefined, JSON.stringify(msg.result?.exceptionDetails));
-      return msg.result?.result?.value;
+      assert.equal(msg.exceptionDetails, undefined, JSON.stringify(msg.exceptionDetails));
+      return msg.result?.value;
     };
+    await navigate(pathToFileURL(page).href);
 
     // A navigation swaps the document under a long-lived wait, so poll instead.
     const ready = `!!(window.__reveal && window.__handlers?.["chat-opening"] && document.getElementById("empty")?.hidden === false)`;
     let loaded = false;
     for (let i = 0; i < 100 && !loaded; i++) {
-      const msg = await send("Runtime.evaluate", { expression: ready, returnByValue: true });
-      loaded = msg.result?.result?.value === true;
+      // An evaluate that lands mid-navigation fails; the next one tries again.
+      const msg = await send("Runtime.evaluate", { expression: ready, returnByValue: true }).catch(() => null);
+      loaded = msg?.result?.value === true;
       if (!loaded) await sleep(50);
     }
     assert.ok(loaded, "chat.html never finished loading");
 
-    try {
-      await run({ send, evalJs });
-    } finally {
-      ws.close();
-    }
+    await run({ send, evalJs });
   } finally {
-    child.kill("SIGKILL");
+    await cleanupChrome(cdp);
   }
 }
 

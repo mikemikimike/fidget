@@ -3,9 +3,9 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { tempDir } from "./temp-path.js";
 
 const script = path.join(import.meta.dirname, "..", "scripts", "measure-mask-rebuild-x11.sh");
 const ready = "overlay: 1 display";
@@ -34,8 +34,8 @@ const budgetMs = 3000;
 
 // Runs the script against a fake that prints `lines`, sending `signal` once
 // `cue` shows and the fake has its pid down. TMPDIR keeps files in `dir`.
-async function measure({ lines, args, signal, cue }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mask-measure-"));
+async function measure(t, { lines, args, signal, cue }) {
+  const dir = tempDir(t, "mask-measure-");
   const pidFile = path.join(dir, "app.pid");
   const child = spawn("bash", [script, "--bin", fakeFidget(dir, lines), ...args], {
     env: { ...process.env, TMPDIR: dir },
@@ -76,7 +76,6 @@ async function measure({ lines, args, signal, cue }) {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     if (pid === undefined && fs.existsSync(pidFile)) pid = Number(fs.readFileSync(pidFile, "utf8"));
     if (pid && alive(pid)) process.kill(pid, "SIGKILL");
-    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -87,19 +86,19 @@ function assertInterrupted(r) {
 }
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  test(`${signal} ends the measurement with status 130 and stops the app`, async () => {
+  test(`${signal} ends the measurement with status 130 and stops the app`, async (t) => {
     const cue = "Waiting for 100 mask updates";
-    assertInterrupted(await measure({ lines: [ready, trace], args: ["idle", "100", "2"], signal, cue }));
+    assertInterrupted(await measure(t, { lines: [ready, trace], args: ["idle", "100", "2"], signal, cue }));
   });
 
-  test(`${signal} during startup ends the run with status 130 and stops the app`, async () => {
+  test(`${signal} during startup ends the run with status 130 and stops the app`, async (t) => {
     const cue = "Waiting for overlay ready...";
-    assertInterrupted(await measure({ lines: [], args: ["idle", "100", "2"], signal, cue }));
+    assertInterrupted(await measure(t, { lines: [], args: ["idle", "100", "2"], signal, cue }));
   });
 }
 
-test("updates with none position-only report every one as a full rebuild", async () => {
-  const r = await measure({ lines: [ready, trace], args: ["walk", "1", "2"] });
+test("updates with none position-only report every one as a full rebuild", async (t) => {
+  const r = await measure(t, { lines: [ready, trace], args: ["walk", "1", "2"] });
   assert.strictEqual(r.code, 0, r.out);
   assert.match(r.out, /Full rebuilds: 1 /);
   assert.match(r.out, /Position-only: 0 /);
@@ -107,7 +106,7 @@ test("updates with none position-only report every one as a full rebuild", async
   assert.match(r.out, /Full rebuilds: 100% of updates/);
 });
 
-test("opaque pixel count histogram groups by pixel count", async () => {
+test("opaque pixel count histogram groups by pixel count", async (t) => {
   const mixedLines = [
     ready,
     "mask_rebuild: 126x128 @1x scale, 6300 opaque pixels, 0.5 ms",
@@ -115,7 +114,7 @@ test("opaque pixel count histogram groups by pixel count", async () => {
     "mask_rebuild: 126x128 @1x scale, 6300 opaque pixels, 0.6 ms (position-only)",
     "mask_rebuild: 37x33 @3x scale, 500 opaque pixels, 0.4 ms",
   ];
-  const r = await measure({ lines: mixedLines, args: ["walk", "4", "2"] });
+  const r = await measure(t, { lines: mixedLines, args: ["walk", "4", "2"] });
   assert.strictEqual(r.code, 0, r.out);
   assert.match(r.out, /Opaque pixel count:/);
   assert.match(r.out, /  6300 pixels: 2 update\(s\)/);

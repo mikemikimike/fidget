@@ -5,8 +5,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
@@ -112,26 +111,22 @@ const metadata = (useCase) => ({
 });
 
 async function withSite(run) {
-  const dir = mkdtempSync(join(tmpdir(), "landing-os-"));
-  let cdp;
+  const cdp = launchWithPipe(chromePath, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--mute-audio",
+    "--allow-file-access-from-files",
+    "--window-size=1400,900",
+  ]);
   try {
-    const site = join(dir, "_site");
+    const site = join(cdp.dir, "_site");
     const built = spawnSync("bash", ["scripts/assemble-site.sh", site, "/dev/null"], { cwd: ROOT, encoding: "utf8" });
     assert.equal(built.status, 0, `assemble-site.sh failed: ${built.stderr}`);
-    cdp = launchWithPipe(chromePath, [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      "--mute-audio",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--window-size=1400,900",
-    ]);
     return await run(site, cdp);
   } finally {
-    if (cdp) await cleanupChrome(cdp);
-    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    await cleanupChrome(cdp);
   }
 }
 

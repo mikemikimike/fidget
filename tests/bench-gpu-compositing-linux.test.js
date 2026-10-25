@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { tempDir } from "./temp-path.js";
 
 const script = join(
   import.meta.dirname,
@@ -27,8 +27,8 @@ function session(display, wayland) {
 }
 
 // A running process named comm; a busy one spins so its CPU reads high.
-function runBench({ display, wayland, running }, args) {
-  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+function runBench(t, { display, wayland, running }, args) {
+  const dir = tempDir(t, "bench-gpu-linux-");
   const pids = {};
   const children = running.map(({ comm, display: own, serves, busy }) => {
     const child = spawn(
@@ -73,26 +73,26 @@ function runBench({ display, wayland, running }, args) {
   }
 }
 
-function probe(session) {
+function probe(t, session) {
   return Object.fromEntries(
-    runBench(session, ["env"])
+    runBench(t, session, ["env"])
       .stdout.split("\n")
       .filter((line) => /^(compositor|compositing|x_server)=/.test(line))
       .map((line) => line.split("=")),
   );
 }
 
-test("no compositor on this display reports compositing false", () => {
-  assert.deepEqual(probe({ display: ":77", running: [] }), {
+test("no compositor on this display reports compositing false", (t) => {
+  assert.deepEqual(probe(t, { display: ":77", running: [] }), {
     compositor: "none",
     compositing: "false",
     x_server: "none",
   });
 });
 
-test("picom and Xvfb on this display are picked up, with compositing true", () => {
+test("picom and Xvfb on this display are picked up, with compositing true", (t) => {
   assert.deepEqual(
-    probe({
+    probe(t, {
       display: ":77",
       running: [
         { comm: "picom", display: ":77" },
@@ -103,9 +103,9 @@ test("picom and Xvfb on this display are picked up, with compositing true", () =
   );
 });
 
-test("a compositor and X server serving another display are ignored", () => {
+test("a compositor and X server serving another display are ignored", (t) => {
   assert.deepEqual(
-    probe({
+    probe(t, {
       display: ":77",
       running: [
         { comm: "mutter", display: ":1" },
@@ -116,9 +116,9 @@ test("a compositor and X server serving another display are ignored", () => {
   );
 });
 
-test("an X server started from this display but serving another is not picked", () => {
+test("an X server started from this display but serving another is not picked", (t) => {
   assert.deepEqual(
-    probe({
+    probe(t, {
       display: ":77",
       running: [
         { comm: "Xvfb", display: ":77", serves: ":78" },
@@ -129,9 +129,9 @@ test("an X server started from this display but serving another is not picked", 
   );
 });
 
-test("a Wayland session picks the compositor serving its socket, with no X server", () => {
+test("a Wayland session picks the compositor serving its socket, with no X server", (t) => {
   assert.deepEqual(
-    probe({
+    probe(t, {
       wayland: "wayland-77",
       running: [
         { comm: "weston", serves: "--socket=wayland-78" },
@@ -143,8 +143,9 @@ test("a Wayland session picks the compositor serving its socket, with no X serve
   );
 });
 
-test("the Wayland row reads the CPU of the weston on its socket, not another weston", () => {
+test("the Wayland row reads the CPU of the weston on its socket, not another weston", (t) => {
   const { out } = runBench(
+    t,
     {
       wayland: "wayland-77",
       running: [
@@ -159,16 +160,16 @@ test("the Wayland row reads the CPU of the weston on its socket, not another wes
   assert.ok(Number(row[5]) > 50, row.join(" "));
 });
 
-test("kwin_x11 is compositing", () => {
+test("kwin_x11 is compositing", (t) => {
   assert.deepEqual(
-    probe({ display: ":77", running: [{ comm: "kwin_x11", display: ":77" }] }),
+    probe(t, { display: ":77", running: [{ comm: "kwin_x11", display: ":77" }] }),
     { compositor: "kwin_x11", compositing: "true", x_server: "none" },
   );
 });
 
-test("xfwm4 started with --compositor=off is not compositing", () => {
+test("xfwm4 started with --compositor=off is not compositing", (t) => {
   assert.deepEqual(
-    probe({
+    probe(t, {
       display: ":77",
       running: [{ comm: "xfwm4", display: ":77", serves: "--compositor=off" }],
     }),
@@ -176,9 +177,9 @@ test("xfwm4 started with --compositor=off is not compositing", () => {
   );
 });
 
-test("picom over a window manager is the compositor", () => {
+test("picom over a window manager is the compositor", (t) => {
   assert.deepEqual(
-    probe({
+    probe(t, {
       display: ":77",
       running: [
         { comm: "xfwm4", display: ":77", serves: "--compositor=off" },
@@ -189,8 +190,8 @@ test("picom over a window manager is the compositor", () => {
   );
 });
 
-test("idle reads mask_rebuild lines the app writes to process.log", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+test("idle reads mask_rebuild lines the app writes to process.log", (t) => {
+  const dir = tempDir(t, "bench-gpu-linux-");
   const bin = join(dir, "fakefid");
   stub(
     dir,
@@ -220,8 +221,8 @@ exec sleep 30`,
   assert.deepEqual(idle.slice(0, 5), ["idle", "N/A", "none", "4", "1.33"]);
 });
 
-test("idle samples only once the Character stands, not during the landing", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+test("idle samples only once the Character stands, not during the landing", (t) => {
+  const dir = tempDir(t, "bench-gpu-linux-");
   stub(
     dir,
     "fakefid",
@@ -246,8 +247,8 @@ exec sleep 30`,
   assert.deepEqual(idle.slice(0, 4), ["idle", "N/A", "none", "0"]);
 });
 
-function walkingOver(hit) {
-  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+function walkingOver(t, hit) {
+  const dir = tempDir(t, "bench-gpu-linux-");
   const aim = join(dir, "aim");
   stub(
     dir,
@@ -297,15 +298,15 @@ done`,
     .find((row) => row[0] === "walking-over");
 }
 
-test("walking-over aims at a Grounded frame, not a later Falling one", () => {
-  const row = walkingOver(1);
+test("walking-over aims at a Grounded frame, not a later Falling one", (t) => {
+  const row = walkingOver(t, 1);
   assert.notEqual(row[3], "N/A", row.join(" "));
   assert.ok(Number(row[3]) > 0, row.join(" "));
   assert.match(row.at(-1), /163,264/);
 });
 
-test("walking-over with no mask_rebuild after the move reports pointer missed", () => {
-  const row = walkingOver(0);
+test("walking-over with no mask_rebuild after the move reports pointer missed", (t) => {
+  const row = walkingOver(t, 0);
   assert.deepEqual(row.slice(0, 7), [
     "walking-over",
     "N/A",
@@ -318,8 +319,8 @@ test("walking-over with no mask_rebuild after the move reports pointer missed", 
   assert.match(row[7], /pointer missed/);
 });
 
-test("walking-over gives up within about 3 s when no fresh floor frame arrives", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+test("walking-over gives up within about 3 s when no fresh floor frame arrives", (t) => {
+  const dir = tempDir(t, "bench-gpu-linux-");
   stub(
     dir,
     "fakefid",
@@ -352,8 +353,8 @@ done`,
 
 // A fake fidget that writes the overlay line and one idle frame on the floor,
 // then the given lines; it runs the scenario under the given session.
-function scenarioRow(scenario, name, { display, wayland, script: body = "" }) {
-  const dir = mkdtempSync(join(tmpdir(), "bench-gpu-linux-"));
+function scenarioRow(t, scenario, name, { display, wayland, script: body = "" }) {
+  const dir = tempDir(t, "bench-gpu-linux-");
   stub(
     dir,
     "fakefid",
@@ -385,8 +386,8 @@ exec sleep 30`,
   return row;
 }
 
-test("chat opens Chat through FIDGET_OPEN_CHAT and samples once it is open", () => {
-  const row = scenarioRow("chat", "chat", {
+test("chat opens Chat through FIDGET_OPEN_CHAT and samples once it is open", (t) => {
+  const row = scenarioRow(t, "chat", "chat", {
     display: ":99",
     script: '[ "$FIDGET_OPEN_CHAT$FIDGET_TRACE_BUBBLE" = 11 ] && echo "1 chat: chat-1 is open" >> "$log"',
   });
@@ -394,8 +395,8 @@ test("chat opens Chat through FIDGET_OPEN_CHAT and samples once it is open", () 
   assert.match(row[7], /Chat open/);
 });
 
-test("away samples a Go-away launch once presence reads hidden", () => {
-  const row = scenarioRow("away", "away", {
+test("away samples a Go-away launch once presence reads hidden", (t) => {
+  const row = scenarioRow(t, "away", "away", {
     display: ":99",
     script: `grep -q '"hidden": *true' "$XDG_DATA_HOME/fidget/settings.json" && echo "1 presence: hidden over 0ms" >> "$log"`,
   });
@@ -403,18 +404,18 @@ test("away samples a Go-away launch once presence reads hidden", () => {
   assert.match(row[7], /Go away/);
 });
 
-test("on Wayland the mask rate is N/A: the input region is not wired there", () => {
-  const row = scenarioRow("idle", "idle", { wayland: "wayland-99" });
+test("on Wayland the mask rate is N/A: the input region is not wired there", (t) => {
+  const row = scenarioRow(t, "idle", "idle", { wayland: "wayland-99" });
   assert.deepEqual(row.slice(3, 5), ["N/A", "N/A"]);
   assert.match(row[7], /input region/);
 });
 
-test("on Wayland fullscreen hide and walking-over are N/A, citing ADR-0020", () => {
+test("on Wayland fullscreen hide and walking-over are N/A, citing ADR-0020", (t) => {
   for (const [scenario, name] of [
     ["hidden", "hidden"],
     ["walking", "walking-over"],
   ]) {
-    const row = scenarioRow(scenario, name, {
+    const row = scenarioRow(t, scenario, name, {
       wayland: "wayland-99",
       script: 'echo "1 frame: 2 Grounded pos(960,1200) sprite(897,1072) walk#0 id" >> "$log"',
     });

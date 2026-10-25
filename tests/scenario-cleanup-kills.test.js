@@ -6,9 +6,9 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { tempDir } from "./temp-path.js";
 
 const scenarios = path.join(import.meta.dirname, "..", "scripts", "scenarios");
 
@@ -166,8 +166,8 @@ test("the check catches each way of killing by name", () => {
 const REFUSAL =
   /TextEdit is running\. Quit it first: this run opens and quits TextEdit itself\./;
 
-function sandbox() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scenario-refusal-"));
+function sandbox(t) {
+  const dir = tempDir(t, "scenario-refusal-");
   const bin = path.join(dir, "bin");
   fs.mkdirSync(bin);
   const stub = (name, body) =>
@@ -218,8 +218,8 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
   test(
     `${leaf} refuses a running TextEdit before it builds or touches anything`,
     { skip: process.platform === "win32" && "needs bash and a pgrep stub" },
-    () => {
-      const box = sandbox();
+    (t) => {
+      const box = sandbox(t);
       box.stub(
         "pgrep",
         '[ "$1" = "-x" ] && [ "$2" = "TextEdit" ] && exit 0; exit 1',
@@ -232,7 +232,6 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
       const touched = fs.existsSync(box.touched)
         ? fs.readFileSync(box.touched, "utf8")
         : "";
-      fs.rmSync(box.dir, { recursive: true, force: true });
 
       assert.equal(
         run.status,
@@ -247,8 +246,8 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
   test(
     `${leaf} leaves a TextEdit that appears after the refusal alone when the build fails`,
     { skip: process.platform === "win32" && "needs bash and a pgrep stub" },
-    () => {
-      const box = sandbox();
+    (t) => {
+      const box = sandbox(t);
       const calls = path.join(box.dir, "pgrep-calls");
       const standin = spawn("sleep", ["30"], { stdio: "ignore" });
       try {
@@ -282,7 +281,6 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
         } catch {
           alive = false;
         }
-        fs.rmSync(box.dir, { recursive: true, force: true });
 
         assert.equal(
           run.status,
@@ -304,8 +302,8 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
   test(
     `${leaf} refuses a TextEdit that appears after the first check and before open`,
     { skip: process.platform === "win32" && "needs bash and a pgrep stub" },
-    async () => {
-      const box = sandbox();
+    async (t) => {
+      const box = sandbox(t);
       const calls = path.join(box.dir, "pgrep-calls");
       const standin = spawn("sleep", ["30"], { stdio: "ignore" });
       try {
@@ -332,7 +330,6 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
           ? fs.readFileSync(box.touched, "utf8")
           : "";
         const ended = await reaped(standin);
-        fs.rmSync(box.dir, { recursive: true, force: true });
 
         assert.equal(
           run.status,
@@ -357,8 +354,8 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
   test(
     `${leaf} ends the TextEdit its own open started when a later probe fails`,
     { skip: process.platform === "win32" && "needs bash and a pgrep stub" },
-    async () => {
-      const box = sandbox();
+    async (t) => {
+      const box = sandbox(t);
       const opened = path.join(box.dir, "opened");
       const standin = spawn("sleep", ["30"], { stdio: "ignore" });
       try {
@@ -397,7 +394,6 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
           ? fs.readFileSync(box.touched, "utf8")
           : "";
         const ended = await reaped(standin);
-        fs.rmSync(box.dir, { recursive: true, force: true });
 
         assert.equal(
           run.status,
@@ -461,8 +457,8 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
   test(
     `close_textedit in ${leaf} closes only the run's document and does not quit while another document is open`,
     { skip: process.platform === "win32" && "needs bash and an osascript stub" },
-    async () => {
-      const box = sandbox();
+    async (t) => {
+      const box = sandbox(t);
       const owned = path.join(box.dir, "scenario-one.txt");
       const standin = spawn("sleep", ["30"], { stdio: "ignore" });
       try {
@@ -477,7 +473,6 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
           ].join("\n"),
         });
         const ended = await reaped(standin);
-        fs.rmSync(box.dir, { recursive: true, force: true });
 
         assert.equal(
           run.status,
@@ -504,8 +499,8 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
   test(
     `close_textedit in ${leaf} quits TextEdit when every open document is one the run opened`,
     { skip: process.platform === "win32" && "needs bash and an osascript stub" },
-    async () => {
-      const box = sandbox();
+    async (t) => {
+      const box = sandbox(t);
       const owned = path.join(box.dir, "scenario-one.txt");
       const standin = spawn("sleep", ["30"], { stdio: "ignore" });
       try {
@@ -520,7 +515,6 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
           ].join("\n"),
         });
         const ended = await reaped(standin);
-        fs.rmSync(box.dir, { recursive: true, force: true });
 
         assert.equal(
           run.status,
@@ -544,8 +538,8 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
   test(
     `close_textedit in ${leaf} leaves TextEdit running when its documents cannot be listed`,
     { skip: process.platform === "win32" && "needs bash and an osascript stub" },
-    async () => {
-      const box = sandbox();
+    async (t) => {
+      const box = sandbox(t);
       const owned = path.join(box.dir, "scenario-one.txt");
       const standin = spawn("sleep", ["30"], { stdio: "ignore" });
       try {
@@ -560,7 +554,6 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
           ].join("\n"),
         });
         const ended = await reaped(standin);
-        fs.rmSync(box.dir, { recursive: true, force: true });
 
         assert.equal(
           run.status,
@@ -591,9 +584,10 @@ function pathInClose(owned) {
 test(
   "close_run_documents closes the physical path when the stored path is a symlink",
   { skip: process.platform === "win32" && "needs bash and symlinks" },
-  async () => {
-    const box = sandbox();
-    const realDir = fs.mkdtempSync(path.join(box.dir, "real-"));
+  async (t) => {
+    const box = sandbox(t);
+    const realDir = path.join(box.dir, "real");
+    fs.mkdirSync(realDir);
     const link = path.join(box.dir, "via");
     fs.symlinkSync(realDir, link);
     const owned = path.join(link, "scenario-one.txt");
@@ -637,7 +631,6 @@ test(
       });
       const ended = await reaped(standin);
       const logged = fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
-      fs.rmSync(box.dir, { recursive: true, force: true });
 
       assert.equal(run.status, 0, `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`);
       assert.equal(ended, false, "cleanup quit TextEdit while a document was still open");
@@ -657,8 +650,8 @@ test(
 test(
   "quit_textedit refuses before quit or kill when another document is open",
   { skip: process.platform === "win32" && "needs bash and an osascript stub" },
-  async () => {
-    const box = sandbox();
+  async (t) => {
+    const box = sandbox(t);
     const owned = path.join(box.dir, "scenario-one.txt");
     const standin = spawn("sleep", ["30"], { stdio: "ignore" });
     try {
@@ -678,7 +671,6 @@ test(
         },
       );
       const ended = await reaped(standin);
-      fs.rmSync(box.dir, { recursive: true, force: true });
 
       assert.equal(
         run.status,
@@ -704,8 +696,8 @@ test(
 test(
   "quit_textedit names a failed document list instead of another open document",
   { skip: process.platform === "win32" && "needs bash and an osascript stub" },
-  async () => {
-    const box = sandbox();
+  async (t) => {
+    const box = sandbox(t);
     const owned = path.join(box.dir, "scenario-one.txt");
     const standin = spawn("sleep", ["30"], { stdio: "ignore" });
     try {
@@ -725,7 +717,6 @@ test(
         },
       );
       const ended = await reaped(standin);
-      fs.rmSync(box.dir, { recursive: true, force: true });
 
       assert.equal(
         run.status,
@@ -755,8 +746,8 @@ test(
 test(
   "textedit_osascript does not call osascript when the 3s cap is missing",
   { skip: process.platform === "win32" && "needs bash" },
-  () => {
-    const box = sandbox();
+  (t) => {
+    const box = sandbox(t);
     const called = path.join(box.dir, "osascript-called");
     box.stub("osascript", `: > ${JSON.stringify(called)}; sleep 30; exit 0`);
     const script = path.join(box.dir, "uncapped.sh");
@@ -779,7 +770,6 @@ test(
     });
     const ms = Date.now() - started;
     const calledOsascript = fs.existsSync(called);
-    fs.rmSync(box.dir, { recursive: true, force: true });
     assert.notEqual(run.status, 0, run.stdout + run.stderr);
     assert.doesNotMatch(run.stdout, /should-not-run/);
     assert.ok(ms < 1000, `took ${ms} ms`);
@@ -794,8 +784,8 @@ test(
       process.platform !== "darwin" &&
       "wait_for_exit watches the pid with caffeinate on macOS",
   },
-  () => {
-    const box = sandbox();
+  (t) => {
+    const box = sandbox(t);
     const owned = path.join(box.dir, "scenario-one.txt");
     const log = path.join(box.dir, "osascript.log");
     const standin = spawn(
@@ -847,7 +837,6 @@ test(
         },
       });
       const logged = fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
-      fs.rmSync(box.dir, { recursive: true, force: true });
 
       assert.equal(
         run.status,
@@ -893,8 +882,8 @@ test(
       process.platform !== "darwin" &&
       "wait_for_exit watches the pid with caffeinate on macOS",
   },
-  () => {
-    const box = sandbox();
+  (t) => {
+    const box = sandbox(t);
     const gone = path.join(box.dir, "textedit-gone");
     const standin = spawn(
       "/bin/sh",
@@ -959,7 +948,6 @@ test(
           TMPDIR: box.dir,
         },
       });
-      fs.rmSync(box.dir, { recursive: true, force: true });
 
       assert.equal(
         run.status,
