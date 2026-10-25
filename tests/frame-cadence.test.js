@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { tempDir } from "./temp.js";
 import { DROP_MS, analyze, compare, report, summarizeTimestamps, unwrapProcessLog } from "../scripts/frame-cadence.mjs";
 
 // Five Engine ticks of a walk, one 40 ms late, and the display frames an overlay
@@ -54,13 +54,13 @@ test("timestamps become a histogram, a drop count, and an average fps", () => {
   });
 });
 
-test("a release process log timestamp still leaves the frame line", () => {
+test("a release process log timestamp still leaves the frame line", (t) => {
   const body = "frame: 1000 Perched pos(1,2) sprite(3,4) idle#0 BMO";
   const wrapped = `1700000000 ${body}`;
   assert.equal(unwrapProcessLog(wrapped), body);
   assert.equal(unwrapProcessLog(`note ${body}`), `note ${body}`);
   assert.equal(analyze(wrapped, {}).ticks, 1);
-  const dir = mkdtempSync(join(tmpdir(), "frame-cadence-"));
+  const dir = tempDir(t, "frame-cadence-");
   writeFileSync(join(dir, "process.log"), "1700000000 cadence: overlay-0 1.000 0 - 1.000\n");
   const run = spawnSync("node", ["scripts/frame-cadence.mjs", "unwrap", join(dir, "process.log")]);
   assert.equal(run.status, 0, run.stderr.toString());
@@ -165,8 +165,8 @@ test("an A/B comparison reports each side's mean and rounds, and B minus A", () 
   );
 });
 
-test("the reducer writes JSON that its compare command reads back", () => {
-  const dir = mkdtempSync(join(tmpdir(), "frame-cadence-"));
+test("the reducer writes JSON that its compare command reads back", (t) => {
+  const dir = tempDir(t, "frame-cadence-");
   const reduce = (name, text) => {
     writeFileSync(join(dir, `${name}.log`), text);
     const run = spawnSync("node", ["scripts/frame-cadence.mjs", join(dir, `${name}.log`), "--json", join(dir, `${name}.json`)]);

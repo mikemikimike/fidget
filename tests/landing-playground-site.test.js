@@ -7,12 +7,12 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { after, before, test } from "node:test";
+import { before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
+import { tempDir } from "./temp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const PROBE_MS = 30000;
@@ -343,17 +343,13 @@ const touches = `
   });
 </script>`;
 
-let dir;
 let site;
 
-before(() => {
-  dir = mkdtempSync(join(tmpdir(), "landing-playground-"));
-  site = join(dir, "_site");
+before((t) => {
+  site = join(tempDir(t, "landing-playground-"), "_site");
   const built = spawnSync("bash", ["scripts/assemble-site.sh", site, "/dev/null"], { cwd: ROOT, encoding: "utf8" });
   assert.equal(built.status, 0, `assemble-site.sh failed: ${built.stderr}`);
 });
-
-after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
 
 // Each cast Character in turn, picked in the picker, is dragged from wherever
 // it stands to just above a window's top edge and let go slowly.
@@ -412,7 +408,7 @@ async function play(flags = [], script = probe, size = "1280,900") {
   writeFileSync(page, readFileSync(join(site, "index.html"), "utf8").replace("<head>", `<head>${script}`));
   const cdp = launchWithPipe(chromePath, [
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--mute-audio",
-    `--user-data-dir=${mkdtempSync(join(dir, "profile-"))}`, "--allow-file-access-from-files", `--window-size=${size}`,
+    "--allow-file-access-from-files", `--window-size=${size}`,
     ...flags,
   ]);
   try {

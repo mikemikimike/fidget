@@ -1,12 +1,16 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { once } from "node:events";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { tempDir } from "./temp.js";
 
 // Every CDP call, the first included, gets 3s. CI warms Chrome up once before the
 // tests, so a slow first start fails loudly instead of hiding behind a longer wait.
 const CALL_MS = 3000;
+
+// Each step of cleanupChrome's close, then SIGTERM, then SIGKILL gets this long.
+const CLOSE_MS = 2000;
 
 function findChrome() {
   if (process.env.FIDGET_CHROME) {
@@ -29,12 +33,20 @@ export const chromePath = findChrome();
 // False when a browser was found, else the reason `test(..., { skip })` shows.
 export const chromeSkip = chromePath ? false : "headless Chromium is not installed";
 
+// Chrome's profile and its TMPDIR both live in `dir`, so everything it writes
+// goes with the dir in cleanupChrome, even after a hard kill.
 export function launchWithPipe(chrome, args) {
+  let removeDir;
+  const dir = tempDir({ after: (remove) => { removeDir = remove; } }, "fidget-chrome-");
+  const tmp = join(dir, "tmp");
+  mkdirSync(tmp);
   const proc = spawn(chrome, [
     ...args,
+    `--user-data-dir=${join(dir, "profile")}`,
     "--remote-debugging-pipe",
   ], {
     stdio: ["ignore", "pipe", "pipe", "pipe", "pipe"],
+    env: { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp },
   });
 
   const closePromise = new Promise((resolve) => proc.once("close", resolve));
@@ -138,7 +150,7 @@ export function launchWithPipe(chrome, args) {
     sessionHandlers.delete(sessionId);
   }
 
-  return { proc, send, on, off, closePromise };
+  return { proc, dir, removeDir, send, on, off, closePromise };
 }
 
 export async function createPageTarget(cdp) {
@@ -228,14 +240,30 @@ export async function captureConsoleLog(cdp, sessionId, prefix, timeoutMs, start
   });
 }
 
+function exitedWithin(proc, ms) {
+  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve(true);
+  return once(proc, "exit", { signal: AbortSignal.timeout(ms) }).then(() => true, () => false);
+}
+
+async function stopChrome({ proc, send }) {
+  if (await exitedWithin(proc, 0)) return;
+  send("Browser.close", {}, undefined, CLOSE_MS).catch(() => {});
+  if (await exitedWithin(proc, CLOSE_MS)) return;
+  proc.kill("SIGTERM");
+  if (await exitedWithin(proc, CLOSE_MS)) return;
+  proc.kill("SIGKILL");
+  await exitedWithin(proc, CLOSE_MS);
+}
+
+// A graceful close lets Chrome remove its own temp files; the dir goes whatever
+// happened. Its helpers share its stderr, so "close" means they stopped writing too.
 export async function cleanupChrome(cdp) {
-  if (cdp.proc.exitCode !== null || cdp.proc.signalCode !== null) {
-    return;
+  try {
+    await stopChrome(cdp);
+    await Promise.race([cdp.closePromise, new Promise((resolve) => setTimeout(resolve, CLOSE_MS).unref())]);
+  } finally {
+    cdp.removeDir();
   }
-  cdp.proc.kill("SIGKILL");
-  let timer;
-  const capped = new Promise((resolve) => { timer = setTimeout(resolve, 3000); });
-  try { await Promise.race([cdp.closePromise, capped]); } finally { clearTimeout(timer); }
 }
 
 // The probe html lands in a temp dir, so relative src/ URLs only resolve with the
@@ -252,20 +280,17 @@ export function injectBase(html, srcHref = new URL("../src/", import.meta.url).h
 // page logs as `__PROBE_RESULT__<json>`, after it logs `__PROBE_READY__`. Injects a
 // `<base href>` pinning src/ when the html brings no `<base>` of its own.
 export async function probePage(html, { args = [], timeout = 3000, srcHref } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "probe-page-"));
-  let cdp;
+  const cdp = launchWithPipe(chromePath, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--allow-file-access-from-files",
+    ...args,
+  ]);
   try {
-    const page = join(dir, "harness.html");
+    const page = join(cdp.dir, "harness.html");
     writeFileSync(page, html.includes("<base ") ? html : injectBase(html, srcHref));
-    cdp = launchWithPipe(chromePath, [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      "--allow-file-access-from-files",
-      `--user-data-dir=${join(dir, "profile")}`,
-      ...args,
-    ]);
     const { sessionId, navigate } = await createPageTarget(cdp);
     return await captureConsoleLog(
       cdp,
@@ -275,7 +300,6 @@ export async function probePage(html, { args = [], timeout = 3000, srcHref } = {
       () => navigate(pathToFileURL(page).href),
     );
   } finally {
-    if (cdp) await cleanupChrome(cdp);
-    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    await cleanupChrome(cdp);
   }
 }

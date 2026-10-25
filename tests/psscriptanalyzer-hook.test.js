@@ -4,10 +4,10 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { tempDir } from "./temp.js";
 
 const hook = join(
   import.meta.dirname,
@@ -30,8 +30,8 @@ fi
 exit "\${PSSA_STATUS:-0}"
 `;
 
-const runHook = ({ env = {}, pathHasPwsh = true } = {}) => {
-  const tmpDir = mkdtempSync(join(tmpdir(), "pssa-hook-"));
+const runHook = (t, { env = {}, pathHasPwsh = true } = {}) => {
+  const tmpDir = tempDir(t, "pssa-hook-");
   const bin = join(tmpDir, "bin");
   mkdirSync(bin);
   if (pathHasPwsh) {
@@ -53,20 +53,20 @@ const runHook = ({ env = {}, pathHasPwsh = true } = {}) => {
   });
 };
 
-test("missing pwsh skips with the existing message", () => {
-  const result = runHook({ pathHasPwsh: false });
+test("missing pwsh skips with the existing message", (t) => {
+  const result = runHook(t, { pathHasPwsh: false });
   assert.equal(result.status, 0);
   assert.match(result.stderr, /skipped - pwsh not installed/);
 });
 
-test("missing PSScriptAnalyzer skips with the existing message", () => {
-  const result = runHook({ env: { PSSA_MODULE_STATUS: "1" } });
+test("missing PSScriptAnalyzer skips with the existing message", (t) => {
+  const result = runHook(t, { env: { PSSA_MODULE_STATUS: "1" } });
   assert.equal(result.status, 0);
   assert.match(result.stderr, /skipped - PSScriptAnalyzer not installed/);
 });
 
-test("a FileLoadException Abort trap skips instead of failing", () => {
-  const result = runHook({
+test("a FileLoadException Abort trap skips instead of failing", (t) => {
+  const result = runHook(t, {
     env: { PSSA_STATUS: "134", PSSA_OUTPUT: CRASH_OUTPUT },
   });
   assert.equal(result.status, 0);
@@ -76,8 +76,8 @@ test("a FileLoadException Abort trap skips instead of failing", () => {
 
 // Same host abort as verify-anchor-offscreen-win, but exit 1 and no
 // FileLoadException word: the old case only matched that word or exit 134.
-test("an unhandled Microsoft.Management.Infrastructure abort skips", () => {
-  const result = runHook({
+test("an unhandled Microsoft.Management.Infrastructure abort skips", (t) => {
+  const result = runHook(t, {
     env: {
       PSSA_STATUS: "1",
       PSSA_OUTPUT:
@@ -90,22 +90,22 @@ test("an unhandled Microsoft.Management.Infrastructure abort skips", () => {
   assert.doesNotMatch(result.stderr, /FileLoadException/);
 });
 
-test("Abort trap text with exit 134 skips", () => {
-  const result = runHook({
+test("Abort trap text with exit 134 skips", (t) => {
+  const result = runHook(t, {
     env: { PSSA_STATUS: "134", PSSA_OUTPUT: "Abort trap: 6" },
   });
   assert.equal(result.status, 0);
   assert.match(result.stderr, /skipped - pwsh crashed running PSScriptAnalyzer/);
 });
 
-test("exit 134 with no analyzer finding text skips", () => {
-  const result = runHook({ env: { PSSA_STATUS: "134" } });
+test("exit 134 with no analyzer finding text skips", (t) => {
+  const result = runHook(t, { env: { PSSA_STATUS: "134" } });
   assert.equal(result.status, 0);
   assert.match(result.stderr, /skipped - pwsh crashed running PSScriptAnalyzer/);
 });
 
-test("a ParseError finding still fails the hook", () => {
-  const result = runHook({
+test("a ParseError finding still fails the hook", (t) => {
+  const result = runHook(t, {
     env: { PSSA_STATUS: "1", PSSA_OUTPUT: "ParseError UnexpectedToken" },
   });
   assert.equal(result.status, 1);
@@ -113,8 +113,8 @@ test("a ParseError finding still fails the hook", () => {
   assert.doesNotMatch(result.stderr, /skipped - pwsh crashed/);
 });
 
-test("an Error finding still fails the hook", () => {
-  const result = runHook({
+test("an Error finding still fails the hook", (t) => {
+  const result = runHook(t, {
     env: {
       PSSA_STATUS: "1",
       PSSA_OUTPUT: "Severity Error RuleName PSAvoidUsingCmdletAliases",
@@ -125,8 +125,8 @@ test("an Error finding still fails the hook", () => {
   assert.doesNotMatch(result.stderr, /skipped - pwsh crashed/);
 });
 
-test("exit 134 with Severity findings is not treated as a crash", () => {
-  const result = runHook({
+test("exit 134 with Severity findings is not treated as a crash", (t) => {
+  const result = runHook(t, {
     env: {
       PSSA_STATUS: "134",
       PSSA_OUTPUT: "Severity Error RuleName PSAvoidUsingCmdletAliases",
@@ -137,8 +137,8 @@ test("exit 134 with Severity findings is not treated as a crash", () => {
   assert.doesNotMatch(result.stderr, /skipped - pwsh crashed/);
 });
 
-test("a clean analyzer run exits 0", () => {
-  const result = runHook();
+test("a clean analyzer run exits 0", (t) => {
+  const result = runHook(t);
   assert.equal(result.status, 0);
   assert.equal(result.stderr, "");
 });

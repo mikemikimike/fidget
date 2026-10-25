@@ -2,8 +2,7 @@
 // Drives the real src/index.html and main.js with a real pointer.
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
@@ -82,23 +81,20 @@ const stub = `
 </script>`;
 
 async function withOverlay(run) {
-  const dir = mkdtempSync(join(tmpdir(), "stuck-hover-"));
-  let cdp;
+  const cdp = launchWithPipe(chromePath, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--allow-file-access-from-files",
+  ]);
   try {
-    const page = join(dir, "overlay.html");
+    const page = join(cdp.dir, "overlay.html");
     const html = readFileSync(join(SRC, "index.html"), "utf8").replace(
       "<head>",
       `<head><base href="${pathToFileURL(SRC).href}">${stub}`,
     );
     writeFileSync(page, html);
-    cdp = launchWithPipe(chromePath, [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      "--allow-file-access-from-files",
-      `--user-data-dir=${join(dir, "profile")}`,
-    ]);
     const { sessionId, navigate } = await createPageTarget(cdp);
     const loaded = new Promise((resolve) => cdp.on(sessionId, "Page.loadEventFired", resolve));
     await navigate(pathToFileURL(page).href);
@@ -111,8 +107,7 @@ async function withOverlay(run) {
     const point = (x, y) => cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y }, sessionId);
     await run({ evalJs, point });
   } finally {
-    if (cdp) await cleanupChrome(cdp);
-    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    await cleanupChrome(cdp);
   }
 }
 

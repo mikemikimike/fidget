@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { tempDir } from "./temp.js";
 
 const script = join(import.meta.dirname, "..", "scripts", "bench-rss-macos.sh");
 
-test("--bin /nonexistent fails with the missing-binary error and launches nothing", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-rss-macos-"));
+test("--bin /nonexistent fails with the missing-binary error and launches nothing", (t) => {
+  const dir = tempDir(t, "bench-rss-macos-");
   const out = join(dir, "rss.tsv");
   const result = spawnSync(
     "/bin/bash",
@@ -26,8 +26,8 @@ test("--bin /nonexistent fails with the missing-binary error and launches nothin
   assert.equal(existsSync(`${out}.app.log`), false);
 });
 
-test("an absolute --bin is launched, and the overlay count is read from process.log", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-rss-macos-"));
+test("an absolute --bin is launched, and the overlay count is read from process.log", (t) => {
+  const dir = tempDir(t, "bench-rss-macos-");
   const home = join(dir, "home");
   const bin = join(dir, "fakefid");
   const out = join(dir, "rss.tsv");
@@ -73,8 +73,8 @@ test("heap-top-allocators ranks malloc-zone bytes by the innermost frame in the 
   );
 });
 
-test("heap-top-allocators walks past Rust allocator glue, mangled or not, keeps it when nothing else is there, and sets VM regions aside", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-rss-macos-"));
+test("heap-top-allocators walks past Rust allocator glue, mangled or not, keeps it when nothing else is there, and sets VM regions aside", (t) => {
+  const dir = tempDir(t, "bench-rss-macos-");
   const report = join(dir, "report.txt");
   writeFileSync(
     report,
@@ -100,8 +100,8 @@ test("heap-top-allocators walks past Rust allocator glue, mangled or not, keeps 
   );
 });
 
-test("heap-top-allocators drops the crate hashes GNU c++filt keeps, so glue still matches", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-rss-macos-"));
+test("heap-top-allocators drops the crate hashes GNU c++filt keeps, so glue still matches", (t) => {
+  const dir = tempDir(t, "bench-rss-macos-");
   const report = join(dir, "report.txt");
   writeFileSync(
     report,
@@ -126,8 +126,8 @@ test("heap-top-allocators drops the crate hashes GNU c++filt keeps, so glue stil
 
 // Real sleeps stand in for WebKit helpers, so the script only ever reads
 // processes this test started; fake tools record what they were pointed at.
-function heapRun(helperCount) {
-  const dir = mkdtempSync(join(tmpdir(), "bench-rss-macos-"));
+function heapRun(t, helperCount) {
+  const dir = tempDir(t, "bench-rss-macos-");
   const tools = join(dir, "tools");
   const heap = join(dir, "heap");
   const bin = join(dir, "fakefid");
@@ -168,8 +168,8 @@ touch "${dir}/pgrep.seen"`,
   }
 }
 
-test("--heap launches with MallocStackLogging and writes fidget's and its helpers' reports before the kill", () => {
-  const { result, pid, logging, heap, helperPids, read } = heapRun(3);
+test("--heap launches with MallocStackLogging and writes fidget's and its helpers' reports before the kill", (t) => {
+  const { result, pid, logging, heap, helperPids, read } = heapRun(t, 3);
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(logging, "1");
@@ -193,8 +193,8 @@ test("--heap launches with MallocStackLogging and writes fidget's and its helper
   );
 });
 
-test("--heap leaves the helpers alone when the set is not one display's three", () => {
-  const { result, pid, read } = heapRun(4);
+test("--heap leaves the helpers alone when the set is not one display's three", (t) => {
+  const { result, pid, read } = heapRun(t, 4);
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /^not profiling WebKit helpers: 4 found, 3 expected$/m);

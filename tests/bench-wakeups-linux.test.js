@@ -2,10 +2,10 @@
 // fake /proc and a fake log, so no display or fidget is needed.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { tempDir } from "./temp.js";
 
 const helpers = join(import.meta.dirname, "..", "scripts", "bench-linux-helpers.sh");
 
@@ -24,8 +24,8 @@ function fakeProcess(dir, pid, comm, { utime, stime, voluntary }) {
   writeFileSync(join(at, "status"), `Name:\t${comm}\nvoluntary_ctxt_switches:\t${voluntary}\nnonvoluntary_ctxt_switches:\t7\n`);
 }
 
-test("rates are the change between a snapshot and now, per second of the window, for processes still running", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-wakeups-"));
+test("rates are the change between a snapshot and now, per second of the window, for processes still running", (t) => {
+  const dir = tempDir(t, "bench-wakeups-");
   // A comm with ") " in it must not shift the tick fields.
   fakeProcess(dir, 41, "Web) Content", { utime: 100, stime: 50, voluntary: 1000 });
   fakeProcess(dir, 42, "Xvfb", { utime: 9, stime: 1, voluntary: 5 });
@@ -41,8 +41,8 @@ test("rates are the change between a snapshot and now, per second of the window,
   );
 });
 
-test("frames are counted by animation, only after the window's first line", () => {
-  const dir = mkdtempSync(join(tmpdir(), "bench-wakeups-"));
+test("frames are counted by animation, only after the window's first line", (t) => {
+  const dir = tempDir(t, "bench-wakeups-");
   writeFileSync(
     join(dir, "process.log"),
     [

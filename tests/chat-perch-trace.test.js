@@ -1,28 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { tempDir } from "./temp.js";
 
 const script = fileURLToPath(new URL("../scripts/scenarios/manual-only/chat-perch.sh", import.meta.url));
 
-function check(trace, firstLine = 2, instance = "character-a") {
-  const dir = mkdtempSync(join(tmpdir(), "fidget-perch-trace-"));
-  try {
-    const log = join(dir, "app.log");
-    writeFileSync(log, trace);
-    return spawnSync("bash", [script, "--check-click", log, String(firstLine), instance], {
-      encoding: "utf8",
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+function check(t, trace, firstLine = 2, instance = "character-a") {
+  const log = join(tempDir(t, "fidget-perch-trace-"), "app.log");
+  writeFileSync(log, trace);
+  return spawnSync("bash", [script, "--check-click", log, String(firstLine), instance], {
+    encoding: "utf8",
+  });
 }
 
-test("a new command trace for the clicked Character passes without a desktop", () => {
-  const result = check("overlay: ready\nbubble: open-chat invoked instance=character-a\n");
+test("a new command trace for the clicked Character passes without a desktop", (t) => {
+  const result = check(t, "overlay: ready\nbubble: open-chat invoked instance=character-a\n");
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
@@ -33,14 +28,14 @@ for (const [name, trace] of [
   ["an instance with the same prefix", "overlay: ready\nbubble: open-chat invoked instance=character-a-extra\n"],
   ["an empty log", ""],
 ]) {
-  test(`${name} cannot prove the bubble click`, () => {
-    const result = check(trace);
+  test(`${name} cannot prove the bubble click`, (t) => {
+    const result = check(t, trace);
     assert.equal(result.status, 1, result.stderr || result.stdout);
   });
 }
 
-test("an invalid baseline is refused", () => {
-  assert.equal(check("bubble: open-chat invoked instance=character-a\n", 0).status, 2);
+test("an invalid baseline is refused", (t) => {
+  assert.equal(check(t, "bubble: open-chat invoked instance=character-a\n", 0).status, 2);
 });
 
 test("without consent the scenario only prints its takeover header", () => {

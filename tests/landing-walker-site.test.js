@@ -7,12 +7,12 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { after, before, test } from "node:test";
+import { before, test } from "node:test";
 import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsoleLog, cleanupChrome } from "./chrome-cdp.js";
+import { tempDir } from "./temp.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 // The run takes about 12 s alone. Beside the other Chrome tests on a busy
@@ -376,24 +376,20 @@ const picks = `
   });
 </script>`;
 
-let dir;
 let site;
 
-before(() => {
-  dir = mkdtempSync(join(tmpdir(), "landing-walker-"));
-  site = join(dir, "_site");
+before((t) => {
+  site = join(tempDir(t, "landing-walker-"), "_site");
   const built = spawnSync("bash", ["scripts/assemble-site.sh", site, "/dev/null"], { cwd: ROOT, encoding: "utf8" });
   assert.equal(built.status, 0, `assemble-site.sh failed: ${built.stderr}`);
 });
-
-after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
 
 async function play(script, flags = [], viewport = null) {
   const page = join(site, "probe.html");
   writeFileSync(page, readFileSync(join(site, "index.html"), "utf8").replace("<head>", `<head>${script}`));
   const cdp = launchWithPipe(chromePath, [
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--mute-audio",
-    `--user-data-dir=${mkdtempSync(join(dir, "profile-"))}`, "--allow-file-access-from-files", "--window-size=1280,900",
+    "--allow-file-access-from-files", "--window-size=1280,900",
     ...flags,
   ]);
   try {
