@@ -67,9 +67,13 @@ cleanup() {
   fi
 }
 
-# GDK leaves 10x10 placeholders, and ~200x200 ones with a Settings webview, under
-# the app's WM_CLASS. Requiring half the display holds for a display-sized
-# overlay. Needs MIN_OVERLAY_W/H set first.
+# GDK leaves 10x10 placeholders, and ~200x200 ones with a Settings webview,
+# under the app's WM_CLASS.
+# shellcheck disable=SC2034  # read by tests/overlay-placeholder-filter.test.js
+GDK_PLACEHOLDER_PX=(10 200)
+
+# Requiring half the display holds for a display-sized overlay and skips every
+# GDK_PLACEHOLDER_PX. Needs MIN_OVERLAY_W/H set first.
 find_overlay_window() {
   local id w h name
   for id in $(xdotool search --class 'Fidget' 2> /dev/null || true); do
