@@ -1225,7 +1225,7 @@ enum Incoming {
 /// `messageId` of the message arriving. A prompted turn keeps one, and so does
 /// each session the Harness speaks in on its own, as a cron fire does.
 #[derive(Default)]
-struct Speech {
+struct Stream {
     said: Answer,
     /// Beside `said` and never inside it. Kept only so a chunk that arrives
     /// mid-sentence can be shown as the sentence it belongs to.
@@ -1295,13 +1295,13 @@ enum Job<'a> {
         loading: Option<SessionId>,
         reply: sync_mpsc::Sender<Result<Opened, OpenError>>,
     },
-    /// One `session/prompt`. Chunks accumulate in `speech`, other updates
+    /// One `session/prompt`. Chunks accumulate in `stream`, other updates
     /// become `Event`s, and its asks are held until `Answer` or `Cancel`.
     Turn {
         session: SessionId,
         fut: Flight<'a, Result<PromptResponse, Error>>,
         reply: sync_mpsc::Sender<Progress>,
-        speech: Speech,
+        stream: Stream,
         /// Whether `prompt` was last told an ask is open. Reported on the
         /// transition only: several asks can be open at once, and a Cancel
         /// that drains them all has to restart the budget too.
@@ -1333,8 +1333,7 @@ async fn serve(
     // Commands that wait for an open to answer, run in order once it has.
     let mut queued: Vec<Msg> = Vec::new();
     // How a turn still open when the loop ends is told it ended.
-    let mut gone = TurnError::Lost;
-    loop {
+    let gone = loop {
         // Built and matched once per pass, never stored, so the size gap
         // costs a stack copy and boxing would cost an allocation per message.
         #[allow(clippy::large_enum_variant)]
@@ -1374,10 +1373,9 @@ async fn serve(
             }
         };
         let silence = async { tokio::time::sleep_until(quiet.expect("quiet").into()).await };
-        // `biased`: what waited on an open first, then the Harness. The SDK
-        // dispatches a turn's chunks before its response, so the response is
-        // read only once the channel ahead of it is empty. An open leaves them
-        // queued, so its replay can be told from what came after.
+        // `biased`: what waited on an open first, then the Harness. A turn's
+        // chunks are read before its response, and an open's stay queued so its
+        // replay can be told from what came after.
         let step = tokio::select! {
             biased;
             command = async { queued.remove(0) }, if !opening && !queued.is_empty() => {
@@ -1385,13 +1383,15 @@ async fn serve(
             }
             message = incoming.recv(), if !opening => Step::Heard(message),
             command = rx.recv() => Step::Command(command),
-            outcome = auth_fut, if signing_in => Step::SignedIn(outcome),
+            outcome = auth_fut, if signing_in && !opening => Step::SignedIn(outcome),
             done = job_fut => done,
             () = silence, if quiet.is_some() => Step::Silent,
             () = cx.incoming_closed() => Step::Closed,
         };
         match step {
-            Step::Heard(None) | Step::Command(None | Some(Msg::Shutdown)) | Step::Closed => break,
+            Step::Heard(None) | Step::Command(None | Some(Msg::Shutdown)) | Step::Closed => {
+                break TurnError::Lost
+            }
             Step::Heard(Some(message)) => {
                 if let Job::Turn {
                     quiet_until: Some(at),
@@ -1404,26 +1404,30 @@ async fn serve(
                     Job::Turn {
                         session,
                         reply,
-                        speech,
+                        stream,
                         ..
                     } if incoming_session(&message).is_none_or(|other| other == *session) => {
                         match message {
                             Incoming::Update(update) => {
                                 let heard = hear(&update.update);
                                 let answered = matches!(heard, Heard::Said { .. });
-                                show(heard, session, speech, on_event);
+                                show(heard, session, stream, on_event);
                                 if answered {
-                                    let said = speech.said.so_far().to_string();
+                                    let said = stream.said.so_far().to_string();
                                     let _ = reply.send(Progress::Said(said));
                                 }
                             }
                             Incoming::Ask(request, responder) => {
                                 held.ask(Owner::Turn, &request, responder)
                             }
-                            // A link that outlives the turn is the session's, so
-                            // `end_turn` does not cancel it and the budget runs on.
+                            // A session-less form during sign-in is the sign-in's.
+                            // A link that outlives the turn is the session's. Neither
+                            // is cancelled by `end_turn`, and the budget runs on.
                             Incoming::Elicit(request, responder) => {
-                                let owner = if outlives_turn(&request) {
+                                let owner = if signing_in && elicitation_session(&request).is_none()
+                                {
+                                    Owner::SignIn
+                                } else if outlives_turn(&request) {
                                     Owner::Session
                                 } else {
                                     Owner::Turn
@@ -1484,14 +1488,14 @@ async fn serve(
                 let Job::Turn {
                     session,
                     reply,
-                    speech,
+                    stream,
                     ..
                 } = &mut job
                 else {
                     continue;
                 };
-                held.end_turn(session, &mut speech.thought);
-                let said = std::mem::take(&mut speech.said).finish();
+                held.end_turn(session, &mut stream.thought);
+                let said = std::mem::take(&mut stream.said).finish();
                 let outcome = match response {
                     Ok(response) => outcome(response.stop_reason, said),
                     Err(error) if auth_refused(&error) => Err(TurnError::AuthRequired),
@@ -1502,19 +1506,17 @@ async fn serve(
                 let _ = reply.send(Progress::Done(outcome));
                 job = Job::Idle;
                 if lost {
-                    break;
+                    break TurnError::Lost;
                 }
             }
-            Step::Silent => {
-                gone = TurnError::Silent;
-                break;
-            }
+            Step::Silent => break TurnError::Silent,
             Step::Command(Some(command)) => match (command, &mut job) {
                 (
                     command @ (Msg::Open { .. }
                     | Msg::Prompt { .. }
                     | Msg::Configure { .. }
-                    | Msg::Close { .. }),
+                    | Msg::Close { .. }
+                    | Msg::Authenticate { .. }),
                     Job::Opening { .. },
                 ) => queued.push(command),
                 // Either side may hold it: an ask can wait from between turns.
@@ -1526,13 +1528,13 @@ async fn serve(
                     Msg::Cancel,
                     Job::Turn {
                         session,
-                        speech,
+                        stream,
                         quiet_until,
                         ..
                     },
                 ) => {
                     let _ = cx.send_notification(CancelNotification::new(session.clone()));
-                    held.end_turn(session, &mut speech.thought);
+                    held.end_turn(session, &mut stream.thought);
                     *quiet_until = Some(Instant::now() + CANCELLED_SILENCE);
                 }
                 // Prompts behind the open were never sent. They stop as a
@@ -1615,7 +1617,7 @@ async fn serve(
                         session,
                         fut: Box::pin(async move { cx.send_request(request).block_task().await }),
                         reply,
-                        speech: Speech::default(),
+                        stream: Stream::default(),
                         blocked: false,
                         quiet_until: None,
                     };
@@ -1646,10 +1648,10 @@ async fn serve(
                     let closed = cx.send_request(CloseSessionRequest::new(id)).block_task();
                     let _ = reply.send(closed.await.map(|_| ()).map_err(error_text));
                 }
-                (Msg::Shutdown, _) => break,
+                (Msg::Shutdown, _) => break TurnError::Lost,
             },
         }
-    }
+    };
     // Shutdown is not Cancel. The turn leaves with the wire rather than
     // waiting for a `cancelled` stop the Harness may never send.
     match job {
@@ -1659,13 +1661,13 @@ async fn serve(
         Job::Turn {
             session,
             reply,
-            mut speech,
+            mut stream,
             ..
         } => {
             if gone == TurnError::Lost {
                 let _ = cx.send_notification(CancelNotification::new(session.clone()));
             }
-            held.end_turn(&session, &mut speech.thought);
+            held.end_turn(&session, &mut stream.thought);
             let _ = reply.send(Progress::Done(Err(gone)));
         }
         Job::Idle => {}
@@ -2440,12 +2442,12 @@ fn break_paragraph(text: &mut String) {
     }
 }
 
-fn show(heard: Heard<'_>, session: &SessionId, speech: &mut Speech, on_event: &OnEvent) {
-    let Speech {
+fn show(heard: Heard<'_>, session: &SessionId, stream: &mut Stream, on_event: &OnEvent) {
+    let Stream {
         said,
         thought,
         message,
-    } = speech;
+    } = stream;
     let think = |thought: &mut String, text: &str| {
         if text.is_empty() {
             return;
@@ -2642,12 +2644,12 @@ fn session_link(request: &CreateElicitationRequest) -> Option<&ElicitationSessio
     }
 }
 
-/// The Harness's open questions, and each session's speech with no prompt
+/// The Harness's open questions, and each session's stream with no prompt
 /// open. One child serves every Instance, so another session's traffic during
 /// a turn lands in `inbound` too.
 struct Held<'e> {
     pending: Vec<Pending>,
-    inbound: HashMap<SessionId, Speech>,
+    inbound: HashMap<SessionId, Stream>,
     on_event: &'e OnEvent,
 }
 
@@ -2666,10 +2668,9 @@ impl Held<'_> {
         self.end_inbound(session);
     }
 
-    /// ACP v1 says nothing when a turn the Harness started is over. Flush the
-    /// session's between-turn speech as an inbound wake and close open thinking.
-    /// Called when Fidget prompts or closes that session, and when an ask, a form
-    /// or the next fire gives the wake its boundary.
+    /// ACP v1 says nothing when a turn the Harness started is over, so a
+    /// prompt, a close, an ask, a form or the next fire ends it: flush the
+    /// session's speech as an inbound wake and close open thinking.
     fn end_inbound(&mut self, session: &SessionId) {
         let Some(held) = self.inbound.remove(session) else {
             return;
@@ -2897,12 +2898,12 @@ mod tests {
 
     fn drive(updates: Vec<SessionUpdate>) -> (String, Vec<Event>) {
         let (seen, on_event) = collector();
-        let mut speech = Speech::default();
+        let mut stream = Stream::default();
         for update in updates {
-            show(hear(&update), &SessionId::new("s"), &mut speech, &on_event);
+            show(hear(&update), &SessionId::new("s"), &mut stream, &on_event);
         }
         let events = seen.lock().unwrap().clone();
-        (speech.said.finish(), events)
+        (stream.said.finish(), events)
     }
 
     fn thoughts(events: &[Event]) -> Vec<&str> {
