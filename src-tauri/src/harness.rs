@@ -2354,6 +2354,12 @@ impl Session {
             &inputs.model,
             inputs.effort.as_deref(),
         ) {
+            // A detach while `session/new` was in flight can lose the race to
+            // its answer. The wire is going, so the id is not stored.
+            Ok(_) if !self.wanted.load(Ordering::SeqCst) => {
+                wire.shutdown();
+                return Err("harness detached".to_string());
+            }
             Ok(opened) => opened,
             Err(error) => {
                 if let OpenError::Refused(field, why) = &error {
@@ -4050,6 +4056,40 @@ mod tests {
         say(link);
     }
 
+    /// codex-acp's device-code link for `authenticate` call `request`, as id 101.
+    fn device_link(request: &Value) {
+        say(
+            json!({"jsonrpc": "2.0", "id": 101, "method": "elicitation/create", "params": {
+                "requestId": request,
+                "mode": "url",
+                "elicitationId": "device-1",
+                "url": "https://example.test/device?code=ABCD-1234",
+                "message": "Enter ABCD-1234 on the sign-in page.",
+            }}),
+        );
+    }
+
+    /// A form-mode elicitation with one enum field, answered as id 100.
+    fn strategy_form(session: &str) {
+        say(
+            json!({"jsonrpc": "2.0", "id": 100, "method": "elicitation/create", "params": {
+                "sessionId": session,
+                "mode": "form",
+                "message": "How should I approach this refactoring?",
+                "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                        "strategy": {
+                            "type": "string",
+                            "enum": ["conservative", "balanced", "aggressive"]
+                        }
+                    },
+                    "required": ["strategy"]
+                }
+            }}),
+        );
+    }
+
     fn stop(id: &Value, reason: &str) {
         say(json!({"jsonrpc": "2.0", "id": id, "result": {"stopReason": reason}}));
     }
@@ -4176,10 +4216,21 @@ mod tests {
                     if script == "die-opening" {
                         std::process::exit(3);
                     }
+                    // The link, then the sign-in's answer, while this open stalls.
+                    if script == "sign-in-link-open" {
+                        if let Some(auth) = pending_auth.take() {
+                            device_link(&auth);
+                            say(json!({"jsonrpc": "2.0", "id": auth, "result": {}}));
+                        }
+                    }
                     // After `authenticate`, so the first refusal that puts the
                     // landing up stays quick and only the sign-in open stalls.
-                    if (script == "stall-open" && recorded(count, "new") == 1)
-                        || (script == "stall-second-open" && recorded(count, "new") == 2)
+                    if ((script == "stall-open" || script == "sign-in-link-open")
+                        && recorded(count, "new") == 1)
+                        || (matches!(
+                            script,
+                            "stall-second-open" | "stall-second-open-ask" | "ask-then-link-open"
+                        ) && recorded(count, "new") == 2)
                     {
                         record(count, "open-stall");
                         // Stay unanswered until the test writes a byte, or this
@@ -4222,7 +4273,9 @@ mod tests {
                         }
                         // Reminder on the new session before `session/new`
                         // answers, so the ask is queued during the open drain.
-                        if script == "ask-on-open" {
+                        if matches!(script, "ask-on-open" | "stall-second-open-ask")
+                            || (script == "ask-then-link-open" && n == 1)
+                        {
                             say(
                                 json!({"jsonrpc": "2.0", "id": 99, "method": "session/request_permission", "params": {
                                     "sessionId": &session,
@@ -4234,7 +4287,16 @@ mod tests {
                                 }}),
                             );
                         }
+                        // A link no session scopes, queued behind the open.
+                        if script == "ask-then-link-open" && n == 2 {
+                            device_link(&id);
+                        }
                         say(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+                        record(count, "answered-new");
+                        // A plain form, unprompted, that waits between turns.
+                        if script == "form-held" {
+                            strategy_form(&session);
+                        }
                         if script == "mcp-link" || script == "mcp-link-complete-turn" {
                             mcp_link(&session, None);
                         }
@@ -4266,15 +4328,14 @@ mod tests {
                     } else if script == "auth-sign-in-link" {
                         // codex-acp's device-code shape: the code rides in a
                         // URL elicitation, and `authenticate` waits on it.
-                        say(
-                            json!({"jsonrpc": "2.0", "id": 101, "method": "elicitation/create", "params": {
-                                "requestId": &id,
-                                "mode": "url",
-                                "elicitationId": "device-1",
-                                "url": "https://example.test/device?code=ABCD-1234",
-                                "message": "Enter ABCD-1234 on the sign-in page.",
-                            }}),
-                        );
+                        device_link(&id);
+                        pending_auth = Some(id);
+                    } else if script == "sign-in-session-form" {
+                        // A session's form, then the sign-in's answer.
+                        strategy_form(&session);
+                        say(json!({"jsonrpc": "2.0", "id": id, "result": {}}));
+                    } else if matches!(script, "sign-in-link-turn" | "sign-in-link-open") {
+                        // The link comes later, in a turn or an open.
                         pending_auth = Some(id);
                     } else {
                         say(json!({"jsonrpc": "2.0", "id": id, "result": {}}));
@@ -4411,6 +4472,13 @@ mod tests {
                     let prompts = recorded(count, "prompt");
                     match script {
                         "refusal" => stop(&id, "refusal"),
+                        "sign-in-link-turn" => {
+                            if let Some(auth) = &pending_auth {
+                                device_link(auth);
+                            }
+                            chunk(&session, "Hello");
+                            stop(&id, "end_turn");
+                        }
                         // The token died between the attach and this turn.
                         // claude-code-acp's shape, then ACP's own code.
                         "auth-turn" if prompts == 1 => {
@@ -4462,25 +4530,8 @@ mod tests {
                         }
                         "elicitation" => {
                             pending_prompt = Some(id);
-                            say(
-                                json!({"jsonrpc": "2.0", "id": 100, "method": "elicitation/create", "params": {
-                                    "sessionId": &session,
-                                    "mode": "form",
-                                    "message": "How should I approach this refactoring?",
-                                    "requestedSchema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "strategy": {
-                                                "type": "string",
-                                                "enum": ["conservative", "balanced", "aggressive"]
-                                            }
-                                        },
-                                        "required": ["strategy"]
-                                    }
-                                }}),
-                            );
+                            strategy_form(&session);
                         }
-                        "stall-second-open" if prompts > 1 => pending_prompt = Some(id),
                         "slow" | "load-slow" | "load-deaf" | "deaf-busy" if prompts == 1 => {
                             pending_prompt = Some(id)
                         }
@@ -4901,8 +4952,15 @@ mod tests {
                 dir.clone()
             };
             let count = dir.join("count.txt");
-            let release = matches!(script, "stall-open" | "stall-second-open")
-                .then(|| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+            let release = matches!(
+                script,
+                "stall-open"
+                    | "stall-second-open"
+                    | "stall-second-open-ask"
+                    | "ask-then-link-open"
+                    | "sign-in-link-open"
+            )
+            .then(|| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
             let mut argv = vec![
                 fake_agent_wrapper().to_string_lossy().to_string(),
                 format!("script={script}"),
@@ -9012,6 +9070,35 @@ mod tests {
         session.shutdown();
     }
 
+    /// A sign-in that finishes retires only the rows it asked for. A plain
+    /// form the Harness sent between turns stays answerable after it.
+    #[test]
+    fn a_plain_form_held_between_turns_survives_a_finished_sign_in() {
+        let (fx, session) = Fixture::new("form-held");
+        let key = SessionKey {
+            instance: "buddy-1".to_string(),
+            character: "bmo".to_string(),
+            blank: false,
+        };
+        assert!(session.attach(Some(&key)).is_ok());
+        let form = fx.form();
+        assert!(form.url.is_none(), "a plain form, not a link");
+        let wire = session.current_wire().expect("attached");
+        assert_eq!(wire.authenticate("fake"), Ok(()));
+        session.answer_elicitation(&form.request, ElicitationAnswer::Accept("balanced".into()));
+        assert!(
+            fx.wait_for("elicit:accept", 1),
+            "the held form did not take its answer, cancels sent: {}",
+            fx.count("elicit:cancel")
+        );
+        assert_eq!(
+            fx.count("elicit:cancel"),
+            0,
+            "the sign-in cancelled the form"
+        );
+        session.shutdown();
+    }
+
     /// The attach path's translation, on the turn path. The session
     /// stays open: the token died, not the child, and the next answer is the
     /// proof the user signed in somewhere else.
@@ -9910,12 +9997,10 @@ mod tests {
         );
     }
 
-    /// A prompt sent while another Instance's `session/new` is in flight waits
-    /// for the open, and so does the cancel its timeout sends. The cancel
-    /// still has to reach the agent once that prompt's turn starts, or the
-    /// agent stays busy and every later prompt on the wire is refused.
+    /// A prompt waiting behind another Instance's `session/new` that is
+    /// cancelled stops as a cancelled turn, unsent, and the next one works.
     #[test]
-    fn a_cancel_queued_behind_a_prompt_reaches_the_agent() {
+    fn a_prompt_cancelled_behind_an_open_is_never_sent_and_the_next_one_works() {
         let (mut fx, session) = Fixture::new("stall-second-open");
         assert!(
             session.complete(&asking("hi"), &|_| {}).is_ok(),
@@ -9927,7 +10012,7 @@ mod tests {
             let cwd = fx.cwd.clone();
             thread::spawn(move || {
                 wire.open(None, &cwd, None, false, Duration::from_secs(10), "", None)
-                    .map(|_| ())
+                    .map(|opened| opened.id)
             })
         };
         assert!(
@@ -9937,14 +10022,241 @@ mod tests {
         let turn = wire.prompt("fresh-id", "second", Duration::from_millis(300), &|_| {});
         assert_eq!(turn, Err(TurnError::Timeout));
         fx.release_open_stall();
-        assert!(opener.join().unwrap().is_ok(), "the second open failed");
-        assert!(
-            fx.wait_for("prompt", 2),
-            "the queued prompt never reached the agent"
-        );
-        let cancelled = fx.wait_for("cancel", 1);
+        let opened = opener.join().unwrap().expect("the second open failed");
+        let next = wire.prompt(&opened, "third", Duration::from_secs(10), &|_| {});
+        let (prompts, cancels) = (fx.count("prompt"), fx.count("cancel"));
         session.shutdown();
-        assert!(cancelled, "the queued cancel never reached the agent");
+        assert_eq!(
+            next,
+            Ok(Reply::whole("Hello".to_string())),
+            "the next prompt"
+        );
+        assert_eq!(prompts, 2, "the cancelled prompt reached the agent");
+        assert_eq!(cancels, 0, "a cancel went out for a turn never sent");
+    }
+
+    /// A Wire on the fake running `script`, outside any Session.
+    fn fake_wire(fx: &Fixture, script: &str, on_event: crate::acp_wire::OnEvent) -> Arc<Wire> {
+        let mut command = Command::new(fake_agent_wrapper());
+        command
+            .arg(format!("script={script}"))
+            .arg(format!("count={}", fx.count.display()))
+            .current_dir(&fx.cwd);
+        if let Some(release) = &fx.release {
+            command.arg(format!("release={}", release.local_addr().unwrap()));
+        }
+        Arc::new(Wire::spawn(command, Duration::from_secs(10), on_event).unwrap())
+    }
+
+    fn open_fake(wire: &Wire, cwd: &Path) -> Result<crate::acp_wire::Opened, OpenError> {
+        wire.open(None, cwd, None, false, Duration::from_secs(10), "", None)
+    }
+
+    /// Forms and settles from a fake Wire, each on its own channel.
+    #[allow(clippy::type_complexity)]
+    fn form_events() -> (
+        crate::acp_wire::OnEvent,
+        mpsc::Receiver<ElicitationForm>,
+        mpsc::Receiver<String>,
+    ) {
+        let (forms_tx, forms) = mpsc::channel();
+        let (settled_tx, settled) = mpsc::channel();
+        let forms_tx = Mutex::new(forms_tx);
+        let settled_tx = Mutex::new(settled_tx);
+        let on_event: crate::acp_wire::OnEvent = Box::new(move |event| match event {
+            Event::Elicitation { form, .. } => {
+                let _ = forms_tx.lock().unwrap().send(form);
+            }
+            Event::PermissionSettled { request, .. } => {
+                let _ = settled_tx.lock().unwrap().send(request);
+            }
+            _ => {}
+        });
+        (on_event, forms, settled)
+    }
+
+    /// A sign-in link that lands in a turn is the sign-in's, so the turn's
+    /// end leaves it and its answer finishes `authenticate`.
+    #[test]
+    fn a_sign_in_link_in_a_turn_outlives_the_turn() {
+        let (fx, _session) = Fixture::new("sign-in-link-turn");
+        let (on_event, forms, _settled) = form_events();
+        let wire = fake_wire(&fx, "sign-in-link-turn", on_event);
+        let opened = open_fake(&wire, &fx.cwd).expect("the open");
+        let signer = {
+            let wire = Arc::clone(&wire);
+            thread::spawn(move || wire.authenticate("fake"))
+        };
+        assert!(fx.wait_for("authenticate", 1), "sign-in never started");
+        assert!(wire
+            .prompt(&opened.id, "hi", Duration::from_secs(10), &|_| {})
+            .is_ok());
+        let form = forms
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the sign-in link");
+        wire.answer_elicitation(&form.request, ElicitationAnswer::Accept("open".into()));
+        assert_eq!(signer.join().unwrap(), Ok(()));
+        assert_eq!(
+            fx.count("elicit-url:cancel"),
+            0,
+            "the turn's end took the link"
+        );
+        wire.shutdown();
+    }
+
+    /// An Authenticate behind an open is not yet a sign-in, so a link the
+    /// open's drain holds is the session's and outlives the sign-in.
+    #[test]
+    fn a_link_held_before_a_queued_sign_in_starts_outlives_it() {
+        let (mut fx, _session) = Fixture::new("ask-then-link-open");
+        let (asked_tx, asked) = mpsc::channel();
+        let (forms_tx, forms) = mpsc::channel();
+        let (settled_tx, settled) = mpsc::channel();
+        let senders = Mutex::new((asked_tx, forms_tx, settled_tx));
+        let on_event: crate::acp_wire::OnEvent = Box::new(move |event| {
+            let senders = senders.lock().unwrap();
+            match event {
+                Event::Permission { ask, .. } => drop(senders.0.send(ask.request)),
+                Event::Elicitation { form, .. } => drop(senders.1.send(form)),
+                Event::PermissionSettled { request, .. } => drop(senders.2.send(request)),
+                _ => {}
+            }
+        });
+        let wire = fake_wire(&fx, "ask-then-link-open", on_event);
+        assert!(open_fake(&wire, &fx.cwd).is_ok(), "the first open");
+        let ask = asked
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the first open's ask");
+        let opener = {
+            let (wire, cwd) = (Arc::clone(&wire), fx.cwd.clone());
+            thread::spawn(move || open_fake(&wire, &cwd).map(|opened| opened.id))
+        };
+        assert!(
+            fx.wait_for("open-stall", 1),
+            "the second open never stalled"
+        );
+        let signed = wire.start_authenticate("fake").expect("sent");
+        // One sender, so the wire has taken the Authenticate once this settles.
+        wire.answer(&ask, "allow");
+        assert_eq!(settled.recv_timeout(Duration::from_secs(5)), Ok(ask));
+        fx.release_open_stall();
+        assert_eq!(opener.join().unwrap(), Ok("fresh-id-2".to_string()));
+        assert_eq!(signed.recv_timeout(Duration::from_secs(5)), Ok(Ok(())));
+        let form = forms
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the open's link");
+        assert!(form.waits, "the open's link went to the sign-in");
+        wire.answer_elicitation(&form.request, ElicitationAnswer::Accept("open".into()));
+        assert!(
+            fx.wait_for("elicit-url:accept", 1),
+            "the link did not take its answer, cancels sent: {}",
+            fx.count("elicit-url:cancel")
+        );
+        wire.shutdown();
+    }
+
+    /// A session's form during a sign-in is the session's, so the sign-in's
+    /// finish leaves it.
+    #[test]
+    fn a_session_form_during_a_sign_in_outlives_it() {
+        let (fx, _session) = Fixture::new("sign-in-session-form");
+        let (on_event, forms, _settled) = form_events();
+        let wire = fake_wire(&fx, "sign-in-session-form", on_event);
+        assert!(open_fake(&wire, &fx.cwd).is_ok(), "the open");
+        assert_eq!(wire.authenticate("fake"), Ok(()));
+        let form = forms
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the session's form");
+        wire.answer_elicitation(&form.request, ElicitationAnswer::Accept("balanced".into()));
+        assert!(
+            fx.wait_for("elicit:accept", 1),
+            "the form did not take its answer, cancels sent: {}",
+            fx.count("elicit:cancel")
+        );
+        wire.shutdown();
+    }
+
+    /// A sign-in that ends during an open retires its link, even one still
+    /// queued behind the open.
+    #[test]
+    fn a_sign_in_that_ends_during_an_open_retires_its_link() {
+        let (mut fx, _session) = Fixture::new("sign-in-link-open");
+        let (on_event, forms, settled) = form_events();
+        let wire = fake_wire(&fx, "sign-in-link-open", on_event);
+        let signer = {
+            let wire = Arc::clone(&wire);
+            thread::spawn(move || wire.authenticate("fake"))
+        };
+        assert!(fx.wait_for("authenticate", 1), "sign-in never started");
+        let opener = {
+            let (wire, cwd) = (Arc::clone(&wire), fx.cwd.clone());
+            thread::spawn(move || open_fake(&wire, &cwd).map(|opened| opened.id))
+        };
+        assert!(fx.wait_for("open-stall", 1), "the open never stalled");
+        fx.release_open_stall();
+        assert_eq!(opener.join().unwrap(), Ok("fresh-id".to_string()));
+        assert_eq!(signer.join().unwrap(), Ok(()));
+        let form = forms
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the sign-in link");
+        assert!(
+            fx.wait_for("elicit-url:cancel", 1),
+            "the link outlived its sign-in"
+        );
+        assert_eq!(
+            settled.recv_timeout(Duration::from_secs(5)),
+            Ok(form.request)
+        );
+        wire.shutdown();
+    }
+
+    /// A Shutdown waiting when the wire comes free ends an open whose
+    /// `session/new` answer is already written, so the opener hears `Lost`.
+    /// `on_event` holds the wire, settling an ask, while both line up.
+    #[test]
+    fn a_shutdown_beats_a_ready_session_new_answer() {
+        let (mut fx, _session) = Fixture::new("stall-second-open-ask");
+        let (asked_tx, asked) = mpsc::channel();
+        let (busy_tx, busy) = mpsc::channel();
+        let (gate_tx, gate) = mpsc::channel::<()>();
+        let gate = Mutex::new(gate);
+        let on_event: crate::acp_wire::OnEvent = Box::new(move |event| match event {
+            Event::Permission { ask, .. } => {
+                let _ = asked_tx.send(ask.request);
+            }
+            // Holds the wire thread until the gate's sender is dropped.
+            Event::PermissionSettled { .. } => {
+                let _ = busy_tx.send(());
+                let _ = gate.lock().unwrap().recv();
+            }
+            _ => {}
+        });
+        let wire = fake_wire(&fx, "stall-second-open-ask", on_event);
+        assert!(open_fake(&wire, &fx.cwd).is_ok(), "the first open");
+        let request = asked
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the first open's ask");
+        let opener = {
+            let wire = Arc::clone(&wire);
+            let cwd = fx.cwd.clone();
+            thread::spawn(move || open_fake(&wire, &cwd))
+        };
+        assert!(
+            fx.wait_for("open-stall", 1),
+            "the second open never stalled"
+        );
+        wire.answer(&request, "allow");
+        busy.recv_timeout(Duration::from_secs(5))
+            .expect("the wire never settled the ask");
+        fx.release_open_stall();
+        assert!(
+            fx.wait_for("answered-new", 2),
+            "the second open was never answered"
+        );
+        wire.shutdown();
+        drop(gate_tx);
+        let opened = opener.join().unwrap().map(|opened| opened.id);
+        assert_eq!(opened, Err(OpenError::Lost));
     }
 
     /// Switching source returns on the UI thread. The open stays unanswered

@@ -54,6 +54,8 @@ Buddy Bot is the default. Eight Characters ship; each moves and speaks different
 </tr>
 </table>
 
+See them all in the [Character Gallery](https://omesser.github.io/fidget/characters.html).
+
 ### Trump takes the stage
 
 https://github.com/user-attachments/assets/31bf24c7-7fe7-43d0-92d7-a4a3bd6d4c11
