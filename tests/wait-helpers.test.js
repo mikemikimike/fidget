@@ -299,6 +299,41 @@ ${[10, 10, 10, 10, 210].map(frame).join("\n")}
   assert.deepStrictEqual(r.lines.slice(0, 4), ["10", "False", "False", "False"], r.err);
 });
 
+test("Windows: Wait-ForRest keeps waiting while the sprite walks, past 3 s", { skip: noPwsh }, (t) => {
+  const r = ps(t, `$t = "$W/p.log"
+Set-Content "$W/walk.sh" @'
+for i in $(seq 1 16); do echo "1 frame: 1 Grounded pos(1,1) sprite($((i * 10)),20) walk#1 x" >> "$1"; sleep 0.25; done
+for i in 1 2 3 4 5; do echo "1 frame: 1 Grounded pos(1,1) sprite(160,20) idle#1 x" >> "$1"; done
+'@
+$p = New-Object Diagnostics.ProcessStartInfo "bash"
+$p.ArgumentList.Add("$W/walk.sh")
+$p.ArgumentList.Add($t)
+$p.UseShellExecute = $false
+$null = [Diagnostics.Process]::Start($p)
+$start = Get-NowMs
+$rest = Wait-ForRest $t
+$took = (Get-NowMs) - $start
+Write-Output $took
+Write-Output $(if ($rest) { $rest.X } else { "null" })`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.ok(Number(r.lines[0]) >= 3500 && Number(r.lines[0]) < 6000, `took ${r.lines[0]} ms`);
+  assert.strictEqual(r.lines[1], "160", r.err);
+});
+
+test("Windows: Wait-ForRest gives up 3 s after the last move", { skip: noPwsh }, (t) => {
+  const r = ps(t, `$t = "$W/p.log"
+Add-Content $t "1 frame: 1 Grounded pos(1,1) sprite(10,20) walk#1 x"
+Later "echo '1 frame: 1 Grounded pos(1,1) sprite(20,20) walk#1 x' >> $t"
+$start = Get-NowMs
+$rest = Wait-ForRest $t
+$took = (Get-NowMs) - $start
+Write-Output ([bool]$rest)
+Write-Output $took`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.strictEqual(r.lines[0], "False", r.err);
+  assert.ok(Number(r.lines[1]) >= 2800 && Number(r.lines[1]) < 4500, `took ${r.lines[1]} ms`);
+});
+
 test("Windows: Invoke-AxWin splats a hashtable of ax-window-win.ps1 parameters", { skip: noPwsh }, (t) => {
   // A stub stands in for ax-window-win.ps1, so this checks the binding only.
   const r = ps(t, `$stub = "$W/ax.ps1"

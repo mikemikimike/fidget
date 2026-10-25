@@ -3,6 +3,7 @@
 // the PowerShell parser, so no window or app launch runs.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -19,6 +20,23 @@ const script = join(
 );
 const resolved = resolvePwsh();
 const skip = resolved.kind === "ready" ? false : resolved.reason;
+
+function waitSettledBody(src) {
+  const start = src.indexOf("function Wait-Settled");
+  if (start < 0) return "";
+  const rest = src.slice(start);
+  const end = rest.search(/\n    (function |\$traceFile = )/);
+  return end < 0 ? rest.slice(0, 400) : rest.slice(0, end);
+}
+
+// A first walk can last past 3 s. A wall-clock Wait-Until 3 gives up while
+// the sprite is still moving. Wait-ForRest restarts on each move.
+test("Wait-Settled is not a 3 s wall clock from the start of the wait", () => {
+  const body = waitSettledBody(readFileSync(script, "utf8"));
+  assert.ok(body, "Wait-Settled is missing");
+  assert.doesNotMatch(body, /Wait-Until 3/, "Wait-Settled still uses a 3 s wall clock");
+  assert.match(body, /Wait-ForRest/, "Wait-Settled must wait on rest, not a fixed budget");
+});
 
 function run(body) {
   return runFullscreenOverClick(

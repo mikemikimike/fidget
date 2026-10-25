@@ -180,9 +180,9 @@ try {
         }
     }
     function Wait-Settled {
-        $script:rest = $null
-        if (-not (Wait-Until 3 { ($script:rest = Get-SpriteAtRest $traceFile) })) {
-            Fail "sprite did not settle within 3s; see $traceFile"
+        $script:rest = Wait-ForRest $traceFile
+        if (-not $script:rest) {
+            Fail "the sprite never came to rest; see $traceFile"
         }
         return $script:rest
     }

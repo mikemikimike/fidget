@@ -222,6 +222,36 @@ function Get-SpriteAtRest([string]$TraceFile) {
     return $at
 }
 
+# The newest frame's sprite origin, else $null. A change here is a move.
+function Get-LastSpriteSpot([string]$TraceFile) {
+    if (-not (Test-Path -LiteralPath $TraceFile)) { return $null }
+    $line = Get-Content -LiteralPath $TraceFile | Where-Object { $_ -match '^\d+\.?\d* frame: .* sprite\((-?\d+),(-?\d+)\) ' } | Select-Object -Last 1
+    if (-not $line -or $line -notmatch 'sprite\((-?\d+),(-?\d+)\)') { return $null }
+    return @{ X = [int]$Matches[1]; Y = [int]$Matches[2] }
+}
+
+# Wait for the sprite to rest. Each frame where it moved (walking, climbing or
+# falling) is progress and restarts the 3 s window, so a long walk is fine.
+function Wait-ForRest([string]$TraceFile) {
+    $dir = Split-Path -Parent $TraceFile
+    if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { $dir = $script:WatchDir }
+    $script:restSpot = Get-LastSpriteSpot $TraceFile
+    while ($true) {
+        if ($at = Get-SpriteAtRest $TraceFile) { return $at }
+        $script:restDecision = "wait"
+        $null = Wait-OnChanges 3 $dir {
+            $now = Get-LastSpriteSpot $TraceFile
+            $moved = [bool]($script:restSpot -and $now -and ($now.X -ne $script:restSpot.X -or $now.Y -ne $script:restSpot.Y))
+            if ($now) { $script:restSpot = $now }
+            if (Get-SpriteAtRest $TraceFile) { $script:restDecision = "done"; return $true }
+            if ($moved) { $script:restDecision = "progress"; return $true }
+            $false
+        }
+        if ($script:restDecision -ceq "done") { return (Get-SpriteAtRest $TraceFile) }
+        if ($script:restDecision -cne "progress") { return $null }
+    }
+}
+
 function In-State([string]$LogFile, [string]$StatePattern) {
     if (-not (Test-Path -LiteralPath $LogFile)) { return $false }
     $frame = Get-Content -LiteralPath $LogFile | Where-Object { $_ -match '^frame: ' } | Select-Object -Last 1
