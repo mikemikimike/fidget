@@ -4,11 +4,37 @@
 
 #[cfg(any(target_os = "macos", test))]
 use tauri::utils::config::WindowEffectsConfig;
-
-/// The window effect a Chat UI design wears. Today none does.
 #[cfg(any(target_os = "macos", test))]
-fn effects(_chat_ui: &str) -> Option<WindowEffectsConfig> {
-    None
+use tauri::window::{Effect, EffectState, EffectsBuilder};
+
+/// `.chat-ui-glass body`'s `border-radius` in chat-ui.css, so the blur ends
+/// at the panel's rounded corners.
+#[cfg(any(target_os = "macos", test))]
+const PANEL_RADIUS: f64 = 18.0;
+
+/// The window effect a Chat UI design wears: Glass's blur, held `Active`.
+/// Left unset, the state is `FollowsWindowActiveState`, which drops the blur
+/// whenever the window is inactive.
+#[cfg(any(target_os = "macos", test))]
+fn effects(chat_ui: &str) -> Option<WindowEffectsConfig> {
+    (chat_ui == "glass").then(|| {
+        EffectsBuilder::new()
+            .effect(Effect::HudWindow)
+            .state(EffectState::Active)
+            .radius(PANEL_RADIUS)
+            .build()
+    })
+}
+
+/// Put on or take off Glass's blur to match `chat_ui`. Nothing off macOS:
+/// Windows keeps its CSS blur, Linux its stronger tint.
+pub(crate) fn wear(window: &tauri::WebviewWindow, chat_ui: &str) {
+    #[cfg(target_os = "macos")]
+    if let Err(why) = window.set_effects(effects(chat_ui)) {
+        eprintln!("glass: {} blur: {why}", window.label());
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, chat_ui);
 }
 
 #[cfg(test)]

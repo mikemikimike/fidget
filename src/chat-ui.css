@@ -758,6 +758,13 @@
   background: linear-gradient(rgba(248,249,252,.93), rgba(242,244,248,.95));
 }
 
+/* macOS: the window's NSVisualEffectView blurs the desktop and stays active
+   when the window loses focus; the CSS blur could drop out there (#1854). */
+[data-platform="macos"].chat-ui-glass body {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 [data-chat-palette="light"].chat-ui-glass .tb button {
   background: rgba(0,0,0,.08);
 }

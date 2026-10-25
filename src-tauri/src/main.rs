@@ -2556,6 +2556,7 @@ fn build_chat(
         builder = builder.position(x, y);
     }
     let window = builder.build()?;
+    glass::wear(&window, &chat_ui_now(app));
     let (handle, label) = (app.clone(), label.to_string());
     let observer = platform::observe_minimize(&window, {
         let (handle, label) = (handle.clone(), label.clone());
@@ -2647,6 +2648,14 @@ fn build_settings(
             finish_settings_document(&handle, generation);
         })
         .build()
+        .inspect(|window| glass::wear(window, &chat_ui_now(app)))
+}
+
+/// The saved Chat UI design; Minimal when Settings cannot be read.
+fn chat_ui_now(app: &tauri::AppHandle) -> String {
+    app.try_state::<SettingsState>()
+        .and_then(|state| state.settings.lock().ok().map(|s| s.chat_ui.clone()))
+        .unwrap_or_else(|| "minimal".to_string())
 }
 
 /// Open this Instance's Chat surface, or raise the one it has, beside `feet`
