@@ -815,11 +815,13 @@ async fn character(app: tauri::AppHandle) -> ArtUrls {
         tauri::async_runtime::spawn_blocking(move || app.state::<ArtUrls>().inner().clone())
             .await
             .expect("character: art clone");
-    eprintln!(
-        "character: cloned {} in {}ms",
-        cloned.characters.len(),
-        started.elapsed().as_millis()
-    );
+    if dev_flags::TRACE_BUBBLE.is_on() {
+        eprintln!(
+            "character: cloned {} in {}ms",
+            cloned.characters.len(),
+            started.elapsed().as_millis()
+        );
+    }
     cloned
 }
 
@@ -2566,7 +2568,9 @@ fn build_chat(
     }
     let started = Instant::now();
     let window = builder.build()?;
-    eprintln!("chat: {label} built in {}ms", started.elapsed().as_millis());
+    if dev_flags::TRACE_BUBBLE.is_on() {
+        eprintln!("chat: {label} built in {}ms", started.elapsed().as_millis());
+    }
     let (handle, label) = (app.clone(), label.to_string());
     let observer = platform::observe_minimize(&window, {
         let (handle, label) = (handle.clone(), label.clone());
