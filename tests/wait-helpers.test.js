@@ -333,8 +333,7 @@ Write-Output $(if ($rest) { $rest.X } else { "null" })`);
   assert.strictEqual(r.lines[1], "160", r.err);
 });
 
-// The leaf's Wait-Settled, not the helper: on main this is Wait-Until 3 and
-// fails a walk that lasts past 3 s with "sprite did not settle within 3s".
+// The leaf's Wait-Settled, not the helper. A walk past 3 s must still rest.
 test("Windows: control-click-menu Wait-Settled keeps waiting while the sprite walks, past 3 s", { skip: noPwsh }, (t) => {
   const r = walkThenRest(t, `$tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile('${menuLeaf}', [ref]$tokens, [ref]$errors)
