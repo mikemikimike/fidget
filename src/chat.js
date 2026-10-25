@@ -414,6 +414,7 @@ function retire(request, option) {
   what.title = heading;
   const won = el("ask-answer", "span");
   won.textContent = ` · ${answer}`;
+  won.title = answer;
   row.querySelector(".thinking-toggle .who-label").replaceChildren(what, won);
   row.dataset.state = "settled";
   fold(row, false);

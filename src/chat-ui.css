@@ -1150,10 +1150,15 @@ body {
   color: var(--chat-ink-2);
 }
 
+/* The log and each row are one column as wide as the window. An implicit
+   `auto` column grows to its widest item's min-content, and a fence or table
+   keeps its longest line in min-content even though it scrolls, so one wide
+   reply pushed every row past the right edge (#1832). */
 .log {
   flex: 1 1 auto;
   overflow-y: auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 16px;
   padding: 18px 18px 8px;
@@ -1161,6 +1166,7 @@ body {
 
 .row {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 
@@ -1457,6 +1463,7 @@ body {
 .note {
   font-size: 12.5px;
   color: var(--chat-ink-4);
+  overflow-wrap: anywhere;
 }
 
 /* The parts of a permission ask, one line each. A code span the Harness marked
@@ -1520,7 +1527,8 @@ body {
 }
 
 /* A settled ask's handle: what was asked gives way to the width, what won
-   stays whole. The choices under it dim, so they read as a record. */
+   stays whole unless it alone is wider than the row, then it ellipsizes. The
+   choices under it dim, so they read as a record. */
 .row.ask .who-label {
   display: flex;
   min-width: 0;
@@ -1537,6 +1545,12 @@ body {
 .row.ask .who-label::after {
   flex: none;
   white-space: pre;
+}
+
+.ask-answer {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .row.ask[data-state="settled"] .options {
