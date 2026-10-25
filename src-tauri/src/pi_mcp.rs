@@ -76,18 +76,11 @@ fn write(path: &Path, value: &Value) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn dir(name: &str) -> std::path::PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("fidget-pi-mcp-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("temp dir");
-        path
-    }
-
     #[test]
     fn a_missing_file_is_created_with_only_the_env_entry() {
-        let dir = dir("create");
-        sync_project_file(&dir).unwrap();
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let dir = tmp.path();
+        sync_project_file(dir).unwrap();
         let text = fs::read_to_string(dir.join(FILE)).unwrap();
         let value: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(value["mcpServers"]["fidget"], entry());
@@ -97,14 +90,15 @@ mod tests {
 
     #[test]
     fn a_sibling_server_stays_and_a_literal_entry_is_replaced() {
-        let dir = dir("sibling");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let dir = tmp.path();
         let path = dir.join(FILE);
         fs::write(
             &path,
             r#"{"keep":true,"mcpServers":{"other":{"command":"echo"},"fidget":{"url":"http://127.0.0.1:9/mcp","headers":{"Authorization":"Bearer secret"},"disabled":true}}}"#,
         )
         .unwrap();
-        sync_project_file(&dir).unwrap();
+        sync_project_file(dir).unwrap();
         let value: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["keep"], true);
         assert_eq!(value["mcpServers"]["other"]["command"], "echo");
@@ -116,37 +110,41 @@ mod tests {
 
     #[test]
     fn a_correct_entry_is_left_byte_for_byte() {
-        let dir = dir("stable");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let dir = tmp.path();
         let path = dir.join(FILE);
         let original = "{\n  \"mcpServers\": {\n    \"fidget\": {\n      \"url\": \"${FIDGET_MCP_URL}\",\n      \"auth\": \"bearer\",\n      \"bearerTokenEnv\": \"FIDGET_MCP_TOKEN\",\n      \"lifecycle\": \"eager\"\n    }\n  }\n}\n";
         fs::write(&path, original).unwrap();
-        sync_project_file(&dir).unwrap();
+        sync_project_file(dir).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
     }
 
     #[test]
     fn invalid_json_is_left_unchanged() {
-        let dir = dir("invalid");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let dir = tmp.path();
         let path = dir.join(FILE);
         fs::write(&path, "not json").unwrap();
-        let error = sync_project_file(&dir).unwrap_err();
+        let error = sync_project_file(dir).unwrap_err();
         assert!(error.contains("not JSON"), "{error}");
         assert_eq!(fs::read_to_string(&path).unwrap(), "not json");
     }
 
     #[test]
     fn mcp_servers_of_the_wrong_type_is_left_unchanged() {
-        let dir = dir("wrong-type");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let dir = tmp.path();
         let path = dir.join(FILE);
         fs::write(&path, "{\"mcpServers\":[]}").unwrap();
-        let error = sync_project_file(&dir).unwrap_err();
+        let error = sync_project_file(dir).unwrap_err();
         assert!(error.contains("not an object"), "{error}");
         assert_eq!(fs::read_to_string(&path).unwrap(), "{\"mcpServers\":[]}");
     }
 
     #[test]
     fn a_missing_directory_is_an_error() {
-        let dir = dir("missing-dir");
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let dir = tmp.path();
         let gone = dir.join("missing");
         let error = sync_project_file(&gone).unwrap_err();
         assert!(!gone.join(FILE).exists(), "{error}");

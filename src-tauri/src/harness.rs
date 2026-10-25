@@ -4812,9 +4812,9 @@ mod tests {
         }
     }
 
-    /// One launcher script for every Fixture in this test process. macOS vets
-    /// the first exec of each new executable file, one file at a time, so a
-    /// script per Fixture queues parallel tests past the probe's 3 s.
+    /// One launcher per test binary, beside it, so no run leaves one in the temp
+    /// dir. macOS vets each new executable's first exec serially, so a script per
+    /// Fixture queues parallel tests past the probe's 3 s. New text lands by rename.
     fn fake_agent_wrapper() -> &'static Path {
         static WRAPPER: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
         WRAPPER.get_or_init(|| {
@@ -4824,37 +4824,48 @@ mod tests {
                 .map_or("", |(_, rest)| rest)
                 .to_string()
                 + "::fake_acp_agent";
-            let dir = std::env::temp_dir().join(format!("fidget-harness-launcher-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).unwrap();
 
             #[cfg(unix)]
-            let path = {
-                use std::os::unix::fs::PermissionsExt;
-                let path = dir.join("launcher-wrapper.sh");
+            let (path, contents) = {
+                let path = exe.with_extension("launcher.sh");
                 let contents = format!(
                     "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"fake-acp-agent 1.0.0\"\n  exit 0\nfi\nexec '{}' {} --exact --nocapture --test-threads=1 \"$@\"\n",
                     exe.display(),
                     test,
                 );
-                std::fs::write(&path, contents).unwrap();
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-                path
+                (path, contents)
             };
 
             #[cfg(windows)]
-            let path = {
-                let path = dir.join("launcher-wrapper.bat");
+            let (path, contents) = {
+                let path = exe.with_extension("launcher.bat");
                 let contents = format!(
                     "@echo off\nif \"%~1\"==\"--version\" (\n  echo fake-acp-agent 1.0.0\n  exit /b 0\n)\n\"{}\" {} --exact --nocapture --test-threads=1 %*\n",
                     exe.display(),
                     test,
                 );
-                std::fs::write(&path, contents).unwrap();
-                path
+                (path, contents)
             };
 
+            if std::fs::read_to_string(&path).ok().as_deref() != Some(contents.as_str()) {
+                let staged = path.with_extension(format!("{}.tmp", std::process::id()));
+                std::fs::write(&staged, &contents).unwrap();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))
+                        .unwrap();
+                }
+                std::fs::rename(&staged, &path).unwrap();
+            }
             path
         })
+    }
+
+    #[test]
+    fn the_fake_agent_launcher_sits_beside_the_test_binary() {
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(fake_agent_wrapper().parent(), exe.parent());
     }
 
     struct Fixture {
