@@ -6511,7 +6511,17 @@ mod tests {
             characters.contains_key("BMO") && characters.contains_key("Buddy Bot"),
             "the repo ships BMO and Buddy Bot"
         );
-        let expected = serde_json::json!({ "characters": &characters });
+        let mut named = serde_json::Map::new();
+        for (name, sheet) in &characters {
+            named.insert(
+                name.clone(),
+                serde_json::json!({
+                    "art": sheet.art,
+                    "smooth": sheet.smooth,
+                }),
+            );
+        }
+        let expected = serde_json::json!({ "characters": named });
         let response = character_response(&encode_art_json(&ArtUrls { characters }));
         let body: serde_json::Value =
             serde_json::from_str(&character_json_body(response)).expect("character returns JSON");
