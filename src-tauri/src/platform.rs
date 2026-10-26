@@ -14,6 +14,7 @@ use std::fs;
 use std::path::Path;
 #[cfg(unix)]
 use std::process::Command;
+#[cfg(not(target_os = "macos"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -24,9 +25,11 @@ use fidget_core::sensing::ActivitySource;
 use fidget_core::window_source::{Rect, WindowSource};
 use tauri::{Emitter, Manager};
 
-/// One button as the overlay webview witnesses it. `CGEventSource` misses
-/// clicks on our window. Two bits: a click can begin and end between polls,
-/// and the edge keeps it until a read consumes it.
+/// One button as the overlay webview witnesses it, beside the session poll on
+/// X11 and Windows. Two bits: a click can begin and end between polls, and the
+/// edge keeps it until a read consumes it. macOS counts the session's button
+/// events instead, so it has no witness.
+#[cfg(not(target_os = "macos"))]
 struct Witness {
     /// What the webview last reported: true from pointerdown to pointerup.
     down: AtomicBool,
@@ -34,6 +37,7 @@ struct Witness {
     pressed: AtomicBool,
 }
 
+#[cfg(not(target_os = "macos"))]
 impl Witness {
     const fn new() -> Self {
         Self {
@@ -58,13 +62,15 @@ impl Witness {
     }
 
     /// The overlay is no longer a witness, so nothing it holds can be trusted.
-    fn forget(&self) {
-        self.down.store(false, Ordering::SeqCst);
-        self.pressed.store(false, Ordering::SeqCst);
+    /// Returns whether it was holding anything.
+    fn forget(&self) -> bool {
+        self.down.swap(false, Ordering::SeqCst) | self.pressed.swap(false, Ordering::SeqCst)
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 static OVERLAY_PRIMARY: Witness = Witness::new();
+#[cfg(not(target_os = "macos"))]
 static OVERLAY_SECONDARY: Witness = Witness::new();
 
 /// Which Instance is typing a quick message. A level, not a press edge:
@@ -104,16 +110,36 @@ pub fn qm_draft(instance: &str) -> Option<QmDraft> {
 }
 
 /// Which mouse buttons one tick found down. One type so X11 pays one
-/// XQueryPointer instead of two, and so both consuming witness reads
-/// live in one place.
+/// XQueryPointer instead of two, and so both consuming reads live in one place.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ButtonsDown {
     pub primary: bool,
     pub secondary: bool,
 }
 
-/// The overlay heard the primary button go down or up.
+/// Milliseconds since the Unix epoch, so `FIDGET_CLICK_TRACE` lines from the
+/// frame loop, the overlay commands and a test script's markers sort together.
+pub fn trace_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |since| since.as_secs_f64() * 1000.0)
+}
+
+fn trace_witness(button: &str, down: bool) {
+    if crate::dev_flags::TRACE_CLICKS.is_on() {
+        let edge = if down { "down" } else { "up" };
+        eprintln!(
+            "click-trace: witness t={:.1} button={button} edge={edge}",
+            trace_ms()
+        );
+    }
+}
+
+/// The overlay heard the primary button go down or up. On macOS that is not
+/// a press source, only the earliest moment to read Control.
 pub fn set_overlay_primary(down: bool) {
+    trace_witness("left", down);
+    #[cfg(not(target_os = "macos"))]
     OVERLAY_PRIMARY.report(down);
     #[cfg(target_os = "macos")]
     if down {
@@ -184,24 +210,35 @@ pub fn overlay_rects_for(label: &str) -> Vec<OverlayRect> {
     )
 }
 
-/// The overlay heard the secondary button go down or up. Same miss as the
-/// primary: `CGEventSource` has been seen to skip a right-click on our window.
+/// The overlay heard the secondary button go down or up.
 pub fn set_overlay_secondary(down: bool) {
+    trace_witness("right", down);
+    #[cfg(not(target_os = "macos"))]
     OVERLAY_SECONDARY.report(down);
 }
 
 /// The overlay is passing clicks through, so it cannot still be holding a
-/// press. Must not consult the session poll: that poll misses a press our
-/// own window swallowed, which is when this witness is the only one.
+/// press. Drops both bits without asking the session poll, which answers for
+/// itself in `buttons_down`.
+#[cfg(not(target_os = "macos"))]
 pub fn overlay_passes_clicks_through() {
-    OVERLAY_PRIMARY.forget();
-    OVERLAY_SECONDARY.forget();
+    for (button, witness) in [("left", &OVERLAY_PRIMARY), ("right", &OVERLAY_SECONDARY)] {
+        let held = witness.forget();
+        if held && crate::dev_flags::TRACE_CLICKS.is_on() {
+            eprintln!(
+                "click-trace: witness t={:.1} button={button} edge=forget",
+                trace_ms()
+            );
+        }
+    }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn overlay_primary_down() -> bool {
     OVERLAY_PRIMARY.take()
 }
 
+#[cfg(not(target_os = "macos"))]
 fn overlay_secondary_down() -> bool {
     OVERLAY_SECONDARY.take()
 }
@@ -1053,15 +1090,13 @@ fn os_double_click_interval_ms() -> Option<u32> {
     windows::double_click_interval_ms()
 }
 
-/// Which mouse buttons are down, or were pressed since the last call: session
-/// poll OR overlay witness, a Control-click as secondary. The frame loop asks
-/// once per tick, so "since the last call" means "since the last tick".
+/// Which mouse buttons are down, or were pressed since the last call, from
+/// the session's button event counters alone; a Control-click is secondary.
+/// The frame loop asks once per tick, so "since the last call" means "since
+/// the last tick".
 #[cfg(target_os = "macos")]
 pub fn buttons_down() -> ButtonsDown {
-    macos::control_click(ButtonsDown {
-        primary: overlay_primary_down() || macos::primary_button_down(),
-        secondary: overlay_secondary_down() || macos::secondary_button_down(),
-    })
+    macos::buttons_down()
 }
 
 /// X11 on Linux: one XQueryPointer for both buttons, or the overlay latch.
@@ -1606,9 +1641,9 @@ mod tests {
         );
     }
 
-    /// A press that lands on the overlay is one `CGEventSource` has been
-    /// seen to miss. The overlay's own pointer events are the other half of
-    /// `buttons_down`; without them a click on the sprite is silent.
+    /// On X11 and Windows the overlay's own pointer events are the other half
+    /// of `buttons_down`, beside the session poll.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn overlay_primary_is_enough_for_a_press() {
         set_overlay_primary(false);
@@ -1672,6 +1707,7 @@ mod tests {
 
     /// A click can begin and end between two polls. The level alone reads
     /// false at both; the edge keeps the down until it has been read once.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn a_click_shorter_than_one_tick_is_still_seen_once() {
         let button = Witness::new();
@@ -1687,6 +1723,7 @@ mod tests {
     /// The edge is for the missed down, not a second gesture. A real hold
     /// reads true from the level every tick; letting go must leave nothing
     /// a later tick could mistake for another press.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn a_held_button_reads_true_every_tick_and_nothing_after_release() {
         let button = Witness::new();
@@ -1701,6 +1738,7 @@ mod tests {
     /// A pointerup the webview never delivered would leave the level set.
     /// Click-through means both bits must drop, or the sprite glues to a
     /// button nobody is pressing.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn passing_clicks_through_forgets_a_press_the_overlay_never_released() {
         let button = Witness::new();
@@ -1824,8 +1862,8 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-    /// A right-click on the overlay is the same miss as a left-click. Without
-    /// this witness the webview's Inspect menu is the only thing that hears it.
+    /// A right-click on the overlay counts the same way as a left-click.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn overlay_secondary_is_enough_for_a_press() {
         set_overlay_secondary(false);
