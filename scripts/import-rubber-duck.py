@@ -56,13 +56,19 @@ def main():
 
     animations = {}
     for name, row, count in ROWS:
+        frames = [
+            importer.strip_edge_bleed(sheet.crop(
+                (col * cell_w, (row - 1) * cell_h, (col + 1) * cell_w, row * cell_h)
+            ))
+            for col in range(count)
+        ]
+        bounds = [importer.solid_mask(frame).getbbox() for frame in frames]
+        if any(box is None for box in bounds):
+            parser.error(f"row {row} contains an empty solid frame; review its mapping")
+        if len({box[3] for box in bounds}) != 1:
+            parser.error(f"row {row} has vertical foot motion; review before grounding it")
         animations[name] = {
-            "frames": [
-                importer.strip_edge_bleed(sheet.crop(
-                    (col * cell_w, (row - 1) * cell_h, (col + 1) * cell_w, row * cell_h)
-                ))
-                for col in range(count)
-            ],
+            "frames": frames,
             "fps": 4,
             "loop": "forever",
             "variant_of": None,
@@ -84,13 +90,9 @@ def main():
         importer.emit(pet, output, validate=False, stand=STAND_HEIGHT)
         for path in (output / "frames").glob("*.png"):
             image = Image.open(path).convert("RGBA")
-            alpha = image.getchannel("A").tobytes()
-            bottom = max(
-                row for row in range(image.height)
-                if sum(a >= 128 for a in alpha[row * image.width:(row + 1) * image.width]) >= 3
-            )
+            bottom = importer.solid_mask(image).getbbox()[3]
             grounded = Image.new("RGBA", image.size)
-            grounded.paste(image, (0, image.height - 1 - bottom))
+            grounded.paste(image, (0, image.height - bottom))
             grounded.save(path)
 
         destination.mkdir(parents=True, exist_ok=True)

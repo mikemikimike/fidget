@@ -363,6 +363,58 @@ fn rubber_duck_stands_on_the_canvas_floor() {
 }
 
 #[test]
+fn rubber_duck_jumps_above_the_floor_with_its_grounded_frames() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    let world = WorldSnapshot {
+        displays: vec![Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        }],
+        elapsed_ms: 100,
+        ..WorldSnapshot::default()
+    };
+    let mut engine =
+        Engine::new(Point { x: 100.0, y: 0.0 }).with_behaviors(character.behaviors.clone());
+    for _ in 0..40 {
+        engine.tick(&world);
+    }
+    let floor = engine.tick(&world).position.y;
+    engine.tick(&WorldSnapshot {
+        proposal: Some(BehaviorProposal {
+            behavior: "jump".into(),
+            dialogue: None,
+        }),
+        ..world.clone()
+    });
+
+    let mut peak = floor;
+    let mut landed = None;
+    for _ in 0..40 {
+        let frame = engine.tick(&world);
+        peak = peak.min(frame.position.y);
+        character
+            .draw(
+                frame.animation,
+                frame.animation_ms,
+                frame.variant_draw,
+                frame.facing,
+            )
+            .expect("the actual duck package draws every jump phase");
+        if peak < floor && frame.position.y == floor {
+            landed = Some(frame);
+            break;
+        }
+    }
+    assert!(
+        floor - peak > 50.0,
+        "the duck clears the floor: {floor} -> {peak}"
+    );
+    assert_eq!(landed.expect("the duck lands").animation, "land");
+}
+
+#[test]
 fn rubber_duck_plays_thinking_and_looking_in_its_idle_rotation() {
     let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
     assert_eq!(
