@@ -2,6 +2,8 @@
 
 Benchmark for issue [#428](https://github.com/omesser/fidget/issues/428): per-pixel cost of rebuilding the Windows DWM click-through region when the sprite animation frame changes.
 
+The older numbers below (14.5–22 ms for BMO) came from a debug build at `a38ba3b`. A release build at `759205a6` rebuilds BMO's region in about 2.4 ms; see [Release build (2026-10-26)](#release-build-2026-10-26).
+
 ## Environment
 
 ### Oded's DESKTOP-UQIE144 workstation
@@ -45,6 +47,27 @@ The overlay only updates the input region while the cursor is over the sprite (o
 1. **MCP `play_behavior` not used** — Settings Bearer token (BYO) not obtained; walk triggered via StaticDirector spontaneous behavior.
 2. **Walk numbers are walk-attributed subset only** — Opaque 6231–6298 matches X11 walk frames; full 15s session included climb/react rebuilds while cursor tracked sprite, but the walk scenario isolates walk-attributed rebuilds only.
 3. **Fast rate ≠ continuous 10 fps** — React animation is loop=once; per-rebuild ~22 ms is the useful metric, not sustained rate.
+
+## Release build (2026-10-26)
+
+- **Build:** release `fidget.exe` and `fidget.pdb` at `759205a6`, the #1876 tip.
+- **Host:** DESKTOP-UQIE144, elevated PowerShell, WPR recording.
+- **Scenario:** `scripts/bench-mask-rebuild-windows-flame.ps1` with its defaults (`-Target 100`, BMO). The script holds the pointer on the sprite centre, which passes the cursor-over gate, until 100 region rebuilds land. It read the sprite size from the overlay line: a half-size of 63×64, so BMO at 126×128.
+- **What the time covers:** the `region rebuild` trace in `apply_input_mask()`, from `region_plan` through the `CreateRectRgn`/`CombineRgn` loop to `SetWindowRgn` returning.
+- **Evidence:** `summary.txt` from the run, below, also posted on [#1876](https://github.com/omesser/fidget/pull/1876#issuecomment-6420071657). The 290 MB `trace.etl`, `fidget.pdb` and `rebuilds.log` stay on the workstation under `E:\workspace\fidget-428-flame\20261026-173216\`.
+
+```
+rebuilds: 100 in 2s (target 100)
+rebuild ms: min 1.47 median 2.42 max 4.75
+rects: min 260 median 304 max 322
+wpr -stop exit: 0
+```
+
+- **Rebuild time:** median 2.42 ms, range 1.47–4.75 ms over 100 rebuilds. The X11 release build at `2355abcb` has a pooled median of 0.148 ms per full BMO rebuild (see [`mask-rebuild-baseline-x11.md`](./mask-rebuild-baseline-x11.md#release-build-2026-10-26)), so Windows is about 16 times slower per rebuild. The two hosts and builds differ, so treat that ratio as rough.
+- **Rects:** 260–322 rectangles per region, median 304. These are the swept art rects plus every overlay rect, which the trace line counts as hotspots and painted rects. They are not opaque cells, so they are far fewer than BMO's 6219–7888 opaque cells.
+- **Rate:** rebuilds came about every 20 ms (about 50 per second) with the pointer held on the sprite, so the target was reached in 2 s.
+- **Trace length:** 100 rebuilds is a short trace. `-Target 1000` would give WPA ten times the samples.
+- **Flamegraph:** not exported yet. The trace has the stacks, but nothing has turned it into an image (no `xperf` or `wpaexporter` step). To read it by hand, open `trace.etl` in WPA: CPU Usage (Sampled), process `fidget.exe`, Flame by Stack, and search for `SetWindowRgn`.
 
 ## Results
 
@@ -133,7 +156,7 @@ X11 baseline: `docs/research/mask-rebuild-baseline-x11.md` (issue #428, shipped 
 
 ## Findings
 
-1. **Mask rebuilds are expensive on Windows:** ~15 ms for BMO walk (126×128, ~6300 opaque) at 1×; ~22 ms for BMO react (mixed 6360 and 7888 opaque); ~2.5 ms for Black Mage (37×33 source, ~570–630 opaque) at 3×. Cost is dominated by opaque source pixel count, not rendered size or scale factor.
+1. **Mask rebuilds take about 2.4 ms in release builds on Windows:** a median of 2.42 ms (1.47–4.75 ms) for BMO with the pointer held on it, at `759205a6` (release build, 2026-10-26). The debug-build figures that follow came from older code at `a38ba3b`: ~15 ms for BMO walk (126×128, ~6300 opaque) at 1×; ~22 ms for BMO react (mixed 6360 and 7888 opaque); ~2.5 ms for Black Mage (37×33 source, ~570–630 opaque) at 3×. In those debug runs, cost is dominated by opaque source pixel count, not rendered size or scale factor.
 
 2. **Rebuilds are gated on cursor-over:** With the pointer away, idle animation logs no rebuilds. Cost shows up when the user moves the cursor over the sprite.
 
@@ -141,7 +164,7 @@ X11 baseline: `docs/research/mask-rebuild-baseline-x11.md` (issue #428, shipped 
 
 4. **Scale multiplies rendered size, not opaque count:** Black Mage at scale=3 has smaller source dimensions (37×33) than BMO@1× (126×128), so despite the 3× scale it rebuilds much faster (~2.5ms vs ~15-22ms). The iteration count is the source opaque cells; scale only affects the rectangle dimensions in the region.
 
-5. **Windows DWM rebuild is similar to X11 XShapeCombineMask for walk, slower for react:** Walk per-rebuild times are nearly identical (~14.5 ms Windows vs ~15 ms X11 for 6231–6298 opaque). React is slower on Windows (~22 ms vs ~10 ms); this may reflect DWM region API cost or measurement differences (Windows sample included more high-opaque frames).
+5. **In debug builds, the Windows DWM rebuild is similar to X11 XShapeCombineMask for walk, slower for react:** These are the debug figures at `a38ba3b`. In release builds Windows is slower, 2.42 ms against X11's 0.148 ms (see [Release build (2026-10-26)](#release-build-2026-10-26)). Walk per-rebuild times are nearly identical (~14.5 ms Windows vs ~15 ms X11 for 6231–6298 opaque). React is slower on Windows (~22 ms vs ~10 ms); this may reflect DWM region API cost or measurement differences (Windows sample included more high-opaque frames).
 
 ## Evidence
 
@@ -167,7 +190,7 @@ Full TRACE logs remain on the measurement workstation.
 
 ## Comparison to Issue #432 (System Wakeups)
 
-Issue #432 measured system wakeups during idle on Linux. Windows idle with cursor away shows **0 rebuilds/sec**, so mask rebuilds are **not** a contributor to idle wakeup rate on Windows either. The ~15–22 ms rebuild time matters when the cursor is over an animating/moving sprite.
+Issue #432 measured system wakeups during idle on Linux. Windows idle with cursor away shows **0 rebuilds/sec**, so mask rebuilds are **not** a contributor to idle wakeup rate on Windows either. The rebuild time, a median of 2.42 ms in release at `759205a6` (~15–22 ms in the debug build at `a38ba3b`), matters when the cursor is over an animating/moving sprite.
 
 ### Instrumentation sample
 
@@ -194,7 +217,7 @@ mask_rebuild: 111x99 @3x scale, 579 opaque pixels, 2.64 ms
 
 ## Recommendations for Follow-Up
 
-1. **`perf` or Windows Performance Analyzer flamegraph** for rebuild hotspots — not yet collected for Windows.
+1. **Windows Performance Analyzer flamegraph** for rebuild hotspots — a WPR trace is recorded (see [Release build (2026-10-26)](#release-build-2026-10-26)) but no flamegraph image is exported yet.
 2. **Sustained fast animation samples** — Current react measurements are from poke interactions (loop=once). Extended cursor-over with a hypothetical looping 10 fps animation would clarify sustained rate vs per-rebuild cost.
 3. **Isolate DWM region update cost vs iteration cost** — Instrument the region construction separately from the DWM API call to understand the cost breakdown.
-4. **Compare debug vs release builds** — Current Windows measurements used debug `fidget.exe`; release build may show different timings.
+4. **Compare debug vs release builds** — Done for the cursor-held BMO case: median 2.42 ms in release at `759205a6`, against 14.5–22 ms in debug at `a38ba3b`. The code changed between the two tips, so not all of the gap is the build profile.
