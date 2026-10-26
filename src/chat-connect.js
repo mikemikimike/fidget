@@ -86,7 +86,8 @@ export function landingCopy(opening) {
       lede: terminal
         ? `${name} is running but not signed in. Sign in, then press Retry, or pick a different Harness below.`
         : `${name} is running but not signed in. Sign in, or pick a different Harness below.`,
-      // Retry re-asks the Harness already picked. The buttons stay for a different one.
+      // Retry re-asks the Harness already picked. The buttons stay for a
+      // different one.
       retry: true,
       command: terminal ? opening.login : null,
       signInLabel: buttons ? "Login using:" : null,

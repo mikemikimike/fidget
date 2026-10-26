@@ -1,7 +1,9 @@
 <!doctype html>
-<!-- Every Character this project can publish, each Animation at the fps its manifest declares. -->
-<!-- Generated. Until deploy the gallery block is empty, so a clone says it has no data rather -->
-<!-- than inventing some. The page plays every ring member. It does not pick one. -->
+<!--
+  Every Character this project can publish, each Animation at the fps its manifest declares.
+  Generated. Until deploy the gallery block is empty, so a clone says it has no data rather
+  than inventing some. The page plays every ring member. It does not pick one.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -74,8 +76,8 @@
                font-size: .95em; }
   .short { color: var(--warn); }
 
-  /* The package's own [source] declaration. This page is a public, indexed URL, so it prints */
-  /* what the manifest declares rather than paraphrasing a caveat into a weaker one. */
+  /* The package's own [source] declaration. This page is a public, indexed URL, so it prints
+     what the manifest declares rather than paraphrasing a caveat into a weaker one. */
   .source {
     margin: .7rem 0 0;
     padding: .7rem .85rem;
@@ -104,9 +106,9 @@
 
   .strip { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 1rem;
            align-items: flex-end; }
-  /* One box around a base and its variants: the Engine draws one member of */
-  /* that ring, chosen when the Animation starts. The gallery shows every */
-  /* member so a README still cannot. */
+  /* One box around a base and its variants: the Engine draws one member of
+     that ring, chosen when the Animation starts. The gallery shows every
+     member so a README still cannot. */
   .ring { display: flex; flex-wrap: wrap; gap: .8rem; align-items: flex-end;
           padding: .55rem; border: 1px solid var(--line); border-radius: 12px;
           background: var(--card); }
@@ -118,9 +120,9 @@
   .stage img { position: absolute; bottom: 0; display: none;
                -webkit-user-drag: none; }
   .stage img.on { display: block; }
-  /* ADR-0006: true pixel art is nearest-neighbour at an integer scale, which */
-  /* is what src/main.css does for the overlay. A Character declaring */
-  /* render_mode = "smooth" overrides it, as src/main.js does there. */
+  /* ADR-0006: true pixel art is nearest-neighbour at an integer scale, which
+     is what src/main.css does for the overlay. A Character declaring
+     render_mode = "smooth" overrides it, as src/main.js does there. */
   .stage img { image-rendering: pixelated; }
   .smooth .stage img { image-rendering: auto; }
   .label { font-size: .8rem; text-align: center; }

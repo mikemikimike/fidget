@@ -1,6 +1,8 @@
 <!doctype html>
-<!-- scripts/make-landing-page.py fills each double-brace slot from README.md and characters/. -->
-<!-- Product copy belongs there. This file is the shell. -->
+<!--
+  scripts/make-landing-page.py fills each double-brace slot from README.md and characters/.
+  Product copy belongs there. This file is the shell.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -116,8 +118,8 @@
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 6px;
     padding: .2rem .45rem; color: var(--ink); overflow-wrap: anywhere; }
   .note { font-size: .85rem; color: var(--ink-3); margin-top: .8rem; max-width: 34rem; }
-  /* The command and its Copy button wrap as one unit; on a narrow screen the */
-  /* command scrolls inside its chip rather than splitting. */
+  /* The command and its Copy button wrap as one unit; on a narrow screen the
+     command scrolls inside its chip rather than splitting. */
   .cmd { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; vertical-align: middle; }
   .cmd code { white-space: nowrap; overflow-x: auto; min-width: 0; }
 
@@ -260,8 +262,8 @@
   .how-more { margin: 1rem 0 0; }
 
   .play-tiles[hidden] { display: none; }
-  /* The desk sits in a window of its own: a white bevel, and the invite as its title bar. */
-  /* The bar is outside #play-desk, so the physics' bounds stay the desk. */
+  /* The desk sits in a window of its own: a white bevel, and the invite as its title bar.
+     The bar is outside #play-desk, so the physics' bounds stay the desk. */
   .play-panel { border: 3px solid; border-color: var(--bevel-hi) var(--bevel-lo) var(--bevel-lo) var(--bevel-hi);
     border-radius: 16px; overflow: hidden; background: var(--bevel-hi);
     box-shadow: inset 1px 1px 0 rgb(255 255 255 / .6), inset -1px -1px 0 rgb(0 0 0 / .12),
@@ -281,8 +283,8 @@
   .play-picker .face { position: relative; overflow: hidden; }
   .play-picker img { position: absolute; display: block; max-width: none; }
   .play-picker img.pixel { image-rendering: pixelated; }
-  /* Gestures left of the panel once .wrap is at its full 68rem, so the desk keeps ~750px. */
-  /* The DOM stays panel then gestures, so the stacked layout keeps that order. */
+  /* Gestures left of the panel once .wrap is at its full 68rem, so the desk keeps ~750px.
+     The DOM stays panel then gestures, so the stacked layout keeps that order. */
   @media (min-width: 70rem) {
     .play-row { display: grid; grid-template-columns: 17rem minmax(0, 1fr); grid-template-areas: "gestures panel"; gap: 2rem; align-items: start;
       margin-bottom: 1.25rem; }
@@ -290,8 +292,8 @@
     .play-row .play-gestures { grid-area: gestures; }
     .play-gestures .play-sub { margin-top: 0; }
   }
-  /* Sized to the viewport, so the tallest Character (160px) has room to be held */
-  /* above every window's top edge, which sits at least 0.45 of the way down. */
+  /* Sized to the viewport, so the tallest Character (160px) has room to be held
+     above every window's top edge, which sits at least 0.45 of the way down. */
   .play-desk { position: relative; height: clamp(420px, 60vh, 640px); border-radius: 14px; overflow: hidden;
     background: linear-gradient(135deg, var(--desk-a), var(--desk-b)); border: 1px solid var(--line);
     user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
@@ -341,8 +343,8 @@
   .play-hint { position: absolute; left: 12px; top: 10px; margin: 0; font-size: .85rem; color: var(--desk-ink);
     transition: opacity .6s; pointer-events: none; }
   .play-hint.tried { opacity: 0; }
-  /* The wallpaper switch, to show the cues read on any desktop. Light and dark */
-  /* are the page's own desk colors, busy is cues.html's. */
+  /* The wallpaper switch, to show the cues read on any desktop. Light and dark
+     are the page's own desk colors, busy is cues.html's. */
   .play-desk[data-wall="light"] { --desk-a: var(--desk-light-a); --desk-b: var(--desk-light-b); --desk-ink: var(--ink-2-light); }
   .play-desk[data-wall="dark"] { --desk-a: var(--desk-dark-a); --desk-b: var(--desk-dark-b); --desk-ink: var(--ink-2-dark); }
   .play-desk[data-wall="busy"] { --desk-ink: var(--ink-2);
@@ -354,8 +356,8 @@
     font: inherit; font-size: .75rem; cursor: pointer; touch-action: manipulation; }
   .play-walls button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
   .play-walls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* The page character: a layer over the viewport that takes no pointer, so */
-  /* only the sprite, its Hide chip and its bubble do. */
+  /* The page character: a layer over the viewport that takes no pointer, so
+     only the sprite, its Hide chip and its bubble do. */
   .fidget { position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none; }
   .fidget[hidden], .fidget-at[hidden] { display: none; }
   .fidget-at { position: absolute; left: 0; top: 0; }

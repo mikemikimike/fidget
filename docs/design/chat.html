@@ -1,12 +1,14 @@
 <!doctype html>
-<!-- The window a Summon opens, drawn by Fidget rather than by the Harness. Nothing here is wired -->
-<!-- into the app. Dated, so the shape and the copy can be argued before they ship. -->
+<!--
+  The window a Summon opens, drawn by Fidget rather than by the Harness. Nothing here is wired
+  into the app. Dated, so the shape and the copy can be argued before they ship.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- A frozen proposal on a public site with no access control. Indexing it -->
-<!-- would make a superseded design the canonical answer for "Fidget chat". -->
+<!-- A frozen proposal on a public site with no access control. Indexing it
+     would make a superseded design the canonical answer for "Fidget chat". -->
 <meta name="robots" content="noindex">
 <title>Fidget Chat</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -138,8 +140,8 @@
     border-top: 10px solid #333;
   }
 
-  /* ---- the window. The bubble's ink-on-white with a title bar on it: the */
-  /* Windows-95 register the overlay already draws in. ---- */
+  /* ---- the window. The bubble's ink-on-white with a title bar on it: the
+         Windows-95 register the overlay already draws in. ---- */
   .win {
     position: absolute; left: 26px; bottom: 34px; width: 430px; height: 456px;
     display: flex; flex-direction: column; overflow: hidden;
@@ -174,8 +176,8 @@
     padding: 7px 10px; max-width: 84%;
   }
   .who-label { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: #8A90A0; font-weight: 700; }
-  /* Sibling of .who-label, not inside it: that node uppercases and letter-spaces */
-  /* its text, which would pull the digits apart.. */
+  /* Sibling of .who-label, not inside it: that node uppercases and letter-spaces
+     its text, which would pull the digits apart.. */
   .row .who { display: flex; align-items: baseline; gap: 7px; }
   .when {
     font-size: 10.5px; font-variant-numeric: tabular-nums; font-weight: 700;
@@ -186,14 +188,14 @@
     display: flex; gap: 8px; align-items: baseline; min-width: 0;
   }
   .tool .glyph { color: #A8AEBA; }
-  /* Truncated rather than wrapped: a tool call is one line, and the path is */
-  /* the part that gives. The Harness's own surfaces hold the detail. */
+  /* Truncated rather than wrapped: a tool call is one line, and the path is
+     the part that gives. The Harness's own surfaces hold the detail. */
   .tool .arg { color: #24262C; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .caret { display: inline-block; width: 7px; color: #8A90A0; animation: blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
 
-  /* The forwarded session/request_permission. Drawn, never answered: the */
-  /* choices are the Harness's own, and the reply goes straight back to it. */
+  /* The forwarded session/request_permission. Drawn, never answered: the
+     choices are the Harness's own, and the reply goes straight back to it. */
   .ask { border: 2px solid #333; border-radius: 10px; padding: 10px 12px; background: #FFFDF3; }
   .ask .head { font-weight: 700; font-size: 12.5px; margin-bottom: 2px; }
   .ask .what { font-family: var(--mono); font-size: 12px; color: #24262C; margin: 4px 0 9px; word-break: break-all; }

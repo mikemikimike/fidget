@@ -257,8 +257,8 @@ body {
   -webkit-user-select: text;
 }
 
-/* Send is hidden beside the link, so this stands in for its 28px height
-   and evens the right padding with the left 13px. */
+/* Send is hidden beside the link, so this stands in for its 28px height and
+   evens the right padding with the left 13px. */
 .quick-message-connect {
   grid-area: 1 / 1;
   padding-right: 5px;

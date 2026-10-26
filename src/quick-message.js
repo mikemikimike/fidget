@@ -8,8 +8,8 @@ const CONNECT_PROMPT = "Connect an AI to talk to me";
 // Shorter than the prompt, so the hint and Open chat fit on one line.
 export const CONNECT_HINT = "No AI connected yet.";
 
-// Every unavailable state is fixed in Chat's landing, so the pill links
-// there. A Harness still starting clears on its own and keeps Chat's sentence.
+// Every unavailable state is fixed in Chat's landing, so the pill links there.
+// A Harness still starting clears on its own and keeps Chat's sentence.
 export function quickMessageConnects(opening) {
   return !canAnswer(opening) && !opening?.harness?.initializing;
 }
@@ -21,8 +21,8 @@ export function quickMessagePrompt(opening) {
 }
 
 // `field` and `send` are the overlay's controls. `machine` is this module.
-// One opening, the same one Chat paints from. `link` is absent where the
-// overlay cannot take a click off the art.
+// One opening, the same one Chat paints from.
+// `link` is absent where the overlay cannot take a click off the art.
 export function applyQuickMessageGate({ field, send, link, machine }, opening) {
   const ready = canAnswer(opening);
   // Enable before the machine claims the caret. focus() on a still-disabled
@@ -111,8 +111,8 @@ export function createQuickMessage({
   let ready = available;
   // Whether this overlay owns the Instance's bubble, as the last placement said.
   let owned = false;
-  // The open draft came from the Shell and is untouched here, so it stays
-  // only while the Shell still carries it.
+  // The open draft came from the Shell and is untouched here, so it stays only
+  // while the Shell still carries it.
   let carried = false;
 
   function changed() {
@@ -413,8 +413,8 @@ export function createDraftReporter(invoke) {
   };
 }
 
-// Same seat as a speech line or the thinking dots. When that box is
-// already there, step clear of it so a hover does not cover it.
+// Same seat as a speech line or the thinking dots. When that box is already
+// there, step clear of it so a hover does not cover it.
 export function placeQuickMessage(spriteRect, size, bounds, speechRect) {
   const pos = placeBubble(spriteRect, size, bounds);
   if (!speechRect) return pos;

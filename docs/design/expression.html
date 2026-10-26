@@ -1,7 +1,9 @@
 <!doctype html>
-<!-- Speech reading time and the thinking ellipsis, operated from src/bubble.js. Generated. -->
-<!-- A clone without the copied module 404s rather than inventing a second formula. Judge the -->
-<!-- page from the build, not from this directory. -->
+<!--
+  Speech reading time and the thinking ellipsis, operated from src/bubble.js. Generated.
+  A clone without the copied module 404s rather than inventing a second formula. Judge the
+  page from the build, not from this directory.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -88,24 +90,24 @@
     position: relative;
     height: 100%;
   }
-  /* Overlay bubble rules are absolute over a sprite; here the sprite is the */
-  /* only occupant, so pin the bubble above its head without calling */
-  /* placeBubble — that function is ceiling-clearance, not reading time. */
+  /* Overlay bubble rules are absolute over a sprite; here the sprite is the
+     only occupant, so pin the bubble above its head without calling
+     placeBubble — that function is ceiling-clearance, not reading time. */
   .stage .bubble {
     left: 50%;
     bottom: 136px;
     transform: translateX(-50%);
   }
-  /* Frames at their own size: 90px art drawn at 90px, which is what the */
-  /* overlay does for a Character declaring scale = 1. Scaled down, a facing */
-  /* or a jaw frame stops being judgeable. */
+  /* Frames at their own size: 90px art drawn at 90px, which is what the
+     overlay does for a Character declaring scale = 1. Scaled down, a facing
+     or a jaw frame stops being judgeable. */
   #sprite-img {
     position: absolute;
     left: 50%;
     bottom: 36px;
     transform: translateX(-50%);
-    /* The overlay pixel-snaps its art (src/main.css) and lets a smooth pack */
-    /* override, as src/main.js does; the block below says which this is. */
+    /* The overlay pixel-snaps its art (src/main.css) and lets a smooth pack
+       override, as src/main.js does; the block below says which this is. */
     image-rendering: pixelated;
   }
   #sprite-img[data-smooth="true"] { image-rendering: auto; }
@@ -186,9 +188,9 @@
   </footer>
 </div>
 
-<!-- Buddy Bot's own Animations, rewritten from its Character Manifest at -->
-<!-- deploy by scripts/make-expression-page.py. Which frames and what fps are -->
-<!-- the package's, never this page's. -->
+<!-- Buddy Bot's own Animations, rewritten from its Character Manifest at
+     deploy by scripts/make-expression-page.py. Which frames and what fps are
+     the package's, never this page's. -->
 <script type="application/json" id="sprite">
 {
   "package": "buddy-bot",

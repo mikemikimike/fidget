@@ -1,6 +1,7 @@
-/* Settings on the Chat surface's tokens. Every colour, radius and font here is */
-/* a var() from chat-ui.css, so tests/chat-ui-tokens.test.js's rule would hold */
-/* for this file as written; a second design recolours Settings for free. */
+/* Settings on the Chat surface's tokens. Every colour, radius and font here is
+   a var() from chat-ui.css, so tests/chat-ui-tokens.test.js's rule would hold
+   for this file as written; a second design recolours Settings for free. */
+
 body {
   height: 100vh;
   display: flex;

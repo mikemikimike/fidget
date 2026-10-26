@@ -1,14 +1,16 @@
 <!doctype html>
-<!-- When a window read comes back nameless because the consent over title and owner is off, the -->
-<!-- character says so once, in three shapes. Dated and self-contained. Nothing is shipped for a -->
-<!-- script to read, so this page cannot be generated. -->
+<!--
+  When a window read comes back nameless because the consent over title and owner is off, the
+  character says so once, in three shapes. Dated and self-contained. Nothing is shipped for a
+  script to read, so this page cannot be generated.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- A frozen proposal on a public site with no access control. Indexing it -->
-<!-- would make an unshipped design the canonical answer for "Fidget window -->
-<!-- titles", which is a privacy claim it must not make for the product. -->
+<!-- A frozen proposal on a public site with no access control. Indexing it
+     would make an unshipped design the canonical answer for "Fidget window
+     titles", which is a privacy claim it must not make for the product. -->
 <meta name="robots" content="noindex">
 <title>Window Names Hint</title>
 <style>
@@ -139,8 +141,8 @@
   #win-term { left: 70px; top: 250px; width: 250px; height: 120px; }
   #win-term .body { font-family: var(--mono); color: var(--ink-2); }
 
-  /* The chat window is a stage prop, not the real Chat surface. It is here */
-  /* only so variant A has somewhere to be, and somewhere not to be. */
+  /* The chat window is a stage prop, not the real Chat surface. It is here
+     only so variant A has somewhere to be, and somewhere not to be. */
   .chatwin { right: 20px; top: 52px; width: 292px; height: 320px; display: flex; flex-direction: column; }
   .chatwin .log { flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
   .msg { font-size: 12px; border-radius: 9px; padding: 6px 9px; max-width: 85%; }
@@ -166,8 +168,8 @@
   .bubble::after { content: ""; position: absolute; left: 62px; bottom: -8px; border: 8px solid transparent;
                    border-top-color: var(--bubble); border-bottom: 0; }
 
-  /* Variant A's weakness, drawn rather than described: with the chat window */
-  /* closed there is nowhere for the notice to go, and the stage says so. */
+  /* Variant A's weakness, drawn rather than described: with the chat window
+     closed there is nowhere for the notice to go, and the stage says so. */
   .nowhere, .costs { position: absolute; background: rgba(20,24,34,.82); color: #EDEFF5;
              border: 1px dashed rgba(237,239,245,.5); border-radius: 8px; padding: 7px 11px; font-size: 12px; }
   .nowhere { left: 50%; bottom: 16px; transform: translateX(-50%); max-width: 420px; text-align: center; }

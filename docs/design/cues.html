@@ -1,12 +1,14 @@
 <!doctype html>
-<!-- One visual and one sound per gesture, drawn by the Shell. Self-contained on purpose, so -->
-<!-- the page opens from a clone with no file beside it. -->
+<!--
+  One visual and one sound per gesture, drawn by the Shell. Self-contained on purpose, so
+  the page opens from a clone with no file beside it.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- A frozen proposal on a public site with no access control. Indexing it -->
-<!-- would make a superseded design the canonical answer for "Fidget cues". -->
+<!-- A frozen proposal on a public site with no access control. Indexing it
+     would make a superseded design the canonical answer for "Fidget cues". -->
 <meta name="robots" content="noindex">
 <title>Fidget Cues</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -166,8 +168,8 @@
   }
   @keyframes cue-fade { to { opacity: 0; } }
 
-  /* A menu cue is a ring segment sweeping the whole way round. A conic gradient the script */
-  /* advances, masked to a thin donut, so it stays crisp at any DPI with no SVG stroke to smear. */
+  /* A menu cue is a ring segment sweeping the whole way round. A conic gradient the script
+     advances, masked to a thin donut, so it stays crisp at any DPI with no SVG stroke to smear. */
   .cue-wedge {
     width: 58px; height: 58px; border-radius: 50%;
     transform: translate(-50%, -50%);
@@ -177,8 +179,8 @@
     opacity: .85;
   }
   .cue-wedge.fading { animation: cue-fade 150ms ease-in forwards; }
-  /* Its white hairlines, a sibling under the same sweep, so the segment has an */
-  /* edge on a dark wallpaper too. */
+  /* Its white hairlines, a sibling under the same sweep, so the segment has an
+     edge on a dark wallpaper too. */
   .cue-wedge-edge {
     width: 58px; height: 58px; border-radius: 50%;
     transform: translate(-50%, -50%);
@@ -222,9 +224,9 @@
     .cue-ring, .cue-wedge, .cue-wedge-edge, .cue-dash, .cue-puff { animation-duration: 1ms !important; animation-delay: 0ms !important; }
   }
 
-  /* Ported from src/main.css so this page stays one file. Speech keeps the */
-  /* tail; the pill refuses it. The disc is #5cc9b5, the chat accent, not */
-  /* this page's --accent, which is a different green in light mode. */
+  /* Ported from src/main.css so this page stays one file. Speech keeps the
+     tail; the pill refuses it. The disc is #5cc9b5, the chat accent, not
+     this page's --accent, which is a different green in light mode. */
   .quick-message {
     --qm-accent: #5cc9b5;
     --qm-panel: #14171e;

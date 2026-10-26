@@ -496,8 +496,8 @@
   --chat-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* A root background, even an empty image, keeps the body's tint off the
-   page canvas. On the canvas the body's blur would sample it and tint twice. */
+/* A root background, even an empty image, keeps the body's tint off the page
+   canvas. On the canvas the body's blur would sample it and tint twice. */
 .chat-ui-glass {
   background-image: linear-gradient(transparent, transparent);
 }
@@ -954,9 +954,9 @@ body {
   opacity: 0.9;
 }
 
-/* A launcher path has no space to wrap at, so its min-content would
-   widen the header past the window. Breaking anywhere drops that floor
-   to one letter, and .mind's min-width puts back about a word. */
+/* A launcher path has no space to wrap at, so its min-content would widen the
+   header past the window. Breaking anywhere drops that floor to one letter,
+   and .mind's min-width puts back about a word. */
 .mind-text {
   overflow-wrap: anywhere;
 }
@@ -2184,8 +2184,8 @@ body {
   fill: #c4a484;
 }
 
-/* The label is out of flow, so the header keeps its height. The cup
-   lifts to make room for it. */
+/* The label is out of flow, so the header keeps its height. The cup lifts
+   to make room for it. */
 .tb button.caffeinate.on svg {
   transform: translateY(-4px);
 }
