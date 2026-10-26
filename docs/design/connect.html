@@ -1,23 +1,7 @@
 <!doctype html>
-<!--
-  The Harness connect flow for omesser/fidget#459: a unified landing page
-  for Chat empty states (not configured, switched off, needs login) with
-  branded connect buttons for the main Harnesses.
-
-  A Dated page under ADR-0011: hand-written and frozen at its date. Design
-  approved 2026-09-08. Self-contained on purpose: no font link, no remote
-  images, inline SVG only. The system font stack is the design — the chat's
-  CSP blocks Google Fonts, and this is the same constraint.
-
-  Four main Harnesses with REAL brand marks:
-  - Claude: from simple-icons/simple-icons (Claude mark, official #D97757)
-  - Codex: OpenAI mark from simple-icons v15 before removal (black/#000000)
-  - Grok: xAI/SpaceXAI wordmark (pending official asset, using "Grok" text for now)
-  - OpenCode: from anomalyco/opencode official identity (#000000)
-
-  Marks are trademarks; we do not claim affiliation with Anthropic, OpenAI,
-  xAI, SpaceXAI, or OpenCode.
--->
+<!-- One landing for Chat's empty states, with a connect button per Harness. Dated and -->
+<!-- self-contained. The system font is the design because the chat CSP blocks a remote font. -->
+<!-- Marks are trademarks. This page claims no affiliation. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -36,7 +20,6 @@
     --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
     color-scheme: light;
 
-    /* Brand accent colors (light theme) */
     --claude-accent: #D97757;
     --codex-accent: #10A37F;
     --grok-accent: #536A7A;
@@ -53,7 +36,6 @@
       --accent: #5CC9B5;
       color-scheme: dark;
 
-      /* Brand accent colors (dark theme) */
       --claude-accent: #E8A78A;
       --codex-accent: #26C399;
       --grok-accent: #7A8FA3;
@@ -102,7 +84,6 @@
   }
   p { max-width: 74ch; }
 
-  /* ---- controls ---- */
   .bar {
     position: sticky; top: 0; z-index: 5;
     display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
@@ -120,7 +101,6 @@
   .seg button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
   .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ---- chat window ---- */
   .window {
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -173,7 +153,6 @@
     margin-top: 8px;
   }
 
-  /* ---- unified landing: connect buttons with brand accents ---- */
   .landing {
     display: flex;
     flex-direction: column;
@@ -207,7 +186,6 @@
     text-align: center;
   }
 
-  /* Brand-specific accent colors */
   .connect-btn[data-harness="claude"] {
     border-color: color-mix(in srgb, var(--claude-accent) 30%, var(--line));
   }
@@ -296,7 +274,6 @@
     outline-offset: 2px;
   }
 
-  /* ---- demo sections ---- */
   .demo-section {
     margin: 32px 0;
     padding: 24px;
@@ -348,7 +325,6 @@
     <div class="window" id="chat-window">
       <div class="window-header">BMO · Chat</div>
       <div class="window-body" id="chat-body">
-        <!-- Content injected by script -->
       </div>
     </div>
   </div>

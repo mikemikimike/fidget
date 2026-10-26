@@ -1,13 +1,6 @@
-// A skill that tells an agent to run a script it cannot find is worse than one
-// that says nothing: the agent invents a workaround and reports success. The
-// failure is silent, so it needs a check rather than a reader.
-//
-// Vendored skills name their helpers relative to the skill directory —
-// `scripts/watch-pr/watch-pr` means
-// `.agents/skills/poteto-mode/scripts/watch-pr/watch-pr`. An agent sitting at
-// the repository root resolves that to nothing and falls back to `gh`. This
-// resolves a reference the way a reader should: beside the file, then under the
-// skill, then from the repository root.
+// A skill that names a script the agent cannot find is worse than silence:
+// the agent invents a workaround and reports success. Vendored helpers are
+// relative to the skill, and a root-relative read resolves them to nothing.
 
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -26,10 +19,9 @@ const UNDER_SCRIPTS = /(^|\/)(scripts|helpers)\//;
 // Path-shaped tokens, optionally anchored with `./` or `../`.
 const TOKEN = /(?:\.{1,2}\/)?[A-Za-z0-9_.][A-Za-z0-9_.\-]*(?:\/[A-Za-z0-9_.\-]+)+/g;
 
-// Prose that looks like a path and is not one. Each entry is a token this scan
-// cannot tell from a real reference by shape alone, with the reason it is
-// exempt. The same `name|reason` convention as EXCLUDED in
-// `scripts/sync-pstack.sh`: the record of why is the point.
+// Prose that looks like a path and is not one. Each entry is a token this
+// scan cannot tell from a real reference by shape alone, with the reason it
+// is exempt. The record of why is the point.
 const NOT_A_REFERENCE = new Map([
   [
     "scripts/snapshot.sh",

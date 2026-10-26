@@ -1,8 +1,6 @@
-// A typed turn opens its caret row when the line is sent. An ask the Harness
-// raises mid-turn is appended below it, so the answer that comes after the
-// user's Yes fills the row above the ask and reads as if BMO had answered
-// first and then asked and gone quiet. The caret has to move under the ask.
-// `scripts/chat-ask-order.mjs` drives the real surface headless.
+// A typed turn opens its caret row on send. An ask raised mid-turn is appended
+// below it, so the answer after Yes fills the row above the ask and reads as
+// if the reply came first. The caret has to move under the ask.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

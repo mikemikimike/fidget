@@ -1,6 +1,3 @@
-// Fixture test for Harness initialization: starting state visible throughout,
-// then settling to ready or failed. Verifies DOM shows data-initializing attribute
-// and landing copy during the initializing phase.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

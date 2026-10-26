@@ -36,7 +36,7 @@ function element(tag) {
 }
 globalThis.document = {
   createElement: element,
-  // #901 render clears #set-footer; this suite has no page chrome.
+  // Render clears #set-footer. This suite has no page chrome.
   getElementById() {
     return null;
   },
@@ -73,7 +73,7 @@ test("every label holds the control it names", () => {
     for (const title of ["Presence", "Character", "AI", "Chat", "Privacy", "Caffeinate", "Development"]) {
       for (const label of page(name, title).filter((node) => node.tagName === "label")) {
         // A field's shortcut picker sits in its label too, ahead of the field
-        // the label names (#1426).
+        // the label names.
         const held = descendants(label).filter((node) => CONTROLS.includes(node.tagName));
         assert.ok(held.length > 0, `a label in ${title} holds no control when ${when}`);
         if (label.getAttribute("for")) {

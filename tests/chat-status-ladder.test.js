@@ -1,11 +1,6 @@
 // A flex item's computed display is flex wherever it sits, so the parent
-// element and the boxes are what prove the row.
-//
-// Collapsed, the plain sentence and Advanced share one line. The sameTop check
-// allows ±1px tolerance because fractional line-heights (terminal uses 10.5px
-// font-size * 1.45 line-height = 15.225px) can cause subpixel rounding
-// differences across Chrome versions and rendering engines when calculating
-// baseline alignment of <span> vs <details><summary> elements.
+// and the boxes prove the row. Collapsed, the sentence and Advanced share
+// one line. sameTop allows ±1px because a 10.5px font times 1.45 is 15.225px.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

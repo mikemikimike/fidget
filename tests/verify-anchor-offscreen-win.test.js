@@ -1,9 +1,6 @@
-// scripts/verify-anchor-offscreen-win.ps1 decides "anchor pixels on the desktop"
-// in Test-AnchorOnDesktop, a pure function of plain window records. #973: the
-// live run counted Tao's 16x16 event-loop window at 0,0 as the anchor after the
-// real anchor was parked at -32000,-32000. The records below are that run.
-// Only the function is loaded, through the PowerShell parser, so the script's
-// user32 calls and app launch never run.
+// Test-AnchorOnDesktop is a pure function of window records. Tao's 16x16
+// event-loop window at 0,0 counts as the anchor once the real one is parked
+// at -32000,-32000. Only the function is loaded, so user32 never runs.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -67,7 +64,7 @@ function rect(left, top, width, height) {
   return { Left: left, Top: top, Right: left + width, Bottom: top + height };
 }
 
-// DESKTOP-UQIE144 at #972: a 3440x1440 primary and a 1200x1920 portrait beside it.
+// A 3440x1440 primary and a 1200x1920 portrait beside it.
 const monitors = [rect(0, 0, 3440, 1440), rect(3440, 0, 1200, 1920)];
 
 const parkedAnchor = { Name: "parkedAnchor", Class: "Tauri Window", Title: "Fidget", ...rect(-32000, -32000, 136, 39) };
@@ -104,9 +101,9 @@ test(
   },
 );
 
-// macos-latest checks, job 108703393062: spawnSync status is null (not 134)
-// and stderr names the truncated MMI assembly. The FileLoadException line
-// alone already skipped the analyzer hook; decide() was still asserting status 0.
+// spawnSync status is null, not 134, and stderr names the truncated MMI
+// assembly. The FileLoadException line alone already skipped the analyzer
+// hook. decide() was still asserting status 0.
 const MACOS_PWSH_ABORT = `An error has occurred that was not properly handled. Additional information is shown below. The PowerShell process will exit.
 
 Unhandled exception. System.IO.FileLoadException: The given assembly name was invalid.

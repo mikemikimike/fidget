@@ -1,23 +1,7 @@
 <!doctype html>
-<!--
-  The bubble design for omesser/fidget#441, shipped by #456: the overlay's
-  speech bubble drawn as a piece of the chat surface, carried onto the
-  desktop without the part of that surface that only works inside a window.
-
-  The <style> block marked "spec" is src/main.css, ported verbatim by #456.
-  A Dated page under ADR-0011: hand-written and frozen at its date, so
-  src/main.css is what runs. Nothing here is loaded by the app.
-
-  The design #456 retired is still drawn beside it, tagged `retired`, because
-  the comparison is the argument: a light box with a #333 ring, a round thought
-  silhouette trailing discs, and a flip below the head. That is src/main.css
-  and src/bubble.js as they stood until 2026-09-07.
-
-  Self-contained on purpose: no font link, no image file, no stylesheet beside
-  it. BMO's idle frame is inlined, the same frame docs/design/cues.html uses.
-  The system font stack is the design: --chat-sans is
-  `system-ui, -apple-system, sans-serif`, and the app's CSP blocks Google Fonts.
--->
+<!-- The overlay speech bubble, drawn as a piece of the chat surface and carried onto the -->
+<!-- desktop. Dated and self-contained on purpose, so nothing here is loaded by the app. The -->
+<!-- retired design stays beside the shipped one because the comparison is the argument. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -37,14 +21,9 @@
     --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
     color-scheme: light;
 
-    /* The three grounds. Light and dark are lifted from docs/design/cues.html,
-       which already asks this question of the cues. The busy one is not: a
-       flat 45-degree stripe is busy in hue and calm in luminance, and
-       luminance is what eats an edge. This one is built to be hostile — a
-       blown-out patch and a near-black patch within a bubble's width of each
-       other, under fractal grain at photographic frequency. It is a synthetic
-       stand-in for a photograph, not a photograph; judge the edge against it,
-       not the taste of it. */
+    /* Light and dark come from the cues page. The busy ground is a blown-out patch beside a */
+    /* near-black patch, a stand-in for a photograph, so the edge is judged against luminance */
+    /* rather than taste. */
     --desk-light: linear-gradient(160deg, #F7F8FA, #DCE1EA);
     --desk-dark: linear-gradient(160deg, #262A36, #101218);
     --desk-busy:
@@ -105,7 +84,6 @@
   }
   p { max-width: 74ch; }
 
-  /* ---- controls ---- */
   .bar {
     position: sticky; top: var(--site-nav-h, 0); z-index: 5;
     display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
@@ -123,7 +101,6 @@
   .seg button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
   .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ---- the desks ---- */
   .grounds { display: grid; gap: 22px; }
   .ground { display: grid; gap: 8px; }
   .ground > .cap { font-size: 13px; color: var(--ink-2); }
@@ -140,23 +117,18 @@
   .stage {
     position: relative;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    /* placeBubble() leaves exactly this gap over the sprite's head. The Shell
-       positions both absolutely from a shared-point-space rect; the page uses
-       a flex column, because the arithmetic is bubble.js's and is not what
-       this page settles. */
+    /* placeBubble() leaves this gap over the sprite's head. The page uses a flex column because */
+    /* the Shell's shared-point arithmetic is not what this page settles. */
     gap: 10px;
     min-height: 340px; padding: 26px 16px;
   }
-  /* The ceiling case. The top edge of the desk is the top edge of the display:
-     the sprite's head is close enough to it that a full bubble does not fit
-     above, and placeBubble's clamp takes over. */
+  /* The ceiling case. The top edge of the desk is the top edge of the display: */
+  /* the sprite's head is close enough to it that a full bubble does not fit */
+  /* above, and placeBubble's clamp takes over. */
   .stage.ceil { display: block; padding: 0; min-height: 440px; }
-  /* Head 96px below the display edge — inside the 128px clearance the retired
-     flip triggered on, and a realistic "dragged near the top" rather than a
-     worst case chosen to make the point. The current bubble's own top is
-     computed in render() from its measured height, exactly as placeBubble
-     does: headY - height - 10, clamped at the edge. Hardcoding it would be
-     drawing the conclusion. */
+  /* The head sits 96px below the display edge, inside the 128px clearance the retired flip used. */
+  /* render() computes the bubble top from its measured height, the way placeBubble does. */
+  /* Hardcoding that top would draw the conclusion. */
   .stage.ceil .sprite { position: absolute; left: 50%; margin-left: -63px; top: 96px; }
   .stage.ceil .bub { position: absolute; left: 50%; transform: translateX(-50%); }
   .stage.ceil .b-now { top: 234px; }  /* 96 + 128 + 10: where the retired flip put it, under the art */
@@ -175,20 +147,9 @@
   }
   .sprite { width: 126px; height: 128px; image-rendering: auto; -webkit-user-drag: none; }
 
-  /* ================================================================
-     spec — what src/main.css draws, ported verbatim by #456
-     ================================================================
-     Two bubbles are drawn. `.b-new` is the shipped one, the block src/main.css
-     took as `.bubble`. `.b-now` is the design it replaced — src/main.css:19-140
-     up to #456, quoted so the comparison is against the real thing and not a
-     memory of it.
-
-     The rule, in one line: a token from src/chat-ui.css may cross into the
-     overlay when its value means the same thing on any ground, and may not
-     when its value is an alpha over `--chat-panel`. The overlay has no panel.
-     Every literal below carries the chat token it came from.
-     ---------------------------------------------------------------- */
-
+  /* Two bubbles are drawn. `.b-new` is the shipped bubble and `.b-now` is the one it replaced, */
+  /* quoted so the comparison is against the file and not a memory of it. A chat token may cross */
+  /* only when its value means the same thing on any ground. */
   .bub {
     position: relative;
     max-width: 260px;
@@ -197,9 +158,9 @@
     z-index: 1;             /* over the sprite, which is what the ceiling case needs */
   }
   .bub .bc { white-space: pre-wrap; }
-  /* The 6-line cap is bubble.js's `MAX_LINES`, applied there by measuring and
-     appending an ellipsis. Clamped here instead, so the cap lands at each
-     bubble's own type size rather than at one precomputed wrap. */
+  /* The 6-line cap is bubble.js's `MAX_LINES`, applied there by measuring and */
+  /* appending an ellipsis. Clamped here instead, so the cap lands at each */
+  /* bubble's own type size rather than at one precomputed wrap. */
   .bub .bc.cap {
     display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical;
     overflow: hidden;
@@ -218,9 +179,9 @@
     30% { opacity: 1; transform: translateY(-3px); }
   }
 
-  /* ---- retired 2026-09-07 (src/main.css:19-140 up to #456, verbatim) ----
-     Including the flip and the round thought silhouette, because both are
-     what #456 deleted and the comparison is the argument. */
+  /* ---- retired 2026-09-07 (src/main.css:19-140 up to, verbatim) ---- */
+  /* Including the flip and the round thought silhouette, because both are */
+  /* what deleted and the comparison is the argument. */
   .b-now {
     padding: 12px 16px;
     background: white;
@@ -260,41 +221,24 @@
   .b-now[data-mode="thinking"].flipped::after  { bottom: auto; top: -18px; }
   .b-now .dots span { background: #333; }
 
-  /* ---- shipped ----
-     A piece of the chat surface's panel, carried out onto the desktop and
-     holding the Character's line as the log draws it. `.chat-ui-minimal` is
-     unconditionally dark, so the bubble is dark: not the ramp inverted, the
-     ramp as it actually renders. */
+  /* A piece of the chat panel carried onto the desktop. Minimal chat is unconditionally dark, so */
+  /* this bubble is that dark ramp, not the ramp inverted. */
   .b-new {
     --bub-panel: #14171e;         /* chat-ui.css --chat-panel */
     --bub-ink: #e8ebf2;           /* chat-ui.css --chat-ink */
     --bub-accent: #5cc9b5;        /* chat-ui.css --chat-accent */
     --bub-radius: 12px;           /* chat-ui.css --chat-radius */
 
-    /* The Character's line in the chat is `.row.them .said`: bare ink at
-       line-height 1.55, no fill, no radius, no padding. Those are the three
-       things the overlay cannot copy, because there is no panel under it to
-       be bare on. So the box is the panel's own: --chat-panel filled,
-       --chat-radius cornered, inset at the step the chat uses for a bordered
-       box holding one piece of text — `.composer input`'s 10px 13px.
-
-       Deliberately not `.row.you .said`. That is the *user's* turn: its
-       --chat-accent-soft fill and its --chat-radius-tail corner are the
-       gesture that says "you said this". Dressing the Character's speech in
-       the user's bubble would say the wrong thing, so --chat-radius-tail does
-       not travel and the corner stays uniform. */
+    /* In chat the line is bare ink, because a panel sits under it. The overlay has no panel, so */
+    /* the box has to carry the fill, the radius, and the padding the log can skip. */
     padding: 10px 13px;
     border-radius: var(--bub-radius);
     background: var(--bub-panel);
     color: var(--bub-ink);
 
-    /* The edge, and the whole answer to "a dark bubble on a dark wallpaper is
-       a hole". The fill and the border fail on opposite grounds: over a light
-       or blown-out ground the dark fill separates on its own and the light
-       ring is what disappears; over a dark or near-black ground the fill
-       vanishes and the ring is what carries. They are never both invisible,
-       which a single-value edge cannot promise. The shadow closes the
-       mid-tone case, where neither is at full strength. */
+    /* Fill and border fail on opposite grounds. Over a light ground the dark fill separates and */
+    /* the light ring disappears. Over a dark ground the fill becomes a hole and the ring is what */
+    /* still reads. */
     border: 2px solid var(--bub-ink);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
 
@@ -302,10 +246,9 @@
     font-size: 13.5px;                                   /* chat-ui.css body */
     line-height: 1.55;                                   /* .row.them .said */
   }
-  /* The tail is the same sandwich as the box: a ring triangle with a fill
-     triangle over it. A single --bub-panel spike would vanish on exactly the
-     grounds the ring exists for. 10px tall, which is the gap placeBubble
-     leaves over the sprite's head. */
+  /* The tail is a ring triangle with a fill triangle over it. A single panel-colored spike would */
+  /* vanish on the grounds the ring exists for. It is 10px, the gap placeBubble leaves over the */
+  /* head. */
   .b-new::before,
   .b-new::after {
     content: ""; position: absolute; left: 50%; width: 0; height: 0;
@@ -318,17 +261,13 @@
     border-left-width: 8px; border-right-width: 8px;
     border-top: 8px solid var(--bub-panel);
   }
-  /* One bubble, two states. Thinking is this same box holding an ellipsis —
-     no second silhouette, no trailing discs. The mark is the chat's own
-     `.caret`: --chat-accent on --chat-panel, which is what the chat surface
-     already draws while it waits. */
+  /* Thinking is this same box holding an ellipsis, not a second silhouette. The mark is the chat */
+  /* caret, accent on panel, which is what the chat surface already draws while it waits. */
   .b-new .dots span { background: var(--bub-accent); }
 
-  /* ---- end spec ---- */
-
-  /* Quick message, locked on #1076. Ported from src/main.css so this page
-     stays one file. The tail rules above belong to speech; this pill
-     refuses them. The disc is #5cc9b5, not an underlined word. */
+  /* Quick message, locked on. Ported from src/main.css so this page */
+  /* stays one file. The tail rules above belong to speech; this pill */
+  /* refuses them. The disc is #5cc9b5, not an underlined word. */
   .qm-grounds { display: grid; gap: 22px; }
   .qm-card > .cap { font-size: 13px; color: var(--ink-2); margin: 0; }
   .qm-card > .cap b { color: var(--ink); }
@@ -811,11 +750,9 @@
       bc.textContent = text;
       bc.classList.toggle("cap", state.sample === "cap");
 
-      // placeBubble's arithmetic, run for real rather than hardcoded, so the
-      // overlap on screen is the overlap the Shell produces: sit 10px
-      // over the head, and clamp at the display edge when there is no room.
-      // A short line near the ceiling still fits above the head and does not
-      // clamp at all — which is the honest answer, not a dodge.
+      // placeBubble's arithmetic, run rather than hardcoded, so the overlap on screen is the overlap
+      // the Shell produces. Sit 10px over the head, and clamp at the display edge when there is no
+      // room.
       if (ceiling && bub.classList.contains("b-new")) {
         const HEAD_Y = 96, GAP = 10;
         bub.style.top = Math.max(0, HEAD_Y - bub.offsetHeight - GAP) + "px";

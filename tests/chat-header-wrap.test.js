@@ -1,7 +1,6 @@
-// The Chat header keeps the name, the Character chip, and the mind line on one
-// row at every width. As the window narrows the mind line wraps first, down to
-// its min-content width; only then the Instance's name; the chip last. Drives
-// src/chat.html the way chat-reply-code.test.js does and measures line boxes.
+// The header keeps the name, the Character chip, and the mind line on one row.
+// As the window narrows the mind line wraps first, down to its min-content
+// width, then the Instance's name, and the chip last.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

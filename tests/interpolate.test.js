@@ -1,4 +1,3 @@
-// Run with `node --test tests/`.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -64,9 +63,9 @@ test("the first placement of all has nowhere to have come from", () => {
   assert.equal(arrived(null, at(100, 200, 1000), 1000), true);
 });
 
-// `onDisplay` decides whether this overlay asks its display for a frame at all
-// (#764). A true it returns too often keeps a quiet display's CVDisplayLink
-// warm; a false it returns on a sprite that is really there stops the drawing.
+// `onDisplay` decides whether this overlay asks its display for a frame at all.
+// A true it returns too often keeps a quiet display's CVDisplayLink warm. A
+// false it returns on a sprite that is really there stops the drawing.
 
 const display = { width: 1920, height: 1080 };
 const rect = (x, y) => ({ x, y, width: 96, height: 96 });

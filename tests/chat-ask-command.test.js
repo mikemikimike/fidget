@@ -12,9 +12,8 @@ import { pageWait } from "./page-wait.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
-// Captured from `cursor-agent acp` (2026.10.01-e373342) for "Set an alarm for
-// 21:20 using a shell command.": the title is the command as a code span, the
-// content is the shell's own note, and the kind is the tail.
+// The title is the command as a code span, the content is the shell's own
+// note, and the kind is the tail.
 const COMMAND = "(sleep 120 && osascript -e 'display notification \"It is 21:20.\"') &";
 const NOTE = "Shell allowlist is empty";
 // A span inside a longer title, with a line ending and an underscored path

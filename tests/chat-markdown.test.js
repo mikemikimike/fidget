@@ -1,7 +1,6 @@
-// What a reply's Markdown draws as, and the two things that must hold however
-// the parser behaves: the caret survives every chunk, and nothing a model
-// wrote becomes markup or a live URL scheme. The stand-in `document` below
-// refuses an `insertBefore` against a non-child on purpose, as a browser does.
+// A reply's Markdown must keep the caret through every chunk, and nothing a
+// model wrote becomes markup or a live URL scheme. The stand-in document
+// refuses `insertBefore` against a non-child, as a browser does.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";

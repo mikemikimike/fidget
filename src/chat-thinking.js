@@ -1,10 +1,10 @@
+
 // A Harness's thinking as Chat log entries, as a rule rather than DOM, so node
-// can drive the orderings a window cannot reproduce (ADR-0034). A thought is
-// the whole text so far; an empty one says the turn stopped thinking.
+// can drive orderings a window cannot reproduce. A thought is the text so far;
+// an empty one says the turn stopped thinking.
 
 // streaming: open and filling. collapsed: the title and a handle. expanded:
-// opened again by the user. A user may collapse or reopen a row that is still
-// filling; the reply collapses it either way.
+// opened again by the user. A filling row may be collapsed; the reply closes it.
 const TOGGLED = { streaming: "collapsed", collapsed: "expanded", expanded: "collapsed" };
 
 export function createThinking(draw) {

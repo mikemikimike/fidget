@@ -1,29 +1,14 @@
 <!doctype html>
-<!--
-  The window-names hint for omesser/fidget#916: when a window read comes
-  back nameless (no title, no owning application) because the one consent
-  ADR-0032 puts over both is off, the character says so once, in three candidate
-  shapes — a chat notice, a speech bubble, a menu-bar badge.
-
-  A Dated page under ADR-0011: hand-written, frozen at its date, carrying its
-  issue number. It proposes a state model and three surfaces, so it cannot be
-  Generated from anything — there is nothing shipped for a script to read. The
-  alternative class, prose claiming to describe shipped behavior, is the one
-  that decision forbids.
-
-  Self-contained on purpose: no font link, no remote image, no CDN. The system
-  font stack is the same constraint connect.html argues — the chat webview's
-  CSP blocks a remote stylesheet, so a page proposing chat surfaces has no
-  business depending on one. The character is inline SVG because this page is
-  about the hint, not the art.
--->
+<!-- When a window read comes back nameless because the consent over title and owner is off, the -->
+<!-- character says so once, in three shapes. Dated and self-contained. Nothing is shipped for a -->
+<!-- script to read, so this page cannot be generated. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- A frozen proposal on a public site with no access control. Indexing it
-     would make an unshipped design the canonical answer for "Fidget window
-     titles", which is a privacy claim it must not make for the product. -->
+<!-- A frozen proposal on a public site with no access control. Indexing it -->
+<!-- would make an unshipped design the canonical answer for "Fidget window -->
+<!-- titles", which is a privacy claim it must not make for the product. -->
 <meta name="robots" content="noindex">
 <title>Window Names Hint</title>
 <style>
@@ -108,7 +93,6 @@
 
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ---- controls ---- */
   .controls { display: grid; gap: 12px; margin-bottom: 14px; }
   .bank { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .bank > .label { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
@@ -123,7 +107,6 @@
                 padding: 5px 12px; border-radius: 999px; }
   .seg button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.18); }
 
-  /* ---- the stage ---- */
   .stage { position: relative; height: 430px; border: 1px solid var(--line); border-radius: 14px;
            overflow: hidden; background: var(--wall); }
   .menubar { position: absolute; inset: 0 0 auto 0; height: 26px; display: flex; align-items: center;
@@ -156,8 +139,8 @@
   #win-term { left: 70px; top: 250px; width: 250px; height: 120px; }
   #win-term .body { font-family: var(--mono); color: var(--ink-2); }
 
-  /* The chat window is a stage prop, not the real surface — #17 owns that. It
-     is here only so variant A has somewhere to be, and somewhere not to be. */
+  /* The chat window is a stage prop, not the real Chat surface. It is here */
+  /* only so variant A has somewhere to be, and somewhere not to be. */
   .chatwin { right: 20px; top: 52px; width: 292px; height: 320px; display: flex; flex-direction: column; }
   .chatwin .log { flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
   .msg { font-size: 12px; border-radius: 9px; padding: 6px 9px; max-width: 85%; }
@@ -183,8 +166,8 @@
   .bubble::after { content: ""; position: absolute; left: 62px; bottom: -8px; border: 8px solid transparent;
                    border-top-color: var(--bubble); border-bottom: 0; }
 
-  /* Variant A's weakness, drawn rather than described: with the chat window
-     closed there is nowhere for the notice to go, and the stage says so. */
+  /* Variant A's weakness, drawn rather than described: with the chat window */
+  /* closed there is nowhere for the notice to go, and the stage says so. */
   .nowhere, .costs { position: absolute; background: rgba(20,24,34,.82); color: #EDEFF5;
              border: 1px dashed rgba(237,239,245,.5); border-radius: 8px; padding: 7px 11px; font-size: 12px; }
   .nowhere { left: 50%; bottom: 16px; transform: translateX(-50%); max-width: 420px; text-align: center; }
@@ -214,7 +197,6 @@
   .readout pre { font-family: var(--mono); font-size: 12px; color: var(--ink-2); background: var(--paper-2);
                  border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin: 0; overflow-x: auto; }
 
-  /* ---- prose furniture ---- */
   table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 0 0 16px; }
   th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
   th { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
@@ -494,7 +476,7 @@ enum NamesHint {
 const KEY = "fidget.window-names-hint.dismissed";
 // What the readout under the stage is showing: what list_windows hands an
 // agent, which is the whole reason the hint exists. Owner and title fall
-// together (ADR-0032).
+// together.
 const WINDOWS = [
   ["[22,52,300,168],  ", "Code", "platform.rs — Fidget"],
   ["[150,132,300,150],", "Safari", "#916 · omesser/fidget"],

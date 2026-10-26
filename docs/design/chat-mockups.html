@@ -1,31 +1,18 @@
 <!doctype html>
-<!--
-  Three designs for the chat surface of omesser/fidget#17, side by side, so
-  one of them can be picked. The conversation, the sprite art, the traces and
-  the copy are lifted from docs/design/chat.html — the approved reference — and
-  only the visual design differs between the three. Nothing here is wired into
-  the app, and the reference page stays the reference until a direction wins.
-
-  One window, three skins. The markup inside the window is written once and the
-  engine driving it is written once; each variant is a stylesheet scoped under a
-  root class on the stage. That is deliberate: the variants have to differ in
-  design and in nothing else, and a reviewer switching variants mid-stream keeps
-  the same live turn rather than restarting it.
--->
+<!-- Three chat-surface designs side by side so one can be picked. The conversation is the -->
+<!-- approved reference. Only the chrome is under test. Dated and self-contained on purpose. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- A frozen proposal on a public site with no access control. Indexing it
-     would make a superseded design the canonical answer for "Fidget chat". -->
+<!-- A frozen proposal on a public site with no access control. Indexing it -->
+<!-- would make a superseded design the canonical answer for "Fidget chat". -->
 <meta name="robots" content="noindex">
 <title>Chat Surface, Three Ways</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-  /* ============================================================
-     Page chrome. Shared by the three variants, and outside all of
-     them: nothing below a variant's root class styles this.
-     ============================================================ */
+  /* Page chrome is shared by the three variants and lives outside all of them, so nothing below */
+  /* a variant root styles this page. */
   :root {
     --paper: #F4F5F8;
     --paper-2: #E9EBF1;
@@ -121,11 +108,8 @@
   .foot { margin-top: 28px; color: var(--ink-3); font-size: 13.5px; max-width: 66ch; }
   .foot a { color: var(--accent); }
 
-  /* ============================================================
-     The desktop the window sits on, and the two backdrops. Shared
-     across all three variants on purpose: a reviewer comparing
-     designs should be comparing designs, not wallpapers.
-     ============================================================ */
+  /* The two backdrops are shared across all three variants on purpose. A reviewer should compare */
+  /* designs, not wallpapers. */
   .stage-wrap { display: grid; gap: 12px; margin: 18px 0 8px; }
   .desk {
     position: relative; height: 540px; border-radius: 14px; overflow: hidden;
@@ -133,8 +117,8 @@
   }
   /* Flat, mid-grey, nothing behind the window to help or hurt it. */
   .desk[data-bd="plain"] { background: linear-gradient(160deg, #565E6E, #2B3140); }
-  /* Bright, saturated, and carrying a near-white patch — the case where a
-     translucent panel either stays legible or does not. */
+  /* Bright, saturated, and carrying a near-white patch — the case where a */
+  /* translucent panel either stays legible or does not. */
   .desk[data-bd="busy"] {
     background:
       radial-gradient(38% 32% at 74% 18%, rgba(255,255,255,.92), transparent 72%),
@@ -154,17 +138,17 @@
   .trace b { color: var(--ink-3); font-weight: 500; }
   .trace span span { color: var(--ink); }
 
-  /* The sprite. Art heads right, so leftward travel mirrors it. It is the same
-     sprite under every variant: the property it is here to show — the character is
-     never blocked on a turn — is not a design choice. */
+  /* The sprite. Art heads right, so leftward travel mirrors it. It is the same */
+  /* sprite under every variant: the property it is here to show — the character is */
+  /* never blocked on a turn — is not a design choice. */
   .sprite {
     position: absolute; left: 0; top: 0; width: 126px; height: 128px;
     transform-origin: center; will-change: transform;
   }
   .sprite img { display: block; width: 126px; height: 128px; }
 
-  /* The Speech bubble, ported from src/main.css. Unskinned: it is the app's,
-     not this window's, and it stays ink-on-white beside all three designs. */
+  /* The Speech bubble, ported from src/main.css. Unskinned: it is the app's, */
+  /* not this window's, and it stays ink-on-white beside all three designs. */
   .bubble {
     position: absolute; max-width: 260px; padding: 12px 16px;
     background: white; border: 2px solid #333; border-radius: 12px;
@@ -182,12 +166,8 @@
     border-top: 10px solid #333;
   }
 
-  /* ============================================================
-     The window's structure. Written once, because the shape of the
-     thing is not what is being chosen: a title bar, two tabs, a
-     scrollback, a composer. Everything a variant changes below is
-     colour, type, spacing and border — never what is drawn.
-     ============================================================ */
+  /* The window is written once. A title bar, two tabs, a scrollback, and a composer are not what */
+  /* is being chosen. A variant changes only what its own stylesheet names. */
   .win {
     position: absolute; left: 26px; bottom: 34px; width: 452px; height: 470px;
     display: flex; flex-direction: column; overflow: hidden; z-index: 2;
@@ -202,13 +182,13 @@
   .log { flex: 1 1 auto; overflow-y: auto; display: grid; align-content: start; }
   .row { display: grid; }
   .row .said { white-space: pre-wrap; }
-  /* Sibling of .who-label: that node letter-spaces, which would pull the digits
-     apart. Colour is per variant, with the WHO label. #445. */
+  /* Sibling of .who-label: that node letter-spaces, which would pull the digits */
+  /* apart. Colour is per variant, with the WHO label.. */
   .row .who { display: flex; align-items: baseline; gap: 7px; }
   .when { font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
   .tool { display: flex; align-items: baseline; min-width: 0; }
-  /* Truncated rather than wrapped: a tool call is one line, and the path is
-     the part that gives. The Harness's own surfaces hold the detail. */
+  /* Truncated rather than wrapped: a tool call is one line, and the path is */
+  /* the part that gives. The Harness's own surfaces hold the detail. */
   .tool .arg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .caret { display: inline-block; width: 7px; animation: blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
@@ -222,8 +202,8 @@
   .composer { display: flex; flex: 0 0 auto; }
   .composer input { flex: 1; font: inherit; min-width: 0; }
   .composer button { font: inherit; cursor: pointer; }
-  /* The Character Prompt tab: the Character's personality.txt frozen above,
-     this Instance's own prompt editable below. */
+  /* The Character Prompt tab: the Character's personality.txt frozen above, */
+  /* this Instance's own prompt editable below. */
   .prompt { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: 1fr auto; }
   .subpane { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
   .subpane .head { flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; }
@@ -231,14 +211,12 @@
   .frozen-body { flex: 1 1 auto; overflow-y: auto; margin: 0; white-space: pre-wrap; }
   .prompt textarea { font: inherit; resize: none; width: 100%; }
   .prompt .why { margin: 0; }
-  /* Every logged node carries the elapsed seconds of its turn. Only the
-     terminal variant draws it; the other two keep the attribute unused. */
 
-  /* ============================================================
-     VARIANT 1 — Modern minimal. Soft dark panel, generous spacing,
-     sans-serif, one accent. The current direction, given another
-     pass rather than reproduced.
-     ============================================================ */
+  /* Every logged node carries the elapsed seconds of its turn. Only the */
+  /* terminal variant draws it; the other two keep the attribute unused. */
+
+  /* Modern minimal. Soft dark surfaces. The elapsed-time attribute stays on the node and this */
+  /* variant does not draw it. */
   .v-min .win {
     background: #14171E; color: #E8EBF2;
     border: 1px solid rgba(255,255,255,.09); border-radius: 16px;
@@ -347,11 +325,8 @@
   .v-min .prompt textarea::placeholder { color: #6C7488; }
   .v-min .prompt .why { font-size: 11.5px; color: #6C7488; margin-top: 9px; }
 
-  /* ============================================================
-     VARIANT 2 — Terminal log. Monospace, dense, one line per event,
-     an elapsed-time gutter. Closest to what the Harness is, and the
-     least mascot-like on purpose.
-     ============================================================ */
+  /* Terminal log. Monospace, dense, one line per event, with an elapsed-time gutter. Closest to */
+  /* the Harness, and the least mascot-like on purpose. */
   .v-term .win {
     background: #0A0D12; color: #C6D0DC;
     border: 1px solid #2A3340; border-radius: 4px;
@@ -380,8 +355,8 @@
     outline: 1px solid #7FE0B0; outline-offset: 1px;
   }
   .v-term .log { padding: 8px 10px 6px; gap: 2px; }
-  /* One line per event: the label sits in the same line as the text, and the
-     elapsed-seconds gutter runs down the left the way a log's does. */
+  /* One line per event: the label sits in the same line as the text, and the */
+  /* elapsed-seconds gutter runs down the left the way a log's does. */
   .v-term .row { grid-template-columns: 46px auto 1fr; gap: 8px; align-items: baseline; }
   .v-term .row::before {
     content: "+" attr(data-t) "s"; color: #46525F; font-size: 11px;
@@ -463,13 +438,8 @@
   .v-term .prompt textarea::placeholder { color: #46525F; }
   .v-term .prompt .why { font-size: 10.5px; color: #46525F; margin-top: 7px; }
 
-  /* ============================================================
-     VARIANT 3 — Pane of glass. A frosted panel over the desktop:
-     backdrop blur, thin light borders, the wallpaper showing
-     through. The scrim under the blur is what keeps it legible over
-     a bright backdrop as well as a plain one — the two the control
-     above switches between.
-     ============================================================ */
+  /* A frosted panel over the desktop. The scrim under the blur is what keeps type legible when */
+  /* the wallpaper is bright. */
   .v-glass .win {
     background:
       linear-gradient(rgba(14,17,24,.62), rgba(14,17,24,.74));
@@ -505,8 +475,8 @@
   .v-glass .tb button:focus-visible, .v-glass textarea:focus-visible {
     outline: 2px solid rgba(255,255,255,.85); outline-offset: 2px;
   }
-  /* A second, darker plate under the scrollback. The blur alone leaves streamed
-     text sitting on whatever the wallpaper happens to be. */
+  /* A second, darker plate under the scrollback. The blur alone leaves streamed */
+  /* text sitting on whatever the wallpaper happens to be. */
   .v-glass .pane { background: rgba(10,13,19,.34); border-top: 1px solid rgba(255,255,255,.12); }
   .v-glass .log { padding: 16px 18px 8px; gap: 15px; }
   .v-glass .row { gap: 5px; }
@@ -778,10 +748,8 @@ const ART = {
 // fps as BMO's Character Manifest declares them.
 const FPS = { idle: 1, walk: 8, talk: 3 };
 const HOLD = { idle: 1200, walk: 1700, talk: 1500 };
-// BMO's five Behaviors, with the reference page's weights: the three ambient
-// ones carry their Manifest weights, and `report` and `greet` carry 0 because
-// the Manifest gates both on `idle under …` and this page has no idle timer.
-// `report` still plays when the Harness asks for it.
+// The three ambient Behaviors carry their manifest weights. `report` and `greet` carry 0
+// because the manifest gates both on idle-under and this page has no idle timer.
 const BEHAVIORS = [
   { name: "fidget", play: ["idle"], weight: 2 },
   { name: "walk", play: ["walk"], weight: 1 },
@@ -857,7 +825,7 @@ function tick(now) {
 }
 requestAnimationFrame(tick);
 
-// ---- Speech. The bubble is #119's: held for reading time, and a new line
+// ---- Speech. The bubble is's: held for reading time, and a new line
 // replaces the old one. It is the app's own surface, so no variant skins it.
 let bubbleTimer = null;
 function placeBubble() {
@@ -883,7 +851,7 @@ function play(name) {
   left = 0; queue = [];
 }
 
-// ---- The chat surface. Four kinds of line, and nothing else (ADR-0010). One
+// ---- The chat surface. Four kinds of line, and nothing else. One
 // engine for all three designs: the variants are stylesheets, so a turn in
 // flight survives a switch and can be compared mid-stream.
 const log = document.getElementById("log");

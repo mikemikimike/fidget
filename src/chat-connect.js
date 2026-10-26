@@ -1,8 +1,6 @@
-// Connect-landing copy and the ready gate. chat.js reaches window.__TAURI__
-// as it loads and cannot be imported outside a webview; this can, so it has
-// a test. One module so attached() and the composer cannot disagree about
-// whether a named Harness can answer (#726).
 
+// Connect-landing copy and the ready gate. One module so `attached` and the
+// composer cannot disagree about whether a named Harness can answer.
 const DISPLAY_NAMES = {
   claude: "Claude Code",
   codex: "Codex",
@@ -25,7 +23,7 @@ export function harnessDisplayName(opening) {
 }
 
 // No login means no actions, even if `sign_in` is still on the opening.
-// `kind` is not a button. The shell already decided which methods are.
+// `kind` is not a button. The shell already decided which methods exist.
 export function loginPresentation(opening) {
   if (!opening?.configured || !opening.enabled || !opening.login) {
     return { command: null, actions: [] };
@@ -45,9 +43,8 @@ export function loginPresentation(opening) {
 }
 
 // Configured is not ready. A named Harness whose child never came up, or
-// whose launcher is missing, must not enable Ask {name} the way a live
-// session does. HTTP Completer mode has no harness object.
-// Initializing also gates: ACP handshake is in progress and turns would fail.
+// whose launcher is missing, must not enable Ask. HTTP Completer mode has
+// no harness object. Initializing gates too, because turns would fail.
 export function canAnswer(opening) {
   if (!opening?.configured || !opening.enabled || opening.login) {
     return false;
@@ -63,15 +60,15 @@ export function composerPlaceholder(opening) {
   if (canAnswer(opening)) {
     return `Ask ${opening.name}…`;
   }
-  // The composer is the one surface a user types into, so a wait that ends on
-  // its own says so rather than reading as a dead end (#949).
+  // The composer is the one surface a user types into, so a wait that ends
+  // on its own says so rather than reading as a dead end.
   if (opening?.harness?.initializing) {
     return `Starting ${harnessDisplayName(opening)}…`;
   }
   return "Nothing can answer yet";
 }
 
-// Strings the landing paints. Facts come from the opening; this file owns
+// Strings the landing paints. Facts come from the opening. This file owns
 // the sentences so Chat and the tests cannot drift.
 export function landingCopy(opening) {
   const name = harnessDisplayName(opening);
@@ -89,14 +86,13 @@ export function landingCopy(opening) {
       lede: terminal
         ? `${name} is running but not signed in. Sign in, then press Retry, or pick a different Harness below.`
         : `${name} is running but not signed in. Sign in, or pick a different Harness below.`,
-      // Retry re-asks the Harness already picked. The buttons stay for a
-      // different one.
+      // Retry re-asks the Harness already picked. The buttons stay for a different one.
       retry: true,
       command: terminal ? opening.login : null,
       signInLabel: buttons ? "Login using:" : null,
       hint: buttons ? "Or run this in a terminal:" : "Run this in a terminal:",
-      // The Harness opens the browser itself and may prefill a code there that
-      // never reaches us (grok's inline flow). The click is what the user vouches for.
+      // The Harness opens the browser itself and may prefill a code that never
+      // reaches us. The click is what the user vouches for.
       signInWaiting: buttons
         ? `Finish signing in in your browser. Any code on that page came from ${name}, so continue only if you just clicked this button.`
         : null,
@@ -149,9 +145,8 @@ export function landingCopy(opening) {
     };
   }
 
-  // The launcher died before it answered, or preflight refused it. Either way
-  // the Shell hands over the command, why, what it printed, and for `npx` the
-  // Node.js check. Only the reason is prose; the rest is raw text for the boxes.
+  // The launcher died, or preflight refused it. Only the reason is prose.
+  // The command, the output, and the Node check stay raw text for the boxes.
   // A custom line's name is its whole path, which the Command box already shows.
   const failed = harness?.failed ?? harness?.unhealthy;
   if (failed) {
@@ -200,12 +195,12 @@ export function landingCopy(opening) {
   };
 }
 
-// A bare URL, and the punctuation that ends the sentence around it rather than
-// the URL. `http` too: the scheme check is `platform::open_url`'s, in Rust.
+// A bare URL, and the punctuation that ends the sentence around it rather
+// than the URL. `http` too. The scheme check lives in Rust.
 const URL_IN_TEXT = /https?:\/\/[^\s<>"'`]+/g;
 const URL_TAIL = /[.,;:!?)\]]+$/;
 
-// A landing sentence as text, code and link segments: backticks mark a
+// A landing sentence as text, code, and link segments. Backticks mark a
 // command, a bare URL a link. Not Markdown, which would eat the backslashes
 // and underscores of a path the Shell names in a failure.
 export function inlineSegments(text) {
@@ -219,7 +214,7 @@ export function inlineSegments(text) {
     }
   };
   const parts = String(text ?? "").split("`");
-  // With an odd number of backticks the last one has no partner and stays.
+  // An odd number of backticks leaves the last one without a partner.
   const closed = parts.length % 2 === 1 ? parts.length : parts.length - 1;
   parts.forEach((part, i) => {
     if (i % 2 === 1 && i < closed) {
@@ -239,9 +234,8 @@ export function inlineSegments(text) {
   return segments;
 }
 
-// Draw `text` into `parent` as its segments, through `textContent` only: the
-// Shell's failure sentence is untrusted. A link is a reply link (`.md-link`),
-// so the log's click listener hands it to `open_link` rather than navigating.
+// Draw `text` through `textContent` only. The failure sentence is untrusted.
+// A link is `.md-link`, so the log's click listener hands it to `open_link`.
 export function drawInline(parent, text, doc = globalThis.document) {
   parent.replaceChildren(
     ...inlineSegments(text).map(({ kind, text: piece }) => {

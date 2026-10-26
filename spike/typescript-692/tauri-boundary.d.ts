@@ -1,8 +1,6 @@
-// Spike 692, option 2. Types `window.__TAURI__` for the two fidget webviews
-// so that every `listen(name, ({ payload }) => …)` and `invoke(name, args)`
-// in src/ is checked against the Rust payloads — with no edit to src/.
-// Payload shapes come from ts-rs-proto/generated/payloads.d.ts, which
-// `cargo test` regenerates from the Rust structs.
+// Spike 692, option 2. Types `window.__TAURI__` for the two fidget webviews so listen and
+// invoke in src/ are checked, with no edit to src/. `cargo test` regenerates the payload
+// shapes.
 import type {
   ArtUrls, ChatOpening, ChatReply, ChatStatusPush, PermissionAsk, Placement, Settled,
 } from "./ts-rs-proto/generated/payloads";

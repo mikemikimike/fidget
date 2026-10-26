@@ -1,6 +1,6 @@
-// Hover-to-compose above a Character. The overlay owns the DOM; this decides
-// when the composer is up and whether a press still belongs to the pet.
 
+// Hover-to-compose above a Character. The overlay owns the DOM. This decides
+// when the composer is up and whether a press still belongs to the pet.
 import { placeBubble } from "./bubble.js";
 import { canAnswer, composerPlaceholder } from "./chat-connect.js";
 
@@ -8,8 +8,8 @@ const CONNECT_PROMPT = "Connect an AI to talk to me";
 // Shorter than the prompt, so the hint and Open chat fit on one line.
 export const CONNECT_HINT = "No AI connected yet.";
 
-// Every unavailable state is fixed in Chat's landing, so the pill links there.
-// A Harness still starting clears on its own and keeps Chat's sentence.
+// Every unavailable state is fixed in Chat's landing, so the pill links
+// there. A Harness still starting clears on its own and keeps Chat's sentence.
 export function quickMessageConnects(opening) {
   return !canAnswer(opening) && !opening?.harness?.initializing;
 }
@@ -21,8 +21,8 @@ export function quickMessagePrompt(opening) {
 }
 
 // `field` and `send` are the overlay's controls. `machine` is this module.
-// One opening, the same one Chat paints from.
-// `link` is absent where the overlay cannot take a click off the art.
+// One opening, the same one Chat paints from. `link` is absent where the
+// overlay cannot take a click off the art.
 export function applyQuickMessageGate({ field, send, link, machine }, opening) {
   const ready = canAnswer(opening);
   // Enable before the machine claims the caret. focus() on a still-disabled
@@ -37,19 +37,20 @@ export function applyQuickMessageGate({ field, send, link, machine }, opening) {
   machine.setAvailable(ready);
 }
 
-// The mirror is what gives the pill its width. An empty draft mirrors a
-// hairline, which clips the unavailable sentence under overflow: hidden.
+// The mirror gives the pill its width. An empty draft mirrors a hairline,
+// which clips the unavailable sentence under overflow: hidden.
 export function quickMessageMirror(text, prompt, available) {
   if (text) return `${text}\u200b`;
   if (!available && prompt) return `${prompt}\u200b`;
   return "\u200b";
 }
 
-// Auto-hide: 3s continuous away from both sprite and pill. Re-entering resets.
+// Auto-hide after 3s continuously away from both sprite and pill.
+// Re-entering resets the wait.
 export const AUTO_HIDE_DELAY_MS = 3000;
 
-// While Speech or thinking is up the Character has the floor, so an empty pill
-// the pointer left gives way. This is only long enough to cross onto the pill.
+// While Speech or thinking is up the Character has the floor, so an empty
+// pill the pointer left gives way. Only long enough to cross onto the pill.
 export const BUBBLE_YIELD_MS = 1000;
 
 // A click that stays put is a poke. Past this, the same press is a drag.
@@ -59,23 +60,23 @@ export function crossedDrag(dx, dy) {
   return dx * dx + dy * dy >= DRAG_DISMISS_PX * DRAG_DISMISS_PX;
 }
 
-// A typed line is never lost to a drag: the pill follows the Character to
-// whichever display owns it. An empty one closes, as any click away does.
+// A typed line is never lost to a drag. The pill follows the Character
+// to whichever display owns it. An empty one closes, as any click away does.
 export function keepOnDrag(text) {
   return text.trim().length > 0;
 }
 
-// The page lost focus. With the overlay still in front (hasForeground, #1577)
-// or a pet drag on, nothing changes. Otherwise another window took the
-// keyboard (#1565): a pill with text stays, an empty one goes.
+// The page lost focus. With the overlay still in front, or a pet drag on,
+// nothing changes. Otherwise another window took the keyboard. A pill with
+// text stays, and an empty one goes.
 export function windowBlurred(machines, gestureActive, hasForeground = false) {
   if (gestureActive || hasForeground) return;
   for (const machine of machines) machine.away();
 }
 
-// The pill takes the caret once the overlay is in front, since that activation
-// blurs a field focused first (#1577). Skipped if the pill closed meanwhile
-// (stillTyping false); a refused request still focuses it.
+// The pill takes the caret once the overlay is in front, because that
+// activation blurs a field focused first. Skipped if the pill closed
+// meanwhile. A refused request still focuses it.
 export async function focusAfterForeground(requestForeground, focusField, stillTyping = () => true) {
   try {
     await requestForeground();
@@ -85,13 +86,13 @@ export async function focusAfterForeground(requestForeground, focusField, stillT
   if (stillTyping()) focusField();
 }
 
-// hoverDelay: the Shell's delay in force, in ms, read as each hover starts.
 export function createQuickMessage({
   schedule,
   clear,
   send,
   onChange,
   available = true,
+  // The Shell's delay in force, in ms, read as each hover starts.
   hoverDelay,
 }) {
   let visible = false;
@@ -103,15 +104,15 @@ export function createQuickMessage({
   let autoHideTimer = null;
   let overSprite = false;
   let overPill = false;
-  // The overlay re-reports hover every frame. Summon and Send both leave the
+  // The overlay re-reports hover every frame. Summon and Send leave the
   // pointer on the Character, and that report would open the pill again.
   let yielded = false;
   let bubbleUp = false;
   let ready = available;
   // Whether this overlay owns the Instance's bubble, as the last placement said.
   let owned = false;
-  // The open draft came from the Shell and is untouched here, so it stays only
-  // while the Shell still carries it.
+  // The open draft came from the Shell and is untouched here, so it stays
+  // only while the Shell still carries it.
   let carried = false;
 
   function changed() {
@@ -176,7 +177,7 @@ export function createQuickMessage({
     hide();
   }
 
-  // Typed text keeps the pill through a drag or a click away; an empty one goes.
+  // Typed text keeps the pill through a drag or a click away. An empty one goes.
   function keepTyped() {
     if (!keepOnDrag(text)) dismissOpen();
   }
@@ -286,7 +287,7 @@ export function createQuickMessage({
       if (!visible || !ready) return false;
       if (key === "Enter" && !mods.shiftKey && !mods.composing) return submit();
       if (key === "Escape" && !mods.composing) {
-        // Like Send: a cursor still resting on the Character must not reopen it.
+        // Like Send. A cursor still resting on the Character must not reopen it.
         yielded = true;
         dismissOpen();
         return true;
@@ -300,7 +301,7 @@ export function createQuickMessage({
     },
     outside: dismissOpen,
     drag: keepTyped,
-    // The overlay lost the keyboard to another window: the same as a drag.
+    // The overlay lost the keyboard to another window. The same as a drag.
     away: keepTyped,
     summon() {
       yielded = true;
@@ -334,9 +335,9 @@ export function createQuickMessage({
     get carried() {
       return carried;
     },
-    // Every frame names the owner. Gaining it opens the carried draft. Keeping
-    // it ignores a trailing draft, except that a carried pill goes once the
-    // Shell drops it: the old owner closed it as the bubble moved on.
+    // Every frame names the owner. Gaining it opens the carried draft.
+    // Keeping it ignores a trailing draft, except a carried pill goes once
+    // the Shell drops it. The old owner closed it as the bubble moved on.
     setOwner(next, draft) {
       if (disposed) return;
       const gained = next && !owned;
@@ -379,8 +380,8 @@ export function createQuickMessage({
 }
 
 // Tells the Shell each Instance's draft once per change. Remembered per
-// Instance: one shared memory swallows the second of two closes, and that
-// Character stands still for good.
+// Instance. One shared memory would swallow the second of two closes,
+// and that Character would stand still for good.
 export function createDraftReporter(invoke) {
   const reported = new Map();
   const tell = (instance, payload) =>
@@ -403,8 +404,8 @@ export function createDraftReporter(invoke) {
     release(instance) {
       reported.delete(instance);
     },
-    // Only the owner speaks, and not for a draft the Shell handed it: echoed
-    // back, that could land after the old owner's close and revive it.
+    // Only the owner speaks, and not for a draft the Shell handed it.
+    // Echoed back, that could land after the old owner's close and revive it.
     sync(instance, machine) {
       if (machine.owner && !machine.carried) this.report(instance, machine.draft);
       else this.release(instance);
@@ -412,8 +413,8 @@ export function createDraftReporter(invoke) {
   };
 }
 
-// Same seat as a speech line or the thinking dots. When that box is already
-// there, step clear of it so a hover does not cover it.
+// Same seat as a speech line or the thinking dots. When that box is
+// already there, step clear of it so a hover does not cover it.
 export function placeQuickMessage(spriteRect, size, bounds, speechRect) {
   const pos = placeBubble(spriteRect, size, bounds);
   if (!speechRect) return pos;

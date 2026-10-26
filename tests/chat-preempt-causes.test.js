@@ -1,7 +1,6 @@
-// The clause table is keyed by the words `director::happened_cell` writes, and
-// nothing in either language checks that the two agree. A `Happened` variant
-// added on the Rust side would fall to the generic clause and say nothing about
-// what the user just did, which is the whole point of the note. #890.
+// The clause table is keyed by the words `happened_cell` writes, and nothing
+// in either language checks that the two agree. A new `Happened` variant
+// falls through to the generic clause and says nothing about what just happened.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

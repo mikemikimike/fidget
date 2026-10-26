@@ -1,6 +1,5 @@
-// Run with `node --test tests/`.
-// The hook shells out to pwsh. These cases stub it on PATH so a Darwin
-// Abort trap can be proven on Linux, where the crash does not reproduce.
+// The hook shells out to pwsh. These cases stub it on PATH so a Darwin Abort
+// trap can be proven on Linux, where the crash does not reproduce.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

@@ -164,7 +164,7 @@ test("a bare URL that is not an attachment is not a video", () => {
   assert.ok(!page.includes("<video"), "only a user-attachments URL embeds as a video");
 });
 
-// The URL plan in #1210: the root is the landing page, the directory moves to
+// The root is the landing page, the directory moves to
 // /design.html, and every design page it lists stays published.
 test("the root is the landing page and every design page stays reachable", () => {
   const pages = ["characters.html", "cues.html", "bubble.html", "chat.html", "chat-mockups.html",
@@ -181,7 +181,7 @@ test("the root is the landing page and every design page stays reachable", () =>
   assert.ok(!existsSync(join(site, "landing.html")), "nothing publishes landing.html");
 });
 
-// #1538: the README links Fidget Cues, so the landing page does too.
+// the README links Fidget Cues, so the landing page does too.
 test("the landing page links the published Fidget Cues page", () => {
   const root = published("index.html");
   assert.match(root, /<a href="cues\.html">Fidget Cues<\/a>/);
@@ -355,7 +355,7 @@ test("the How it works section is a two-lane picture from the README", () => {
 });
 
 // The FAQ is the README's own `## FAQ`: each `### Question?` and the answer
-// under it, so the site and the README never drift (#1543).
+// under it, so the site and the README never drift.
 function readmeQuestions(readme) {
   const faq = readme.split(/^## FAQ$/m)[1]?.split(/^## /m)[0] ?? "";
   return [...faq.matchAll(/^### (.+)$/gm)].map((match) => match[1].trim());
@@ -404,7 +404,7 @@ test("every published page carries the site header with a link home", () => {
   }
 });
 
-// #1753: GoatCounter counts visits to every page, the landing page included.
+// GoatCounter counts visits to every page, the landing page included.
 const COUNTER = '<script data-goatcounter="https://fidget.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>';
 
 test("every published page carries the visit counter once, just before </head>", () => {

@@ -1,43 +1,34 @@
 import { emptyJsonBlock, onlyEmptyJson, stripUnsafe } from "./markdown.js";
 
-// What a permission ask says, as parts the consent row draws. Its own
-// module because chat.js reaches window.__TAURI__ as it loads and cannot be
-// imported outside a webview; this can, so it has a test.
+// What a permission ask says, as parts the consent row draws. `title`,
+// `content`, `input`, and `locations` are untrusted Harness text. This file
+// produces no markup.
 
-// Everything but the copy here is untrusted: `title`, `content`, `input` and
-// `locations` come from the Harness, and an MCP server can steer all four.
-// This file produces no markup. The row draws content through `drawReply`.
-
-// An ask that carried nothing to describe itself. Said as a sentence, so it
-// reads as an absence the Harness is responsible for rather than as detail
+// Said as a sentence, so the absence reads as the Harness's, not as detail
 // this window dropped.
 const SILENT = "The Harness asked for permission without saying what for.";
 
-// What the row draws, in order: `{ kind, text }`. `markdown` is Harness
-// content, or `input` as a JSON fence when there is no content. `metadata`
-// is the `kind · paths` tail. `drawReply` draws `markdown`, and `drawTitle`
-// draws the title as its text with only its backticked spans as code.
+// What the row draws, in order. `markdown` is Harness content, or `input`
+// as a JSON fence when there is no content.
 export function askSays(ask) {
   const title = stripUnsafe(ask?.title ?? "");
   const kind = stripUnsafe(ask?.kind ?? "");
   const content = (ask?.content ?? []).map((text) => String(text ?? "")).filter((text) => text.length > 0);
   const paths = (ask?.locations ?? []).map((where) => stripUnsafe(where)).filter((text) => text.length > 0);
-  // An empty fence is not a body. Dropping it here keeps the sentence, and
-  // keeps `input` from standing in for text the Harness did send.
+  // An empty fence is not a body. Dropping it keeps the sentence, and keeps
+  // `input` from standing in for text the Harness did send.
   const visible = content.filter((text) => !onlyEmptyJson(text));
-  // Content first, the arguments as the fallback, never both: a tool that
+  // Content first, the arguments as the fallback, never both. A tool that
   // sends its question as content usually repeats it in `input`.
   const details = content.length > 0
     ? visible.map((text) => ({ kind: "markdown", text }))
     : inputMarkdown(ask?.input);
-  // `other` is `ToolKind::Other`, which says only that the Harness declined to
-  // classify the call. Every other kind separates reading from writing from
-  // running, the distinction the answer turns on, so it rides at the end.
+  // `other` only means the Harness declined to classify the call. Every other
+  // kind separates reading, writing, and running, so it rides at the end.
   const about = [kind === "other" ? "" : kind, paths.join(", ")].filter(Boolean).join(" · ");
 
-  // A kind on its own is not an answer to "what am I approving": it names a
-  // category, and the whole bug was a row that offered one in place of the
-  // question. A path on its own is a fact worth drawing.
+  // A kind on its own is not an answer to "what am I approving". A path on
+  // its own is a fact worth drawing.
   if (!title && details.length === 0 && paths.length === 0) {
     return [{ kind: "prose", text: SILENT }];
   }
@@ -61,17 +52,15 @@ export function inputMarkdown(input) {
   return [{ kind: "markdown", text: "```json\n" + body + "\n```" }];
 }
 
-// An elicitation form's question, as the Harness wrote it. Its lines and
-// length stay, as an ask's content does. `stripUnsafe` drops what could hide
-// or reverse text.
+// The Harness's question, with its lines and length kept. `stripUnsafe`
+// drops what could hide or reverse text.
 export function elicitSays(form) {
   const message = stripUnsafe(form?.message ?? "");
   return message.trim() ? message : "The Harness asked a question without saying what for.";
 }
 
-// A form's answers, in order, with Decline last because the protocol treats
-// it as a valid answer. A URL form's one yes is opening its link. A null
-// `value` is Decline.
+// Answers in order, Decline last, because the protocol treats it as a valid
+// answer. A URL form's one yes opens its link. A null `value` is Decline.
 export function elicitChoices(form) {
   const choices = form?.url
     ? [{ name: "Open", value: "open", url: form.url }]

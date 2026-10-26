@@ -1,7 +1,6 @@
-/* Settings on the Chat surface's tokens. Every colour, radius and font here is
-   a var() from chat-ui.css, so tests/chat-ui-tokens.test.js's rule would hold
-   for this file as written; a second design recolours Settings for free. */
-
+/* Settings on the Chat surface's tokens. Every colour, radius and font here is */
+/* a var() from chat-ui.css, so tests/chat-ui-tokens.test.js's rule would hold */
+/* for this file as written; a second design recolours Settings for free. */
 body {
   height: 100vh;
   display: flex;
@@ -38,7 +37,7 @@ body {
   border-color: var(--chat-accent);
 }
 
-/* The form scrolls in the log's place. Content-sized, never clipped (#601). */
+/* The form scrolls in the log's place. Content-sized, never clipped. */
 .form {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -122,7 +121,7 @@ select {
   font-size: 13px;
 }
 
-/* One dropdown look on every OS, which is the whole #674 conversation. */
+/* One dropdown look on every OS, which is the whole conversation. */
 select {
   appearance: none;
   -webkit-appearance: none;
@@ -152,7 +151,7 @@ summary:focus-visible {
   outline-offset: 2px;
 }
 
-/* Frozen reads as frozen: dimmer field, dimmer label, still legible (#625). */
+/* Frozen reads as frozen: dimmer field, dimmer label, still legible. */
 .row.is-frozen > label,
 .row.is-frozen .label {
   color: var(--chat-ink-3);

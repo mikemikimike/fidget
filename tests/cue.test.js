@@ -1,8 +1,6 @@
-// Run with `node --test tests/`.
-//
-// The cue machine's bookkeeping and its anchor arithmetic, which are the parts
-// that can be wrong without a display. What a cue looks like and what it sounds
-// like are not tested here and cannot be: they are keyframes and oscillators.
+// Bookkeeping and anchor arithmetic can be wrong without a display. What a
+// cue looks like and what it sounds like are keyframes and oscillators, and
+// are not tested here.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

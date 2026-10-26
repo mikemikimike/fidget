@@ -1,7 +1,6 @@
-// The published landing page, assembled the way the Pages job assembles
-// `_site/`, loaded in headless Chrome with an emulated OS. The browser
-// decides which download leads, so only a real browser proves the lead right;
-// the page under test is exactly the published bytes, nothing injected.
+// The published landing page is loaded with an emulated OS. The browser
+// decides which download leads, so only a real browser proves the lead, and
+// the page under test is the published bytes with nothing injected.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

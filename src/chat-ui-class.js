@@ -1,10 +1,10 @@
-// The Chat UI design class on the root element. Its own module because
-// chat.js cannot be imported outside a webview; this can, so it has a test.
 
+// The Chat UI design class on the root element. Split from chat.js, which
+// reads `window.__TAURI__` at import, so node can load this.
 const DESIGNS = ["minimal", "terminal", "glass"];
 
-// Allowlist known Chat UI designs; map unknowns to Minimal so arbitrary
-// strings from settings or events cannot become class names.
+// Allowlist known Chat UI designs. Unknown strings from settings or events
+// must not become class names.
 export function normalizeChatUi(value) {
   return DESIGNS.includes(value) ? value : "minimal";
 }
@@ -14,9 +14,8 @@ export function applyChatUiClass(root, design) {
   root.classList.add(`chat-ui-${normalizeChatUi(design)}`);
 }
 
-// Flags Linux, whose webview cannot blur the desktop behind Chat, so Glass
-// can paint a stronger tint there; and macOS, where a native window effect
-// blurs instead of CSS.
+// Linux cannot blur the desktop behind Chat, so Glass paints a stronger tint
+// there. macOS blurs with a native window effect instead of CSS.
 export function applyPlatform(root, platform) {
   if (platform === "linux" || platform === "macos") {
     root.dataset.platform = platform;
