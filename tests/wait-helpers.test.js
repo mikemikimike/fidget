@@ -15,9 +15,12 @@ function run(t, body, file = helper) {
   const dir = tempDir(t, "wait-mac-");
   const script = `set -u\n. "${file}"\ndir="${dir}"\nlog="$dir/app.log"; : > "$log"\n${body}`;
   const started = Date.now();
-  const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+  // Above the longest wait here (10 s overall rest cap). Without this, a
+  // stuck wait_for_rest sits until node:test's 60 s.
+  const r = spawnSync("bash", ["-c", script], { encoding: "utf8", timeout: 15_000 });
   const ms = Date.now() - started;
-  return { code: r.status, out: r.stdout + r.stderr, ms };
+  const timedOut = r.error && r.error.code === "ETIMEDOUT";
+  return { code: r.status, out: timedOut ? `run() timed out after 15s\n${r.stdout}${r.stderr}` : r.stdout + r.stderr, ms };
 }
 
 test("wait_for_trace returns soon after a line lands", (t) => {
@@ -219,6 +222,14 @@ test("wait_for_rest gives up 3 s after the last move", (t) => {
   assert.ok(r.ms >= 2800 && r.ms < 4500, `took ${r.ms} ms`);
 });
 
+test("wait_for_rest gives up at 10 s if the sprite never stops", (t) => {
+  const walk = 'i=0; while :; do i=$((i + 1)); echo "frame: 1 Walking pos(1,1) sprite($((i * 10)),20) walk#1" >> "$log"; sleep 0.25; done';
+  const r = run(t, `pid=$$; (${walk}) & w=$!; wait_for_rest "$log"; st=$?; kill $w 2>/dev/null; exit $st`);
+  assert.notStrictEqual(r.code, 0, r.out);
+  assert.match(r.out, /sprite never came to rest within 10s/);
+  assert.ok(r.ms >= 9000 && r.ms < 13000, `took ${r.ms} ms`);
+});
+
 const pwsh = spawnSync("pwsh", ["-NoProfile", "-Command", "1"], { encoding: "utf8" });
 const noPwsh = pwsh.status !== 0;
 const winHelper = path.join(scenarios, "wait-helpers.win.ps1");
@@ -230,8 +241,8 @@ function Later($c) { $p = New-Object Diagnostics.ProcessStartInfo "bash"; $p.Arg
 $W = '${dir}'
 $data = Initialize-ScenarioData $W
 ${body}`;
-  // Above the longest wait here (~6 s). Without this, a stuck Wait-ForRest
-  // sits until node:test's 60 s.
+  // Above the longest wait here (10 s overall rest cap). Without this, a
+  // stuck Wait-ForRest sits until node:test's 60 s.
   const r = spawnSync("pwsh", ["-NoProfile", "-Command", script], { encoding: "utf8", timeout: 15_000 });
   const timedOut = r.error && r.error.code === "ETIMEDOUT";
   return {
@@ -387,6 +398,28 @@ Write-Output $took`);
   assert.strictEqual(r.code, 0, r.err);
   assert.strictEqual(r.lines[0], "False", r.err);
   assert.ok(Number(r.lines[1]) >= 2800 && Number(r.lines[1]) < 4500, `took ${r.lines[1]} ms`);
+});
+
+test("Windows: Wait-ForRest gives up at 10 s if the sprite never stops", { skip: noPwsh }, (t) => {
+  const r = ps(t, `$t = "$W/p.log"
+Set-Content "$W/walk.sh" @'
+i=0; while :; do i=$((i + 1)); echo "1 frame: 1 Grounded pos(1,1) sprite($((i * 10)),20) walk#1 x" >> "$1"; sleep 0.25; done
+'@
+$p = New-Object Diagnostics.ProcessStartInfo "bash"
+$p.ArgumentList.Add("$W/walk.sh")
+$p.ArgumentList.Add($t)
+$p.UseShellExecute = $false
+$w = [Diagnostics.Process]::Start($p)
+$start = Get-NowMs
+$rest = Wait-ForRest $t
+$took = (Get-NowMs) - $start
+if (-not $w.HasExited) { $w.Kill() }
+Write-Output $(if ($rest) { $rest.X } else { "null" })
+Write-Output $took`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.match(r.err, /sprite never came to rest within 10s/);
+  assert.strictEqual(r.lines[0], "null", r.err);
+  assert.ok(Number(r.lines[1]) >= 9000 && Number(r.lines[1]) < 13000, `took ${r.lines[1]} ms`);
 });
 
 test("Windows: Invoke-AxWin splats a hashtable of ax-window-win.ps1 parameters", { skip: noPwsh }, (t) => {

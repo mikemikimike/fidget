@@ -160,7 +160,7 @@ try {
     function Wait-Settled {
         $script:rest = Wait-ForRest $traceFile
         if (-not $script:rest) {
-            Fail "the sprite never came to rest; see $traceFile"
+            Fail "the sprite never came to rest within 10s; see $traceFile"
         }
         return $script:rest
     }
