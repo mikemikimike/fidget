@@ -1615,15 +1615,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let results = dir.path().join("results.txt");
         let shell = if cfg!(windows) { "powershell" } else { "pwsh" };
-        let Ok(out) = Command::new(shell)
+        let out = Command::new(shell)
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(repo_scenarios().join("manual-only/chat-close-pill-type.win.ps1"))
             .args(["--go", "fidget.exe", "fidget-test.exe"])
             .env("FIDGET_SCENARIO_UNEXPECTED", &results)
             .output()
-        else {
-            return; // No PowerShell on this host.
-        };
+            .unwrap_or_else(|e| panic!("{shell} must be on PATH: {e}"));
         assert_eq!(out.status.code(), Some(1), "{out:?}");
         let text = fs::read_to_string(&results).unwrap_or_default();
         assert!(
