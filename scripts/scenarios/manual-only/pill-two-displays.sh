@@ -109,7 +109,9 @@ fi
 
 # One Apple event to each app the run drives; a refusal is a denied grant.
 one=scenario-one.txt
-: > "$out/$one"
+# In an empty file autocorrect capitalizes the typed word, and its panel holds
+# TextEdit modal past the trap's close. Here it lands as "wandertyped".
+printf 'typed ' > "$out/$one"
 # The builds and the preflight are long enough for the user to open TextEdit.
 refuse_running_textedit
 capped 3 open -g -a TextEdit "$out/$one" || fail "could not open $one in TextEdit"
@@ -208,7 +210,8 @@ wait_id_rest() { # <seconds> <id> <case>
 wait_for_line 30 "$log" '^[0-9]+ frame: ' || fail "no frame line within 30 s of launch; see $log"
 wait_id_rest 10 "$(grep -E '^[0-9]+ frame: ' "$log" | awk '{print $NF}' | head -1)" first-sprite ||
   fail "the first sprite never rested; see $log"
-mapfile -t ids < <(grep -E '^[0-9]+ frame: ' "$log" | awk '{print $NF}' | sort -u)
+ids=()
+while read -r id; do ids+=("$id"); done < <(grep -E '^[0-9]+ frame: ' "$log" | awk '{print $NF}' | sort -u)
 [ "${#ids[@]}" -eq 2 ] || fail "two Instances are not drawing; ids: ${ids[*]:-none}"
 ida=${ids[0]} idb=${ids[1]}
 read -r ax_y ay < <(sprite_at "$ida") || fail "no frame for $ida"
@@ -278,7 +281,7 @@ open_pill_on() { # <id> <park> <case>
   read -r sx sy <<< "$at"
   wait_for_next 5 "$log" "^[0-9]+ overlay: draft instance=$1 .* focused=true$" \
     "$tools/warp-cursor" "$((sx + sw / 2))" "$((sy + sh / 2))" --event ||
-    fail "$3: the pill did not open; see $log"
+    fail "$3: the pill did not open (last draft: $(grep -E "^[0-9]+ overlay: draft instance=$1 " "$log" | tail -1)); see $log"
 }
 
 open_pill_on "$pill_a_id" park_display1 a-first
@@ -317,9 +320,9 @@ echo "ok: the last close restored the remembered app"
 
 # The typed word ends up in TextEdit; read the way the sibling scenario reads.
 text_front() { capped 2 "$tools/ax" value "$(pgrep -x TextEdit | head -1)" 2> /dev/null; }
-textedit_ends() { case "$(text_front)" in *"$1") ;; *) return 1 ;; esac }
+textedit_has() { case "$(text_front)" in *"$1"*) ;; *) return 1 ;; esac }
 capped 3 "$tools/ax" type "$pid" wander >> "$out/helpers.log" 2>&1 || fail "could not type"
-wait_until 3 textedit_ends wander ||
+wait_until 3 textedit_has wander ||
   fail "\"wander\" did not reach TextEdit after both pills closed (front: $(front_name)); see $log"
 ! grep -qE 'draft instance=[^ ]+ text="[^"]*wander"' "$log" ||
   fail "a pill took \"wander\" after both had closed; see $log"

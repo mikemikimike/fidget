@@ -604,7 +604,8 @@ struct SpritePlacement<'a> {
     /// user (ADR-0016), so the bubble points at Chat. False off the bubble owner.
     asking: bool,
     /// The cursor hovers this Instance, by `AlphaMask::hovers`: :hover misses
-    /// it once Chat has closed. Bubble owner only, like the pill.
+    /// it once Chat has closed. Bubble owner only, like the pill. False during
+    /// a pointer gesture.
     hovered: bool,
     /// Whether this overlay draws this Instance's bubble (`bubble_owner`).
     /// Still sent to the overlays that lost, which drop the bubble they were
