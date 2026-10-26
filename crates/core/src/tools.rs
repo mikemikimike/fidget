@@ -536,10 +536,9 @@ mod tests {
         assert_eq!(result.windows[1].title, None);
     }
 
-    /// Without the window-names consent the platform walk leaves both names
-    /// behind, and the tools report the geometry that is still
-    /// free. `owner` is omitted from the JSON rather than sent empty, so a
-    /// Harness reads an absent name as absent.
+    /// Without the window-names consent both names stay behind and the tools
+    /// still report geometry. `owner` is omitted from the JSON rather than sent
+    /// empty, so a Harness reads an absent name as absent.
     #[test]
     fn a_nameless_window_reports_its_geometry_and_no_owner() {
         use crate::window_source::{

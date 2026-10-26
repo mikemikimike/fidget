@@ -1552,7 +1552,7 @@ mod tests {
     }
 
     // Notepad typing goes one character at a time, each checked in the file.
-    // One SendInput of "four" came back as "rrrr" in a busy Notepad.
+    // One SendInput of "four" repeats as "rrrr" while Notepad is busy.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_checks_notepad_after_each_character() {
