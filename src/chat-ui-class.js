@@ -15,10 +15,11 @@ export function applyChatUiClass(root, design) {
 }
 
 // Flags Linux, whose webview cannot blur the desktop behind Chat, so Glass
-// can paint a stronger tint there.
+// can paint a stronger tint there; and macOS, where a native window effect
+// blurs instead of CSS.
 export function applyPlatform(root, platform) {
-  if (platform === "linux") {
-    root.dataset.platform = "linux";
+  if (platform === "linux" || platform === "macos") {
+    root.dataset.platform = platform;
   } else {
     delete root.dataset.platform;
   }

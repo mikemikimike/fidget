@@ -911,6 +911,7 @@ pub(crate) fn run_frame_loop(
                         }
                     }
                     SettingsOp::ChatUIChanged { chat_ui } => {
+                        crate::glass::wear_all(&app, &chat_ui);
                         for live in &lives {
                             let _ = app.emit_to(chat_label(&live.id), CHAT_UI_EVENT, &chat_ui);
                         }
