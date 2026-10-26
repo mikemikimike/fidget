@@ -7,11 +7,11 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { after, before, test } from "node:test";
+import { before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { tempDir } from "./temp-path.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "make-landing-page.py");
@@ -38,8 +38,7 @@ const GENERATED = [
 ].join("\n");
 
 let scratch;
-before(() => { scratch = mkdtempSync(join(tmpdir(), "landing-whats-new-")); });
-after(() => rmSync(scratch, { recursive: true, force: true }));
+before((t) => { scratch = tempDir(t, "landing-whats-new-"); });
 
 function pageWith(name, release) {
   const out = join(scratch, name);

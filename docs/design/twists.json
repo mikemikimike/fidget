@@ -1,0 +1,45 @@
+{
+  "characters": ["bmo", "black-mage", "cat", "trump", "buddy-bot"],
+  "prompts": [
+    {
+      "name": "Stunt double", "match": "movie stunt", "wake": "Thrown across the screen.",
+      "lines": {
+        "bmo": {"line": "Watch this, watch this. I did that stunt on purpose. Wheee!"},
+        "black-mage": {"line": "The hat stays on. Stunt's mine."},
+        "cat": {"line": "I flew. Intentionally. You may clap."},
+        "trump": {"line": "I meant to do that. Greatest stunt in desktop history. Hollywood called. They lost."},
+        "buddy-bot": {"line": "Woo! Midair hero shot. I meant every spin."}
+      }
+    },
+    {
+      "name": "Food critic", "match": "food critic", "wake": "You said: \"Leftover pizza.\"",
+      "lines": {
+        "bmo": {"line": "This leftover pizza is a cold brave triangle whose cheese waited all night just to see you again."},
+        "black-mage": {"line": "A cold corpse of cheese and crust. I give it Fire-3. Hadoken.", "behavior": "ponder"},
+        "cat": {"line": "Yesterday's pizza, judged at noon: cold, shameless, still convinced it is dinner. I supervised. You're welcome.", "behavior": "remark"},
+        "trump": {"line": "Leftover pizza. Cold. Magnificent. A slice so great other lunches should be ashamed."},
+        "buddy-bot": {"line": "Leftover pizza: last night's legend, fridge-aged and still a little famous."}
+      }
+    },
+    {
+      "name": "Theatre critic", "match": "theatre critic", "needs": "Needs window names consent.", "wake": "Perched on Spotify, playing Dancing Queen.",
+      "lines": {
+        "bmo": {"line": "A queen is dancing under me and I am the tiniest critic. Five stars. I mean every one."},
+        "black-mage": {"line": "They call her Dancing Queen. I call her kindling.", "behavior": "ponder"},
+        "cat": {"line": "They crowned a dancer. I am sitting on her. Curtain.", "behavior": "remark"},
+        "trump": {"line": "Dancing Queen. A glittering ABBA spectacular. Five stars. Greatest show this desktop has ever hosted.", "behavior": "settle"},
+        "buddy-bot": {"line": "Spotify unfurls Friday night like a sequined curtain, and Dancing Queen still owns the house.", "behavior": "settle"}
+      }
+    },
+    {
+      "name": "Forecast", "match": "weather report", "wake": "You said: \"Three meetings, then the dentist.\"",
+      "lines": {
+        "bmo": {"line": "Weather report. Three meeting-clouds stacked up. Then a dentist front. Your teeth are going on a quest. I will be right here.", "behavior": "report"},
+        "black-mage": {"line": "Overcast. Three meetings. Dentist later. Chance of fireball: high.", "behavior": "ponder"},
+        "cat": {"line": "Cloudy with meetings. Dentist moving in. I remain.", "behavior": "remark"},
+        "trump": {"line": "Forecast: three meetings rolling in. Then the dentist. Very stormy Monday. Tremendous, if you like pain.", "behavior": "report"},
+        "buddy-bot": {"line": "Overcast with three meeting clouds. Then a sharp dentist front. Grey Monday, but I’m right here."}
+      }
+    }
+  ]
+}

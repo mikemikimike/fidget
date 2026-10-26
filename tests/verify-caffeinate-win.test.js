@@ -4,12 +4,12 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import { resolvePwsh } from "./pwsh-resolve.js";
+import { tempDir } from "./temp-path.js";
 
 const script = join(
   import.meta.dirname,
@@ -177,8 +177,8 @@ test("no UI Automation call throws on a missing pattern", () => {
 test(
   "an uncaught error lands in result.txt with its stack trace",
   { skip },
-  () => {
-    const dir = mkdtempSync(join(tmpdir(), "caffeinate-win-"));
+  (t) => {
+    const dir = tempDir(t, "caffeinate-win-");
     const result = join(dir, "result.txt");
     const out = spawnSync(
       resolved.command,

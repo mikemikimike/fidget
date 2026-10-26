@@ -1261,6 +1261,7 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
  "toml_edit 0.25.15+spec-1.1.0",
  "ureq",

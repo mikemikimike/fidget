@@ -11,7 +11,7 @@ body on a 1024 canvas, corners on a continuous-curvature squircle.
 An authoring tool rather than a build step, so — like import-pet.py and unlike
 the make-*-characters scripts — it is allowed to need Pillow.
 
-    python3 scripts/make-app-icon.py
+    python3 scripts/make-app-icon.py [--self-check]
 
 It rewrites branding/logo-art/app-icon-1024.png, src-tauri/icons/icon.png and
 src-tauri/icons/icon.ico from branding/logo-art/logo-512.png, and redraws
@@ -20,8 +20,10 @@ version behind the icon. The tray mark is a different shape for a different
 surface and is never touched.
 """
 
+import argparse
 import math
 import pathlib
+import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -34,13 +36,12 @@ ICONS = ROOT / "src-tauri" / "icons"
 CANVAS = 1024
 # The size src-tauri/icons/icon.png ships at, for the reason in `main`.
 SHIPPED = 512
-# Apple's macOS icon grid. The 200px of transparent margin is not padding to
-# tighten: the Dock sizes every icon by the canvas and expects the artwork to
-# stop here. Measured off a Dock screenshot, WhatsApp is 58px of body in a 72px slot.
+# Apple's macOS icon grid. The Dock sizes every icon by the canvas and expects
+# the art to stop at this body, so the margin is not padding to tighten.
 BODY = 824
-# How much of the body the head fills, on its taller axis (about 73% across).
-# Set against the neighbours, not to taste: WhatsApp's glyph is 71% of its body
-# and Grok's face about 90%. Past about 0.86 the headphones meet the edge.
+# How much of the body the head fills, on its taller axis. Set against the
+# neighbours: WhatsApp's glyph is 71% of its body and Grok's face about 90%.
+# Past about 0.86 the headphones meet the edge.
 GLYPH_SHARE = 0.78
 # The squircle as a superellipse, |x/a|^n + |y/a|^n = 1. n = 5 is the standard
 # approximation of the shape macOS uses, flatter sides and a longer corner sweep
@@ -60,7 +61,8 @@ def head_box(art):
 
     The head is scaled against the body, not against the source canvas, so its
     own bounds have to be found rather than assumed. It sits on a flat dark
-    field, so anything far enough off the most common colour is head.
+    field, so anything far enough off the most common colour is head. A field
+    with no such pixel exits the script.
     """
     flat = max(art.getcolors(art.width * art.height))[1]
     pixels = art.load()
@@ -73,6 +75,8 @@ def head_box(art):
                     if box is None
                     else (min(box[0], x), min(box[1], y), max(box[2], x + 1), max(box[3], y + 1))
                 )
+    if box is None:
+        raise SystemExit("logo-512.png has no head to find")
     return box
 
 
@@ -222,7 +226,32 @@ def preview(icon):
     return sheet
 
 
-def main():
+def self_check():
+    """Apple's grid and the head's share of it, measured off the master."""
+    icon = Image.open(MASTER)
+    assert icon.size == (1024, 1024), f"canvas is {icon.size}"
+    body = icon.getchannel("A").point(lambda a: 255 if a == 255 else 0).getbbox()
+    assert body == (100, 100, 924, 924), f"body is {body}, not 824 px in 200 px of margin"
+    _, top, _, bottom = head_box(icon.convert("RGB"))
+    share = (bottom - top) / (body[3] - body[1])
+    assert share < 0.86, f"head fills {share:.0%} of the body; the headphones meet the edge"
+    print(f"self-check: 824 px body on 1024, head {share:.0%} of it")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="assert the committed master keeps Apple's grid and the head's share",
+    )
+    if parser.parse_args(argv).self_check:
+        try:
+            self_check()
+        except AssertionError as failed:
+            sys.exit(f"app icon: self-check failed: {failed}")
+        return
+
     grid, head = field()
     icon = render(grid, CANVAS)
 

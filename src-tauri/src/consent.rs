@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum CapabilityId {
-    /// Reading Dock or taskbar bounds and window geometry.
-    #[cfg(not(target_os = "linux"))]
+    /// Reading the Dock's bounds. Windows has no probe for the
+    /// taskbar's, so no row.
+    #[cfg(target_os = "macos")]
     Accessibility,
     /// Reading window titles and the owning application names under one
     /// consent. macOS prompts through TCC Screen Recording; Linux through
@@ -45,7 +46,7 @@ impl ConsentRow {
     pub fn row_id(&self) -> String {
         use crate::settings::form;
         match self.id {
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             CapabilityId::Accessibility => form::CONSENT_ACCESSIBILITY_ID,
             #[cfg(target_os = "macos")]
             CapabilityId::WindowNames => form::CONSENT_SCREEN_RECORDING_ID,
@@ -92,12 +93,6 @@ pub const CAPABILITIES: &[Capability] = &[
 #[cfg(target_os = "windows")]
 pub const CAPABILITIES: &[Capability] = &[
     Capability {
-        id: CapabilityId::Accessibility,
-        title: "Accessibility",
-        buys: "Exact taskbar geometry, so the sprite does not walk into the taskbar.",
-        costs: "Windows UI Automation. The fidget reads the taskbar's bounds; it does not control your computer.",
-    },
-    Capability {
         id: CapabilityId::WindowNames,
         title: "Window and Application Names",
         buys: "Other applications' window titles, and which application each window belongs to.",
@@ -123,7 +118,7 @@ pub const CAPABILITIES: &[Capability] = &[
 ))]
 pub struct Null;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 static WANT_ACCESSIBILITY: AtomicBool = AtomicBool::new(false);
 static WANT_WINDOW_NAMES: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
@@ -136,7 +131,7 @@ static GRANTED_WINDOW_NAMES: AtomicBool = AtomicBool::new(false);
 /// the user unchecks; Dock geometry and titles must still follow this.
 pub fn wanted(id: CapabilityId) -> bool {
     match id {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         CapabilityId::Accessibility => WANT_ACCESSIBILITY.load(Ordering::Relaxed),
         CapabilityId::WindowNames => WANT_WINDOW_NAMES.load(Ordering::Relaxed),
         #[cfg(target_os = "macos")]
@@ -151,7 +146,7 @@ pub fn usable(id: CapabilityId, probe: &dyn Probe) -> bool {
 
 pub fn set_wanted(id: CapabilityId, on: bool) {
     match id {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         CapabilityId::Accessibility => WANT_ACCESSIBILITY.store(on, Ordering::Relaxed),
         CapabilityId::WindowNames => WANT_WINDOW_NAMES.store(on, Ordering::Relaxed),
         #[cfg(target_os = "macos")]
@@ -218,131 +213,11 @@ impl Probe for LinuxPortal {
 impl Probe for WindowsProbe {
     fn granted(&self, id: CapabilityId) -> bool {
         match id {
-            CapabilityId::Accessibility => false,
             CapabilityId::WindowNames => true,
         }
     }
 
-    fn prompt(&self, _id: CapabilityId) {
-        // Windows Accessibility would prompt here; the probe does not exist
-        // yet.
-    }
-}
-
-/// The name the Windows process list shows for the exe at `exe`.
-/// A checkout, or an unreadable `exe`, shows the parent that launched it, so
-/// the user sees their terminal. NSIS installs per user (`%LOCALAPPDATA%`).
-#[cfg(any(test, target_os = "windows"))]
-fn process_list_name_for(
-    exe: Option<&std::path::Path>,
-    parent_chain: impl FnOnce() -> Option<String>,
-) -> String {
-    if exe.is_some_and(crate::login_item::exe_is_bundled) {
-        return "Fidget".into();
-    }
-    parent_chain().unwrap_or_else(|| "Fidget".into())
-}
-
-#[cfg(target_os = "windows")]
-mod windows {
-    use std::collections::HashMap;
-
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-
-    pub fn process_list_name() -> String {
-        let exe = std::env::current_exe().ok();
-        super::process_list_name_for(exe.as_deref(), parent_chain_name)
-    }
-
-    /// One snapshot of the process list, closed once by `Drop`.
-    struct Snapshot(HANDLE);
-
-    impl Drop for Snapshot {
-        fn drop(&mut self) {
-            // SAFETY: the handle came from CreateToolhelp32Snapshot and the
-            // type is neither Copy nor Clone, so this is its only close.
-            unsafe { CloseHandle(self.0) };
-        }
-    }
-
-    impl Snapshot {
-        fn processes() -> Option<Self> {
-            // SAFETY: TH32CS_SNAPPROCESS takes no pid and nothing goes in by
-            // pointer; failure arrives as INVALID_HANDLE_VALUE, which the next
-            // line rejects rather than taking ownership of.
-            let handle = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-            (handle != INVALID_HANDLE_VALUE).then_some(Self(handle))
-        }
-
-        fn table(&self) -> HashMap<u32, (u32, String)> {
-            // SAFETY: PROCESSENTRY32W is integers and a `[u16; 260]`, so
-            // all-zeroes is a valid value for it. `dwSize` is the one field the
-            // API requires the caller to fill, and the next line fills it.
-            let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
-            entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
-
-            let mut table = HashMap::new();
-            // SAFETY: `self.0` is live for as long as `self`, and `entry` is an
-            // initialized local carrying its `dwSize` — the two things the walk
-            // asks of the caller. It writes only into `entry`.
-            if unsafe { Process32FirstW(self.0, &mut entry) } == 0 {
-                return table;
-            }
-            loop {
-                table.insert(
-                    entry.th32ProcessID,
-                    (entry.th32ParentProcessID, parse_exe_name(&entry.szExeFile)),
-                );
-                // SAFETY: as Process32FirstW above; a zero return ends the walk.
-                if unsafe { Process32NextW(self.0, &mut entry) } == 0 {
-                    return table;
-                }
-            }
-        }
-    }
-
-    fn parent_chain_name() -> Option<String> {
-        let current_pid = std::process::id();
-        let table = Snapshot::processes()?.table();
-
-        let mut pid = current_pid;
-        for _ in 0..24 {
-            pid = table.get(&pid)?.0;
-            if pid == 0 || pid == current_pid {
-                return None;
-            }
-            let name = &table.get(&pid)?.1;
-            // An empty name is as unusable as a toolchain one: keep walking.
-            if !name.is_empty() && !is_toolchain(name) {
-                return Some(name.clone());
-            }
-        }
-        None
-    }
-
-    pub(super) fn is_toolchain(name: &str) -> bool {
-        // Skip Rust toolchain processes: a `cargo run` from Cursor is
-        // cargo → Cursor, so the first non-toolchain parent is what Privacy
-        // will list. Mirrors macOS bundled_ancestor_name skipping Helpers.
-        matches!(
-            name.to_lowercase().as_str(),
-            "cargo" | "rustc" | "rustup" | "rust-analyzer" | "rls"
-        )
-    }
-
-    fn parse_exe_name(sz_exe: &[u16; 260]) -> String {
-        let end = sz_exe.iter().position(|&c| c == 0).unwrap_or(260);
-        let name = String::from_utf16_lossy(&sz_exe[..end]);
-        name.trim_end_matches(".exe")
-            .split('\\')
-            .next_back()
-            .unwrap_or(&name)
-            .to_string()
-    }
+    fn prompt(&self, _id: CapabilityId) {}
 }
 
 #[cfg(target_os = "linux")]
@@ -626,37 +501,18 @@ pub fn linux_pane_intro() -> String {
         .to_string()
 }
 
-/// Windows-specific hint: names the process Privacy will list.
+/// Windows pane intro. Its one row needs no system permission.
 #[cfg(target_os = "windows")]
-pub fn listed_under_hint(name: &str) -> String {
-    format!("Windows lists this process as {name}.")
-}
-
-/// Windows pane intro: names the process Privacy will list.
-#[cfg(target_os = "windows")]
-pub fn pane_intro(listed_as: &str) -> String {
-    format!(
-        "Window and Application Names requires no system permission. Other grants will prompt when needed. {}",
-        listed_under_hint(listed_as)
-    )
+pub fn windows_pane_intro() -> String {
+    "Window and Application Names requires no system permission.".to_string()
 }
 
 /// The name the OS privacy list shows. Packaged builds are this app;
 /// `cargo run` is listed under the responsible parent, the IDE or terminal
 /// that launched it.
+#[cfg(target_os = "macos")]
 pub fn process_listed_as() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        macos::tcc_list_name()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        windows::process_list_name()
-    }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    {
-        "Fidget".into()
-    }
+    macos::tcc_list_name()
 }
 
 pub fn live() -> &'static dyn Probe {
@@ -681,63 +537,7 @@ pub fn live() -> &'static dyn Probe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     use std::sync::Mutex;
-
-    #[test]
-    fn a_checkout_is_named_for_its_parent_and_an_installed_app_for_itself() {
-        let parent = || Some("WindowsTerminal".to_string());
-        #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
-        let mut checkouts = vec![
-            "/work/fidget/target/debug/fidget.exe",
-            "/work/fidget/target/x86_64-pc-windows-msvc/debug/fidget.exe",
-            "/work/fidget/target/x86_64-pc-windows-msvc/release/fidget.exe",
-        ];
-        // A backslash separates only on Windows; the Windows job runs these.
-        #[cfg(target_os = "windows")]
-        checkouts.extend([
-            r"C:\work\fidget\target\debug\fidget.exe",
-            r"C:\work\fidget\target\release\fidget.exe",
-            r"C:\work\fidget\target\x86_64-pc-windows-msvc\release\fidget.exe",
-            r"target\release\fidget.exe",
-        ]);
-        for exe in checkouts {
-            assert_eq!(
-                process_list_name_for(Some(Path::new(exe)), parent),
-                "WindowsTerminal",
-                "{exe}"
-            );
-        }
-        // macOS decides by the `.app` bundle, so Windows layouts cannot share
-        // one list with it.
-        #[cfg(target_os = "macos")]
-        let installed = vec!["/Applications/Fidget.app/Contents/MacOS/fidget"];
-        #[cfg(not(target_os = "macos"))]
-        #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
-        let mut installed = vec!["/usr/bin/fidget"];
-        #[cfg(target_os = "windows")]
-        installed.extend([
-            r"C:\Program Files\Fidget\fidget.exe",
-            r"C:\Users\me\AppData\Local\Fidget\fidget.exe",
-            r"D:\Portable\Fidget\fidget.exe",
-        ]);
-        for exe in installed {
-            assert_eq!(
-                process_list_name_for(Some(Path::new(exe)), parent),
-                "Fidget",
-                "{exe}"
-            );
-        }
-    }
-
-    #[test]
-    fn an_unreadable_exe_path_falls_back_to_the_parent() {
-        assert_eq!(
-            process_list_name_for(None, || Some("WindowsTerminal".into())),
-            "WindowsTerminal"
-        );
-        assert_eq!(process_list_name_for(None, || None), "Fidget");
-    }
 
     struct Fake {
         granted: Vec<CapabilityId>,
@@ -780,7 +580,7 @@ mod tests {
             ]
         );
         #[cfg(target_os = "windows")]
-        assert_eq!(ids, ["consent_accessibility", "consent_window_titles"]);
+        assert_eq!(ids, ["consent_window_titles"]);
         #[cfg(target_os = "linux")]
         assert_eq!(ids, ["consent_screen_cast"]);
     }
@@ -808,100 +608,72 @@ mod tests {
             assert!(!rows[0].granted);
         }
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
         {
-            #[cfg(target_os = "macos")]
-            {
-                assert_eq!(rows.len(), 3);
-            }
-            #[cfg(target_os = "windows")]
-            {
-                assert_eq!(rows.len(), 2);
-            }
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].id, CapabilityId::WindowNames);
+            assert_eq!(rows[0].title, "Window and Application Names");
+            assert!(
+                rows[0].buys.contains("title") && rows[0].buys.contains("application"),
+                "WindowNames has to say titles and applications are what it buys, got {:?}",
+                rows[0].buys
+            );
+            assert!(
+                rows[0].costs.contains("No system permission required"),
+                "WindowNames has to say no system permission required, got {:?}",
+                rows[0].costs
+            );
+            assert!(!rows[0].granted);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(rows.len(), 3);
 
             assert_eq!(rows[0].id, CapabilityId::Accessibility);
             assert_eq!(rows[0].title, "Accessibility");
-            #[cfg(target_os = "macos")]
-            {
-                assert!(
-                    rows[0].buys.contains("Dock"),
-                    "Accessibility has to say what the Dock grant buys, got {:?}",
-                    rows[0].buys
-                );
-                assert!(
-                    rows[0].costs.contains("Accessibility"),
-                    "Accessibility has to name the macOS grant, got {:?}",
-                    rows[0].costs
-                );
-            }
-            #[cfg(target_os = "windows")]
-            {
-                assert!(
-                    rows[0].buys.contains("taskbar"),
-                    "Accessibility has to say what the taskbar grant buys, got {:?}",
-                    rows[0].buys
-                );
-                assert!(
-                    rows[0].costs.contains("Automation"),
-                    "Accessibility has to name the Windows grant, got {:?}",
-                    rows[0].costs
-                );
-            }
+            assert!(
+                rows[0].buys.contains("Dock"),
+                "Accessibility has to say what the Dock grant buys, got {:?}",
+                rows[0].buys
+            );
+            assert!(
+                rows[0].costs.contains("Accessibility"),
+                "Accessibility has to name the macOS grant, got {:?}",
+                rows[0].costs
+            );
             assert!(!rows[0].granted);
 
-            #[cfg(target_os = "macos")]
-            {
-                assert_eq!(rows[1].id, CapabilityId::WindowNames);
-                assert_eq!(
-                    serde_json::to_value(&rows[1]).expect("the consent row serializes"),
-                    serde_json::json!({
-                        "id": "WindowNames",
-                        "title": "Window and application names",
-                        "buys": "Window titles, and which application each window belongs to.",
-                        "costs": "macOS Screen Recording. The fidget reads the names of what is open; it does not capture the screen.",
-                        "granted": false,
-                    })
-                );
-            }
+            assert_eq!(rows[1].id, CapabilityId::WindowNames);
+            assert_eq!(
+                serde_json::to_value(&rows[1]).expect("the consent row serializes"),
+                serde_json::json!({
+                    "id": "WindowNames",
+                    "title": "Window and application names",
+                    "buys": "Window titles, and which application each window belongs to.",
+                    "costs": "macOS Screen Recording. The fidget reads the names of what is open; it does not capture the screen.",
+                    "granted": false,
+                })
+            );
 
-            #[cfg(target_os = "windows")]
-            {
-                assert_eq!(rows[1].id, CapabilityId::WindowNames);
-                assert_eq!(rows[1].title, "Window and Application Names");
-                assert!(
-                    rows[1].buys.contains("title") && rows[1].buys.contains("application"),
-                    "WindowNames has to say titles and applications are what it buys, got {:?}",
-                    rows[1].buys
-                );
-                assert!(
-                    rows[1].costs.contains("No system permission required"),
-                    "WindowNames has to say no system permission required, got {:?}",
-                    rows[1].costs
-                );
-                assert!(!rows[1].granted);
-            }
-
-            #[cfg(target_os = "macos")]
-            {
-                assert_eq!(rows[2].id, CapabilityId::InputMonitoring);
-                assert_eq!(rows[2].title, "Input Monitoring");
-                assert!(
-                    rows[2].buys.contains("mouse"),
-                    "Input Monitoring has to say hearing the mouse is what it buys, got {:?}",
-                    rows[2].buys
-                );
-                assert!(
-                    rows[2].costs.contains("Input Monitoring"),
-                    "Input Monitoring has to name the macOS grant, got {:?}",
-                    rows[2].costs
-                );
-                assert!(
-                    rows[2].costs.contains("never what you type"),
-                    "the row has to say the tap is mouse-only, got {:?}",
-                    rows[2].costs
-                );
-                assert!(!rows[2].granted);
-            }
+            assert_eq!(rows[2].id, CapabilityId::InputMonitoring);
+            assert_eq!(rows[2].title, "Input Monitoring");
+            assert!(
+                rows[2].buys.contains("mouse"),
+                "Input Monitoring has to say hearing the mouse is what it buys, got {:?}",
+                rows[2].buys
+            );
+            assert!(
+                rows[2].costs.contains("Input Monitoring"),
+                "Input Monitoring has to name the macOS grant, got {:?}",
+                rows[2].costs
+            );
+            assert!(
+                rows[2].costs.contains("never what you type"),
+                "the row has to say the tap is mouse-only, got {:?}",
+                rows[2].costs
+            );
+            assert!(!rows[2].granted);
         }
     }
 
@@ -910,27 +682,8 @@ mod tests {
     /// using it.
     #[test]
     fn rows_report_wanted_capabilities() {
-        #[cfg(target_os = "linux")]
-        {
-            let all_off = rows(|_id| false);
-            assert_eq!(all_off.len(), 1);
-            assert!(!all_off[0].granted);
-
-            let portal_on = rows(|id| id == CapabilityId::WindowNames);
-            assert!(portal_on[0].granted);
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let rows = rows(|id| id == CapabilityId::Accessibility);
-            assert!(rows[0].granted);
-            #[cfg(target_os = "macos")]
-            {
-                assert!(!rows[1].granted);
-            }
-            #[cfg(target_os = "windows")]
-            {
-                assert!(!rows[1].granted);
-            }
+        for row in rows(|id| id == CapabilityId::WindowNames) {
+            assert_eq!(row.granted, row.id == CapabilityId::WindowNames, "{row:?}");
         }
     }
 
@@ -961,18 +714,9 @@ mod tests {
     /// like the app is asking again for something the user already gave.
     #[test]
     fn enabling_a_granted_capability_does_not_prompt() {
-        #[cfg(target_os = "linux")]
-        {
-            let probe = Fake::granting(&[CapabilityId::WindowNames]);
-            enable(CapabilityId::WindowNames, &probe);
-            assert!(probe.prompted.lock().expect("prompt log").is_empty());
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let probe = Fake::granting(&[CapabilityId::Accessibility]);
-            enable(CapabilityId::Accessibility, &probe);
-            assert!(probe.prompted.lock().expect("prompt log").is_empty());
-        }
+        let probe = Fake::granting(&[CapabilityId::WindowNames]);
+        enable(CapabilityId::WindowNames, &probe);
+        assert!(probe.prompted.lock().expect("prompt log").is_empty());
     }
 
     /// A `cargo run` from Cursor is listed as Cursor, not fidget. The hint has
@@ -1019,6 +763,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn process_listed_as_is_not_empty() {
         assert!(!process_listed_as().is_empty());
     }
@@ -1055,21 +800,10 @@ mod tests {
     #[test]
     fn the_null_probe_grants_nothing_and_prompts_for_nothing() {
         let probe = Null;
-        #[cfg(target_os = "linux")]
-        {
-            assert!(!probe.granted(CapabilityId::WindowNames));
-            probe.prompt(CapabilityId::WindowNames);
-            assert!(!probe.granted(CapabilityId::WindowNames));
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            assert!(!probe.granted(CapabilityId::Accessibility));
-            #[cfg(target_os = "macos")]
-            {
-                assert!(!probe.granted(CapabilityId::WindowNames));
-                probe.prompt(CapabilityId::WindowNames);
-                assert!(!probe.granted(CapabilityId::WindowNames));
-            }
+        for capability in CAPABILITIES {
+            assert!(!probe.granted(capability.id));
+            probe.prompt(capability.id);
+            assert!(!probe.granted(capability.id));
         }
     }
 
@@ -1133,72 +867,11 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "windows")]
-    fn windows_hint_names_process_without_macos_vocabulary() {
-        let hint = listed_under_hint("Cursor");
-        assert!(
-            hint.contains("Cursor"),
-            "the user has to see the process name Privacy will list, got {hint:?}"
-        );
-        assert!(
-            !hint.contains("macOS"),
-            "Windows hint must not mention macOS, got {hint:?}"
-        );
-        assert!(
-            !hint.contains("Privacy & Security"),
-            "Windows hint must not mention macOS Privacy & Security pane, got {hint:?}"
-        );
-        assert!(
-            !hint.contains("TCC"),
-            "Windows hint must not mention TCC, got {hint:?}"
-        );
-        assert!(
-            !hint.contains("Accessibility"),
-            "Windows hint must not mention macOS Accessibility, got {hint:?}"
-        );
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
     fn windows_pane_intro_is_not_macos_specific() {
-        let intro = pane_intro(&process_listed_as());
-        assert!(!intro.is_empty(), "Windows intro must not be empty");
-        assert!(
-            intro.contains(&process_listed_as()),
-            "Windows intro must name the process, got {intro:?}"
-        );
-        assert!(
-            !intro.contains("macOS"),
-            "Windows intro must not mention macOS, got {intro:?}"
-        );
-        assert!(
-            !intro.contains("Privacy & Security"),
-            "Windows intro must not mention macOS Privacy & Security, got {intro:?}"
-        );
-        assert!(
-            !intro.contains("TCC"),
-            "Windows intro must not mention TCC, got {intro:?}"
-        );
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn windows_toolchain_classification() {
-        use crate::consent::windows::is_toolchain;
-
-        assert!(is_toolchain("cargo"));
-        assert!(is_toolchain("rustc"));
-        assert!(is_toolchain("rustup"));
-        assert!(is_toolchain("rust-analyzer"));
-        assert!(is_toolchain("rls"));
-        assert!(is_toolchain("Cargo")); // case insensitive
-
-        assert!(!is_toolchain("Cursor"));
-        assert!(!is_toolchain("Code"));
-        assert!(!is_toolchain("WindowsTerminal"));
-        assert!(!is_toolchain("powershell"));
-        assert!(!is_toolchain("pwsh"));
-        assert!(!is_toolchain("cmd"));
-        assert!(!is_toolchain("Fidget"));
+        let intro = windows_pane_intro();
+        for macos in ["macOS", "Privacy & Security", "TCC"] {
+            assert!(!intro.contains(macos), "{macos} in {intro:?}");
+        }
     }
 
     #[test]
@@ -1253,5 +926,18 @@ mod tests {
             "Windows WindowNames costs should not mention macOS, got {:?}",
             row.costs
         );
+    }
+
+    /// A row the probe never grants is a checkbox that never turns on.
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn every_windows_capability_can_be_granted() {
+        for capability in CAPABILITIES {
+            assert!(
+                WindowsProbe.granted(capability.id),
+                "{:?} is listed but can never be granted",
+                capability.id
+            );
+        }
     }
 }

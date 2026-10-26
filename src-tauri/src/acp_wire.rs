@@ -23,7 +23,7 @@ use agent_client_protocol::schema::v1::{
     ElicitationPropertySchema, ElicitationScope, ElicitationSessionScope,
     ElicitationUrlCapabilities, EnvVariable, Error, ErrorCode, HttpHeader, Implementation,
     InitializeRequest, LoadSessionRequest, McpServer, McpServerHttp, McpServerStdio, MessageId,
-    Meta, NewSessionRequest, Plan, PromptRequest, RequestPermissionOutcome,
+    Meta, NewSessionRequest, Plan, PromptRequest, PromptResponse, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
     SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
     SessionConfigSelectOptions, SessionId, SessionNotification, SessionUpdate,
@@ -335,7 +335,7 @@ pub enum Event {
     /// one replaces the last; the Action Log gets none. `session` is the
     /// turn's, because one child serves every Instance.
     Thought { session: String, text: String },
-    /// Between-turn agent text accumulated in `Inbound` and flushed
+    /// Between-turn agent text accumulated in a session's `Stream` and flushed
     /// when a session transitions (Ask, Elicit, Prompt, or Close).
     InboundWake { session: String, speech: String },
     /// A forwarded ask that can no longer be answered. Every Chat surface
@@ -824,6 +824,21 @@ impl Wire {
     /// `authenticate` for an agent method, and nothing else. The response body
     /// is not a session: the caller still has to open one.
     pub fn authenticate(&self, method_id: &str) -> Result<(), String> {
+        match self
+            .start_authenticate(method_id)?
+            .recv_timeout(SIGN_IN_WAIT)
+        {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => Err("sign-in timed out".to_string()),
+            Err(RecvTimeoutError::Disconnected) => Err("harness exited".to_string()),
+        }
+    }
+
+    /// `authenticate`'s send. Its reply comes on the returned channel.
+    pub(crate) fn start_authenticate(
+        &self,
+        method_id: &str,
+    ) -> Result<sync_mpsc::Receiver<Result<(), String>>, String> {
         let (reply, rx) = sync_mpsc::channel();
         self.tx
             .send(Msg::Authenticate {
@@ -831,11 +846,7 @@ impl Wire {
                 reply,
             })
             .map_err(|_| "harness exited".to_string())?;
-        match rx.recv_timeout(SIGN_IN_WAIT) {
-            Ok(result) => result,
-            Err(RecvTimeoutError::Timeout) => Err("sign-in timed out".to_string()),
-            Err(RecvTimeoutError::Disconnected) => Err("harness exited".to_string()),
-        }
+        Ok(rx)
     }
 
     /// `session/close` for a session this process will not store. Best effort:
@@ -1190,9 +1201,8 @@ pub(crate) fn kill_harness_tree(pid: u32) {
         // SAFETY: getpgid queries the child's group; errors yield pgid <= 0 and skip killpg.
         let pgid = unsafe { libc::getpgid(pid as libc::pid_t) };
         if killable_group(pgid) {
-            // SIGKILL, not SIGTERM. Claude's ACP adapter dumps
-            // `Query closed before response received` on a polite
-            // signal, which is the dump this isolation exists to avoid.
+            // SIGKILL, not SIGTERM: Claude's ACP adapter dumps
+            // `Query closed before response received` on a polite signal.
             // SAFETY: killable_group verified pgid is not our own process group.
             let _ = unsafe { libc::killpg(pgid, libc::SIGKILL) };
         }
@@ -1221,158 +1231,230 @@ enum Incoming {
     Complete(ElicitationId),
 }
 
-/// A `session/request_permission` held open until the user answers it.
-type PendingAsk = (String, Responder<RequestPermissionResponse>);
-
-/// A turn the Harness started on its own, as a cron fire does: updates for a
-/// session with no `session/prompt` open.
+/// What one session is saying: the answer, the thought beside it, and the
+/// `messageId` of the message arriving. A prompted turn keeps one, and so does
+/// each session the Harness speaks in on its own, as a cron fire does.
 #[derive(Default)]
-struct Inbound {
+struct Stream {
     said: Answer,
+    /// Beside `said` and never inside it. Kept only so a chunk that arrives
+    /// mid-sentence can be shown as the sentence it belongs to.
     thought: String,
-    /// The `messageId` of the message arriving. A different one is the next
-    /// fire, and ends this wake.
+    /// Between turns a different id is the next fire, and ends the wake.
     message: Option<MessageId>,
 }
 
-struct PendingElicit {
-    form: ElicitationForm,
-    responder: Responder<CreateElicitationResponse>,
-    /// A URL form's `elicitationId`, which `elicitation/complete` names.
-    link: Option<ElicitationId>,
+/// What a held question waits on. It is cancelled when that ends.
+#[derive(Clone, Copy, PartialEq)]
+enum Owner {
+    /// The prompted turn. `end_turn` cancels it.
+    Turn,
+    /// Fidget's own `authenticate`. A finished sign-in cancels it.
+    SignIn,
+    /// The session: an ask between turns, a plain form, a link that waits.
+    Session,
 }
 
-/// Lent by `serve`, which runs Fidget's side of the Harness connection, to
-/// `turn` for one `session/prompt`: Fidget's commands (`rx`), the Harness's
-/// requests and updates (`incoming`), and the forms and asks that outlive it.
-struct Serving<'a> {
-    rx: &'a mut mpsc::UnboundedReceiver<Msg>,
-    incoming: &'a mut mpsc::UnboundedReceiver<Incoming>,
-    held: &'a mut Vec<PendingElicit>,
-    held_asks: &'a mut Vec<PendingAsk>,
-    /// Other sessions' work while this turn runs. One child serves every
-    /// Instance, so their traffic is between turns for them.
-    inbound: &'a mut HashMap<SessionId, Inbound>,
+enum PendingKind {
+    Ask(Responder<RequestPermissionResponse>),
+    Form {
+        form: ElicitationForm,
+        responder: Responder<CreateElicitationResponse>,
+        /// A URL form's `elicitationId`, which `elicitation/complete` names.
+        link: Option<ElicitationId>,
+    },
 }
 
-type InflightAuth<'a> = (
-    Pin<Box<dyn Future<Output = Result<(), String>> + 'a>>,
-    sync_mpsc::Sender<Result<(), String>>,
-);
+/// A permission ask or form the Harness sent, held open until the user
+/// answers it or its owner ends.
+struct Pending {
+    request: String,
+    owner: Owner,
+    kind: PendingKind,
+}
 
-/// Commands until shutdown. `authenticate` stays in flight beside them: a
-/// device flow can sit for minutes, and awaiting it here would queue every
-/// other Instance's `session/new`.
+impl Pending {
+    /// Answered with the protocol's `cancelled`, as a finished link and an
+    /// ended owner are. The user made no choice in Chat.
+    fn cancel(self, on_event: &OnEvent) {
+        let _ = match self.kind {
+            PendingKind::Ask(responder) => responder.respond(RequestPermissionResponse::new(
+                RequestPermissionOutcome::Cancelled,
+            )),
+            PendingKind::Form { responder, .. } => {
+                responder.respond(CreateElicitationResponse::new(ElicitationAction::Cancel))
+            }
+        };
+        on_event(Event::PermissionSettled {
+            request: self.request,
+            option: None,
+        });
+    }
+}
+
+type Flight<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+
+type OpenedSession = (SessionId, Vec<SessionConfigOption>, Applied, Option<String>);
+
+/// The one request `serve` waits on beside commands and the Harness.
+enum Job<'a> {
+    Idle,
+    /// `session/load` or `session/new`. `loading` is the id asked to load.
+    Opening {
+        fut: Flight<'a, Result<OpenedSession, OpenError>>,
+        loading: Option<SessionId>,
+        reply: sync_mpsc::Sender<Result<Opened, OpenError>>,
+    },
+    /// One `session/prompt`. Chunks accumulate in `stream`, other updates
+    /// become `Event`s, and its asks are held until `Answer` or `Cancel`.
+    Turn {
+        session: SessionId,
+        fut: Flight<'a, Result<PromptResponse, Error>>,
+        reply: sync_mpsc::Sender<Progress>,
+        stream: Stream,
+        /// Whether `prompt` was last told an ask is open. Reported on the
+        /// transition only: several asks can be open at once, and a Cancel
+        /// that drains them all has to restart the budget too.
+        blocked: bool,
+        /// Set by our cancel and pushed back by every frame after it.
+        quiet_until: Option<Instant>,
+    },
+}
+
+/// Commands until shutdown, in one loop. `authenticate` stays in flight
+/// beside the job: a device flow can sit for minutes, and awaiting it would
+/// queue every other Instance's `session/new`.
 async fn serve(
     cx: &ConnectionTo<Agent>,
     mut rx: mpsc::UnboundedReceiver<Msg>,
     mut incoming: mpsc::UnboundedReceiver<Incoming>,
     on_event: &OnEvent,
 ) {
-    let mut auth: Option<InflightAuth<'_>> = None;
-    // Forms asked between turns, as a sign-in link is during `authenticate`,
-    // and links that outlive a turn. A turn keeps its own, so each is
-    // cancelled with what it belongs to.
-    let mut forms: Vec<PendingElicit> = Vec::new();
-    let mut asks: Vec<PendingAsk> = Vec::new();
-    let mut inbound: HashMap<SessionId, Inbound> = HashMap::new();
+    let mut auth: Option<(Flight<'_, Result<(), String>>, sync_mpsc::Sender<_>)> = None;
+    let mut job = Job::Idle;
+    let mut held = Held {
+        pending: Vec::new(),
+        inbound: HashMap::new(),
+        on_event,
+    };
     // What each open session last listed. A set answers with the whole list, and a
     // model set can change which effort option exists.
     let mut options: HashMap<SessionId, Vec<SessionConfigOption>> = HashMap::new();
-    loop {
+    // Commands that wait for an open to answer, run in order once it has.
+    let mut queued: Vec<Msg> = Vec::new();
+    // How a turn still open when the loop ends is told it ended.
+    let gone = loop {
+        // Built and matched once per pass, never stored, so the size gap
+        // costs a stack copy and boxing would cost an allocation per message.
+        #[allow(clippy::large_enum_variant)]
         enum Step {
-            Auth(Result<(), String>),
-            Command(Msg),
-            Stop,
+            Heard(Option<Incoming>),
+            Command(Option<Msg>),
+            SignedIn(Result<(), String>),
+            Opened(Result<OpenedSession, OpenError>),
+            Turned(Result<PromptResponse, Error>),
+            Silent,
+            Closed,
         }
-        let step = {
-            // Copied before the future borrows `auth`. The `if` below would
-            // otherwise fight that borrow, and the device flow would go back
-            // to being the only command the loop can run.
-            let waiting = auth.is_some();
-            let auth_fut = async {
-                match auth.as_mut() {
-                    Some((fut, _)) => fut.as_mut().await,
-                    None => std::future::pending().await,
-                }
-            };
-            tokio::select! {
-                biased;
-                outcome = auth_fut, if waiting => Step::Auth(outcome),
-                command = rx.recv() => match command {
-                    Some(command) => Step::Command(command),
-                    None => Step::Stop,
-                },
-                message = incoming.recv() => {
-                    if let Some(message) = message {
-                        between_turns(message, &mut forms, &mut asks, &mut inbound, waiting, on_event);
-                    }
-                    continue;
-                }
-                () = cx.incoming_closed() => Step::Stop,
+        if let Job::Turn { blocked, reply, .. } = &mut job {
+            let open = held.pending.iter().any(|held| held.owner == Owner::Turn);
+            if open != *blocked {
+                *blocked = open;
+                let _ = reply.send(if open {
+                    Progress::Asked
+                } else {
+                    Progress::Settled
+                });
+            }
+        }
+        // Copied before the futures borrow `job` and `auth`.
+        let opening = matches!(job, Job::Opening { .. });
+        let signing_in = auth.is_some();
+        let quiet = match &job {
+            Job::Turn { quiet_until, .. } => *quiet_until,
+            _ => None,
+        };
+        let auth_fut = async { auth.as_mut().expect("signing in").0.as_mut().await };
+        let job_fut = async {
+            match &mut job {
+                Job::Opening { fut, .. } => Step::Opened(fut.as_mut().await),
+                Job::Turn { fut, .. } => Step::Turned(fut.as_mut().await),
+                Job::Idle => std::future::pending().await,
             }
         };
-        match step {
-            Step::Stop => {
-                if let Some((_, reply)) = auth.take() {
-                    let _ = reply.send(Err("harness exited".to_string()));
-                }
-                break;
+        let silence = async { tokio::time::sleep_until(quiet.expect("quiet").into()).await };
+        // `biased`: what waited on an open first, then the Harness. A turn's
+        // chunks are read before its response, and an open's stay queued so its
+        // replay can be told from what came after.
+        let step = tokio::select! {
+            biased;
+            command = async { queued.remove(0) }, if !opening && !queued.is_empty() => {
+                Step::Command(Some(command))
             }
-            Step::Auth(outcome) => {
+            message = incoming.recv(), if !opening => Step::Heard(message),
+            command = rx.recv() => Step::Command(command),
+            outcome = auth_fut, if signing_in && !opening => Step::SignedIn(outcome),
+            done = job_fut => done,
+            () = silence, if quiet.is_some() => Step::Silent,
+            () = cx.incoming_closed() => Step::Closed,
+        };
+        match step {
+            Step::Heard(None) | Step::Command(None | Some(Msg::Shutdown)) | Step::Closed => {
+                break TurnError::Lost
+            }
+            Step::Heard(Some(message)) => {
+                if let Job::Turn {
+                    quiet_until: Some(at),
+                    ..
+                } = &mut job
+                {
+                    *at = Instant::now() + CANCELLED_SILENCE;
+                }
+                match &mut job {
+                    Job::Turn {
+                        session,
+                        reply,
+                        stream,
+                        ..
+                    } if incoming_session(&message).is_none_or(|other| other == *session) => {
+                        match message {
+                            Incoming::Update(update) => {
+                                let heard = hear(&update.update);
+                                let answered = matches!(heard, Heard::Said { .. });
+                                show(heard, session, stream, on_event);
+                                if answered {
+                                    let said = stream.said.so_far().to_string();
+                                    let _ = reply.send(Progress::Said(said));
+                                }
+                            }
+                            Incoming::Ask(request, responder) => {
+                                held.ask(Owner::Turn, &request, responder)
+                            }
+                            Incoming::Elicit(request, responder) => held.form(
+                                elicit_owner(&request, signing_in, true),
+                                &request,
+                                responder,
+                            ),
+                            Incoming::Complete(link) => held.complete(&link),
+                        }
+                    }
+                    // Another session's message is not this turn's, and with no
+                    // turn nothing is. It is held the way a turn would hold it.
+                    _ => held.between_turns(message, signing_in),
+                }
+            }
+            Step::SignedIn(outcome) => {
                 if let Some((_, reply)) = auth.take() {
                     let _ = reply.send(outcome);
                 }
-                // The sign-in's own forms. A link that waits is the session's.
-                let (mut signed, kept) = forms.drain(..).partition(|pending| !pending.form.waits);
-                forms = kept;
-                cancel_forms(&mut signed, on_event);
+                held.cancel(Owner::SignIn);
             }
-            Step::Command(Msg::AnswerElicitation { request, answer }) => {
-                answer_form(&mut forms, request, answer, on_event)
-            }
-            Step::Command(Msg::Authenticate { method_id, reply }) => {
-                if auth.is_some() {
-                    let _ = reply.send(Err("sign-in already in progress".to_string()));
+            Step::Opened(opened) => {
+                let Job::Opening { loading, reply, .. } = std::mem::replace(&mut job, Job::Idle)
+                else {
                     continue;
-                }
-                // `async move` copies the `&ConnectionTo`. The method id is
-                // owned, so the request does not borrow the command.
-                auth = Some((
-                    Box::pin(async move {
-                        match cx
-                            .send_request(AuthenticateRequest::new(method_id))
-                            .block_task()
-                            .await
-                        {
-                            Ok(_) => Ok(()),
-                            Err(error) => Err(error_text(error)),
-                        }
-                    }),
-                    reply,
-                ));
-            }
-            Step::Command(Msg::Open {
-                load,
-                cwd,
-                mcp,
-                claude_mcp_approval,
-                model,
-                effort,
-                reply,
-            }) => {
-                let loading = load.clone().map(SessionId::new);
-                let opened = open(
-                    cx,
-                    load,
-                    &cwd,
-                    mcp,
-                    claude_mcp_approval,
-                    &model,
-                    effort.as_deref(),
-                )
-                .await
-                .map(|(id, listed, applied, foreign_model)| {
+                };
+                let opened = opened.map(|(id, listed, applied, foreign_model)| {
                     options.insert(id.clone(), listed);
                     (id, applied, foreign_model)
                 });
@@ -1386,24 +1468,14 @@ async fn serve(
                 };
                 let mut history = Restore::default();
                 while let Ok(message) = incoming.try_recv() {
-                    let message = match message {
+                    match message {
                         Incoming::Update(update) if replayed(&update.session_id) => {
                             if loaded {
                                 history.take(hear(&update.update));
                             }
-                            continue;
                         }
-                        other => other,
-                    };
-                    let signing_in = auth.is_some();
-                    between_turns(
-                        message,
-                        &mut forms,
-                        &mut asks,
-                        &mut inbound,
-                        signing_in,
-                        on_event,
-                    );
+                        other => held.between_turns(other, signing_in),
+                    }
                 }
                 let history = history.finish();
                 let _ = reply.send(opened.map(|(id, applied, foreign_model)| Opened {
@@ -1413,98 +1485,200 @@ async fn serve(
                     foreign_model,
                 }));
             }
-            Step::Command(Msg::Prompt {
-                session_id,
-                text,
-                reply,
-            }) => {
-                let id = SessionId::new(session_id);
-                // Drain pending updates for this session before flushing, so
-                // between-turn speech is not dropped.
-                while let Ok(message) = incoming.try_recv() {
-                    let signing_in = auth.is_some();
-                    between_turns(
-                        message,
-                        &mut forms,
-                        &mut asks,
-                        &mut inbound,
-                        signing_in,
-                        on_event,
-                    );
-                }
-                end_inbound(&mut inbound, &id, on_event);
-                let serving = Serving {
-                    rx: &mut rx,
-                    incoming: &mut incoming,
-                    held: &mut forms,
-                    held_asks: &mut asks,
-                    inbound: &mut inbound,
+            Step::Turned(response) => {
+                let Job::Turn {
+                    session,
+                    reply,
+                    stream,
+                    ..
+                } = &mut job
+                else {
+                    continue;
                 };
-                let outcome = turn(cx, &id, serving, &text, &reply, on_event).await;
-                let lost = matches!(outcome, Err(TurnError::Lost | TurnError::Silent));
+                held.end_turn(session, &mut stream.thought);
+                let said = std::mem::take(&mut stream.said).finish();
+                let outcome = match response {
+                    Ok(response) => outcome(response.stop_reason, said),
+                    Err(error) if auth_refused(&error) => Err(TurnError::AuthRequired),
+                    Err(_) if cx.is_incoming_closed() => Err(TurnError::Lost),
+                    Err(error) => Err(TurnError::Failed(error_text(error))),
+                };
+                let lost = matches!(outcome, Err(TurnError::Lost));
                 let _ = reply.send(Progress::Done(outcome));
+                job = Job::Idle;
                 if lost {
-                    break;
+                    break TurnError::Lost;
                 }
             }
-            Step::Command(Msg::Configure {
-                session_id,
-                model,
-                effort,
-                reply,
-            }) => {
-                let id = SessionId::new(session_id);
-                let listed = options.get(&id).cloned().unwrap_or_default();
-                let set = apply_completer(cx, &id, &model, effort.as_deref(), listed)
-                    .await
-                    .map(|(listed, applied)| {
-                        options.insert(id, listed);
-                        applied
+            Step::Silent => break TurnError::Silent,
+            Step::Command(Some(command)) => match (command, &mut job) {
+                (
+                    command @ (Msg::Open { .. }
+                    | Msg::Prompt { .. }
+                    | Msg::Configure { .. }
+                    | Msg::Close { .. }
+                    | Msg::Authenticate { .. }),
+                    Job::Opening { .. },
+                ) => queued.push(command),
+                // Either side may hold it: an ask can wait from between turns.
+                (Msg::Answer { request, option }, _) => held.answer_ask(request, option),
+                (Msg::AnswerElicitation { request, answer }, _) => {
+                    held.answer_form(request, answer)
+                }
+                (
+                    Msg::Cancel,
+                    Job::Turn {
+                        session,
+                        stream,
+                        quiet_until,
+                        ..
+                    },
+                ) => {
+                    let _ = cx.send_notification(CancelNotification::new(session.clone()));
+                    held.end_turn(session, &mut stream.thought);
+                    *quiet_until = Some(Instant::now() + CANCELLED_SILENCE);
+                }
+                // Prompts behind the open were never sent. They stop as a
+                // cancelled turn does.
+                (Msg::Cancel, Job::Opening { .. }) => {
+                    let prompts = |command: &mut Msg| matches!(command, Msg::Prompt { .. });
+                    for prompt in queued.extract_if(.., prompts) {
+                        if let Msg::Prompt { reply, .. } = prompt {
+                            let stop = outcome(StopReason::Cancelled, String::new());
+                            let _ = reply.send(Progress::Done(stop));
+                        }
+                    }
+                }
+                // An inbound turn is the Harness's own, and `session/cancel`
+                // is for ours.
+                (Msg::Cancel, Job::Idle) => {}
+                (Msg::Prompt { reply, .. }, Job::Turn { .. }) => {
+                    let _ = reply.send(Progress::Done(Err(TurnError::Busy)));
+                }
+                (Msg::Open { reply, .. }, Job::Turn { .. }) => {
+                    let _ = reply.send(Err(OpenError::Failed("a turn is in flight".to_string())));
+                }
+                (Msg::Configure { reply, .. }, Job::Turn { .. }) => {
+                    let _ = reply.send(Err(OpenError::Failed("a turn is in flight".to_string())));
+                }
+                // Not sent under `session/prompt`. The click hears it now,
+                // instead of waiting out the sign-in budget.
+                (Msg::Authenticate { reply, .. }, Job::Turn { .. })
+                | (Msg::Close { reply, .. }, Job::Turn { .. }) => {
+                    let _ = reply.send(Err("a turn is in flight".to_string()));
+                }
+                (Msg::Authenticate { reply, .. }, _) if signing_in => {
+                    let _ = reply.send(Err("sign-in already in progress".to_string()));
+                }
+                (Msg::Authenticate { method_id, reply }, _) => {
+                    // `async move` copies the `&ConnectionTo`, and the
+                    // future owns the method id.
+                    let fut: Flight<'_, _> = Box::pin(async move {
+                        cx.send_request(AuthenticateRequest::new(method_id))
+                            .block_task()
+                            .await
+                            .map(|_| ())
+                            .map_err(error_text)
                     });
-                let _ = reply.send(set);
-            }
-            Step::Command(Msg::Close { session_id, reply }) => {
-                let id = SessionId::new(session_id);
-                options.remove(&id);
-                // Drain pending updates for this session before flushing, so
-                // between-turn speech is not dropped.
-                while let Ok(message) = incoming.try_recv() {
-                    let signing_in = auth.is_some();
-                    between_turns(
-                        message,
-                        &mut forms,
-                        &mut asks,
-                        &mut inbound,
-                        signing_in,
-                        on_event,
+                    auth = Some((fut, reply));
+                }
+                (
+                    Msg::Open {
+                        load,
+                        cwd,
+                        mcp,
+                        claude_mcp_approval,
+                        model,
+                        effort,
+                        reply,
+                    },
+                    _,
+                ) => {
+                    job = Job::Opening {
+                        loading: load.clone().map(SessionId::new),
+                        fut: Box::pin(open(cx, load, cwd, mcp, claude_mcp_approval, model, effort)),
+                        reply,
+                    };
+                }
+                (
+                    Msg::Prompt {
+                        session_id,
+                        text,
+                        reply,
+                    },
+                    _,
+                ) => {
+                    let session = SessionId::new(session_id);
+                    held.drain(&mut incoming, &session, signing_in);
+                    let request = PromptRequest::new(
+                        session.clone(),
+                        vec![ContentBlock::Text(TextContent::new(text))],
                     );
+                    job = Job::Turn {
+                        session,
+                        fut: Box::pin(async move { cx.send_request(request).block_task().await }),
+                        reply,
+                        stream: Stream::default(),
+                        blocked: false,
+                        quiet_until: None,
+                    };
                 }
-                end_inbound(&mut inbound, &id, on_event);
-                let outcome = cx
-                    .send_request(CloseSessionRequest::new(id))
-                    .block_task()
-                    .await;
-                let _ = reply.send(match outcome {
-                    Ok(_) => Ok(()),
-                    Err(error) => Err(error_text(error)),
-                });
-            }
-            Step::Command(Msg::Answer { request, option }) => {
-                answer_ask(&mut asks, request, option, on_event)
-            }
-            // No turn is running, so there is nothing to cancel. An inbound
-            // turn is the Harness's own, and `session/cancel` is for ours.
-            Step::Command(Msg::Cancel) => {}
-            Step::Command(Msg::Shutdown) => {
-                if let Some((_, reply)) = auth.take() {
-                    let _ = reply.send(Err("harness exited".to_string()));
+                (
+                    Msg::Configure {
+                        session_id,
+                        model,
+                        effort,
+                        reply,
+                    },
+                    _,
+                ) => {
+                    let id = SessionId::new(session_id);
+                    let listed = options.get(&id).cloned().unwrap_or_default();
+                    let set = apply_completer(cx, &id, &model, effort.as_deref(), listed)
+                        .await
+                        .map(|(listed, applied)| {
+                            options.insert(id, listed);
+                            applied
+                        });
+                    let _ = reply.send(set);
                 }
-                break;
-            }
+                (Msg::Close { session_id, reply }, _) => {
+                    let id = SessionId::new(session_id);
+                    options.remove(&id);
+                    held.drain(&mut incoming, &id, signing_in);
+                    let closed = cx.send_request(CloseSessionRequest::new(id)).block_task();
+                    let _ = reply.send(closed.await.map(|_| ()).map_err(error_text));
+                }
+                (Msg::Shutdown, _) => break TurnError::Lost,
+            },
         }
+    };
+    // Shutdown is not Cancel. The turn leaves with the wire rather than
+    // waiting for a `cancelled` stop the Harness may never send.
+    match job {
+        Job::Opening { reply, .. } => {
+            let _ = reply.send(Err(OpenError::Lost));
+        }
+        Job::Turn {
+            session,
+            reply,
+            mut stream,
+            ..
+        } => {
+            if gone == TurnError::Lost {
+                let _ = cx.send_notification(CancelNotification::new(session.clone()));
+            }
+            held.end_turn(&session, &mut stream.thought);
+            let _ = reply.send(Progress::Done(Err(gone)));
+        }
+        Job::Idle => {}
     }
-    cancel_asks(&mut asks, on_event);
-    cancel_forms(&mut forms, on_event);
+    if let Some((_, reply)) = auth {
+        let _ = reply.send(Err("harness exited".to_string()));
+    }
+    for question in held.pending {
+        question.cancel(on_event);
+    }
 }
 
 /// A load replay. Inside a prompted turn, agent messages join into one reply
@@ -1844,89 +2018,6 @@ fn trimmed(text: String) -> Option<String> {
     Some(text.trim().to_string()).filter(|text| !text.is_empty())
 }
 
-/// ACP v1 says nothing when a turn the Harness started is over. Flush any
-/// accumulated between-turn speech and close open thinking when Fidget prompts
-/// or closes that session.
-fn end_inbound(inbound: &mut HashMap<SessionId, Inbound>, id: &SessionId, on_event: &OnEvent) {
-    flush_inbound(id, inbound, on_event);
-}
-
-/// One message with no `session/prompt` open, held as a turn would hold it.
-/// `signing_in` is whether Fidget's own `authenticate` is in flight.
-/// Between-turn updates accumulate in `Inbound`; flushes emit inbound wakes.
-fn between_turns(
-    message: Incoming,
-    forms: &mut Vec<PendingElicit>,
-    asks: &mut Vec<PendingAsk>,
-    inbound: &mut HashMap<SessionId, Inbound>,
-    signing_in: bool,
-    on_event: &OnEvent,
-) {
-    match message {
-        Incoming::Update(update) => {
-            let session_id = update.session_id.clone();
-            let heard = hear(&update.update);
-            if let Heard::Said {
-                message: Some(new), ..
-            } = &heard
-            {
-                let next_fire = inbound
-                    .get(&session_id)
-                    .and_then(|held| held.message.as_ref())
-                    .is_some_and(|held| held != *new);
-                if next_fire {
-                    flush_inbound(&session_id, inbound, on_event);
-                }
-            }
-            let held = inbound.entry(session_id.clone()).or_default();
-            show(
-                heard,
-                &session_id,
-                &mut held.said,
-                &mut held.thought,
-                &mut held.message,
-                on_event,
-            );
-        }
-        Incoming::Ask(request, responder) => {
-            flush_inbound(&request.session_id, inbound, on_event);
-            hold_ask(asks, &request, responder, on_event);
-        }
-        Incoming::Elicit(request, responder) => {
-            if let Some(session_id) = elicitation_session(&request) {
-                flush_inbound(&session_id, inbound, on_event);
-            }
-            hold_form(forms, &request, responder, signing_in, on_event);
-        }
-        Incoming::Complete(link) => complete_form(forms, &link, on_event),
-    }
-}
-
-/// Flush accumulated between-turn agent text and thinking as an inbound wake.
-/// Called when a between-turn ask or form arrives, giving each Harness fire
-/// a coherent wake boundary. Clears the entry so multiple fires don't pile up.
-fn flush_inbound(
-    session: &SessionId,
-    inbound: &mut HashMap<SessionId, Inbound>,
-    on_event: &OnEvent,
-) {
-    if let Some(held) = inbound.remove(session) {
-        let speech = held.said.finish();
-        if !speech.is_empty() {
-            on_event(Event::InboundWake {
-                session: session.0.to_string(),
-                speech,
-            });
-        }
-        if !held.thought.is_empty() {
-            on_event(Event::Thought {
-                session: session.0.to_string(),
-                text: String::new(),
-            });
-        }
-    }
-}
-
 /// The session a message from the Harness names, if it names one.
 fn incoming_session(message: &Incoming) -> Option<SessionId> {
     match message {
@@ -1937,19 +2028,22 @@ fn incoming_session(message: &Incoming) -> Option<SessionId> {
     }
 }
 
-/// The session id from an elicitation request, when it's session-scoped.
-fn elicitation_session(request: &CreateElicitationRequest) -> Option<SessionId> {
-    match &request.mode {
-        ElicitationMode::Url(link) => match &link.scope {
-            ElicitationScope::Session(scope) => Some(scope.session_id.clone()),
-            _ => None,
-        },
-        ElicitationMode::Form(form) => match &form.scope {
-            ElicitationScope::Session(scope) => Some(scope.session_id.clone()),
-            _ => None,
-        },
+/// The session a form or link is scoped to, when it has one.
+fn elicitation_scope(request: &CreateElicitationRequest) -> Option<&ElicitationSessionScope> {
+    let scope = match &request.mode {
+        ElicitationMode::Url(link) => &link.scope,
+        ElicitationMode::Form(form) => &form.scope,
+        _ => return None,
+    };
+    match scope {
+        ElicitationScope::Session(scope) => Some(scope),
         _ => None,
     }
+}
+
+/// The session id from an elicitation request, when it's session-scoped.
+fn elicitation_session(request: &CreateElicitationRequest) -> Option<SessionId> {
+    elicitation_scope(request).map(|scope| scope.session_id.clone())
 }
 
 /// One `McpChoice` in the protocol's own words.
@@ -1986,17 +2080,18 @@ fn claude_mcp_meta(approve: bool) -> Option<Meta> {
 }
 
 /// `session/load` when asked and answered, else `session/new`. Raw requests
-/// rather than the SDK's session builders. Those tear the connection down
-/// when the Harness refuses, and `auth_required` is a refusal we recover from.
+/// rather than the SDK's session builders, which tear the connection down
+/// when the Harness refuses; `auth_required` is a refusal we recover from.
 async fn open(
     cx: &ConnectionTo<Agent>,
     load: Option<String>,
-    cwd: &Path,
+    cwd: PathBuf,
     mcp: Option<McpChoice>,
     claude_mcp_approval: bool,
-    model: &str,
-    effort: Option<&str>,
-) -> Result<(SessionId, Vec<SessionConfigOption>, Applied, Option<String>), OpenError> {
+    model: String,
+    effort: Option<String>,
+) -> Result<OpenedSession, OpenError> {
+    let (cwd, model, effort) = (cwd.as_path(), model.as_str(), effort.as_deref());
     let servers = || -> Vec<McpServer> { mcp.iter().map(mcp_server).collect() };
     let approval = || claude_mcp_meta(claude_mcp_approval && mcp.is_some());
     let loaded = if let Some(id) = load {
@@ -2193,178 +2288,6 @@ fn effort_config_id(options: &[SessionConfigOption]) -> Option<SessionConfigId> 
         .map(|option| option.id.clone())
 }
 
-/// One prompt turn. Chunks accumulate, other updates become `Event`s, and a
-/// permission request is held open until `Answer` or `Cancel`.
-/// "The turn finished" is read here, not on an idle `state_update` from ACP v2.
-async fn turn(
-    cx: &ConnectionTo<Agent>,
-    session: &SessionId,
-    serving: Serving<'_>,
-    text: &str,
-    reply: &sync_mpsc::Sender<Progress>,
-    on_event: &OnEvent,
-) -> Result<Reply, TurnError> {
-    let Serving {
-        rx,
-        incoming,
-        held,
-        held_asks,
-        inbound,
-    } = serving;
-    let sent = cx.send_request(PromptRequest::new(
-        session.clone(),
-        vec![ContentBlock::Text(TextContent::new(text.to_string()))],
-    ));
-    let mut finished = std::pin::pin!(sent.block_task());
-    let mut said = Answer::default();
-    // Beside `said` and never inside it. The thought is kept only so a chunk
-    // that arrives mid-sentence can be shown as the sentence it belongs to.
-    // It dies with the turn.
-    let mut thought = String::new();
-    let mut open_message = None;
-    let mut asks: Vec<PendingAsk> = Vec::new();
-    let mut forms: Vec<PendingElicit> = Vec::new();
-    // Reported on the transition only, and at the top of the loop: several asks
-    // can be open at once, and a Cancel that drains them all has to restart the
-    // budget too, or a Harness that ignores it leaves `prompt` waiting.
-    let mut blocked = false;
-    // Set by our cancel and pushed back by every frame after it.
-    let mut quiet_until: Option<Instant> = None;
-    loop {
-        let open = !asks.is_empty() || !forms.is_empty();
-        if open != blocked {
-            blocked = open;
-            let _ = reply.send(if open {
-                Progress::Asked
-            } else {
-                Progress::Settled
-            });
-        }
-        // `biased`, updates first. The SDK dispatches a turn's chunks before
-        // its response, so the response is read only once the channel ahead
-        // of it is empty, and no chunk is left behind on the way out.
-        let silence = async {
-            match quiet_until {
-                Some(at) => tokio::time::sleep_until(at.into()).await,
-                None => std::future::pending().await,
-            }
-        };
-        tokio::select! {
-            biased;
-            message = incoming.recv() => {
-            if quiet_until.is_some() {
-                quiet_until = Some(Instant::now() + CANCELLED_SILENCE);
-            }
-            match message {
-                // Another session's update or question is not this turn's.
-                // It is held the way it would be with no prompt open.
-                Some(message) if incoming_session(&message).is_some_and(|other| &other != session) => {
-                    between_turns(message, held, held_asks, inbound, false, on_event)
-                }
-                Some(Incoming::Update(update)) => {
-                    let heard = hear(&update.update);
-                    let answered = matches!(heard, Heard::Said { .. });
-                    show(
-                        heard,
-                        session,
-                        &mut said,
-                        &mut thought,
-                        &mut open_message,
-                        on_event,
-                    );
-                    if answered {
-                        let _ = reply.send(Progress::Said(said.so_far().to_string()));
-                    }
-                }
-                Some(Incoming::Ask(request, responder)) => {
-                    hold_ask(&mut asks, &request, responder, on_event)
-                }
-                // A link that outlives the turn goes to `serve`'s forms, so
-                // `end_turn` does not cancel it and the budget does not stop.
-                Some(Incoming::Elicit(request, responder)) if outlives_turn(&request) => {
-                    hold_form(held, &request, responder, false, on_event)
-                }
-                Some(Incoming::Elicit(request, responder)) => {
-                    hold_form(&mut forms, &request, responder, false, on_event)
-                }
-                // Either list may hold it: a link can wait from before the turn.
-                Some(Incoming::Complete(link)) => {
-                    complete_form(&mut forms, &link, on_event);
-                    complete_form(held, &link, on_event);
-                }
-                None => {
-                    end_turn(session, &mut asks, &mut forms, &mut thought, on_event);
-                    return Err(TurnError::Lost);
-                }
-            }},
-            response = &mut finished => {
-                end_turn(session, &mut asks, &mut forms, &mut thought, on_event);
-                return match response {
-                    Ok(response) => outcome(response.stop_reason, said.finish()),
-                    Err(error) if auth_refused(&error) => Err(TurnError::AuthRequired),
-                    Err(_) if cx.is_incoming_closed() => Err(TurnError::Lost),
-                    Err(error) => Err(TurnError::Failed(error_text(error))),
-                };
-            }
-            command = rx.recv() => match command {
-                Some(Msg::Cancel) => {
-                    let _ = cx.send_notification(CancelNotification::new(session.clone()));
-                    end_turn(session, &mut asks, &mut forms, &mut thought, on_event);
-                    quiet_until = Some(Instant::now() + CANCELLED_SILENCE);
-                }
-                // Shutdown is not Cancel. The turn leaves with the wire rather
-                // than looping for a `cancelled` stop the Harness may never
-                // send. The reply is lost; the sender kills the child next.
-                Some(Msg::Shutdown) => {
-                    let _ = cx.send_notification(CancelNotification::new(session.clone()));
-                    end_turn(session, &mut asks, &mut forms, &mut thought, on_event);
-                    return Err(TurnError::Lost);
-                }
-                // Either list may hold it: an ask can wait from between turns.
-                Some(Msg::Answer { request, option }) => {
-                    let mine = asks.iter().any(|(id, _)| *id == request);
-                    let from = if mine { &mut asks } else { &mut *held_asks };
-                    answer_ask(from, request, option, on_event)
-                }
-                Some(Msg::AnswerElicitation { request, answer }) => {
-                    let mine = forms.iter().any(|pending| pending.form.request == request);
-                    let from = if mine { &mut forms } else { &mut *held };
-                    answer_form(from, request, answer, on_event)
-                }
-                Some(Msg::Prompt { reply, .. }) => {
-                    let _ = reply.send(Progress::Done(Err(TurnError::Busy)));
-                }
-                Some(Msg::Open { reply, .. }) => {
-                    let _ = reply.send(Err(OpenError::Failed("a turn is in flight".to_string())));
-                }
-                Some(Msg::Configure { reply, .. }) => {
-                    let _ = reply.send(Err(OpenError::Failed("a turn is in flight".to_string())));
-                }
-                // Not sent under `session/prompt`. The click hears it now,
-                // instead of waiting out the sign-in budget on a dropped message.
-                Some(Msg::Authenticate { reply, .. }) => {
-                    let _ = reply.send(Err("a turn is in flight".to_string()));
-                }
-                Some(Msg::Close { reply, .. }) => {
-                    let _ = reply.send(Err("a turn is in flight".to_string()));
-                }
-                None => {
-                    end_turn(session, &mut asks, &mut forms, &mut thought, on_event);
-                    return Err(TurnError::Lost);
-                }
-            },
-            () = silence => {
-                end_turn(session, &mut asks, &mut forms, &mut thought, on_event);
-                return Err(TurnError::Silent);
-            }
-            () = cx.incoming_closed() => {
-                end_turn(session, &mut asks, &mut forms, &mut thought, on_event);
-                return Err(TurnError::Lost);
-            }
-        }
-    }
-}
-
 /// Every field of the tool call a consent row could read, as plain values.
 /// A diff contributes its path. `name` is absent because the SDK gates it
 /// behind `unstable_tool_call_name`, which this crate does not enable.
@@ -2503,10 +2426,7 @@ fn elicitation_response(
 /// A different `messageId` is the next message. A missing id stays with the
 /// message already open, as a harness that omits it does.
 fn message_changed(open: Option<&MessageId>, next: Option<&MessageId>) -> bool {
-    match (open, next) {
-        (Some(open), Some(next)) => open != next,
-        _ => false,
-    }
+    matches!((open, next), (Some(open), Some(next)) if open != next)
 }
 
 /// The next message starts a paragraph. A mark that already closed on a blank
@@ -2522,14 +2442,12 @@ fn break_paragraph(text: &mut String) {
     }
 }
 
-fn show(
-    heard: Heard<'_>,
-    session: &SessionId,
-    said: &mut Answer,
-    thought: &mut String,
-    message: &mut Option<MessageId>,
-    on_event: &OnEvent,
-) {
+fn show(heard: Heard<'_>, session: &SessionId, stream: &mut Stream, on_event: &OnEvent) {
+    let Stream {
+        said,
+        thought,
+        message,
+    } = stream;
     let think = |thought: &mut String, text: &str| {
         if text.is_empty() {
             return;
@@ -2594,11 +2512,7 @@ fn show(
 /// line stays, blank ones too, because the Thinking row draws the whole
 /// thought and a paragraph break is something the harness wrote.
 pub(crate) fn thought_to_show(thought: &str) -> Option<&str> {
-    if thought.trim().is_empty() {
-        None
-    } else {
-        Some(thought)
-    }
+    (!thought.trim().is_empty()).then_some(thought)
 }
 
 /// Answer text with its `<think>` and `<thinking>` blocks peeled off as it
@@ -2621,23 +2535,12 @@ impl Answer {
         let mut rest = std::mem::take(&mut self.held) + chunk;
         let mut thought = String::new();
         loop {
-            let found_open = OPEN
+            let found = OPEN
                 .iter()
-                .filter_map(|tag| rest.find(tag).map(|at| (at, tag.len(), true)))
+                .map(|tag| (tag, true))
+                .chain(CLOSE.iter().map(|tag| (tag, false)))
+                .filter_map(|(tag, open)| rest.find(tag).map(|at| (at, tag.len(), open)))
                 .min();
-            let found_close = CLOSE
-                .iter()
-                .filter_map(|tag| rest.find(tag).map(|at| (at, tag.len(), false)))
-                .min();
-            let found = match (found_open, found_close) {
-                (Some((at_o, len_o, _)), Some((at_c, _, _))) if at_o < at_c => {
-                    Some((at_o, len_o, true))
-                }
-                (Some(_), Some((at_c, len_c, _))) => Some((at_c, len_c, false)),
-                (Some(o), None) => Some(o),
-                (None, Some(c)) => Some(c),
-                (None, None) => None,
-            };
 
             let Some((at, len, is_open)) = found else {
                 let keep = OPEN
@@ -2704,181 +2607,232 @@ impl Answer {
     }
 }
 
+/// Who a form belongs to. A session-less one during sign-in is the sign-in's.
+/// During a turn, only a session-scoped URL with no tool call outlives it:
+/// `end_turn` leaves that one, and the budget keeps running.
+fn elicit_owner(request: &CreateElicitationRequest, signing_in: bool, in_turn: bool) -> Owner {
+    if signing_in && elicitation_scope(request).is_none() {
+        Owner::SignIn
+    } else if in_turn && !outlives_turn(request) {
+        Owner::Turn
+    } else {
+        Owner::Session
+    }
+}
+
 /// A link scoped to the session and no tool call, as an MCP server's sign-in
 /// after `session/new` is. It belongs to the session, not the turn it lands in.
 fn outlives_turn(request: &CreateElicitationRequest) -> bool {
-    session_link(request).is_some_and(|scope| scope.tool_call_id.is_none())
+    matches!(request.mode, ElicitationMode::Url(_))
+        && elicitation_scope(request).is_some_and(|scope| scope.tool_call_id.is_none())
 }
 
-/// A link tied to a tool call, which blocks its turn until answered.
-fn on_tool_call(request: &CreateElicitationRequest) -> bool {
-    session_link(request).is_some_and(|scope| scope.tool_call_id.is_some())
+/// The Harness's open questions, and each session's stream with no prompt
+/// open. One child serves every Instance, so another session's traffic during
+/// a turn lands in `inbound` too.
+struct Held<'e> {
+    pending: Vec<Pending>,
+    inbound: HashMap<SessionId, Stream>,
+    on_event: &'e OnEvent,
 }
 
-/// The scope of a URL form tied to a session rather than a request.
-fn session_link(request: &CreateElicitationRequest) -> Option<&ElicitationSessionScope> {
-    match &request.mode {
-        ElicitationMode::Url(link) => match &link.scope {
-            ElicitationScope::Session(scope) => Some(scope),
+impl Held<'_> {
+    /// What arrived while nothing read it is held, and `session`'s wake ends: a
+    /// prompt or close is the boundary ACP v1 never sends.
+    fn drain(
+        &mut self,
+        incoming: &mut mpsc::UnboundedReceiver<Incoming>,
+        session: &SessionId,
+        signing_in: bool,
+    ) {
+        while let Ok(message) = incoming.try_recv() {
+            self.between_turns(message, signing_in);
+        }
+        self.end_inbound(session);
+    }
+
+    /// ACP v1 says nothing when a turn the Harness started is over, so a
+    /// prompt, a close, an ask, a form or the next fire ends it: flush the
+    /// session's speech as an inbound wake and close open thinking.
+    fn end_inbound(&mut self, session: &SessionId) {
+        let Some(held) = self.inbound.remove(session) else {
+            return;
+        };
+        let speech = held.said.finish();
+        if !speech.is_empty() {
+            (self.on_event)(Event::InboundWake {
+                session: session.0.to_string(),
+                speech,
+            });
+        }
+        if !held.thought.is_empty() {
+            (self.on_event)(Event::Thought {
+                session: session.0.to_string(),
+                text: String::new(),
+            });
+        }
+    }
+
+    /// One message with no `session/prompt` open, held as a turn would hold it.
+    fn between_turns(&mut self, message: Incoming, signing_in: bool) {
+        match message {
+            Incoming::Update(update) => {
+                let session = &update.session_id;
+                let heard = hear(&update.update);
+                let held = self
+                    .inbound
+                    .get(session)
+                    .and_then(|held| held.message.as_ref());
+                if matches!(&heard, Heard::Said { message: Some(new), .. } if held.is_some_and(|held| held != *new))
+                {
+                    self.end_inbound(session);
+                }
+                let held = self.inbound.entry(session.clone()).or_default();
+                show(heard, session, held, self.on_event);
+            }
+            Incoming::Ask(request, responder) => {
+                self.end_inbound(&request.session_id);
+                self.ask(Owner::Session, &request, responder)
+            }
+            Incoming::Elicit(request, responder) => {
+                if let Some(session) = elicitation_session(&request) {
+                    self.end_inbound(&session);
+                }
+                self.form(
+                    elicit_owner(&request, signing_in, false),
+                    &request,
+                    responder,
+                )
+            }
+            Incoming::Complete(link) => self.complete(&link),
+        }
+    }
+
+    /// A form the Harness asked, held open and handed on to Chat.
+    fn form(
+        &mut self,
+        owner: Owner,
+        request: &CreateElicitationRequest,
+        responder: Responder<CreateElicitationResponse>,
+    ) {
+        let mut form = elicitation_form(request, responder.id().to_string());
+        form.waits = form.url.is_some()
+            && owner != Owner::SignIn
+            && !elicitation_scope(request).is_some_and(|scope| scope.tool_call_id.is_some());
+        let link = match &request.mode {
+            ElicitationMode::Url(link) => Some(link.elicitation_id.clone()),
             _ => None,
-        },
-        _ => None,
+        };
+        self.pending.push(Pending {
+            request: form.request.clone(),
+            owner,
+            kind: PendingKind::Form {
+                form: form.clone(),
+                responder,
+                link,
+            },
+        });
+        (self.on_event)(Event::Elicitation {
+            session: elicitation_session(request).map(|session| session.0.to_string()),
+            form,
+        });
     }
-}
 
-/// A form the Harness asked, held open and handed on to Chat. `signing_in` is
-/// whether Fidget's own `authenticate` is in flight.
-fn hold_form(
-    forms: &mut Vec<PendingElicit>,
-    request: &CreateElicitationRequest,
-    responder: Responder<CreateElicitationResponse>,
-    signing_in: bool,
-    on_event: &OnEvent,
-) {
-    let mut form = elicitation_form(request, responder.id().to_string());
-    form.waits = form.url.is_some() && !signing_in && !on_tool_call(request);
-    let link = match &request.mode {
-        ElicitationMode::Url(link) => Some(link.elicitation_id.clone()),
-        _ => None,
-    };
-    forms.push(PendingElicit {
-        form: form.clone(),
-        responder,
-        link,
-    });
-    on_event(Event::Elicitation {
-        session: elicitation_session(request).map(|session| session.0.to_string()),
-        form,
-    });
-}
+    /// A permission request the Harness asked, held open and handed on to Chat.
+    fn ask(
+        &mut self,
+        owner: Owner,
+        request: &RequestPermissionRequest,
+        responder: Responder<RequestPermissionResponse>,
+    ) {
+        let ask = permission_ask(request, responder.id().to_string());
+        self.pending.push(Pending {
+            request: ask.request.clone(),
+            owner,
+            kind: PendingKind::Ask(responder),
+        });
+        (self.on_event)(Event::Permission {
+            session: request.session_id.0.to_string(),
+            ask,
+        });
+    }
 
-/// A permission request the Harness asked, held open and handed on to Chat.
-fn hold_ask(
-    asks: &mut Vec<PendingAsk>,
-    request: &RequestPermissionRequest,
-    responder: Responder<RequestPermissionResponse>,
-    on_event: &OnEvent,
-) {
-    let ask = permission_ask(request, responder.id().to_string());
-    asks.push((ask.request.clone(), responder));
-    on_event(Event::Permission {
-        session: request.session_id.0.to_string(),
-        ask,
-    });
-}
+    /// The open question `request` names, if it is still open. Asks and forms
+    /// share the Harness's JSON-RPC ids, so an id names one question.
+    fn take(&mut self, request: &str) -> Option<PendingKind> {
+        let at = self
+            .pending
+            .iter()
+            .position(|held| held.request == request)?;
+        Some(self.pending.remove(at).kind)
+    }
 
-/// The user's pick on the open ask it names, if that ask is still open.
-fn answer_ask(asks: &mut Vec<PendingAsk>, request: String, option: String, on_event: &OnEvent) {
-    let Some(at) = asks.iter().position(|(id, _)| *id == request) else {
-        return;
-    };
-    let (_, responder) = asks.remove(at);
-    let _ = responder.respond(RequestPermissionResponse::new(
-        RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option.clone())),
-    ));
-    on_event(Event::PermissionSettled {
-        request,
-        option: Some(option),
-    });
-}
-
-/// Every open ask, answered with the protocol's `cancelled`.
-fn cancel_asks(asks: &mut Vec<PendingAsk>, on_event: &OnEvent) {
-    for (request, responder) in asks.drain(..) {
+    /// The user's pick on the open ask it names, if that ask is still open.
+    fn answer_ask(&mut self, request: String, option: String) {
+        let Some(PendingKind::Ask(responder)) = self.take(&request) else {
+            return;
+        };
         let _ = responder.respond(RequestPermissionResponse::new(
-            RequestPermissionOutcome::Cancelled,
+            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option.clone())),
         ));
-        on_event(Event::PermissionSettled {
+        (self.on_event)(Event::PermissionSettled {
             request,
-            option: None,
+            option: Some(option),
         });
     }
-}
 
-/// The user's answer to the open form it names, if that form is still open.
-fn answer_form(
-    forms: &mut Vec<PendingElicit>,
-    request: String,
-    answer: ElicitationAnswer,
-    on_event: &OnEvent,
-) {
-    let Some(at) = forms
-        .iter()
-        .position(|pending| pending.form.request == request)
-    else {
-        return;
-    };
-    let pending = forms.remove(at);
-    let option = match &answer {
-        ElicitationAnswer::Accept(value) => Some(value.clone()),
-        ElicitationAnswer::Decline => Some("decline".to_string()),
-    };
-    let _ = pending
-        .responder
-        .respond(elicitation_response(&pending.form, answer));
-    on_event(Event::PermissionSettled { request, option });
-}
-
-/// A link the Harness says is done, retired as an answer would retire it.
-/// The user finished elsewhere and made no choice in Chat, so the request is
-/// closed with `cancel`. An id no open form holds is ignored.
-fn complete_form(forms: &mut Vec<PendingElicit>, link: &ElicitationId, on_event: &OnEvent) {
-    let Some(at) = forms
-        .iter()
-        .position(|pending| pending.link.as_ref() == Some(link))
-    else {
-        return;
-    };
-    let pending = forms.remove(at);
-    let _ = pending
-        .responder
-        .respond(CreateElicitationResponse::new(ElicitationAction::Cancel));
-    on_event(Event::PermissionSettled {
-        request: pending.form.request,
-        option: None,
-    });
-}
-
-/// Every open form, answered with the protocol's `cancel`.
-fn cancel_forms(forms: &mut Vec<PendingElicit>, on_event: &OnEvent) {
-    for pending in forms.drain(..) {
-        let request = pending.form.request;
-        let _ = pending
-            .responder
-            .respond(CreateElicitationResponse::new(ElicitationAction::Cancel));
-        on_event(Event::PermissionSettled {
-            request,
-            option: None,
-        });
+    /// The user's answer to the open form it names, if that form is still open.
+    fn answer_form(&mut self, request: String, answer: ElicitationAnswer) {
+        let Some(PendingKind::Form {
+            form, responder, ..
+        }) = self.take(&request)
+        else {
+            return;
+        };
+        let option = match &answer {
+            ElicitationAnswer::Accept(value) => Some(value.clone()),
+            ElicitationAnswer::Decline => Some("decline".to_string()),
+        };
+        let _ = responder.respond(elicitation_response(&form, answer));
+        (self.on_event)(Event::PermissionSettled { request, option });
     }
-}
 
-/// Close out what this side was holding for a turn that is over.
-/// Open questions get the protocol-mandated `cancelled` reply. The empty
-/// thought says the turn stopped thinking; the plan goes dark.
-fn end_turn(
-    session: &SessionId,
-    asks: &mut Vec<PendingAsk>,
-    forms: &mut Vec<PendingElicit>,
-    thought: &mut String,
-    on_event: &OnEvent,
-) {
-    cancel_asks(asks, on_event);
-    cancel_forms(forms, on_event);
-    if !thought.is_empty() {
-        thought.clear();
-        on_event(Event::Thought {
+    /// A link the Harness says is done, retired as an answer would retire it.
+    /// The user finished elsewhere and made no choice in Chat, so the request is
+    /// closed with `cancel`. An id no open form holds is ignored.
+    fn complete(&mut self, link: &ElicitationId) {
+        let done = |held: &Pending| matches!(&held.kind, PendingKind::Form { link: Some(id), .. } if id == link);
+        if let Some(at) = self.pending.iter().position(done) {
+            self.pending.remove(at).cancel(self.on_event);
+        }
+    }
+
+    /// Every question `owner` held, answered with the protocol's `cancelled`.
+    fn cancel(&mut self, owner: Owner) {
+        for held in self.pending.extract_if(.., |held| held.owner == owner) {
+            held.cancel(self.on_event);
+        }
+    }
+
+    /// Close out what this side was holding for a turn that is over.
+    /// Open questions get the protocol-mandated `cancelled` reply. The empty
+    /// thought says the turn stopped thinking; the plan goes dark.
+    fn end_turn(&mut self, session: &SessionId, thought: &mut String) {
+        self.cancel(Owner::Turn);
+        if !thought.is_empty() {
+            thought.clear();
+            (self.on_event)(Event::Thought {
+                session: session.0.to_string(),
+                text: String::new(),
+            });
+        }
+        // Unconditional. Nothing here remembers whether the turn planned, and
+        // one idempotent event is cheaper than a flag on every way a turn ends.
+        (self.on_event)(Event::Plan {
             session: session.0.to_string(),
-            text: String::new(),
+            steps: Vec::new(),
         });
     }
-    // Unconditional. Nothing here remembers whether the turn planned, and
-    // threading a flag through every exit path in the turn loop would buy
-    // one idempotent event.
-    on_event(Event::Plan {
-        session: session.0.to_string(),
-        steps: Vec::new(),
-    });
 }
 
 /// What a finished turn is worth, from the reason it stopped and the words
@@ -2926,21 +2880,12 @@ mod tests {
 
     fn drive(updates: Vec<SessionUpdate>) -> (String, Vec<Event>) {
         let (seen, on_event) = collector();
-        let mut said = Answer::default();
-        let mut thought = String::new();
-        let mut message = None;
+        let mut stream = Stream::default();
         for update in updates {
-            show(
-                hear(&update),
-                &SessionId::new("s"),
-                &mut said,
-                &mut thought,
-                &mut message,
-                &on_event,
-            );
+            show(hear(&update), &SessionId::new("s"), &mut stream, &on_event);
         }
         let events = seen.lock().unwrap().clone();
-        (said.finish(), events)
+        (stream.said.finish(), events)
     }
 
     fn thoughts(events: &[Event]) -> Vec<&str> {
@@ -3368,13 +3313,7 @@ mod tests {
         let (seen, on_event) = collector();
         let mut thought = "Reading the roster".to_string();
         let session = SessionId::new("s");
-        end_turn(
-            &session,
-            &mut Vec::new(),
-            &mut Vec::new(),
-            &mut thought,
-            &on_event,
-        );
+        held(&on_event).end_turn(&session, &mut thought);
         assert!(matches!(
             seen.lock().unwrap().as_slice(),
             [Event::Thought { text, .. }, Event::Plan { steps, .. }]
@@ -3384,13 +3323,7 @@ mod tests {
         // A turn that thought nothing has no row to close. The plan clear is
         // unconditional, so it is all that is left.
         let (seen, on_event) = collector();
-        end_turn(
-            &session,
-            &mut Vec::new(),
-            &mut Vec::new(),
-            &mut String::new(),
-            &on_event,
-        );
+        held(&on_event).end_turn(&session, &mut String::new());
         assert!(matches!(
             seen.lock().unwrap().as_slice(),
             [Event::Plan { steps, .. }] if steps.is_empty()
@@ -3950,21 +3883,21 @@ mod tests {
 
     /// Between turns, every update for a session is read and held. Returns
     /// the wakes that came out, then what a close of `s` flushes.
+    fn held(on_event: &OnEvent) -> Held<'_> {
+        Held {
+            pending: Vec::new(),
+            inbound: HashMap::new(),
+            on_event,
+        }
+    }
+
     fn wakes(messages: Vec<Incoming>) -> Vec<(String, String)> {
         let (seen, on_event) = collector();
-        let mut inbound = HashMap::new();
-        let (mut forms, mut asks) = (Vec::new(), Vec::new());
+        let mut held = held(&on_event);
         for message in messages {
-            between_turns(
-                message,
-                &mut forms,
-                &mut asks,
-                &mut inbound,
-                false,
-                &on_event,
-            );
+            held.between_turns(message, false);
         }
-        end_inbound(&mut inbound, &SessionId::new("s"), &on_event);
+        held.end_inbound(&SessionId::new("s"));
         let events = seen.lock().unwrap().clone();
         events
             .into_iter()

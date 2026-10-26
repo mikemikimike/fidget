@@ -4,8 +4,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
@@ -93,9 +92,16 @@ const probe = `
 </script>`;
 
 async function launch() {
-  const dir = mkdtempSync(join(tmpdir(), "cues-site-"));
-  const site = join(dir, "_site");
-  let cdp;
+  const cdp = launchWithPipe(chromePath, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--mute-audio",
+    "--allow-file-access-from-files",
+    "--window-size=1400,900",
+  ]);
+  const site = join(cdp.dir, "_site");
   try {
     // The real build, so a page import the script forgets to copy fails here.
     const built = spawnSync("bash", ["scripts/assemble-site.sh", site, "/dev/null"], { cwd: ROOT, encoding: "utf8" });
@@ -103,17 +109,6 @@ async function launch() {
     const html = readFileSync(join(site, "cues.html"), "utf8")
       .replace("<head>", `<head>${probe}`);
     writeFileSync(join(site, "cues.html"), html);
-
-    cdp = launchWithPipe(chromePath, [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      "--mute-audio",
-      `--user-data-dir=${join(dir, "profile")}`,
-      "--allow-file-access-from-files",
-      "--window-size=1400,900",
-    ]);
 
     const { sessionId, navigate, blockURLs } = await createPageTarget(cdp);
     await blockURLs(["*fonts.googleapis.com*", "*fonts.gstatic.com*"]);
@@ -126,8 +121,7 @@ async function launch() {
     );
     return result;
   } finally {
-    if (cdp) await cleanupChrome(cdp);
-    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    await cleanupChrome(cdp);
   }
 }
 

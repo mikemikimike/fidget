@@ -370,10 +370,21 @@ export function mount(section, data, cue) {
     Object.assign(button, { type: "button", title: member.name });
     button.dataset.id = id;
     button.setAttribute("aria-label", member.name);
+    // The button shows the frame's `face` box, its visible art, scaled to fit,
+    // so transparent padding in the frame doesn't shrink the sprite.
+    const [x, y, fw, fh] = member.face;
+    const [width, height] = member.size;
+    const crop = document.createElement("span");
+    crop.className = "face";
+    crop.style.aspectRatio = `${fw} / ${fh}`;
+    crop.style[fw >= fh ? "width" : "height"] = "100%";
     const face = new Image();
     Object.assign(face, { src: member.loops.idle.frames[0], alt: "" });
+    Object.assign(face.style, { width: `${(width / fw) * 100}%`, height: `${(height / fh) * 100}%`,
+      left: `${(-x / fw) * 100}%`, top: `${(-y / fh) * 100}%` });
     face.classList.toggle("pixel", member.pixel);
-    button.append(face);
+    crop.append(face);
+    button.append(crop);
     button.addEventListener("click", () => {
       pick(id);
       wear(id);

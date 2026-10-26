@@ -28,6 +28,8 @@
     --line: #D3D7E0;
     --accent: #2C8C7C;
     --accent-ink: #FFFFFF;
+    /* A fill behind small --accent-ink text: 5.14:1, where --accent gives 4.08:1. */
+    --accent-strong: #267A6C;
     --win: #FBFCFE;
     --desk-light-a: #CFE3EC;
     --desk-light-b: #E8D9EC;
@@ -51,6 +53,7 @@
       --line: #313746;
       --accent: #5CC9B5;
       --accent-ink: #14171E;
+      --accent-strong: #5CC9B5;
       --win: #232835;
       --desk-a: var(--desk-dark-a);
       --desk-b: var(--desk-dark-b);
@@ -70,6 +73,7 @@
     --line: #313746;
     --accent: #5CC9B5;
     --accent-ink: #14171E;
+    --accent-strong: #5CC9B5;
     --win: #232835;
     --desk-a: var(--desk-dark-a);
     --desk-b: var(--desk-dark-b);
@@ -162,6 +166,33 @@
   .cast img.pixel { image-rendering: pixelated; height: 96px; }
   .cast figcaption { font-size: .88rem; color: var(--ink-2); margin-top: .4rem; }
 
+  .moment[hidden] { display: none; }
+  .moment-scene { margin: 0 0 1.5rem; padding: .9rem 1.1rem; background: var(--win); border: 1px solid var(--line);
+    border-radius: 12px; }
+  .moment-scene span, .moment blockquote span { display: block; margin-bottom: .2rem; font-size: .72rem;
+    font-style: normal; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+  .moment-cast { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem; }
+  .moment-cast figure { margin: 0; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  /* The hero's bubble, set in the column instead of on the desk. */
+  .moment-cast .say { position: relative; left: auto; bottom: auto; max-width: none; align-self: stretch;
+    margin-bottom: 16px; text-align: left; }
+  .moment-cast .say::before, .moment-cast .say::after { right: auto; left: calc(50% - 10px); }
+  .moment-cast .say::after { margin: 0 0 0 2px; }
+  .moment-art { height: 96px; display: flex; align-items: flex-end; justify-content: center; }
+  .moment-art img { max-height: 96px; max-width: 100%; }
+  .moment-art img.pixel { image-rendering: pixelated; height: 96px; }
+  .moment-cast figcaption { margin: .5rem 0 .7rem; font-size: .88rem; color: var(--ink-2); }
+  .moment-cast blockquote { margin: 0; padding-top: .6rem; align-self: stretch; border-top: 1px dashed var(--line);
+    font-size: .85rem; font-style: italic; color: var(--ink-2); }
+  .moment-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem;
+    margin-top: 1.5rem; }
+  .moment-label { margin: 0; font-size: .8rem; color: var(--ink-3); }
+  .moment-next { font: inherit; font-size: .9rem; padding: .4rem .9rem; border-radius: 999px;
+    border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
+  .moment-next:hover { background: var(--paper-2); }
+  .moment-next:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .moment-next[hidden] { display: none; }
+
   .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
   .features div { background: var(--win); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem 1.2rem; }
   .features b { display: block; margin-bottom: .3rem; }
@@ -175,6 +206,37 @@
   .faq details:first-of-type { border-top: 1px solid var(--line); }
   .faq summary { cursor: pointer; font-weight: 600; }
   .faq p { margin: .5rem 0 0; color: var(--ink-2); max-width: 44rem; }
+
+  .twist-pick { display: grid; gap: .5rem; margin-bottom: 1.25rem; }
+  .twist-pick[hidden] { display: none; }
+  .twist-pick > div { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+  .twist-pick span { min-width: 5.5rem; font-size: .88rem; color: var(--ink-2); }
+  .twist-pick button { font: inherit; font-size: .88rem; padding: .3rem .8rem; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--win); color: var(--ink); cursor: pointer; }
+  .twist-pick button:hover { border-color: var(--accent); }
+  .twist-pick button[aria-pressed="true"] { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-ink); }
+  .twist-pick button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* The app's Prompt tab text, quoted rather than drawn as a field. */
+  .twist-layer { margin: 0; }
+  .twist-layer figcaption { margin-bottom: .35rem; font-size: .88rem; font-weight: 600; }
+  .twist-prompt { margin: 0; min-height: calc(1.5em * 2); padding: .1rem 0 .1rem .9rem; border-left: 3px solid var(--accent);
+    font-size: .95rem; font-style: italic; line-height: 1.5; }
+  .twist-needs { margin: .45rem 0 1.5rem; font-size: .8rem; color: var(--ink-3); }
+  .twist-scene { margin: 0 auto; max-width: 28rem; display: flex; flex-direction: column; align-items: center; }
+  .twist-when { align-self: flex-start; margin: .15rem 0 .6rem; font-size: .85rem; font-style: italic; color: var(--ink-2); }
+  .twist-what { font-style: normal; font-weight: 600; }
+  /* The hero's bubble, set in the column instead of on the desk. */
+  .twist-scene .say { position: relative; left: auto; bottom: auto; max-width: none; align-self: stretch;
+    min-height: calc(1.55em * 2 + 20px); margin-bottom: 16px; }
+  .twist-scene .say::before, .twist-scene .say::after { right: auto; left: calc(50% - 10px); }
+  .twist-scene .say::after { margin: 0 0 0 2px; }
+  .twist-art { height: 96px; display: flex; align-items: flex-end; justify-content: center; }
+  .twist-art img { max-height: 96px; max-width: 100%; }
+  .twist-art img.pixel { image-rendering: pixelated; height: 96px; }
+  .twist-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem;
+    margin-top: 1.5rem; }
+  .twist-label { margin: 0; font-size: .8rem; color: var(--ink-3); }
+  .twist-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   footer { border-top: 1px solid var(--line); padding: 2rem 0 3rem; color: var(--ink-3);
     font-size: .9rem; display: flex; flex-wrap: wrap; gap: 1.25rem; }
@@ -214,11 +276,12 @@
   .play-picker { display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem; padding: .35rem .6rem;
     background: var(--title-b); border-bottom: 1px solid var(--bevel-lo); }
   .play-picker button { width: 44px; height: 44px; padding: 4px; border: 2px solid transparent; border-radius: 10px;
-    background: transparent; cursor: pointer; }
+    display: grid; place-items: center; background: transparent; cursor: pointer; }
   .play-picker button:hover { background: var(--title-a); }
   .play-picker button[aria-pressed="true"] { border-color: var(--accent); background: var(--title-a); }
   .play-picker button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .play-picker img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .play-picker .face { position: relative; overflow: hidden; }
+  .play-picker img { position: absolute; display: block; max-width: none; }
   .play-picker img.pixel { image-rendering: pixelated; }
   /* Gestures left of the panel once .wrap is at its full 68rem, so the desk keeps ~750px.
      The DOM stays panel then gestures, so the stacked layout keeps that order. */
@@ -330,6 +393,7 @@
     .perched { width: 96px; height: 96px; }
     .say { left: 6%; bottom: calc(44% + 106px); }
     .how-lanes { grid-template-columns: 1fr; }
+    .moment-cast { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -462,6 +526,14 @@
   </div>
 </section>
 
+<section id="twist">
+  <div class="wrap">
+    <h2>Give it your own twist</h2>
+    <p class="sub">An Instance Prompt is your own text for one fidget, on top of its personality.</p>
+    {{twist}}
+  </div>
+</section>
+
 <section id="how-it-works">
   <div class="wrap">
     <h2>How it works</h2>
@@ -532,6 +604,20 @@
     <p class="how-wake-lead">{{how_wake_lead}}</p>
     <pre class="how-wake" aria-label="Sample Director wake, not a live model">{{how_wake}}</pre>
     <p class="how-more"><a href="design.html">The full design →</a></p>
+  </div>
+</section>
+
+<section id="same-moment">
+  <div class="wrap">
+    <h2>The same moment. Different personalities.</h2>
+    <p class="sub">Each fidget reads its own personality file and decides for itself.</p>
+    <div class="moments" aria-live="polite">
+      {{moments}}
+    </div>
+    <div class="moment-foot">
+      <p class="moment-label">Authored samples, written by us to show the idea. The site never calls a model.</p>
+      <button type="button" class="moment-next" id="moment-next" hidden>Try another moment ▸</button>
+    </div>
   </div>
 </section>
 
@@ -606,6 +692,19 @@
     clip.controls = true;
   }
 
+  // Without JavaScript the first moment shows and the button stays hidden.
+  const moments = [...document.querySelectorAll("#same-moment .moment")];
+  const nextMoment = document.getElementById("moment-next");
+  if (moments.length > 1) {
+    let shown = 0;
+    nextMoment.hidden = false;
+    nextMoment.addEventListener("click", () => {
+      moments[shown].hidden = true;
+      shown = (shown + 1) % moments.length;
+      moments[shown].hidden = false;
+    });
+  }
+
   const how = document.getElementById("how-diagram");
   if (how && !still) {
     const io = new IntersectionObserver(([hit], obs) => {
@@ -617,6 +716,81 @@
       obs.disconnect();
     }, { threshold: 0.35 });
     io.observe(how);
+  }
+
+  // The twist toy swaps the wake, line and sprite loop for the picked
+  // Character and prompt; the line types in, whole under reduced motion. Without
+  // JavaScript the first Character on the first prompt shows, pickers hidden.
+  const twistData = document.getElementById("twist-data");
+  if (twistData) {
+    const twist = JSON.parse(twistData.textContent);
+    const byId = (id) => document.getElementById(id);
+    const sprite = { img: byId("twist-sprite"), loop: twist.characters[0].lines[0].loop, timer: 0 };
+    const pick = { character: twist.characters[0].character, prompt: 0 };
+    const say = byId("twist-say");
+    const lines = twist.characters.flatMap((c) => c.lines.map((l) => l.line));
+    let typing = 0;
+    // The bubble keeps the longest line's height at this width, so neither typing
+    // nor a new pick moves the sprite and small print below it.
+    function reserve() {
+      const shown = say.textContent;
+      say.style.minHeight = "";
+      let tallest = 0;
+      for (const line of lines) {
+        say.textContent = line;
+        tallest = Math.max(tallest, say.getBoundingClientRect().height);
+      }
+      say.textContent = shown;
+      say.style.minHeight = `${tallest}px`;
+    }
+    function animate() {
+      clearInterval(sprite.timer);
+      sprite.img.src = sprite.loop.frames[0];
+      if (still || document.hidden) return;
+      let i = 0;
+      sprite.timer = setInterval(() => {
+        i = (i + 1) % sprite.loop.frames.length;
+        sprite.img.src = sprite.loop.frames[i];
+      }, 1000 / sprite.loop.fps);
+    }
+    function show() {
+      const one = twist.characters.find((c) => c.character === pick.character);
+      const prompt = twist.prompts[pick.prompt];
+      const answer = one.lines[pick.prompt];
+      byId("twist-prompt").textContent = prompt.text;
+      byId("twist-needs").textContent = prompt.needs;
+      byId("twist-when").textContent = prompt.wake;
+      sprite.loop = answer.loop;
+      sprite.img.alt = one.name;
+      sprite.img.classList.toggle("pixel", one.pixel);
+      animate();
+      for (const button of document.querySelectorAll("#twist-pick button")) {
+        const on = button.dataset.character === pick.character || Number(button.dataset.prompt) === pick.prompt;
+        button.setAttribute("aria-pressed", String(on));
+      }
+      byId("twist-live").textContent = answer.line;
+      clearInterval(typing);
+      say.textContent = still ? answer.line : "";
+      if (still) return;
+      let shown = 0;
+      typing = setInterval(() => {
+        shown += 1;
+        say.textContent = answer.line.slice(0, shown);
+        if (shown >= answer.line.length) clearInterval(typing);
+      }, 18);
+    }
+    byId("twist-pick").addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      if (button.dataset.character) pick.character = button.dataset.character;
+      else pick.prompt = Number(button.dataset.prompt);
+      show();
+    });
+    document.addEventListener("visibilitychange", animate);
+    addEventListener("resize", reserve);
+    byId("twist-pick").hidden = false;
+    reserve();
+    animate();
   }
 </script>
 <script>

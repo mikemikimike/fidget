@@ -1,28 +1,31 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { launchWithPipe, createPageTarget, cleanupChrome } from "./chrome-cdp.js";
+import { chromePath, chromeSkip, launchWithPipe, createPageTarget, cleanupChrome } from "./chrome-cdp.js";
+import { tempDir } from "./temp-path.js";
 
 // A stand-in for Chrome that speaks CDP over fds 3 and 4. It ignores every call
 // until `readyAfterMs` has passed, like a Chrome still starting, then answers
-// only the methods in `answers`. Anything else gets no reply.
-function fakeChrome(readyAfterMs, answers, stderr = "") {
-  const dir = mkdtempSync(join(tmpdir(), "fake-chrome-"));
-  const bin = join(dir, "chrome");
+// only the methods in `answers`. Anything else gets no reply. `Fake.env` answers
+// with the temp dirs and profile it was started with.
+function fakeChrome(t, readyAfterMs, answers, { stderr = "", closes = true, ignoresTerm = false } = {}) {
+  const bin = join(tempDir(t, "fake-chrome-"), "chrome");
   writeFileSync(bin, `#!/usr/bin/env node
-const fs = require("node:fs");
+const { Socket } = require("node:net");
 const answers = ${JSON.stringify(answers)};
-const out = fs.createWriteStream(null, { fd: 4 });
-const input = fs.createReadStream(null, { fd: 3, encoding: "utf8" });
+const out = new Socket({ fd: 4, readable: false });
+const input = new Socket({ fd: 3, writable: false }).setEncoding("utf8");
 process.stderr.write(${JSON.stringify(stderr)});
+${ignoresTerm ? 'process.on("SIGTERM", () => {});' : ""}
 let buffer = "";
 const queue = [];
 function reply(msg) {
-  if (msg.method in answers) {
-    out.write(JSON.stringify({ id: msg.id, result: answers[msg.method] }) + "\\0");
-  }
+  if (msg.method === "Browser.close" && ${closes}) process.exit(0);
+  const { TMPDIR, TMP, TEMP } = process.env;
+  const profile = process.argv.find((arg) => arg.startsWith("--user-data-dir="));
+  const result = msg.method === "Fake.env" ? { TMPDIR, TMP, TEMP, profile } : answers[msg.method];
+  if (result) out.write(JSON.stringify({ id: msg.id, result }) + "\\0");
 }
 input.on("data", (chunk) => {
   buffer += chunk;
@@ -36,7 +39,7 @@ setTimeout(() => setInterval(() => { while (queue.length) reply(queue.shift()); 
 setInterval(() => {}, 1000);
 `);
   chmodSync(bin, 0o755);
-  return { bin, dispose: () => rmSync(dir, { recursive: true, force: true }) };
+  return bin;
 }
 
 const PAGE = {
@@ -48,33 +51,28 @@ const PAGE = {
   "Page.enable": {},
 };
 
-test("a Chrome that has not answered its first call within 3s fails with its stderr", { timeout: 20000 }, async () => {
-  const fake = fakeChrome(3100, PAGE, "still loading fonts");
-  const cdp = launchWithPipe(fake.bin, []);
+test("a Chrome that has not answered its first call within 3s fails with its stderr", { timeout: 20000 }, async (t) => {
+  const cdp = launchWithPipe(fakeChrome(t, 3100, PAGE, { stderr: "still loading fonts" }), []);
   try {
     const started = Date.now();
     await assert.rejects(createPageTarget(cdp), /Target\.createTarget: CDP call timeout after 3000ms.*still loading fonts/);
     assert.ok(Date.now() - started < 3500);
   } finally {
     await cleanupChrome(cdp);
-    fake.dispose();
   }
 });
 
-test("a Chrome that answers at once gets a page", { timeout: 20000 }, async () => {
-  const fake = fakeChrome(0, PAGE);
-  const cdp = launchWithPipe(fake.bin, []);
+test("a Chrome that answers at once gets a page", { timeout: 20000 }, async (t) => {
+  const cdp = launchWithPipe(fakeChrome(t, 0, PAGE), []);
   try {
     assert.equal((await createPageTarget(cdp)).sessionId, "S1");
   } finally {
     await cleanupChrome(cdp);
-    fake.dispose();
   }
 });
 
-test("a Chrome that exits while starting fails at once with its exit", { timeout: 20000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), "fake-chrome-"));
-  const bin = join(dir, "chrome");
+test("a Chrome that exits while starting fails at once with its exit", { timeout: 20000 }, async (t) => {
+  const bin = join(tempDir(t, "fake-chrome-"), "chrome");
   writeFileSync(bin, "#!/bin/sh\necho 'no display' >&2\nsleep 0.2\nexit 3\n");
   chmodSync(bin, 0o755);
   const started = Date.now();
@@ -84,6 +82,47 @@ test("a Chrome that exits while starting fails at once with its exit", { timeout
     assert.ok(Date.now() - started < 2000);
   } finally {
     await cleanupChrome(cdp);
-    rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("Chrome's profile and every temp dir variable point inside its launch dir", { timeout: 20000 }, async (t) => {
+  const cdp = launchWithPipe(fakeChrome(t, 0, PAGE), []);
+  try {
+    const tmp = join(cdp.dir, "tmp");
+    assert.deepEqual(await cdp.send("Fake.env"), {
+      TMPDIR: tmp,
+      TMP: tmp,
+      TEMP: tmp,
+      profile: `--user-data-dir=${join(cdp.dir, "profile")}`,
+    });
+  } finally {
+    await cleanupChrome(cdp);
+  }
+});
+
+for (const [name, fake, signal] of [
+  ["closes over CDP without a signal", { closes: true }, null],
+  ["sends SIGTERM when Browser.close is ignored", { closes: false }, "SIGTERM"],
+  ["force-kills only a Chrome that also ignores SIGTERM", { closes: false, ignoresTerm: true }, "SIGKILL"],
+]) {
+  test(`cleanup ${name}, and removes the launch dir`, { timeout: 20000 }, async (t) => {
+    const cdp = launchWithPipe(fakeChrome(t, 0, PAGE, fake), []);
+    await createPageTarget(cdp);
+    await cleanupChrome(cdp);
+    assert.equal(cdp.proc.signalCode, signal);
+    assert.equal(existsSync(cdp.dir), false);
+  });
+}
+
+test("a real Chrome killed hard leaves none of its temp files behind", { skip: chromeSkip, timeout: 30000 }, async () => {
+  const cdp = launchWithPipe(chromePath, ["--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]);
+  try {
+    await createPageTarget(cdp);
+    assert.ok(readdirSync(join(cdp.dir, "tmp")).length > 0, "Chrome wrote its temp files into the launch dir");
+    cdp.proc.kill("SIGKILL");
+  } finally {
+    await cleanupChrome(cdp);
+  }
+  assert.equal(cdp.proc.signalCode, "SIGKILL");
+  assert.equal(existsSync(cdp.dir), false);
 });
