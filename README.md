@@ -37,7 +37,7 @@ Try the gestures in your browser: [Fidget Cues](https://omesser.github.io/fidget
 
 ## Characters
 
-Buddy Bot is the default. Eight Characters ship; each moves and speaks differently. A name links to its full prompt.
+Buddy Bot is the default. Nine Characters ship; each moves and speaks differently. A name links to its full prompt.
 
 <table>
 <tr>
@@ -51,6 +51,9 @@ Buddy Bot is the default. Eight Characters ship; each moves and speaks different
 <td align="center" width="25%"><img src="./docs/readme/nim-sleep.gif" height="96" alt="Nim" /><br><b><a href="./characters/nim/personality.txt">Nim</a></b><br><sub>Sleeps eleven hours a day. Soft-spoken.</sub></td>
 <td align="center" width="25%"><img src="./docs/readme/timber-wolf-walk.gif" height="96" alt="Timber Wolf" /><br><b><a href="./characters/timber-wolf/personality.txt">Timber Wolf</a></b><br><sub>Patrol mech. Clan warriors don't waste words.</sub></td>
 <td align="center" width="25%"><img src="./docs/readme/trump-wave.gif" height="96" alt="Trump" /><br><b><a href="./characters/trump/personality.txt">Trump</a></b><br><sub>The desktop is his rally. Bombastic.</sub></td>
+</tr>
+<tr>
+<td align="center" colspan="4"><img src="./docs/readme/rubber-duck-debugger-talk.gif" height="96" alt="Rubber Duck Debugger" /><br><b><a href="./characters/rubber-duck-debugger/personality.txt">Rubber Duck Debugger</a></b><br><sub>Patient listener. One small question at a time.</sub></td>
 </tr>
 </table>
 
@@ -129,7 +132,7 @@ Developers and CI can override Settings with optional environment variables:
 FIDGET_HARNESS=claude cargo run -p fidget
 
 # Optional. Overrides Settings → Character.
-# Any of: buddy-bot (default), black-mage, bmo, cat, jotaro-kujo, nim, timber-wolf, trump
+# Any of: buddy-bot (default), black-mage, bmo, cat, jotaro-kujo, nim, rubber-duck-debugger, timber-wolf, trump
 FIDGET_CHARACTER=nim cargo run -p fidget
 ```
 
@@ -451,7 +454,7 @@ The Chat window's mind mark - the small brain beside what answers - is the
 under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and inlined as
 a path in `src/chat.html`. The license asks for the credit; this is it.
 
-Character provenance is in each Character Package manifest, under `[source]`, and on the [Character Gallery](https://omesser.github.io/fidget/characters.html). In short: Buddy Bot and Nim are this project's own art. Timber Wolf derives, with the creator's permission, from [MekaRamen](https://mekaramen.com/)'s [Sketchfab model](https://sketchfab.com/3d-models/clans-timberwolf-battlemech-74e4d72e0cf3409ba3992cd0d895bc2f). BMO is cut from the [shimejishop BMO pack](https://shimejishop.com/free/bmo-shimeji/). Cat, Jotaro Kujo and Trump are cut from [petscodex](https://petscodex.com/) pets. Black Mage is sliced from GigaGuy's sprite sheet on The Spriters Resource. A package is prose, a manifest and art: the personality and the manifest - animations, Behaviors, Director and cursor tuning - are this project's work and MIT throughout. The art is not always ours. Some characters adapt art that declares no license, and each manifest names what it adapts and whose IP the character is.
+Character provenance is in each Character Package manifest, under `[source]`, and on the [Character Gallery](https://omesser.github.io/fidget/characters.html). In short: Buddy Bot and Nim are this project's own art. Timber Wolf derives, with the creator's permission, from [MekaRamen](https://mekaramen.com/)'s [Sketchfab model](https://sketchfab.com/3d-models/clans-timberwolf-battlemech-74e4d72e0cf3409ba3992cd0d895bc2f). BMO is cut from the [shimejishop BMO pack](https://shimejishop.com/free/bmo-shimeji/). Cat, Jotaro Kujo, Rubber Duck Debugger, and Trump are cut from [petscodex](https://petscodex.com/) pets. Black Mage is sliced from GigaGuy's sprite sheet on The Spriters Resource. A package is prose, a manifest and art: the personality and the manifest - animations, Behaviors, Director and cursor tuning - are this project's work and MIT throughout. The art is not always ours. Some characters adapt art that declares no license, and each manifest names what it adapts and whose IP the character is.
 
 ## License
 
