@@ -911,16 +911,9 @@ pub(crate) fn run_frame_loop(
                         }
                     }
                     SettingsOp::ChatUIChanged { chat_ui } => {
+                        crate::glass::wear_all(&app, &chat_ui);
                         for live in &lives {
-                            let label = chat_label(&live.id);
-                            if let Some(window) = app.get_webview_window(&label) {
-                                crate::glass::wear(&window, &chat_ui);
-                            }
-                            let _ = app.emit_to(label, CHAT_UI_EVENT, &chat_ui);
-                        }
-                        // Settings wears the Chat UI too.
-                        if let Some(window) = app.get_webview_window("settings") {
-                            crate::glass::wear(&window, &chat_ui);
+                            let _ = app.emit_to(chat_label(&live.id), CHAT_UI_EVENT, &chat_ui);
                         }
                     }
                     SettingsOp::ChatAppearanceChanged { chat_appearance } => {

@@ -40,9 +40,26 @@ pub(crate) fn wear(window: &tauri::WebviewWindow, chat_ui: &str) {
     let _ = (window, chat_ui);
 }
 
+/// Whether the window labelled `label` wears the Chat UI: every Chat
+/// (`chat_label`) and Settings.
+fn wears_chat_ui(label: &str) -> bool {
+    label == "settings" || label.starts_with("chat-")
+}
+
+/// Put on or take off Glass's blur on every open window that wears the
+/// Chat UI, after a live UI Theme switch.
+pub(crate) fn wear_all(app: &tauri::AppHandle, chat_ui: &str) {
+    use tauri::Manager;
+    for (label, window) in app.webview_windows() {
+        if wears_chat_ui(&label) {
+            wear(&window, chat_ui);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::effects;
+    use super::{effects, wears_chat_ui};
     use tauri::window::EffectState;
 
     #[test]
@@ -55,6 +72,16 @@ mod tests {
     fn designs_that_paint_their_own_panel_wear_no_effect() {
         for design in ["minimal", "terminal", "", "Glass"] {
             assert_eq!(effects(design), None, "{design:?}");
+        }
+    }
+
+    #[test]
+    fn chats_and_settings_wear_the_chat_ui() {
+        for label in ["settings", "chat-0", "chat-7f3a"] {
+            assert!(wears_chat_ui(label), "{label:?}");
+        }
+        for label in ["overlay-0", "main", "chat", "settings-1"] {
+            assert!(!wears_chat_ui(label), "{label:?}");
         }
     }
 }

@@ -2570,7 +2570,7 @@ fn build_chat(
     if dev_flags::TRACE_BUBBLE.is_on() {
         eprintln!("chat: {label} built in {}ms", started.elapsed().as_millis());
     }
-    glass::wear(&window, &chat_ui_now(app));
+    glass::wear(&window, &chat_ui_now(app.try_state().as_deref()));
     let (handle, label) = (app.clone(), label.to_string());
     let observer = platform::observe_minimize(&window, {
         let (handle, label) = (handle.clone(), label.clone());
@@ -2662,12 +2662,12 @@ fn build_settings(
             finish_settings_document(&handle, generation);
         })
         .build()
-        .inspect(|window| glass::wear(window, &chat_ui_now(app)))
+        .inspect(|window| glass::wear(window, &chat_ui_now(app.try_state().as_deref())))
 }
 
 /// The saved Chat UI design; Minimal when Settings cannot be read.
-fn chat_ui_now(app: &tauri::AppHandle) -> String {
-    app.try_state::<SettingsState>()
+fn chat_ui_now(state: Option<&SettingsState>) -> String {
+    state
         .and_then(|state| state.settings.lock().ok().map(|s| s.chat_ui.clone()))
         .unwrap_or_else(|| "minimal".to_string())
 }
@@ -3188,12 +3188,7 @@ fn chat_opening(instance: String, state: tauri::State<'_, SettingsState>) -> Cha
             .as_ref()
             .and_then(|read| read.harness.as_ref())
             .map(|attached| attached.name.clone()),
-        chat_ui: state
-            .settings
-            .lock()
-            .ok()
-            .map(|settings| settings.chat_ui.clone())
-            .unwrap_or_else(|| "minimal".to_string()),
+        chat_ui: chat_ui_now(Some(&state)),
         chat_appearance: state
             .settings
             .lock()
