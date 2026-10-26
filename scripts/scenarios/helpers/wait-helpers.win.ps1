@@ -222,6 +222,42 @@ function Get-SpriteAtRest([string]$TraceFile) {
     return $at
 }
 
+# The newest frame's sprite origin, else $null. A change here is a move.
+function Get-LastSpriteSpot([string]$TraceFile) {
+    if (-not (Test-Path -LiteralPath $TraceFile)) { return $null }
+    $line = Get-Content -LiteralPath $TraceFile | Where-Object { $_ -match '^\d+\.?\d* frame: .* sprite\((-?\d+),(-?\d+)\) ' } | Select-Object -Last 1
+    if (-not $line -or $line -notmatch 'sprite\((-?\d+),(-?\d+)\)') { return $null }
+    return @{ X = [int]$Matches[1]; Y = [int]$Matches[2] }
+}
+
+# Wait for the sprite to rest. Each move restarts the 3 s window; 10 s from
+# the start is the ceiling if it never stops. Return the rest the check saw.
+function Wait-ForRest([string]$TraceFile) {
+    $dir = Split-Path -Parent $TraceFile
+    if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { $dir = $script:WatchDir }
+    $script:restSpot = Get-LastSpriteSpot $TraceFile
+    $script:restAt = $null
+    $start = Get-NowMs
+    while ($true) {
+        if ($at = Get-SpriteAtRest $TraceFile) { return $at }
+        if ((Get-NowMs) - $start -ge 10000) {
+            [Console]::Error.WriteLine("sprite never came to rest within 10s")
+            return $null
+        }
+        $script:restDecision = "wait"
+        $null = Wait-OnChanges 3 $dir {
+            $now = Get-LastSpriteSpot $TraceFile
+            $moved = [bool]($script:restSpot -and $now -and ($now.X -ne $script:restSpot.X -or $now.Y -ne $script:restSpot.Y))
+            if ($now) { $script:restSpot = $now }
+            if ($script:restAt = Get-SpriteAtRest $TraceFile) { $script:restDecision = "done"; return $true }
+            if ($moved) { $script:restDecision = "progress"; return $true }
+            $false
+        }
+        if ($script:restDecision -ceq "done") { return $script:restAt }
+        if ($script:restDecision -cne "progress") { return $null }
+    }
+}
+
 function In-State([string]$LogFile, [string]$StatePattern) {
     if (-not (Test-Path -LiteralPath $LogFile)) { return $false }
     $frame = Get-Content -LiteralPath $LogFile | Where-Object { $_ -match '^frame: ' } | Select-Object -Last 1

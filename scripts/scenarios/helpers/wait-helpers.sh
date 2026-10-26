@@ -187,13 +187,18 @@ sprite_at_rest() { # <log>
     END { exit (bad || n < 5) }'
 }
 
-# Wait for the sprite to rest. Each frame where it moved (walking, climbing or
-# falling) is progress and restarts the 3 s window, so a long walk is fine.
+# Wait for the sprite to rest. Each move restarts the 3 s window; 10 s from
+# the start is the ceiling if it never stops.
 wait_for_rest() { # <log>
-  local flag result
+  local flag result start
+  start=$(now_ms)
   flag=$(mktemp "${TMPDIR:-/tmp}/fidget-rest.XXXXXX")
   while :; do
     sprite_at_rest "$1" && result=0 && break
+    if [ $(($(now_ms) - start)) -ge 10000 ]; then
+      echo "sprite never came to rest within 10s" >&2
+      result=1 && break
+    fi
     : > "$flag"
     wait_on_lines 3 0 "$1" rest_or_moved "$1" "$flag" || { result=1 && break; }
     [ -s "$flag" ] || { result=0 && break; }

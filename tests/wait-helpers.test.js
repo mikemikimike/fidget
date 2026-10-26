@@ -14,9 +14,12 @@ function run(t, body, file = helper) {
   const dir = tempDir(t, "wait-mac-");
   const script = `set -u\n. "${file}"\ndir="${dir}"\nlog="$dir/app.log"; : > "$log"\n${body}`;
   const started = Date.now();
-  const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+  // Above the longest wait here (10 s overall rest cap). Without this, a
+  // stuck wait_for_rest sits until node:test's 60 s.
+  const r = spawnSync("bash", ["-c", script], { encoding: "utf8", timeout: 15_000 });
   const ms = Date.now() - started;
-  return { code: r.status, out: r.stdout + r.stderr, ms };
+  const timedOut = r.error && r.error.code === "ETIMEDOUT";
+  return { code: r.status, out: timedOut ? `run() timed out after 15s\n${r.stdout}${r.stderr}` : r.stdout + r.stderr, ms };
 }
 
 test("wait_for_trace returns soon after a line lands", (t) => {
@@ -218,6 +221,14 @@ test("wait_for_rest gives up 3 s after the last move", (t) => {
   assert.ok(r.ms >= 2800 && r.ms < 4500, `took ${r.ms} ms`);
 });
 
+test("wait_for_rest gives up at 10 s if the sprite never stops", (t) => {
+  const walk = 'i=0; while :; do i=$((i + 1)); echo "frame: 1 Walking pos(1,1) sprite($((i * 10)),20) walk#1" >> "$log"; sleep 0.25; done';
+  const r = run(t, `pid=$$; (${walk}) & w=$!; wait_for_rest "$log"; st=$?; kill $w 2>/dev/null; exit $st`);
+  assert.notStrictEqual(r.code, 0, r.out);
+  assert.match(r.out, /sprite never came to rest within 10s/);
+  assert.ok(r.ms >= 9000 && r.ms < 13000, `took ${r.ms} ms`);
+});
+
 const pwsh = spawnSync("pwsh", ["-NoProfile", "-Command", "1"], { encoding: "utf8" });
 const noPwsh = pwsh.status !== 0;
 const winHelper = path.join(scenarios, "wait-helpers.win.ps1");
@@ -229,8 +240,15 @@ function Later($c) { $p = New-Object Diagnostics.ProcessStartInfo "bash"; $p.Arg
 $W = '${dir}'
 $data = Initialize-ScenarioData $W
 ${body}`;
-  const r = spawnSync("pwsh", ["-NoProfile", "-Command", script], { encoding: "utf8" });
-  return { code: r.status, lines: r.stdout.trim().split("\n").map((l) => l.trim()), err: r.stderr };
+  // Above the longest wait here (10 s overall rest cap). Without this, a
+  // stuck Wait-ForRest sits until node:test's 60 s.
+  const r = spawnSync("pwsh", ["-NoProfile", "-Command", script], { encoding: "utf8", timeout: 15_000 });
+  const timedOut = r.error && r.error.code === "ETIMEDOUT";
+  return {
+    code: r.status,
+    lines: r.stdout.trim().split("\n").map((l) => l.trim()),
+    err: timedOut ? `ps() timed out after 15s\n${r.stderr}` : r.stderr,
+  };
 }
 
 test("Windows: Wait-ForMarks returns soon after the line lands", { skip: noPwsh }, (t) => {
@@ -296,6 +314,111 @@ ${[10, 10, 10, 10, 13].map(frame).join("\n")}
 ${[10, 10, 10, 10, 210].map(frame).join("\n")}
 [bool](Get-SpriteAtRest $t)`);
   assert.deepStrictEqual(r.lines.slice(0, 4), ["10", "False", "False", "False"], r.err);
+});
+
+const menuLeaf = path.join(scenarios, "..", "ci", "control-click-menu.win.ps1");
+
+function walkThenRest(t, call) {
+  return ps(t, `$t = "$W/p.log"
+Set-Content "$W/walk.sh" @'
+for i in $(seq 1 16); do echo "1 frame: 1 Grounded pos(1,1) sprite($((i * 10)),20) walk#1 x" >> "$1"; sleep 0.25; done
+for i in 1 2 3 4 5; do echo "1 frame: 1 Grounded pos(1,1) sprite(160,20) idle#1 x" >> "$1"; done
+'@
+$p = New-Object Diagnostics.ProcessStartInfo "bash"
+$p.ArgumentList.Add("$W/walk.sh")
+$p.ArgumentList.Add($t)
+$p.UseShellExecute = $false
+$null = [Diagnostics.Process]::Start($p)
+${call}`);
+}
+
+test("Windows: Wait-ForRest keeps waiting while the sprite walks, past 3 s", { skip: noPwsh }, (t) => {
+  const r = walkThenRest(t, `$start = Get-NowMs
+$rest = Wait-ForRest $t
+$took = (Get-NowMs) - $start
+Write-Output $took
+Write-Output $(if ($rest) { $rest.X } else { "null" })`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.ok(Number(r.lines[0]) >= 3500 && Number(r.lines[0]) < 6000, `took ${r.lines[0]} ms`);
+  assert.strictEqual(r.lines[1], "160", r.err);
+});
+
+// The leaf's Wait-Settled, not the helper. A walk past 3 s must still rest.
+test("Windows: control-click-menu Wait-Settled keeps waiting while the sprite walks, past 3 s", { skip: noPwsh }, (t) => {
+  const r = walkThenRest(t, `$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile('${menuLeaf}', [ref]$tokens, [ref]$errors)
+$fn = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq "Wait-Settled" }, $true)
+if ($fn.Count -ne 1) { throw "missing Wait-Settled" }
+Invoke-Expression $fn[0].Extent.Text
+function Fail($m) { throw $m }
+$traceFile = $t
+$start = Get-NowMs
+$rest = Wait-Settled
+$took = (Get-NowMs) - $start
+Write-Output $took
+Write-Output $(if ($rest) { $rest.X } else { "null" })`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.ok(Number(r.lines[0]) >= 3500 && Number(r.lines[0]) < 6000, `took ${r.lines[0]} ms: ${r.err}`);
+  assert.strictEqual(r.lines[1], "160", r.err);
+});
+
+test("Windows: Wait-ForRest keeps the rest it already saw when a walk frame lands", { skip: noPwsh }, (t) => {
+  const r = ps(t, `$t = "$W/p.log"
+1..4 | % { Add-Content $t "1 frame: 1 Grounded pos(1,1) sprite(160,20) idle#1 x" }
+$orig = (Get-Command Get-SpriteAtRest).ScriptBlock
+function Get-SpriteAtRest([string]$TraceFile) {
+    $at = & $orig $TraceFile
+    if ($at -and -not $script:walkAfterRest) {
+        $script:walkAfterRest = $true
+        Add-Content $TraceFile "1 frame: 1 Grounded pos(1,1) sprite(200,20) walk#1 x"
+    }
+    return $at
+}
+Later "echo '1 frame: 1 Grounded pos(1,1) sprite(160,20) idle#1 x' >> $t"
+$start = Get-NowMs
+$rest = Wait-ForRest $t
+$took = (Get-NowMs) - $start
+Write-Output $(if ($rest) { $rest.X } else { "null" })
+Write-Output $took`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.strictEqual(r.lines[0], "160", `re-read after rest: ${r.lines[0]} ${r.err}`);
+  assert.ok(Number(r.lines[1]) < 2000, `took ${r.lines[1]} ms`);
+});
+
+test("Windows: Wait-ForRest gives up 3 s after the last move", { skip: noPwsh }, (t) => {
+  const r = ps(t, `$t = "$W/p.log"
+Add-Content $t "1 frame: 1 Grounded pos(1,1) sprite(10,20) walk#1 x"
+Later "echo '1 frame: 1 Grounded pos(1,1) sprite(20,20) walk#1 x' >> $t"
+$start = Get-NowMs
+$rest = Wait-ForRest $t
+$took = (Get-NowMs) - $start
+Write-Output ([bool]$rest)
+Write-Output $took`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.strictEqual(r.lines[0], "False", r.err);
+  assert.ok(Number(r.lines[1]) >= 2800 && Number(r.lines[1]) < 4500, `took ${r.lines[1]} ms`);
+});
+
+test("Windows: Wait-ForRest gives up at 10 s if the sprite never stops", { skip: noPwsh }, (t) => {
+  const r = ps(t, `$t = "$W/p.log"
+Set-Content "$W/walk.sh" @'
+i=0; while :; do i=$((i + 1)); echo "1 frame: 1 Grounded pos(1,1) sprite($((i * 10)),20) walk#1 x" >> "$1"; sleep 0.25; done
+'@
+$p = New-Object Diagnostics.ProcessStartInfo "bash"
+$p.ArgumentList.Add("$W/walk.sh")
+$p.ArgumentList.Add($t)
+$p.UseShellExecute = $false
+$w = [Diagnostics.Process]::Start($p)
+$start = Get-NowMs
+$rest = Wait-ForRest $t
+$took = (Get-NowMs) - $start
+if (-not $w.HasExited) { $w.Kill() }
+Write-Output $(if ($rest) { $rest.X } else { "null" })
+Write-Output $took`);
+  assert.strictEqual(r.code, 0, r.err);
+  assert.match(r.err, /sprite never came to rest within 10s/);
+  assert.strictEqual(r.lines[0], "null", r.err);
+  assert.ok(Number(r.lines[1]) >= 9000 && Number(r.lines[1]) < 13000, `took ${r.lines[1]} ms`);
 });
 
 test("Windows: Invoke-AxWin splats a hashtable of ax-window-win.ps1 parameters", { skip: noPwsh }, (t) => {
