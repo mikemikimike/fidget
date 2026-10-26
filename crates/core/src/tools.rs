@@ -306,14 +306,11 @@ mod helpers {
                     TargetResolution::UnknownInstance(id.to_string())
                 }
             }
-            None => {
-                // No instance_id provided
-                match roster.len() {
-                    0 => TargetResolution::NoInstances,
-                    1 => TargetResolution::Resolved(roster[0].id.clone()),
-                    _ => TargetResolution::AmbiguousTarget,
-                }
-            }
+            None => match roster.len() {
+                0 => TargetResolution::NoInstances,
+                1 => TargetResolution::Resolved(roster[0].id.clone()),
+                _ => TargetResolution::AmbiguousTarget,
+            },
         }
     }
 }

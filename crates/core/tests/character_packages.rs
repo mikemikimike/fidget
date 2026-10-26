@@ -95,7 +95,7 @@ fn shipped_packages() -> Vec<String> {
 
 /// `[source]` is optional to the loader and required of anything shipped here.
 /// The gallery publishes a package's attribution, so one of ours that declares
-/// nothing publishes art with no word on where it came from. Only this test.
+/// nothing publishes art with no word on where it came from. Nothing else enforces this.
 #[test]
 fn every_shipped_package_declares_where_its_art_came_from() {
     for name in shipped_packages() {

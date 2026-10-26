@@ -1446,9 +1446,8 @@ mod tests {
         }
     }
 
-    // From the pill opening, a close or hand-back line before the typed text
-    // fails, even one before the typing. An unfocused line
-    // alone decides nothing.
+    // From the pill opening, a close or hand-back before the typed text fails,
+    // even one before the typing. An unfocused line alone decides nothing.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_judges_pill_typing_from_the_pill_opening() {
