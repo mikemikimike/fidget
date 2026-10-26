@@ -109,7 +109,10 @@ fi
 
 # One Apple event to each app the run drives; a refusal is a denied grant.
 one=scenario-one.txt
-: > "$out/$one"
+# Alone in a file, the typed word gets autocorrect's capitalization panel,
+# which holds TextEdit modal so the trap cannot close it. Typed at the caret,
+# which opens at the start, it reads "wandertyped" and is left alone.
+printf 'typed ' > "$out/$one"
 # The builds and the preflight are long enough for the user to open TextEdit.
 refuse_running_textedit
 capped 3 open -g -a TextEdit "$out/$one" || fail "could not open $one in TextEdit"
@@ -318,9 +321,9 @@ echo "ok: the last close restored the remembered app"
 
 # The typed word ends up in TextEdit; read the way the sibling scenario reads.
 text_front() { capped 2 "$tools/ax" value "$(pgrep -x TextEdit | head -1)" 2> /dev/null; }
-textedit_ends() { case "$(text_front)" in *"$1") ;; *) return 1 ;; esac }
+textedit_has() { case "$(text_front)" in *"$1"*) ;; *) return 1 ;; esac }
 capped 3 "$tools/ax" type "$pid" wander >> "$out/helpers.log" 2>&1 || fail "could not type"
-wait_until 3 textedit_ends wander ||
+wait_until 3 textedit_has wander ||
   fail "\"wander\" did not reach TextEdit after both pills closed (front: $(front_name)); see $log"
 ! grep -qE 'draft instance=[^ ]+ text="[^"]*wander"' "$log" ||
   fail "a pill took \"wander\" after both had closed; see $log"
