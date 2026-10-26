@@ -84,9 +84,9 @@ close_run_documents() { # <pid> <path>...
     textedit_osascript -e "tell application \"TextEdit\" to close (every document whose path is \"$escaped\") saving no" > /dev/null 2>&1 || true
   done
   # local count=$(...) would look successful when the count failed.
-  count=$(textedit_osascript -e 'tell application "TextEdit" to count every document' 2>&1) || status=$?
+  count=$(textedit_osascript -e 'tell application "TextEdit" to count every document') || status=$?
   if [ "$status" -ne 0 ]; then
-    echo "TextEdit's documents could not be listed (exit $status: $count), so this run left it running." >&2
+    echo "TextEdit's documents could not be listed (exit $status), so this run left it running." >&2
     return 2
   fi
   if [ "$count" != 0 ]; then

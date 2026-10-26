@@ -419,7 +419,7 @@ for (const leaf of ["chat-close-pill-type.sh", "pill-two-displays.sh"]) {
 const BLOCKED_LEFT_RUNNING =
   /TextEdit has another document open, so this run left it running\./;
 const UNKNOWN_LEFT_RUNNING =
-  /TextEdit's documents could not be listed \(exit \d+: .*\), so this run left it running\./;
+  /TextEdit's documents could not be listed \(exit \d+\), so this run left it running\./;
 
 function runOwnedCleanup(leaf, box, standin, { fn, owned, osascript }) {
   const log = path.join(box.dir, "osascript.log");

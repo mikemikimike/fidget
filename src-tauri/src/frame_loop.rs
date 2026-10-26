@@ -2170,8 +2170,8 @@ pub(crate) fn run_frame_loop(
                     dialogue,
                     thinking,
                     asking,
-                    // A held sprite crossing a seam reaches an overlay
-                    // that never saw the press, so the Shell holds the pill.
+                    // A pressed or held sprite crossing a seam reaches an
+                    // overlay that never saw the press, so the Shell holds the pill.
                     hovered: live.hovering && !live.pointer.gesturing(),
                     cue: frame.cue,
                     contact: frame.contact,

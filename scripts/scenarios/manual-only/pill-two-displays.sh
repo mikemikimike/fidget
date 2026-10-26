@@ -109,9 +109,8 @@ fi
 
 # One Apple event to each app the run drives; a refusal is a denied grant.
 one=scenario-one.txt
-# Alone in a file, the typed word gets autocorrect's capitalization panel,
-# which holds TextEdit modal so the trap cannot close it. Typed at the caret,
-# which opens at the start, it reads "wandertyped" and is left alone.
+# In an empty file autocorrect capitalizes the typed word, and its panel holds
+# TextEdit modal past the trap's close. Here it lands as "wandertyped".
 printf 'typed ' > "$out/$one"
 # The builds and the preflight are long enough for the user to open TextEdit.
 refuse_running_textedit
