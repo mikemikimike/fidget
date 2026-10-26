@@ -198,6 +198,14 @@ test("the root carries a description and an Open Graph image the site publishes"
   assert.ok(existsSync(join(site, image[1])), `${image[1]} is published`);
 });
 
+// Each id is a link people share, e.g. https://omesser.github.io/fidget/#features,
+// so renaming one breaks those links.
+test("every section on the root has its own stable anchor", () => {
+  const sections = [...published(PAGE).matchAll(/<section\b[^>]*>/g)].map((m) => m[0].match(/ id="([^"]*)"/)?.[1]);
+  assert.deepEqual(sections, ["features", "play", "characters", "harnesses", "twist", "how-it-works",
+    "same-moment", "your-own", "faq"]);
+});
+
 // The asset names carry the version, so each button finds its asset by suffix
 // in the Latest release that pages.yml reads at build time.
 test("each download button links its asset in the release", () => {
