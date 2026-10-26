@@ -53,7 +53,7 @@ Buddy Bot is the default. Nine Characters ship; each moves and speaks differentl
 <td align="center" width="25%"><img src="./docs/readme/trump-wave.gif" height="96" alt="Trump" /><br><b><a href="./characters/trump/personality.txt">Trump</a></b><br><sub>The desktop is his rally. Bombastic.</sub></td>
 </tr>
 <tr>
-<td align="center" colspan="4"><img src="./docs/readme/rubber-duck-debugger-talk.gif" height="96" alt="Rubber Duck" /><br><b><a href="./characters/rubber-duck-debugger/personality.txt">Rubber Duck</a></b><br><sub>Patient listener. One small question at a time.</sub></td>
+<td align="center" colspan="4"><img src="./docs/readme/rubber-duck-talk.gif" height="96" alt="Rubber Duck" /><br><b><a href="./characters/rubber-duck/personality.txt">Rubber Duck</a></b><br><sub>Patient listener. One small question at a time.</sub></td>
 </tr>
 </table>
 
@@ -132,7 +132,7 @@ Developers and CI can override Settings with optional environment variables:
 FIDGET_HARNESS=claude cargo run -p fidget
 
 # Optional. Overrides Settings → Character.
-# Any of: buddy-bot (default), black-mage, bmo, cat, jotaro-kujo, nim, rubber-duck-debugger, timber-wolf, trump
+# Any of: buddy-bot (default), black-mage, bmo, cat, jotaro-kujo, nim, rubber-duck, timber-wolf, trump
 FIDGET_CHARACTER=nim cargo run -p fidget
 ```
 

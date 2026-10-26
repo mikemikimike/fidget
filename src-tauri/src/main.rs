@@ -6432,6 +6432,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rubber_duck_instance_resolves_the_shipped_package() {
+        let specs = roster::parse_specs("rubber-duck").expect("instance spec parses");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../characters");
+        let matches: Vec<_> = package::installed(&[root])
+            .into_iter()
+            .filter_map(|path| {
+                let files = package::read(&path).ok()?;
+                let character = fidget_core::character::load(&files).ok()?;
+                names_the_package(&path, &character.name, OsStr::new(&specs[0].character))
+                    .then_some(character.name)
+            })
+            .collect();
+
+        assert_eq!(matches, ["Rubber Duck"]);
+    }
+
     /// A rebound hide hotkey must register the letter the user named, not B.
     #[test]
     fn a_rebound_spec_registers_its_letter() {

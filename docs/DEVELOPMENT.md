@@ -419,6 +419,12 @@ Leave these out of a personality file. `character_prompt` in `crates/core/src/di
 cd src-tauri && FIDGET_INSTANCES="buddy-bot:One,buddy-bot:Two,nim:Nim" cargo run
 ```
 
+A single instance can use its package folder name without a colon:
+
+```sh
+FIDGET_INSTANCES=rubber-duck cargo run -p fidget
+```
+
 ## Importing Pets
 
 Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), or [Shimeji Shop](https://shimejishop.com/) packs to Character Packages. `scripts/import-pet.py` needs Python 3.11 or newer, Pillow and defusedxml. Set it up once, from the repository root:
