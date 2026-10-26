@@ -522,13 +522,7 @@ mod tests {
             ("jotaro-kujo", "Jotaro Kujo", "stand", 50, "rest"),
             ("nim", "Nim", "doze", 50, "doze"),
             ("buddy-bot", "Buddy Bot", "greet", 40, "nap"),
-            (
-                "rubber-duck-debugger",
-                "Rubber Duck Debugger",
-                "listen",
-                50,
-                "nap",
-            ),
+            ("rubber-duck-debugger", "Rubber Duck", "listen", 50, "nap"),
             ("timber-wolf", "Timber Wolf", "patrol", 30, "power_down"),
             ("trump", "Trump", "report", 40, "doze"),
         ];
