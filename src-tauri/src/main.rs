@@ -6519,7 +6519,14 @@ mod tests {
         )
         .expect("Buddy Bot is shipped");
         assert_eq!(chosen.character.name, "Buddy Bot");
-        assert!(chosen.fell_back_from.is_some());
+        assert_eq!(
+            chosen.fell_back_from,
+            Some(format!(
+                "no Character Package named rubber-duck loaded. Fidget looked in: {}, {}",
+                user.path().display(),
+                shipped_characters().display()
+            ))
+        );
     }
 
     #[test]
