@@ -94,10 +94,8 @@ fn shipped_packages() -> Vec<String> {
 }
 
 /// `[source]` is optional to the loader and required of anything shipped here.
-/// The gallery publishes what a package declares at a public URL, and
-/// a package that declares nothing gets no attribution panel at all — which is
-/// right for a stranger's package and wrong for one of ours. Nothing but this
-/// test makes the difference.
+/// The gallery publishes a package's attribution, so one of ours that declares
+/// nothing publishes art with no word on where it came from. Only this test.
 #[test]
 fn every_shipped_package_declares_where_its_art_came_from() {
     for name in shipped_packages() {
@@ -680,9 +678,8 @@ fn the_same_seed_draws_timber_wolfs_variants_in_the_same_order() {
     );
 }
 
-/// The laser on a window, which is what `PERCHED_IDLE_AFTER_MS` was
-/// tuned for and no longer has to be. A quiet perch leaves sit for idle, and
-/// that start is a draw like any other — whatever the timer's value.
+/// A quiet perch leaves sit for idle, and that start is a draw like any
+/// other, whatever `PERCHED_IDLE_AFTER_MS` is.
 #[test]
 fn timber_wolf_scans_on_the_first_perched_idle_whatever_the_seed() {
     let character = load_package("timber-wolf").expect("Timber Wolf package is valid");
@@ -1125,15 +1122,9 @@ fn buddy_bot_behaviors_cover_a_helpful_idle_life() {
     );
 }
 
-/// `PRIMITIVE_MS` is the Engine's turn, not the art's length. Cat's idle
-/// runs 1200ms and the `waiting` variant of it 1000ms, so a Behavior stepping
-/// through idle has to leave whichever strip the ring drew running — a clock
-/// the Primitive restarted would replay the opening half-second of it and
-/// never the rest.
-///
-/// Through the Engine, because `draw` called with a chosen `ms` decides for
-/// itself when the clock started and so cannot disagree with the Engine about
-/// it. That is the seam the reset hid behind.
+/// `PRIMITIVE_MS` is the Engine's turn, not the art's length. Restarting that
+/// clock would replay the opening of the strip and never the rest. The test
+/// goes through the Engine, because `draw` with a chosen `ms` starts its own.
 #[test]
 fn a_behaviors_idle_sweeps_every_frame_of_the_strip_the_cat_drew() {
     let character = load_package("cat").expect("cat package is valid");

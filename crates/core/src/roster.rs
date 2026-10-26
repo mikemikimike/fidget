@@ -13,7 +13,7 @@ pub type InstanceId = String;
 
 /// How long an Instance Prompt may be, in characters.
 /// Untrusted text in every opening turn. Two authored layers share this bound,
-/// so moving one without the other doubles the worst case (ADR-0012).
+/// so moving one without the other doubles the worst case.
 pub const INSTANCE_PROMPT_LIMIT: usize = crate::character::PERSONALITY_LIMIT;
 
 /// `text` as an Instance Prompt, or why it cannot be one.
@@ -40,7 +40,7 @@ pub struct InstanceSpec {
     pub name: String,
     /// Id this Instance ran under last time. `None` if it has not run.
     /// The Instance Prompt hangs off this id, so a fresh uuid every launch
-    /// would lose the text (ADR-0012).
+    /// would lose the text.
     #[serde(default)]
     pub id: Option<InstanceId>,
     /// The Instance Prompt the user wrote for it. Empty by default.
@@ -235,7 +235,7 @@ impl Roster {
 
     /// Spawn and restore a prior id and Instance Prompt.
     /// `spawn` is this with neither. A new id every launch would lose the
-    /// prompt that hangs off the old one (ADR-0012).
+    /// prompt that hangs off the old one.
     pub fn restore(
         &mut self,
         character: &Character,

@@ -225,10 +225,9 @@ mod helpers {
         geometry
             .windows
             .into_iter()
-            // Without the names consent there is no owner to match on, so an
-            // exclusion cannot apply and the window stays in as a rectangle.
-            // What the list exists to hide is the name, and the consent has
-            // already withheld it.
+            // Without names consent there is no owner to match, so an exclusion
+            // cannot apply and the window stays in as a rectangle. The list
+            // exists to hide the name, and the consent has already withheld it.
             .filter(|w| {
                 w.owner
                     .as_deref()
@@ -307,11 +306,14 @@ mod helpers {
                     TargetResolution::UnknownInstance(id.to_string())
                 }
             }
-            None => match roster.len() {
-                0 => TargetResolution::NoInstances,
-                1 => TargetResolution::Resolved(roster[0].id.clone()),
-                _ => TargetResolution::AmbiguousTarget,
-            },
+            None => {
+                // No instance_id provided
+                match roster.len() {
+                    0 => TargetResolution::NoInstances,
+                    1 => TargetResolution::Resolved(roster[0].id.clone()),
+                    _ => TargetResolution::AmbiguousTarget,
+                }
+            }
         }
     }
 }

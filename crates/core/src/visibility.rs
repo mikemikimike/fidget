@@ -794,10 +794,9 @@ mod tests {
         );
     }
 
-    /// Pure Wayland without XWayland reports no windows (DisplayOnlySource).
-    /// `fullscreen_displays` with an empty windows list returns all false,
-    /// so the Character never moves off a fullscreen display and never fades.
-    /// This is the documented degraded mode for pure Wayland.
+    /// Pure Wayland without XWayland reports no windows. An empty list makes
+    /// `fullscreen_displays` all false, so the Character never moves off or
+    /// fades. That is the degraded mode for pure Wayland.
     #[test]
     fn a_desktop_with_no_windows_has_no_fullscreen_application() {
         assert_eq!(fullscreen_displays(&[], &[display()]), [false]);

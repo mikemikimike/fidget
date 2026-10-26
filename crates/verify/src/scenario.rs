@@ -1552,8 +1552,8 @@ mod tests {
         );
     }
 
-    // Notepad typing goes one character at a time, each checked in the file:
-    // "four" sent as one SendInput gave "rrrr" in a busy Notepad (#1593 live run).
+    // Notepad typing goes one character at a time, each checked in the file.
+    // One SendInput of "four" came back as "rrrr" in a busy Notepad.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_checks_notepad_after_each_character() {
@@ -1707,9 +1707,8 @@ mod tests {
     }
 
     // Win11 Notepad is one process for every window, so a run that started it
-    // closes only its own window, and only when no tab is left in it: any tab,
-    // even an Untitled one, may hold the user's unsaved text (the #1590 live
-    // run closed a window holding Oded's restored, modified doc.txt).
+    // closes only its own window, and only when no tab is left in it. Any tab,
+    // even an Untitled one, may hold the user's unsaved text.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_closes_its_window_only_with_no_tab_left() {
@@ -1763,8 +1762,7 @@ mod tests {
     }
 
     // Leaving Notepad's window open is a note in results.txt, not a cleanup
-    // failure: the 08:43 live run printed "FAIL: cleanup: note: cleanup left the
-    // Notepad window open" after PASS, because the note leaked into the return.
+    // failure. The note must not leak into the return and turn a PASS into FAIL.
     #[cfg(windows)]
     #[test]
     fn chat_close_pill_type_win_leaving_the_window_is_not_a_cleanup_failure() {
