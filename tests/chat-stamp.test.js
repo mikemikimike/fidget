@@ -1,7 +1,5 @@
-// Run with `node --test tests/`.
-//
-// The Chat surface's turn stamps: local clock on a line, and when a later
-// line needs the calendar day said out loud.
+// Turn stamps use the local clock on a line, and a later line says the
+// calendar day out loud when the day has changed.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

@@ -1,7 +1,6 @@
-// The Chat surface: one window per Summoned Character Instance, drawn by
-// fidget rather than by whatever answers (ADR-0018). Like the overlay it
-// holds no authoritative state; the Shell owns the session behind it.
-
+// The Chat surface is one window per Summoned Character Instance, drawn by
+// fidget rather than by whatever answers. Like the overlay it holds no
+// authoritative state. The Shell owns the session behind it.
 import { elicitChoices, elicitSays, inputMarkdown } from "./chat-ask.js";
 import { drawAskDetails } from "./chat-ask-row.js";
 import { mountChatAppearance } from "./chat-appearance.js";
@@ -241,7 +240,7 @@ function hearPhase(event) {
   paintPhase(event.at);
 }
 
-// The Harness's thinking, one row per turn in the log (ADR-0034). The Shell
+// The Harness's thinking, one row per turn in the log. The Shell
 // sends the whole thought so far, so a row is redrawn rather than appended to.
 const thinkingRows = new Map();
 // One row per call. An update replaces only the fields it carries, as ACP
@@ -287,7 +286,7 @@ function drawThinking(view) {
 const thinking = createThinking(drawThinking);
 
 // The agent's steps, replaced whole on every update because that is how ACP
-// sends them (#697). The current step is scrolled to, or a plan longer than
+// sends them. The current step is scrolled to, or a plan longer than
 // the cap would leave the reader looking at step one.
 function stepRows(steps) {
   return steps.map((step) => {
@@ -311,7 +310,7 @@ function note(text) {
   return add(row);
 }
 
-// The pieces of the launcher's Harness error landing (#1183), in the log: a
+// The pieces of the launcher's Harness error landing, in the log: a
 // turn failure arrives mid-conversation, so it cannot take the whole surface.
 // The box takes textContent: what a Harness answered is never markup.
 function harnessError(said) {
@@ -422,7 +421,7 @@ function retire(request, option) {
 
 // A permission request, drawn as the options the Harness offered. A click is
 // the only answer; a timed-out turn is cancelled by the Shell, not decided
-// (ADR-0018). A repeat arrives when a late-opening window is handed unsettled asks.
+// . A repeat arrives when a late-opening window is handed unsettled asks.
 function asked(ask) {
   if (asks.has(ask.request)) {
     return null;
@@ -499,12 +498,9 @@ function elicited(form) {
 
 const applyChatAppearance = mountChatAppearance(document.documentElement);
 
-// Whether anything can answer, and what to say when nothing can. Ready is
-// `canAnswer`: configured is not enough when the launcher is missing or the
-// child never came up (#726). The composer is disabled rather than hidden,
-// so it reads as waiting.
-// One button per agent method. Rebuilt on every paint so a later opening
-// cannot leave a method that is no longer offered.
+// Ready is `canAnswer`. Configured is not enough when the launcher is missing
+// or the child never came up. The composer is disabled rather than hidden so
+// it reads as waiting, and method buttons rebuild so a dropped one cannot linger.
 const retry = document.getElementById("landing-retry");
 
 function setPickersDisabled(disabled) {
@@ -556,7 +552,6 @@ function attached(opening) {
   send.disabled = !ready;
   line.placeholder = composerPlaceholder(opening);
 
-  // Apply saved Chat UI design.
   const html = document.documentElement;
   applyChatUiClass(html, opening.chat_ui || "minimal");
   applyChatAppearance(opening.chat_appearance);
@@ -637,10 +632,9 @@ function paintFailure(landing, copy) {
   next.hidden = !copy.next;
 }
 
-// Connect button: make that Harness the Completer source. The landing
-// and header paint from the opening `ReloadChat` pushes. The click never
-// starts the sign-in: the Harness authenticates itself in the user's own
-// terminal, and fidget holds no credential.
+// Makes that Harness the Completer source. The landing and header paint from
+// the opening `ReloadChat` pushes. The click never starts sign-in. The Harness
+// authenticates in the user's terminal, and fidget holds no credential.
 function connect(harness, label) {
   // Nothing is repainted here: the pick goes through `SettingsSession::apply`,
   // whose `ReloadChat` pushes a full opening to the `chat-opening` listener.
@@ -681,7 +675,6 @@ if (settingsBtn) {
   });
 }
 
-
 // Which tab is showing. The conversation and the prompt behind it are the two
 // things this window holds, and they do not fit one above the other at 420
 // points (`main.rs`).
@@ -712,7 +705,7 @@ let savedPrompt = "";
 
 // Whether the Save button is asking for confirmation rather than offering to
 // save. Saving throws the session away, so the second click does it, and never
-// a keystroke, which would wipe the conversation mid-sentence (ADR-0012).
+// a keystroke, which would wipe the conversation mid-sentence.
 function askingToSave(asking) {
   promptSave.hidden = asking;
   promptConfirm.hidden = !asking;
@@ -787,7 +780,7 @@ promptConfirm.addEventListener("click", () => {
       promptText.value = savedPrompt;
       promptSaid.textContent = "Saved.";
       // The log is cleared by `chat-session`: saving reopens the session, and
-      // that event is the one place a replacement is drawn (ADR-0012).
+      // that event is the one place a replacement is drawn.
       syncPromptActions();
     })
     .catch((why) => {
@@ -899,18 +892,11 @@ function newSession(why) {
   note(`New session — ${why}. Nothing said earlier is in it.`);
 }
 
-// A loaded session's replay (#1393), above everything else in the log, in the
-// order the session holds it. No stamps: the replay carries no time. Replies
-// are not turns, so a typed question waiting below never takes one as its
-// answer. Prompts and thinking fold shut; tool calls fold when they have
-// details. A plan is drawn as steps in the log, never into the
-// live plan above the composer. The reply label is an `.i-name`, which
-// `showWho` fills if the opening has not landed yet. Replaces any block
-// already drawn: a window that listens before the load lands hears it live and
-// again from `chat_ready`.
+// A loaded session's replay sits above the live log, in session order, with no
+// stamps because it carries no time. Its replies are not turns. A plan stays in
+// the log, and a second copy from `chat_ready` replaces the block already drawn.
 let restoredBlock = [];
 
-// Starts folded for replayed prompts and thoughts.
 function foldShut(cls, title, body, draw) {
   const row = foldRow(cls, title);
   draw(row.querySelector(".said"), body);
@@ -937,7 +923,7 @@ function cleanTool(value) {
   return value;
 }
 
-// One line per thing a tool call carried (ADR-0028). Text is drawn as
+// One line per thing a tool call carried. Text is drawn as
 // written. A mark is Markdown, so its links open. Live and replay share this.
 function toolPiece(piece) {
   const line = el(piece.type === "diff" || piece.type === "terminal" ? "tool-piece tool-name" : "tool-piece");
@@ -1168,7 +1154,6 @@ async function start() {
         note("Still answering the last one — ask again when it lands.");
         return;
       }
-      // Whatever the turn said, its thinking is over.
       thinking.landed();
       const outcome = turns.settle(payload);
       if (outcome.action === "orphan") {
@@ -1353,7 +1338,6 @@ async function start() {
     { target: chat.label },
   );
 
-  // Chat UI selection changed: swap the root class.
   await listen(
     "chat-ui",
     ({ payload }) => {

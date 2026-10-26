@@ -17,7 +17,7 @@ pub trait ActivitySource {
     fn idle(&self) -> Duration;
 
     /// True when the machine is not showing anything: displays asleep, lid
-    /// closed. A session Director does not wake for this (ADR-0008).
+    /// closed. A session Director does not wake for this.
     fn displays_asleep(&self) -> bool;
 }
 

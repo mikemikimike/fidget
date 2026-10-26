@@ -1,29 +1,20 @@
 // Where the sprite is drawn, between the two placements the renderer holds.
 // Arithmetic rather than rendering, so it lives on its own and is unit tested.
 
-/**
- * Interpolate between two placements at time `now`. The renderer draws one
- * sample behind: the sprite moves at a constant rate between samples instead
- * of jumping whenever one lands. Worth it because the Engine ticks at about
- * 53Hz with gaps of 14ms to 25ms, most longer than a 60Hz display frame; measure
- * again with scripts/bench-frame-cadence-macos.sh before changing this.
- *
- * @param {{x: number, y: number, at: number}} previous
- * @param {{x: number, y: number, at: number}} latest
- * @param {number} now - a `performance.now()` reading
- * @returns {{x: number, y: number}}
- */
+/** Draw one sample behind so the sprite moves at a constant rate instead of
+ * jumping when a sample lands. The Engine ticks slower than the display;
+ * measure scripts/bench-frame-cadence-macos.sh before changing this. */
 export function interpolate(previous, latest, now) {
   const span = latest.at - previous.at;
-  // A resumed app or two placements in the same millisecond: nothing to
-  // interpolate across, so draw what we were last told.
   if (!(span > 0)) {
+    // A resumed app, or two placements in the same millisecond, has nothing
+    // to interpolate across, so draw the placement last reported.
     return { x: latest.x, y: latest.y };
   }
 
-  // Clamped, so a late display frame draws the sprite at the latest placement
-  // rather than extrapolating past it: overshooting puts the sprite somewhere
-  // the Engine never said it was, and on a landing reads as a bounce.
+  // Clamped, so a late frame draws the latest placement rather than
+  // extrapolating past it. Overshoot puts the sprite somewhere the Engine
+  // never reported, and a landing reads as a bounce.
   const t = Math.min(Math.max((now - latest.at) / span, 0), 1);
   return {
     x: previous.x + (latest.x - previous.x) * t,
@@ -31,19 +22,8 @@ export function interpolate(previous, latest, now) {
   };
 }
 
-/**
- * Whether the sprite has reached `latest`, so a further display frame of its
- * own would draw it where the last one did.
- *
- * The renderer arms its loop on this rather than looping unconditionally
- * (#741). Read it against `interpolate` above: it is false exactly while `t`
- * is still short of 1 and the two placements are somewhere to travel between.
- *
- * @param {{x: number, y: number, at: number} | null} previous
- * @param {{x: number, y: number, at: number}} latest
- * @param {number} now - a `performance.now()` reading
- * @returns {boolean}
- */
+/** Whether the sprite has reached `latest`. The frame loop arms from this,
+ * and it stays false while the span is unfinished. */
 export function arrived(previous, latest, now) {
   if (!previous) return true;
   if (previous.x === latest.x && previous.y === latest.y) return true;
@@ -59,22 +39,9 @@ function reaches(at, bounds, margin) {
   );
 }
 
-/**
- * Whether the sprite is on this overlay's own display across the span the
- * renderer is drawing, within `margin` of the display's edges.
- *
- * Both placements are tested because the sprite is drawn between them. On
- * `latest` alone the last frame of an exit goes undrawn, stranding a
- * half-drawn sprite at the edge the Character just left.
- *
- * @param {{x: number, y: number, width: number, height: number} | null} previous
- * @param {{x: number, y: number, width: number, height: number}} latest
- * @param {{width: number, height: number}} bounds - the display in this
- *   overlay's coordinates, whose origin is (0, 0), so only its size is read
- * @param {number} margin - absorbs the pixel two displays at different scale
- *   factors can round apart at a seam
- * @returns {boolean}
- */
+/** Whether the sprite is on this display across the drawn span. Tests both
+ * placements, or the last frame of an exit is never drawn. `margin` covers
+ * the pixel two scale factors can round apart at a seam. */
 export function onDisplay(previous, latest, bounds, margin) {
   return (
     reaches(latest, bounds, margin) ||

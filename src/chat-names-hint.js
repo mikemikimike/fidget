@@ -1,6 +1,6 @@
-// The window-names notice. Its own module because chat.js reaches
-// window.__TAURI__ as it loads and cannot be imported under node --test.
 
+// The window-names notice. Split from chat.js, which reads `window.__TAURI__`
+// at import, so node can load this.
 const HEADING = "Window names are off";
 
 export const BODY =

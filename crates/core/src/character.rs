@@ -176,7 +176,6 @@ pub enum Primitive {
     Jump,
 }
 
-/// Every Primitive by the name a Character Manifest writes.
 const PRIMITIVES: [(&str, Primitive); 10] = [
     ("idle", Primitive::Idle),
     ("walk", Primitive::Walk),
@@ -562,7 +561,6 @@ pub fn load(package: &PackageBytes) -> Result<Character, Vec<String>> {
     }
 }
 
-/// The Personality Prompt, which is prose and is never parsed.
 fn personality(package: &PackageBytes, errors: &mut Vec<String>) -> String {
     let Some(bytes) = package.get(PERSONALITY_FILE) else {
         return String::new();
@@ -656,7 +654,6 @@ mod tests {
 
     #[test]
     fn a_frame_is_held_for_as_long_as_the_declared_fps_says() {
-        // Four frames at 8fps: 125ms each, so the strip lasts half a second.
         let walk = animation(4, 8, true);
 
         assert_eq!(walk.frame_at(0), 0);
@@ -742,7 +739,7 @@ mod tests {
 
     /// Jump is a primitive Behavior every Character can be asked to play.
     /// A package that never writes `[behaviors.jump]` still gets one at load,
-    /// weight zero until dedicated art earns ambient use (same policy as #490).
+    /// weight zero until dedicated art earns ambient use.
     #[test]
     fn an_undeclared_jump_is_still_playable() {
         use crate::engine::{BehaviorProposal, Engine, Point, WorldSnapshot};
@@ -888,7 +885,6 @@ mod tests {
     fn draw_returns_the_frame_the_declared_cadence_has_reached() {
         let mut package = art();
         package.insert("idle-1.png".to_string(), SOLID.to_vec());
-        // Two 125ms frames of idle at the default 8fps.
         let manifest = declaring(&REQUIRED_ANIMATIONS).replace(
             "frames = [\"idle-0.png\"]",
             "frames = [\"idle-0.png\", \"idle-1.png\"]",

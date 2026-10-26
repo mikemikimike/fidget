@@ -1,19 +1,8 @@
 <!doctype html>
 <!--
-  The Character gallery for omesser.github.io/fidget: every Character this
-  project can publish, every Animation in its Required Animation Set, playing
-  at the fps its own manifest declares. A package whose art carries terms that
-  do not cover publishing it is left off entirely — see WITHHELD in
-  scripts/make-character-gallery.py.
-
-  A Generated page under ADR-0011. This file is the chrome; everything it says
-  about a Character — which Animations exist, their frame counts, fps, loop,
-  render_mode, scale, variant rings and optional climb/grab — arrives in the
-  <script id="gallery"> block, which scripts/make-character-gallery.py
-  substitutes at deploy time from characters/. Opened straight from a clone
-  the block is still the empty placeholder, so the page says it has no data
-  rather than inventing some. The page plays every ring member; it does not
-  pick one. A JS port of the Engine's Seeded draw would drift (ADR-0011).
+  Every Character this project can publish, each Animation at the fps its manifest declares.
+  Generated. Until deploy the gallery block is empty, so a clone says it has no data rather
+  than inventing some. The page plays every ring member. It does not pick one.
 -->
 <html lang="en">
 <head>
@@ -87,10 +76,8 @@
                font-size: .95em; }
   .short { color: var(--warn); }
 
-  /* The package's own [source] declaration. Most packages are MIT over art
-     adapted from someone else's pack; this page is a public, indexed URL, so
-     it prints what the manifest declares rather than paraphrasing a caveat
-     into a weaker one. */
+  /* The package's own [source] declaration. This page is a public, indexed URL, so it prints
+     what the manifest declares rather than paraphrasing a caveat into a weaker one. */
   .source {
     margin: .7rem 0 0;
     padding: .7rem .85rem;
@@ -230,11 +217,9 @@
       meta.append(count);
       section.append(meta);
 
-      // Declared, never inferred — but a package that declares nothing still
-      // gets the panel, saying so. This page is the only place the art's
-      // origin is published, so an absent panel would read as "nothing to
-      // say" when it means "nobody wrote it down", and for art cut from
-      // someone else's pack those are not the same claim.
+      // A package that declares nothing still gets the panel. This page is the only place the art's
+      // origin is published, so a missing panel would read as nothing to say when it means nobody
+      // wrote it down.
       const box = el("div", "source");
       box.append(el("b", null, "characters/" + character.dir + "/character.manifest"));
       if (!character.source) {
@@ -363,10 +348,9 @@
     if (playing) {
       for (const state of stages) {
         const last = state.images.length - 1;
-        // A rAF timestamp can predate the start captured just before it, and a
-        // negative step indexes past the end of the ring. The loop is only
-        // rescheduled at the bottom of this function, so one throw here would
-        // freeze every Animation on the page for good.
+        // A rAF timestamp can predate the start captured just before it, and a negative step indexes
+        // past the end of the ring. One throw here would freeze every Animation on the page, because
+        // the loop is rescheduled only at the bottom.
         const step = Math.max(0, Math.floor((now - state.start) * state.fps / 1000));
         draw(state, state.looping ? step % state.images.length : Math.min(step, last));
       }

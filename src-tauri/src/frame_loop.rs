@@ -633,10 +633,11 @@ pub(crate) fn run_frame_loop(
             let gesturing = lives.iter().position(|live| live.pointer.gesturing());
             let target = press_target(&pressed, gesturing);
             // Last tick's click-through decided whether the overlay could
-            // hear this press. Passing through drops a lost pointerup. Must
-            // not consult the session poll: that poll misses a swallowed press.
+            // hear this press. Passing through drops a lost pointerup. macOS
+            // has no overlay witness to drop.
             let on_overlay =
                 display_index_for((cursor_points.x, cursor_points.y), &displays.frames);
+            #[cfg(not(target_os = "macos"))]
             if !visible {
                 platform::overlay_passes_clicks_through();
             } else if let Some(index) = on_overlay {
@@ -2329,11 +2330,13 @@ pub(crate) fn run_frame_loop(
 
                 // Hidden sprites always idle. Track visibility for XI2 wake policy.
                 if index == 0 {
+                    let was = schedule_mode;
                     schedule_mode = if !presence.visible || !any_needs_active {
                         scheduler::ScheduleMode::Idle
                     } else {
                         scheduler::ScheduleMode::Active
                     };
+                    trace_schedule_switch(was, schedule_mode);
                     moving = any_moving;
                     was_visible = presence.visible;
                 }
@@ -2997,6 +3000,19 @@ fn withhold_names(activity: &mut Activity, can_read_names: bool, denylist: &Deny
     activity
         .before
         .retain(|(name, _)| can_read_names && denylist.allows(name));
+}
+
+/// One `click-trace: idle` or `click-trace: active` line per schedule switch,
+/// for #1858: a bare tick line only shows an idle wait after it ends.
+fn trace_schedule_switch(was: scheduler::ScheduleMode, now: scheduler::ScheduleMode) {
+    if was == now || !dev_flags::TRACE_CLICKS.is_on() {
+        return;
+    }
+    let name = match now {
+        scheduler::ScheduleMode::Idle => "idle",
+        scheduler::ScheduleMode::Active => "active",
+    };
+    eprintln!("click-trace: {name} t={:.1}", platform::trace_ms());
 }
 
 #[cfg(test)]

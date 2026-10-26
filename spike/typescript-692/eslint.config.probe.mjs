@@ -1,14 +1,6 @@
-// The linter rung the issue never considered: no types, just the two rules that
-// cover both bugs this webview has actually shipped (#738).
-//
-// Not a proposal to adopt eslint — section 3 of REPORT.md argues the opposite,
-// because this config costs 194 packages where `typescript` costs 1. It exists
-// so the comparison in section 2 is reproducible:
-//
-//   npm install eslint@9 globals eslint-plugin-import
-//   npx eslint --no-config-lookup -c spike/typescript-692/eslint.config.probe.mjs src
-//
-// On current `src/`: 0 errors, 1 real dead-variable warning at main.js:176.
+// Not a proposal to adopt eslint. The two rules cover bugs this webview has shipped, and the
+// config costs 194 packages where typescript costs 1. It exists so the comparison in REPORT.md
+// is reproducible.
 import globals from "globals";
 import importPlugin from "eslint-plugin-import";
 

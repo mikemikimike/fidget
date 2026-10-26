@@ -1,7 +1,6 @@
-// Local clock stamps for Chat surface turns. Its own module because chat.js
-// reaches window.__TAURI__ as it loads and cannot be imported outside a
-// webview; this can, so it has a test.
 
+// Local clock stamps for Chat turns. Split from chat.js, which reads
+// `window.__TAURI__` at import, so node can load this.
 const MONTHS = [
   "Jan",
   "Feb",
@@ -37,9 +36,8 @@ function sameLocalDay(a, b) {
   );
 }
 
-// Drawn on a 420-point Chat surface, so the label is five characters until the
-// local day changes; then the date prefixes once and later lines go back to
-// HH:mm. Year and seconds live on title. A first line is HH:mm too.
+// Five-character HH:mm on a 420-point surface until the local day changes,
+// then the date once. Year and seconds stay on the title.
 export function stampWhen(at, previousAt) {
   const time = localHm(at);
   const dayChanged = previousAt !== null && !sameLocalDay(previousAt, at);

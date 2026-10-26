@@ -5,10 +5,9 @@ import { test } from "node:test";
 import { chromePath, chromeSkip, launchWithPipe, createPageTarget, cleanupChrome } from "./chrome-cdp.js";
 import { tempDir } from "./temp-path.js";
 
-// A stand-in for Chrome that speaks CDP over fds 3 and 4. It ignores every call
-// until `readyAfterMs` has passed, like a Chrome still starting, then answers
-// only the methods in `answers`. Anything else gets no reply. `Fake.env` answers
-// with the temp dirs and profile it was started with.
+// A stand-in for Chrome speaks CDP over fds 3 and 4. It ignores every call
+// until `readyAfterMs`, like a Chrome still starting, then answers only the
+// methods in `answers`. Anything else gets no reply.
 function fakeChrome(t, readyAfterMs, answers, { stderr = "", closes = true, ignoresTerm = false } = {}) {
   const bin = join(tempDir(t, "fake-chrome-"), "chrome");
   writeFileSync(bin, `#!/usr/bin/env node

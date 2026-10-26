@@ -1,7 +1,7 @@
-/* The page itself is chat-ui.css's `body`, so each Chat UI paints Settings as
-   it paints Chat. Everything here is a var() from it, and every selector is
-   prefixed `.set-` so nothing here reaches the Chat surface. */
 
+/* The page is chat-ui.css's `body`, so each Chat UI paints Settings as it
+   paints Chat. Everything here is a var() from it, and every selector is
+   prefixed `.set-` so nothing here reaches the Chat surface. */
 .set-bar {
   padding: 10px 18px 6px;
 }
@@ -86,7 +86,7 @@
   margin-top: 4px;
 }
 
-/* The muted strip: env override or "not in use" — read as a note, not a field. */
+/* The muted strip. An env override or "not in use", read as a note, not a field. */
 .set-status {
   margin: 4px 0 0;
   padding: 4px 8px;
@@ -112,8 +112,8 @@
   margin: 10px 0;
 }
 
-/* The label stacks its own name over the control it holds. The name keeps the
-   type to itself, because a field inherits the font of whatever it sits in. */
+/* The label stacks its name over the control it holds. The name keeps
+   the type to itself, because a field inherits the font of whatever it sits in. */
 .set-row > label {
   display: grid;
   gap: 4px;
@@ -194,7 +194,7 @@
   outline-offset: 2px;
 }
 
-/* Frozen reads as frozen: dimmer field, dimmer label, still legible. */
+/* Frozen reads as frozen. Dimmer field, dimmer label, still legible. */
 .set-is-frozen > label,
 .set-is-frozen .set-label {
   color: var(--chat-ink-3);
@@ -308,8 +308,9 @@
   overflow-wrap: anywhere;
 }
 
-/* A path is read and copied, never edited, and it wraps rather than truncates:
-   the Memory File's home is long and the middle of it is the part that matters. */
+/* A path is read and copied, never edited, and it wraps rather than
+   truncates. The Memory File's home is long, and the middle is the part
+   that matters. */
 .set-path {
   margin: 0;
   color: var(--chat-ink-2);

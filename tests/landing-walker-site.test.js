@@ -1,9 +1,6 @@
-// The page character on the published landing page, played in headless
-// Chrome: it walks up onto the page in a margin, a poke plays react with a ring and a line,
-// a throw lands on the bottom edge, it hands over to the playground and back
-// without two on screen, resting at the threshold does not bounce it, it draws
-// no frames while away, Hide survives a reload and moves focus, a phone pokes
-// rather than grabs, reduced motion keeps it still, and a pick swaps it.
+// The page character on the published landing page is played in headless Chrome.
+// A poke, a throw, the handover, and a phone press have to move that sprite.
+// Resting at the threshold does not bounce it, and it draws no frames while away.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

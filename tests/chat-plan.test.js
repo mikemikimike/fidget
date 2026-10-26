@@ -1,5 +1,5 @@
-// The plan above the composer is the agent's steps and which one is current
-// (#697). The marking is the wire's `status`, not anything decided here.
+// The plan above the composer is the agent's steps and which one is current.
+// The marking is the wire's `status`, not anything decided here.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

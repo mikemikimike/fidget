@@ -118,8 +118,8 @@ test("a launcher that died at startup says it failed, not only that it is down",
   assert.equal(mindLine(opening), "codex · failed to start");
 });
 
-// #949: Apply starts the attach, so the second the handshake takes is a wait
-// and not a verdict. `not running` there is the line that read as broken.
+// Apply starts the attach, so the handshake second is a wait and not a
+// verdict. `not running` during that wait reads as broken.
 test("a Harness still shaking hands says it is starting, not that it is down", () => {
   const opening = {
     ...http,
@@ -135,8 +135,8 @@ test("a Harness still shaking hands says it is starting, not that it is down", (
   assert.equal(mindLine(opening), "hermes · starting");
 });
 
-// #726: a missing launcher is not a child that died. Settings already names
-// the binary (`harness_state`); the header used to say only `not running`.
+// A missing launcher is not a child that died. Settings already names the
+// binary (`harness_state`). `not running` there reads as a dead child.
 test("a missing launcher names the binary rather than a dead child", () => {
   for (const name of ["claude", "codex", "pi"]) {
     const opening = {
@@ -213,8 +213,6 @@ test("an endpoint the Shell could not read draws nothing, not a separator", () =
   assert.equal(mindLine({ ...http, model: "", host: "" }), "");
 });
 
-// Plain-language status that connects to the visual character's behavior and
-// actions, not only chat state.
 test("plain status says Thinking when a turn is on the wire", () => {
   assert.equal(plainStatus({ ...push, thinking: true }, 12_000), "Thinking…");
 });

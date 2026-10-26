@@ -1,7 +1,6 @@
 // The landing page's own Character, along the bottom of the viewport. It is
 // the playground's Character too, handed over while the playground is in view.
 // update() decides and touches no DOM, so node tests it; step() moves it.
-
 import { animationOf, away, character, decodePresses, feet, frameOf, step } from "./playground.js";
 
 // The page origin is shared with other Pages sites, hence the prefix.
@@ -47,10 +46,9 @@ function say(state, now, rand, env) {
   return { ...state, speech: { line, until }, nextLine: until + span(LINES.gap, rand) };
 }
 
-// Each tick walks the Character toward where it is wanted: off the page while
-// the playground or the hero's stage is in view, on it otherwise. The
-// page hands it to the playground only once it is out of sight, so the page
-// never shows two.
+// Each tick walks the Character toward where it is wanted. Off the page while the playground
+// or the hero stage is in view, on it otherwise. The page hands it over only once it is out of
+// sight.
 function tick(state, event, env) {
   const { now, rand } = event;
   const move = (sprite, extra) => step(sprite, { now, still: state.still, ...extra }, env.world, env.tuning).state;

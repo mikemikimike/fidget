@@ -240,7 +240,7 @@ fn split_list(raw: &OsStr, separator: u8) -> Vec<PathBuf> {
 
 /// The candidates named `wanted`, or all of them when nothing is named.
 ///
-/// Naming a Character that is not installed leaves nothing rather than falling through: starting some other Character is a worse answer than saying so.
+/// Naming a Character that is not installed leaves nothing. Falling back to the default is the caller's choice, made once in `main.rs`.
 pub fn named(candidates: Vec<PathBuf>, wanted: Option<&OsStr>) -> Vec<PathBuf> {
     let Some(wanted) = wanted else {
         return candidates;

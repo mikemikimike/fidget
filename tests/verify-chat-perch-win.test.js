@@ -1,4 +1,4 @@
-// scripts/verify-chat-perch-win.ps1 decides each #1502 check from trace lines
+// scripts/verify-chat-perch-win.ps1 decides each check from trace lines
 // and UI Automation frames. Only its pure functions are loaded, through the
 // PowerShell parser, so no window or app launch runs.
 

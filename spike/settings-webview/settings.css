@@ -38,7 +38,7 @@ body {
   border-color: var(--chat-accent);
 }
 
-/* The form scrolls in the log's place. Content-sized, never clipped (#601). */
+/* The form scrolls in the log's place. Content-sized, never clipped. */
 .form {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -122,7 +122,7 @@ select {
   font-size: 13px;
 }
 
-/* One dropdown look on every OS, which is the whole #674 conversation. */
+/* One dropdown look on every OS, which is the whole conversation. */
 select {
   appearance: none;
   -webkit-appearance: none;
@@ -152,7 +152,7 @@ summary:focus-visible {
   outline-offset: 2px;
 }
 
-/* Frozen reads as frozen: dimmer field, dimmer label, still legible (#625). */
+/* Frozen reads as frozen: dimmer field, dimmer label, still legible. */
 .row.is-frozen > label,
 .row.is-frozen .label {
   color: var(--chat-ink-3);

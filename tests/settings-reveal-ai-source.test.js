@@ -1,7 +1,6 @@
 // Chat's "More options in Settings" button sends the user to the AI source
-// picker (#1457). This drives the real Settings page headless with the
-// snapshot the Shell sends for that aim, then drives the real Chat landing and
-// reads which command its button invokes.
+// picker. The page is the real Settings surface, with the snapshot the Shell
+// would have pushed.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

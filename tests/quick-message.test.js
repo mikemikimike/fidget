@@ -213,7 +213,6 @@ test("auto-hide cancels if pointer re-enters sprite before 3s", () => {
   qm.leavePill();
   advance(2000);
 
-  // Re-enter sprite before 3s
   qm.enterSprite();
   advance(2000);
 
@@ -245,7 +244,6 @@ test("auto-hide cancels if pointer re-enters pill before 3s", () => {
   qm.leavePill();
   advance(2000);
 
-  // Re-enter pill before 3s
   qm.enterPill();
   advance(2000);
 
@@ -259,7 +257,6 @@ test("auto-hide does not trigger if user has typed non-empty text", () => {
   qm.leaveSprite();
   qm.leavePill();
 
-  // Even after 3s, should not auto-hide because text is present
   advance(3000);
   assert.equal(qm.visible, true, "pill with text does not auto-hide");
   assert.equal(qm.text, "hey");
@@ -280,7 +277,6 @@ test("auto-hide treats whitespace-only as empty", () => {
 test("auto-hide does not trigger if only sprite is left but pill is hovered", () => {
   const { qm, advance } = shown();
 
-  // Simulate entering the pill (user moved from sprite to pill)
   qm.enterPill();
   qm.leaveSprite();
 
@@ -291,9 +287,7 @@ test("auto-hide does not trigger if only sprite is left but pill is hovered", ()
 test("auto-hide does not trigger if only pill is left but sprite is hovered", () => {
   const { qm, advance } = shown();
 
-  // Leave pill but not sprite (shouldn't happen in practice but test the logic)
   qm.leavePill();
-  // Still on sprite
 
   advance(3000);
   assert.equal(qm.visible, true, "pill stays visible while sprite hovered");
@@ -302,16 +296,13 @@ test("auto-hide does not trigger if only pill is left but sprite is hovered", ()
 test("existing dismiss paths still work with auto-hide feature", () => {
   const { qm } = shown();
 
-  // outside dismiss
   qm.outside();
   assert.equal(qm.visible, false);
 
-  // Show again and test drag dismiss
   const { qm: qm2 } = shown();
   qm2.drag();
   assert.equal(qm2.visible, false);
 
-  // Show again and test summon dismiss
   const { qm: qm3 } = shown();
   qm3.summon();
   assert.equal(qm3.visible, false);

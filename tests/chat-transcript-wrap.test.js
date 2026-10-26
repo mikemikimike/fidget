@@ -1,7 +1,6 @@
-// The transcript fits the window. A reply's code fence or table scrolls inside
-// its own row, and a note's long path wraps; neither widens the log, which
-// would push every other row, the ask card and its buttons included, past the
-// right edge (#1832).
+// A reply's code fence or table scrolls inside its own row, and a note's long
+// path wraps. Neither may widen the log, or every other row, the ask card
+// included, slides past the right edge.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -18,7 +17,6 @@ const WIDTHS = [420, 320];
 const THEMES = ["minimal", "terminal", "glass"];
 const PALETTES = ["dark", "light"];
 
-// From the report's screenshot: Claude asking to run this.
 const COMMAND = `open "spotify:search:jojo%27s%20bizarre%20adventure" && osascript -e 'tell application "Spotify" to player state'`;
 
 // A Shell note naming a file: one token with no break opportunity.

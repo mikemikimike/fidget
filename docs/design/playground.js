@@ -76,10 +76,8 @@ function ledgeCrossed(world, x, fromY, toY) {
   return toY >= world.height ? "floor" : null;
 }
 
-// Where a perched character stands after it or a window moved: onto a window
-// in front that has come to contain its feet (from the point it was at, against
-// that window as it was), else on its own edge while that stays visible, else
-// it falls. The floor is in front of every window, so it is exempt.
+// After the character or a window moves, stand on a window in front that now contains the
+// feet, else on its own edge while that stays visible, else the floor.
 function settle(state, from, world, before = (win) => win) {
   const index = world.windows.findIndex((win) => win.id === state.on);
   if (index < 0) return state;

@@ -1,7 +1,6 @@
-// The shared bash wait core behind the macOS and X11 scenario leaves returns
-// as soon as its event shows up and gives up within the seconds it is given,
-// so a live check takes seconds. It is plain bash with BSD-safe tools, so it
-// runs here on Linux too. Each platform helper must load it.
+// The shared wait returns as soon as its event shows up and gives up within
+// the seconds it is given. It is plain bash with BSD-safe tools, so it runs
+// here on Linux too. Each platform helper has to load it.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -163,7 +162,7 @@ for (const leaf of ["mac", "x11"]) {
 }
 
 // A child that ignores TERM keeps the inherited lock after the pid it was
-// given is gone (#1585): the wait holds until its seconds run out.
+// given is gone: the wait holds until its seconds run out.
 test(
   "wait_for_exit waits on a held lock even when the pid is already gone",
   { skip: process.platform !== "linux" && "the lock wait needs flock" },

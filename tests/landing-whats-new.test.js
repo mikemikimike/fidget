@@ -1,9 +1,6 @@
-// The "What's new" strip: the landing page names the Latest release and the
-// bullets under its `## Highlights` heading. scripts/make-landing-page.py reads
-// them at deploy, so these tests drive the generator against a captured v0.6.0
-// body — `gh release view v0.6.0 --json body` output, kept with LF endings
-// because the repo's pre-commit forces LF; one test rebuilds the CRLF form gh
-// writes.
+// The "What's new" strip names the Latest release and the bullets under its
+// `## Highlights` heading. The generator reads a captured release body kept
+// as LF, because pre-commit forces LF. One test rebuilds the CRLF form gh writes.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -19,10 +16,9 @@ const PAGE = "index.html";
 const RELEASES = "https://github.com/omesser/fidget/releases";
 const REAL_BODY = readFileSync(join(ROOT, "tests", "fixtures", "release-body-v0.6.0.md"), "utf8");
 
-// The first three bullets under that body's `## Highlights`, reduced to the title
-// each opens with. A bullet's title is the strip's copy and everything after its
-// colon stays on the Release page; the vision asks for two or three short lines,
-// and a whole bullet runs to a sentence or two.
+// The first three bullets under `## Highlights`, reduced to the title each
+// opens with. Everything after the colon stays on the Release page. A whole
+// bullet runs to a sentence or two, and the strip wants two or three short lines.
 const FIRST_THREE = [
   "Quick message pill on Windows",
   "Hover delay setting",

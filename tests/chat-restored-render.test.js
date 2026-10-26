@@ -1,7 +1,6 @@
-// The Chat surface itself, driven headless the way chat-thinking-render.test.js
-// drives it: a line typed after a restart, the loaded session's whole replay
-// arriving while it waits, and the answer landing on the line (#1393). And a
-// window that opens as the load lands, which hears the history twice.
+// A line typed after a restart can meet the loaded session's whole replay
+// while it waits, and the answer has to land on that line. A window that
+// opens as the load lands hears the history twice.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -241,10 +240,9 @@ test(
   },
 );
 
-// ADR-0028: a replayed tool call draws every field the wire sent. Locations
-// come first, as the path and line ACP gave. A diff is its path, its counts
-// and a note that the full diff is not drawn. A terminal is its id. Text is
-// as sent, never Markdown. Any other block is a mark, whose links open.
+// A replayed tool call draws every field the wire sent. Locations come first,
+// as the path and line ACP gave. A diff is its path, its counts, and a note
+// that the full diff is not drawn. Text is as sent, never Markdown.
 const TOOL_HISTORY = [
   {
     type: "tool_call",

@@ -1,7 +1,6 @@
 // `detect-private-key`, `detect-aws-credentials` and `check-added-large-files`
-// read every tracked file, vendored content included: bytes a bot refreshes
-// weekly are what a secret scanner is for. Every other hook skips the vendored
-// tree by alias, so an exclude is one keystroke away; this test forbids it.
+// read every tracked file, vendored bytes included. A weekly bot refresh is
+// what a secret scanner is for. Other hooks skip that tree by alias, and this forbids the exclude.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -24,8 +23,9 @@ const SCANS_EVERY_FILE = [
 // purpose: it tunes what a hook reports, not which files reach it.
 const NARROWS = /^\s*(exclude|files|types|types_or|exclude_types)\s*:/;
 
-// A hook's own keys are the lines after its `- id:` up to the next list item at
-// the same or shallower indent -- the next hook, or the next repo entry.
+// A hook's keys are the lines after its `- id:` until the next item at the
+// same indent. The guard holds only while the vendored exclude is shared by
+// alias. If that alias goes, the pasted exclude is back and these three are no longer the odd ones out.
 const hookBody = (id) => {
   const marker = `- id: ${id}`;
   const starts = lines.flatMap((l, i) => (l.trim() === marker ? [i] : []));

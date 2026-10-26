@@ -1,7 +1,6 @@
-// "Give it your own twist" on the built landing page: the README's Instance
-// Prompts word for word, each prompt's one wake and every Character's line
-// for it from docs/design/twists.json, and the pickers, clicked in headless
-// Chrome.
+// The built landing page shows the README's Instance Prompts word for word,
+// each prompt's one wake, and every Character's line from docs/design/twists.json.
+// The pickers are clicked in headless Chrome.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

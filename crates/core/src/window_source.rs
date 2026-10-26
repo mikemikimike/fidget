@@ -58,7 +58,7 @@ pub const DOCK_PERCH_ID: WindowId = WindowId::MAX;
 
 /// One visible window: which one it is, where it is, who owns it, and how high
 /// it stacks. Owner and title are both present when the window-names consent is
-/// usable, and both absent otherwise: one consent covers the pair (ADR-0032).
+/// usable, and both absent otherwise. One consent covers the pair.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowRect {
     /// The window server's own id, carried all the way to the Engine. Geometry

@@ -1,12 +1,12 @@
-// What a `chat` payload does to a waiting caret. Its own module because
-// chat.js reaches window.__TAURI__ as it loads and cannot be imported outside
-// a webview; this can, so it has a test.
+
+// What a `chat` payload does to a waiting caret. Split from chat.js, which
+// reads `window.__TAURI__` at import, so node can load this.
 
 export const MISSING_ANSWER = "No answer came back.";
 
 // Keyed by the words `director::happened_cell` writes. The cause leads the
-// sentence because "your question was dropped" reads as a bug, where "you
-// poked me before that answer landed" reads as what the user just did.
+// sentence, because "your question was dropped" reads as a bug and naming
+// the poke reads as what the user just did.
 const PREEMPTED_BY = {
   "spoken to": "You asked something else",
   poked: "You poked me",
@@ -67,7 +67,7 @@ export function createChatTurns() {
 
     settle(payload) {
       // Attach notices are not turn outcomes. Handle them before waiting, or a
-      // notice that lands after typed() steals the user's turn (#1496).
+      // notice that lands after typed() steals the user's turn.
       if (payload.notice) {
         return { action: "notice", turn: null, note: payload.notice };
       }

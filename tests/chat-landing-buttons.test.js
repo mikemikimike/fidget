@@ -1,7 +1,5 @@
 // After the first pick fails, the landing keeps every branded button so the
-// user can quick-pick another Harness (#1458). This drives the real Chat page
-// headless: it presses a branded button, then sends the opening the Shell
-// pushes after each kind of failed pick, and reads what the page draws.
+// user can quick-pick another Harness. The page is the real Chat surface.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

@@ -1,9 +1,5 @@
-// Run with `node --test spike/settings-webview/`.
-//
-// What scripts/verify-settings-macos.sh asks an AX dump, asked of the flat
-// control list instead: section order, labels, and whether the HTTP rows are
-// live or frozen for the source in force.
-
+// Run with `node --test spike/settings-webview/`. Asks what the AX dump script asks, of the
+// flat control list. Section order, labels, and whether HTTP rows are live or frozen.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

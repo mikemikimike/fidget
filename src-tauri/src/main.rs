@@ -2096,8 +2096,8 @@ fn roster_specs(roster: &Roster) -> Vec<InstanceSpec> {
         .collect()
 }
 
-/// The overlay heard the primary button. The frame loop polls a session
-/// query that can miss a click on this window; this is the other witness.
+/// The overlay heard the primary button. A second witness beside the session
+/// poll on X11 and Windows; on macOS it only settles what a Control-click means.
 #[tauri::command]
 fn overlay_primary(down: bool) {
     platform::set_overlay_primary(down);
@@ -2166,8 +2166,8 @@ fn overlay_report_qm_draft(
     platform::set_qm_draft(instance, payload);
 }
 
-/// Same witness for the right button. Without it a right-click on the sprite
-/// is swallowed by the webview and the session poll never sees a Menu.
+/// The overlay heard the right button: the same witness on X11 and Windows,
+/// a trace line on macOS.
 #[tauri::command]
 fn overlay_secondary(down: bool) {
     platform::set_overlay_secondary(down);
@@ -4657,9 +4657,7 @@ fn names_the_package(path: &Path, character_name: &str, wanted: &OsStr) -> bool 
     path.file_stem() == Some(wanted) || OsStr::new(character_name) == wanted
 }
 
-/// The Character an Instance asked for: the first package that loads.
-/// Every rejection is reported; finding none stops startup and names every
-/// directory searched. Takes the name rather than reading the env itself.
+/// The Character an Instance asked for, or Buddy Bot when that one does not load.
 fn load_named(
     app: &tauri::AppHandle,
     wanted: Option<std::ffi::OsString>,
@@ -4672,9 +4670,59 @@ fn load_named(
         .ok()
         .map(|dir| dir.join(BUNDLED_CHARACTERS));
 
-    let search_paths = package::search_paths(bundled);
-    let installed = package::installed(&search_paths);
-    let candidates = match &wanted {
+    let chosen = choose_character(&package::search_paths(bundled), wanted.as_deref())?;
+    if let Some(why) = chosen.fell_back_from {
+        fidget::eprintln_and_log!("character: {why}");
+        fidget::eprintln_and_log!("character: falling back to {}", package::DEFAULT_CHARACTER);
+    }
+    eprintln!(
+        "character: {} from {}",
+        chosen.character.name,
+        chosen.from.display()
+    );
+    Ok(chosen.character)
+}
+
+/// The Character that starts, and why it is the default instead of the one asked for.
+struct Chosen {
+    character: Character,
+    from: PathBuf,
+    fell_back_from: Option<String>,
+}
+
+/// A stale setting or a mistyped name still starts a fidget. Only a missing
+/// default stops startup, with the error about the name that was asked for.
+fn choose_character(search_paths: &[PathBuf], wanted: Option<&OsStr>) -> Result<Chosen, String> {
+    let why = match load_from(search_paths, wanted) {
+        Ok((character, from)) => {
+            return Ok(Chosen {
+                character,
+                from,
+                fell_back_from: None,
+            })
+        }
+        Err(why) => why,
+    };
+    let default = OsStr::new(package::DEFAULT_CHARACTER);
+    if wanted.is_none_or(|wanted| wanted == default) {
+        return Err(why);
+    }
+    let (character, from) = load_from(search_paths, Some(default)).map_err(|_| why.clone())?;
+    Ok(Chosen {
+        character,
+        from,
+        fell_back_from: Some(why),
+    })
+}
+
+/// The first package in `search_paths` that loads and answers to `wanted`.
+/// Every rejection is reported, and finding none names every directory searched.
+fn load_from(
+    search_paths: &[PathBuf],
+    wanted: Option<&OsStr>,
+) -> Result<(Character, PathBuf), String> {
+    let installed = package::installed(search_paths);
+    let candidates = match wanted {
         Some(name) => {
             // Folder stem first (`trump`). A switch persists Character.name
             // (`Trump`); that is not a stem, so fall through to every package
@@ -4701,13 +4749,12 @@ fn load_named(
 
         match fidget_core::character::load(&files) {
             Ok(character) => {
-                if let Some(wanted) = &wanted {
+                if let Some(wanted) = wanted {
                     if !names_the_package(candidate, &character.name, wanted) {
                         continue;
                     }
                 }
-                eprintln!("character: {} from {}", character.name, candidate.display());
-                return Ok(character);
+                return Ok((character, candidate.clone()));
             }
             // A rejection like any other: one broken package should not cost
             // the user every Character behind it in the search.
@@ -6435,18 +6482,88 @@ mod tests {
     #[test]
     fn rubber_duck_instance_resolves_the_shipped_package() {
         let specs = roster::parse_specs("rubber-duck").expect("instance spec parses");
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../characters");
-        let matches: Vec<_> = package::installed(&[root])
-            .into_iter()
-            .filter_map(|path| {
-                let files = package::read(&path).ok()?;
-                let character = fidget_core::character::load(&files).ok()?;
-                names_the_package(&path, &character.name, OsStr::new(&specs[0].character))
-                    .then_some(character.name)
-            })
-            .collect();
+        let (character, _) = load_from(
+            &[shipped_characters()],
+            Some(OsStr::new(&specs[0].character)),
+        )
+        .expect("Rubber Duck is shipped");
+        assert_eq!(character.name, "Rubber Duck");
+    }
 
-        assert_eq!(matches, ["Rubber Duck"]);
+    fn shipped_characters() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../characters")
+    }
+
+    /// A stale settings.character or a mistyped FIDGET_CHARACTER both reach
+    /// here as the wanted name. Either should still start a fidget.
+    #[test]
+    fn a_character_that_is_not_installed_falls_back_to_buddy_bot() {
+        let shipped = shipped_characters();
+        let chosen = choose_character(
+            std::slice::from_ref(&shipped),
+            Some(OsStr::new("uninstalled-test-character")),
+        )
+        .expect("Buddy Bot is shipped");
+        assert_eq!(chosen.character.name, "Buddy Bot");
+        assert_eq!(
+            chosen.fell_back_from.as_deref(),
+            Some(
+                format!(
+                    "no Character Package named uninstalled-test-character loaded. Fidget looked in: {}",
+                    shipped.display()
+                )
+                .as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn a_character_whose_package_does_not_load_falls_back_to_buddy_bot() {
+        let user = tempfile::tempdir().expect("temp dir");
+        let broken = user.path().join("broken-test-character");
+        std::fs::create_dir(&broken).expect("package dir");
+        std::fs::write(broken.join("character.manifest"), "not a manifest").expect("manifest");
+
+        let chosen = choose_character(
+            &[user.path().to_path_buf(), shipped_characters()],
+            Some(OsStr::new("broken-test-character")),
+        )
+        .expect("Buddy Bot is shipped");
+        assert_eq!(chosen.character.name, "Buddy Bot");
+        assert_eq!(
+            chosen.fell_back_from,
+            Some(format!(
+                "no Character Package named broken-test-character loaded. Fidget looked in: {}, {}",
+                user.path().display(),
+                shipped_characters().display()
+            ))
+        );
+    }
+
+    #[test]
+    fn an_installed_character_is_the_one_that_starts() {
+        let chosen = choose_character(&[shipped_characters()], Some(OsStr::new("bmo")))
+            .expect("bmo is shipped");
+        assert_eq!(chosen.character.name, "BMO");
+        assert_eq!(chosen.fell_back_from, None);
+    }
+
+    #[test]
+    fn without_buddy_bot_a_missing_character_is_still_an_error() {
+        let empty = tempfile::tempdir().expect("temp dir");
+        let error = choose_character(
+            &[empty.path().to_path_buf()],
+            Some(OsStr::new("rubber-duck")),
+        )
+        .err()
+        .expect("nothing to start");
+        assert_eq!(
+            error,
+            format!(
+                "no Character Package named rubber-duck loaded. Fidget looked in: {}",
+                empty.path().display()
+            )
+        );
     }
 
     /// A rebound hide hotkey must register the letter the user named, not B.

@@ -1,7 +1,6 @@
-// A sign-in link a Harness hands over as a URL elicitation: Chat draws the
-// link whole, and Open opens it before it tells the Harness yes. A link the
-// Harness says is complete goes dead with nothing sent. Drives src/chat.html
-// the way chat-landing-format.test.js does.
+// A sign-in link handed over as a URL elicitation is drawn whole, and Open
+// opens it before telling the Harness yes. A link the Harness says is
+// complete goes dead with nothing sent.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

@@ -82,7 +82,7 @@ pub struct CharacterArt { art: BTreeMap<String, Vec<String>>, smooth: bool }
 #[cfg_attr(test, derive(TS), ts(export))]
 pub struct ArtUrls { characters: BTreeMap<String, CharacterArt> }
 
-/// The #706 shape: an internally tagged enum, as form.rs declares FormRow.
+/// An internally tagged enum, as form.rs declares FormRow.
 #[derive(serde::Serialize)]
 #[serde(tag = "type")]
 #[cfg_attr(test, derive(TS), ts(export))]
