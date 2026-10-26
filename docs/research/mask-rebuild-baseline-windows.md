@@ -2,6 +2,8 @@
 
 Benchmark for issue [#428](https://github.com/omesser/fidget/issues/428): per-pixel cost of rebuilding the Windows DWM click-through region when the sprite animation frame changes.
 
+The older numbers below (14.5–22 ms for BMO) came from a debug build at `a38ba3b`. A release build at `759205a6` rebuilds BMO's region in about 2.4 ms; see [Release build (2026-10-26)](#release-build-2026-10-26).
+
 ## Environment
 
 ### Oded's DESKTOP-UQIE144 workstation
@@ -45,6 +47,27 @@ The overlay only updates the input region while the cursor is over the sprite (o
 1. **MCP `play_behavior` not used** — Settings Bearer token (BYO) not obtained; walk triggered via StaticDirector spontaneous behavior.
 2. **Walk numbers are walk-attributed subset only** — Opaque 6231–6298 matches X11 walk frames; full 15s session included climb/react rebuilds while cursor tracked sprite, but the walk scenario isolates walk-attributed rebuilds only.
 3. **Fast rate ≠ continuous 10 fps** — React animation is loop=once; per-rebuild ~22 ms is the useful metric, not sustained rate.
+
+## Release build (2026-10-26)
+
+- **Build:** release `fidget.exe` and `fidget.pdb` at `759205a6`, the #1876 tip.
+- **Host:** DESKTOP-UQIE144, elevated PowerShell, WPR recording.
+- **Scenario:** `scripts/bench-mask-rebuild-windows-flame.ps1` with its defaults (`-Target 100`, BMO). The script holds the pointer on the sprite centre, which passes the cursor-over gate, until 100 region rebuilds land. It read the sprite size from the overlay line: a half-size of 63×64, so BMO at 126×128.
+- **What the time covers:** the `region rebuild` trace in `apply_input_mask()`, from `region_plan` through the `CreateRectRgn`/`CombineRgn` loop to `SetWindowRgn` returning.
+- **Evidence:** `summary.txt` from the run, below, also posted on [#1876](https://github.com/omesser/fidget/pull/1876#issuecomment-6420071657). The 290 MB `trace.etl`, `fidget.pdb` and `rebuilds.log` stay on the workstation under `E:\workspace\fidget-428-flame\20261026-173216\`.
+
+```
+rebuilds: 100 in 2s (target 100)
+rebuild ms: min 1.47 median 2.42 max 4.75
+rects: min 260 median 304 max 322
+wpr -stop exit: 0
+```
+
+- **Rebuild time:** median 2.42 ms, range 1.47–4.75 ms over 100 rebuilds. The X11 release build at `2355abcb` has a pooled median of 0.148 ms per full BMO rebuild (see [`mask-rebuild-baseline-x11.md`](./mask-rebuild-baseline-x11.md#release-build-2026-10-26)), so Windows is about 16 times slower per rebuild. The two hosts and builds differ, so treat that ratio as rough.
+- **Rects:** 260–322 rectangles per region, median 304. These are swept art rects plus hotspots, not opaque cells, so they are far fewer than BMO's 6219–7888 opaque cells.
+- **Rate:** rebuilds came about every 20 ms (about 50 per second) with the pointer held on the sprite, so the target was reached in 2 s.
+- **Trace length:** 100 rebuilds is a short trace. `-Target 1000` would give WPA ten times the samples.
+- **Flamegraph:** not exported yet. The trace has the stacks, but nothing has turned it into an image (no `xperf` or `wpaexporter` step). To read it by hand, open `trace.etl` in WPA: CPU Usage (Sampled), process `fidget.exe`, Flame by Stack, and search for `SetWindowRgn`.
 
 ## Results
 
@@ -194,7 +217,7 @@ mask_rebuild: 111x99 @3x scale, 579 opaque pixels, 2.64 ms
 
 ## Recommendations for Follow-Up
 
-1. **`perf` or Windows Performance Analyzer flamegraph** for rebuild hotspots — not yet collected for Windows.
+1. **Windows Performance Analyzer flamegraph** for rebuild hotspots — a WPR trace is recorded (see [Release build (2026-10-26)](#release-build-2026-10-26)) but no flamegraph image is exported yet.
 2. **Sustained fast animation samples** — Current react measurements are from poke interactions (loop=once). Extended cursor-over with a hypothetical looping 10 fps animation would clarify sustained rate vs per-rebuild cost.
 3. **Isolate DWM region update cost vs iteration cost** — Instrument the region construction separately from the DWM API call to understand the cost breakdown.
-4. **Compare debug vs release builds** — Current Windows measurements used debug `fidget.exe`; release build may show different timings.
+4. **Compare debug vs release builds** — Done for the cursor-held BMO case: median 2.42 ms in release at `759205a6`, against 14.5–22 ms in debug at `a38ba3b`. The code changed between the two tips, so not all of the gap is the build profile.
