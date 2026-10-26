@@ -426,13 +426,14 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> ByoRegistration {
                 "export FIDGET_MCP_TOKEN='{token}'\n\
                  codex mcp add fidget --url '{url}' --bearer-token-env-var FIDGET_MCP_TOKEN"
             ),
-            steps: "Run both lines in a terminal where Codex will inherit the environment, then \
-             run `mcpServer/refresh` from your Codex session to pick up the change. If \
-             `mcpServer/refresh` is unavailable, exit your Codex session and open a new \
-             one. Alternatively, add or update `[mcp_servers.fidget]` in \
-             `~/.codex/config.toml` with `url = \"{url}\"` and `http_headers = {{ \
-             \"Authorization\" = \"Bearer {token}\" }}`."
-                .to_string(),
+            steps: format!(
+                "Run both lines in a terminal where Codex will inherit the environment, then \
+                 run `mcpServer/refresh` from your Codex session to pick up the change. If \
+                 `mcpServer/refresh` is unavailable, exit your Codex session and open a new \
+                 one. Alternatively, add or update `[mcp_servers.fidget]` in \
+                 `~/.codex/config.toml` with `url = \"{url}\"` and `http_headers = {{ \
+                 \"Authorization\" = \"Bearer {token}\" }}`."
+            ),
             paste_token: None,
         },
         // Remove first: `copilot mcp add` refuses a name it holds, and the URL
@@ -524,14 +525,15 @@ fn byo_registration(harness: &str, url: &str, token: &str) -> ByoRegistration {
             snippet: format!(
                 "opencode mcp add fidget --url '{url}' --header \"Authorization=Bearer {token}\""
             ),
-            steps: "Run it in a terminal, then restart your OpenCode session. OpenCode does not \
-             re-read MCP mid-session. If OpenCode tries OAuth, set `\"oauth\": false` in \
-             the config. Alternatively, merge this flat `mcp.fidget` content into \
-             `opencode.jsonc` (not nested `mcp.servers`): `{{ \"mcp\": {{ \"fidget\": \
-             {{ \"type\": \"remote\", \"url\": \"{url}\", \"oauth\": false, \"headers\": \
-             {{ \"Authorization\": \"Bearer {token}\" }} }} }} }}`. `opencode mcp list` \
-             reports."
-                .to_string(),
+            steps: format!(
+                "Run it in a terminal, then restart your OpenCode session. OpenCode does not \
+                 re-read MCP mid-session. If OpenCode tries OAuth, set `\"oauth\": false` in \
+                 the config. Alternatively, merge this flat `mcp.fidget` content into \
+                 `opencode.jsonc` (not nested `mcp.servers`): `{{ \"mcp\": {{ \"fidget\": \
+                 {{ \"type\": \"remote\", \"url\": \"{url}\", \"oauth\": false, \"headers\": \
+                 {{ \"Authorization\": \"Bearer {token}\" }} }} }} }}`. `opencode mcp list` \
+                 reports."
+            ),
             paste_token: None,
         },
         _ => ByoRegistration {
@@ -5852,6 +5854,28 @@ mod tests {
         assert!(
             !cursor_snippet.contains("lifecycle"),
             "cursor-agent fragment must not include lifecycle key, got {cursor_snippet:?}"
+        );
+    }
+
+    /// The Alternatively lines are what a user pastes into a config file.
+    #[test]
+    fn codex_and_opencode_steps_fill_the_url_and_the_token() {
+        let codex = byo_registration("codex", "http://127.0.0.1:5051/mcp", "beef").steps;
+        assert!(
+            codex.contains("url = \"http://127.0.0.1:5051/mcp\""),
+            "{codex:?}"
+        );
+        assert!(
+            codex.contains("http_headers = { \"Authorization\" = \"Bearer beef\" }"),
+            "{codex:?}"
+        );
+
+        let opencode = byo_registration("opencode", "http://127.0.0.1:5051/mcp", "beef").steps;
+        assert!(
+            opencode.contains(
+                "{ \"mcp\": { \"fidget\": { \"type\": \"remote\", \"url\": \"http://127.0.0.1:5051/mcp\", \"oauth\": false, \"headers\": { \"Authorization\": \"Bearer beef\" } } } }"
+            ),
+            "{opencode:?}"
         );
     }
 }

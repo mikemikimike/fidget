@@ -792,26 +792,36 @@ fn art_urls(character: &Character) -> BTreeMap<String, Vec<String>> {
 
 /// What the webview needs of one Character: the art as `data:` URLs, and
 /// whether to smooth it when scaling (the Character Manifest's `render_mode`).
-#[derive(Clone, serde::Serialize)]
+#[derive(serde::Serialize)]
 struct CharacterArt {
     art: BTreeMap<String, Vec<String>>,
     smooth: bool,
 }
 
 /// Every Character on screen, keyed by Character rather than Instance so two
-/// Instances of one Character share one encoded sheet. A struct rather than
-/// a bare map so managed state, keyed by type, cannot collide.
-#[derive(Clone, serde::Serialize)]
+/// Instances of one Character share one encoded sheet.
+#[derive(serde::Serialize)]
 struct ArtUrls {
     characters: BTreeMap<String, CharacterArt>,
 }
 
+/// Cached `ArtUrls` JSON. A newtype so managed state cannot collide with another String.
+struct ArtJson(String);
+
+fn encode_art_json(art: &ArtUrls) -> ArtJson {
+    ArtJson(serde_json::to_string(art).expect("ArtUrls always serializes"))
+}
+
+fn character_response(json: &ArtJson) -> tauri::ipc::Response {
+    tauri::ipc::Response::new(json.0.clone())
+}
+
 /// The art of every Character on screen, fetched once when the webview
-/// loads. A command rather than an event: setup would race the listener, and
-/// the art does not change while the app runs.
+/// loads. A command rather than an event: setup would race the overlay's
+/// listener. Encoded once; the art does not change while the app runs.
 #[tauri::command]
-fn character(art: tauri::State<'_, ArtUrls>) -> ArtUrls {
-    art.inner().clone()
+fn character(json: tauri::State<'_, ArtJson>) -> tauri::ipc::Response {
+    character_response(json.inner())
 }
 
 /// The Settings window's handle on the running app. `SettingsSession::apply`
@@ -2555,7 +2565,11 @@ fn build_chat(
     if let Some((x, y)) = at {
         builder = builder.position(x, y);
     }
+    let started = Instant::now();
     let window = builder.build()?;
+    if dev_flags::TRACE_BUBBLE.is_on() {
+        eprintln!("chat: {label} built in {}ms", started.elapsed().as_millis());
+    }
     glass::wear(&window, &chat_ui_now(app));
     let (handle, label) = (app.clone(), label.to_string());
     let observer = platform::observe_minimize(&window, {
@@ -5118,7 +5132,7 @@ fn main() {
                         smooth: character.smooth,
                     });
             }
-            app.manage(ArtUrls { characters });
+            app.manage(encode_art_json(&ArtUrls { characters }));
             let installed: Vec<String> = character_cache.keys().cloned().collect();
 
             // Show in the Dock so users have a findable anchor when the menu
@@ -6474,6 +6488,59 @@ mod tests {
 
     fn url(bytes: &[u8]) -> String {
         format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+    }
+
+    fn bundled_character_art() -> BTreeMap<String, CharacterArt> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../characters");
+        let mut art = BTreeMap::new();
+        for path in package::installed(&[root]) {
+            let files = package::read(&path).expect("a bundled package reads");
+            let character = fidget_core::character::load(&files).expect("a bundled package loads");
+            art.insert(
+                character.name.clone(),
+                CharacterArt {
+                    art: art_urls(&character),
+                    smooth: character.smooth,
+                },
+            );
+        }
+        assert!(!art.is_empty(), "the repo ships Character Packages");
+        art
+    }
+
+    fn character_json_body(response: tauri::ipc::Response) -> String {
+        match tauri::ipc::IpcResponse::body(response).expect("character returns a body") {
+            tauri::ipc::InvokeResponseBody::Json(json) => json,
+            tauri::ipc::InvokeResponseBody::Raw(_) => {
+                panic!("character must return JSON")
+            }
+        }
+    }
+
+    /// `character` copies this string onto the wire. Encoding it on each invoke
+    /// is 90–118 ms on the main thread in a debug build (as of 2026-10).
+    #[test]
+    fn characters_response_matches_the_json_of_the_bundled_art() {
+        let characters = bundled_character_art();
+        assert!(
+            characters.contains_key("BMO") && characters.contains_key("Buddy Bot"),
+            "the repo ships BMO and Buddy Bot"
+        );
+        let mut named = serde_json::Map::new();
+        for (name, sheet) in &characters {
+            named.insert(
+                name.clone(),
+                serde_json::json!({
+                    "art": sheet.art,
+                    "smooth": sheet.smooth,
+                }),
+            );
+        }
+        let expected = serde_json::json!({ "characters": named });
+        let response = character_response(&encode_art_json(&ArtUrls { characters }));
+        let body: serde_json::Value =
+            serde_json::from_str(&character_json_body(response)).expect("character returns JSON");
+        assert_eq!(body, expected);
     }
 
     /// The invariant `art_urls` exists to hold: the webview indexes this list

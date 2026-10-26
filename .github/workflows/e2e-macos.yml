@@ -74,6 +74,9 @@ jobs:
       - name: Run the scenarios
         env:
           SCENARIOS: ${{ inputs.scenarios }}
+          # Page-load, Chat-open, and `chat: built` lines, so a missed AX dump
+          # names what held the main thread.
+          FIDGET_TRACE_BUBBLE: "1"
         run: |
           # The leaves write evidence under $TMPDIR; keep it in one folder.
           export TMPDIR="$RUNNER_TEMP/evidence"
