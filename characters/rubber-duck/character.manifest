@@ -1,5 +1,7 @@
 # Imported with --walk-row 1 --map sleep=5:3,4: this sheet's row 1
 # faces right, and row 5 has closed-eye poses instead of a synthetic blink.
+# Feet are aligned after import using solid pixels: the resampling halo
+# otherwise leaves a visible gap above the canvas floor.
 
 name = "Rubber Duck"
 render_mode = "smooth"

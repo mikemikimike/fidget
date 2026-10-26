@@ -343,6 +343,23 @@ fn timber_wolf_stands_on_the_canvas_floor() {
     }
 }
 
+#[test]
+fn rubber_duck_stands_on_the_canvas_floor() {
+    for (animation, frame, bytes) in frames_of("rubber-duck") {
+        let (width, height, alpha) = frame_alpha(&bytes);
+        let foot_pixels = alpha[(height - 1) * width..]
+            .iter()
+            .filter(|&&a| a >= character::ALPHA_THRESHOLD)
+            .count();
+
+        assert!(
+            foot_pixels >= FOOT_PIXELS,
+            "{animation} frame {frame} needs solid feet on the bottom row; \
+             found {foot_pixels} pixels, so the sprite hovers"
+        );
+    }
+}
+
 /// #161: one canvas for the package, silhouette heavy beside Jotaro's 110px
 /// without dwarfing the desktop.
 #[test]
