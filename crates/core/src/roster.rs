@@ -93,7 +93,7 @@ pub struct Instance {
     character_name: String,
     /// This Instance's own layer of the Character Prompt, empty until the user
     /// writes one. Here rather than beside the Character, because it is what
-    /// makes two Instances of one Character differ in voice (ADR-0012).
+    /// makes two Instances of one Character differ in voice.
     prompt: String,
     engine: Engine,
     pending: Option<BehaviorProposal>,
@@ -249,7 +249,7 @@ impl Roster {
             .with_behaviors(character.behaviors.clone())
             // How much room a Perch near the top of a display has to leave,
             // which is this Character's own height rather than a guess at the
-            // tallest one anybody ships. #395.
+            // tallest one anybody ships.
             .with_sprite_height(character.sprite_height())
             .with_cursor_reactions(character.near_reaction, character.rush_reaction)
             // The id is this Instance's one random number, so two characters of
@@ -892,7 +892,7 @@ mod tests {
     }
 
     /// The text hangs off the Instance's id. Minting a fresh uuid every launch
-    /// would key it to an id that never comes back (ADR-0012).
+    /// would key it to an id that never comes back.
     #[test]
     fn a_restored_instance_keeps_its_id_and_the_prompt_written_against_it() {
         let character = test_character("bmo");
@@ -927,7 +927,7 @@ mod tests {
         );
     }
 
-    /// The text follows the Instance, not the Character (ADR-0012).
+    /// The text follows the Instance, not the Character.
     /// Production change that would fail this: clearing the prompt in
     /// `Roster::retarget` beside the Behaviors and the name.
     #[test]
@@ -1022,7 +1022,7 @@ mod tests {
 
     /// The user's layer has the bound the author's already has, counted in
     /// characters rather than bytes: an accented paragraph is not twice the
-    /// prose of a plain one (ADR-0012).
+    /// prose of a plain one.
     #[test]
     fn an_instance_prompt_at_the_limit_is_taken_and_one_over_it_is_refused() {
         let at_limit = "é".repeat(INSTANCE_PROMPT_LIMIT);

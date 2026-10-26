@@ -1447,7 +1447,7 @@ mod tests {
     }
 
     // From the pill opening, a close or hand-back line before the typed text
-    // fails, even one before the typing (live run 4, #1577). An unfocused line
+    // fails, even one before the typing. An unfocused line
     // alone decides nothing.
     #[cfg(windows)]
     #[test]

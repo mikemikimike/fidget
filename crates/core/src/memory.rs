@@ -50,7 +50,7 @@ pub fn data_dir_override() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// User home, distinct from `data_dir`. Empty attach cwd is `data_dir` (#782);
+/// User home, distinct from `data_dir`. Empty attach cwd is `data_dir`;
 /// naming home explicitly is a different project.
 pub fn home_dir() -> Option<PathBuf> {
     dirs::home_dir()

@@ -43,7 +43,7 @@ pub trait ExpressionHandle {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WindowInfo {
     /// Absent without the window-names consent, which covers owner and title
-    /// alike (ADR-0032).
+    /// alike.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -210,7 +210,6 @@ pub fn whereabouts(
     }
 }
 
-/// Private helper functions for dispatch implementation.
 mod helpers {
     use crate::engine::BehaviorProposal;
     use crate::tools::{DenyList, ExpressionHandle, InstanceInfo};
@@ -229,7 +228,7 @@ mod helpers {
             // Without the names consent there is no owner to match on, so an
             // exclusion cannot apply and the window stays in as a rectangle.
             // What the list exists to hide is the name, and the consent has
-            // already withheld it (ADR-0032).
+            // already withheld it.
             .filter(|w| {
                 w.owner
                     .as_deref()
@@ -308,14 +307,11 @@ mod helpers {
                     TargetResolution::UnknownInstance(id.to_string())
                 }
             }
-            None => {
-                // No instance_id provided
-                match roster.len() {
-                    0 => TargetResolution::NoInstances,
-                    1 => TargetResolution::Resolved(roster[0].id.clone()),
-                    _ => TargetResolution::AmbiguousTarget,
-                }
-            }
+            None => match roster.len() {
+                0 => TargetResolution::NoInstances,
+                1 => TargetResolution::Resolved(roster[0].id.clone()),
+                _ => TargetResolution::AmbiguousTarget,
+            },
         }
     }
 }
@@ -434,8 +430,6 @@ pub(crate) fn describe_screen(
 mod tests {
     use super::*;
 
-    // Memory tools
-
     #[test]
     fn recall_returns_empty_string_when_memory_is_empty() {
         let dir = tempfile::tempdir().expect("temp dir is creatable");
@@ -445,8 +439,6 @@ mod tests {
 
         assert_eq!(result.content, "");
     }
-
-    // Sensing tools
 
     #[test]
     fn denylist_match_is_case_insensitive() {
@@ -546,7 +538,7 @@ mod tests {
     }
 
     /// Without the window-names consent the platform walk leaves both names
-    /// behind (ADR-0032), and the tools report the geometry that is still
+    /// behind, and the tools report the geometry that is still
     /// free. `owner` is omitted from the JSON rather than sent empty, so a
     /// Harness reads an absent name as absent.
     #[test]

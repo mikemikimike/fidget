@@ -243,7 +243,7 @@ mod tests {
         }
     }
 
-    /// #1568: a bubble measured with its sprite at (100, 200) while the drag
+    /// A bubble measured with its sprite at (100, 200) while the drag
     /// has since carried the sprite to (130, 190) is drawn 30px right and 10px
     /// up. The region must hold it there and where it was measured, or Windows
     /// clips the bubble's leading edge.
@@ -434,7 +434,7 @@ mod tests {
             .any(|&[left, top, right, bottom]| x >= left && x < right && y >= top && y < bottom)
     }
 
-    /// #1699: the shape hides whatever it leaves out, so it holds every
+    /// The shape hides whatever it leaves out, so it holds every
     /// Character on the overlay, not only the first.
     #[test]
     fn every_character_on_the_overlay_is_drawn() {
@@ -553,7 +553,7 @@ mod tests {
         }
     }
 
-    /// #1699: with no compositor the overlay shows what is drawn and nothing
+    /// With no compositor the overlay shows what is drawn and nothing
     /// else, and an overlay drawing nothing shows nothing rather than black.
     #[test]
     fn without_a_compositor_the_shape_follows_what_is_drawn() {
