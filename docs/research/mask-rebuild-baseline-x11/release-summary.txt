@@ -1,0 +1,39 @@
+# Release-build mask rebuild timings and CPU profile (#428), 2026-10-26
+# fidget release at 2355abcb (CARGO_PROFILE_RELEASE_DEBUG=line-tables-only)
+# Box: Debian 13, kernel 6.12, 8 cores, Xvfb :1 1920x1200x24 (software rendering)
+# Pointer held on the sprite centre (moved to it on every frame line), so the
+# cursor-over gate lets updates through. Mostly the hovered `talk` anim.
+# Times are the app's own mask_rebuild trace: apply_input_mask start to flush,
+# client side. The X server's handling is asynchronous and not included.
+
+## Timing series: 5 alternating rounds x 4 characters, 100 updates per run, no perf
+character              opaque    full/run  full median per run (ms)          full pooled (ms)                 position-only pooled
+BMO 126x128@1x         6219-7888  67-70    0.154 0.149 0.148 0.146 0.143     median 0.148 p95 0.529 max 5.426  n=161 median 0.013 p95 0.022
+Black Mage 37x33@3x    567-630    67-71    0.038-0.041                       median 0.040 p95 0.062 max 6.355  n=161 median 0.011
+Nim 32x32@4x (shipped) 278-350    69-76    0.034 0.034 0.035 0.035 0.035     median 0.035 p95 0.054 max 5.015  n=141 median 0.011
+Nim 32x32@1x (override) 278-350   92-95    0.033 0.034 0.035 0.033 0.036     median 0.034 p95 0.046 max 5.716  n=33  median 0.011
+# Nim@1x: a temp copy of characters/Nim with `scale = 1`, passed with
+# --characters; not committed. Rebuild rate was about 4/s in every run.
+# Re-check run with the committed script (--no-perf, Nim@1x): 65 full, median
+# 0.036 ms; 9 position-only, median 0.012 ms.
+
+## CPU profile: scripts/flame-mask-rebuild-x11.sh (BMO, 200 updates in 69 s)
+# perf record -e cpu-clock:u -F 4999 --call-graph dwarf,16384 -p <fidget>,<Xvfb>
+# Under perf the trace mean was 0.248 ms (range 0.117-2.738), all 200 full.
+on-CPU total 7659.7 ms: Xvfb 5405.9, fidget main process 2054.8 (+ small threads)
+
+at or below update_input_region (apply_input_mask is inlined into it): 25.8 ms
+  = 1.26% of fidget's 2054.8 ms, about 0.13 ms per update
+   8.2 ms x11rb poly_fill_rectangle (7.8 ms of it serializing the Rectangle list)
+   6.8 ms overlay::mask_rects (5.2 ms realloc / RawVec finish_grow: Vec::new grows)
+   4.0 ms tauri window_handle (round trip to the event loop for the X window id)
+   1.4 ms x11rb shape::mask (the XShapeCombineMask request)
+   1.0 ms std::io::_eprint (the trace line itself)
+   0.6 ms shape::rectangles (hotspot union)
+   0.4 ms create_gc
+
+Xvfb, 5405.9 ms: 4874.8 ms in libpixman (fbComposite 4051.8, fbCopyArea 594.5,
+fbPolyFillRect 259.9), i.e. painting the webview into the software framebuffer.
+Shape-named server frames: miSetShape 3.2 ms, SendShapeNotify 2.4 ms. The
+packaged Xvfb is partly stripped, so request handlers such as ProcShapeMask
+show as [Xvfb].
