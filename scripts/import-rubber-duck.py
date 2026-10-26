@@ -88,13 +88,6 @@ def main():
     with tempfile.TemporaryDirectory(prefix="fidget-duck-import-") as scratch:
         output = Path(scratch)
         importer.emit(pet, output, validate=False, stand=STAND_HEIGHT)
-        for path in (output / "frames").glob("*.png"):
-            image = Image.open(path).convert("RGBA")
-            bottom = importer.solid_mask(image).getbbox()[3]
-            grounded = Image.new("RGBA", image.size)
-            grounded.paste(image, (0, image.height - bottom))
-            grounded.save(path)
-
         destination.mkdir(parents=True, exist_ok=True)
         for old in destination.glob("*.png"):
             old.unlink()

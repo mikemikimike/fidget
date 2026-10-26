@@ -1,5 +1,5 @@
-# Source rows are counted from one. scripts/import-rubber-duck.py cuts
-# all eleven rows and grounds solid feet on the canvas floor.
+# Source rows start at one. import-rubber-duck.py selects all eleven rows;
+# shared import-pet.py scales, registers, and aligns the solid foot baseline.
 # Standing height is 105px, reduced 12.5% from the default import.
 
 name = "Rubber Duck"

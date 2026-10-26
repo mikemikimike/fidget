@@ -824,6 +824,13 @@ def emit(pet, out, validate=True, stand=None):
     from PIL import Image
 
     animations = pet["animations"]
+    fixed_floor = {}
+    for animation, spec in animations.items():
+        bounds = [
+            solid_mask(frame).getbbox() or frame.getchannel("A").getbbox()
+            for frame in spec["frames"]
+        ]
+        fixed_floor[animation] = all(bounds) and len({box[3] for box in bounds}) == 1
     for spec in animations.values():
         spec["frames"] = [defringe(frame) for frame in spec["frames"]]
     unions = {}
@@ -864,31 +871,31 @@ def emit(pet, out, validate=True, stand=None):
                 ]
         unions = {a: union_bbox(spec["frames"]) for a, spec in animations.items()}
 
-    # One canvas per Character: frames register to their animation's first frame,
-    # then the animation's shared baseline sits on the canvas bottom. Per-frame
-    # planting jerks tucked feet, so only an outlier past FLOAT_TOLERANCE grounds.
+    # Solid feet set the floor; an antialiasing halo must not make them hover.
+    # Preserve a source row's planted baseline, or its registered vertical motion.
     FLOAT_TOLERANCE = 6
     metrics = {}
     for animation, spec in animations.items():
         boxes = [frame.getchannel("A").getbbox() for frame in spec["frames"]]
         if None in boxes:
             sys.exit(f"{animation}: frame {boxes.index(None)} is fully transparent")
+        feet = [solid_mask(frame).getbbox() or box for frame, box in zip(spec["frames"], boxes)]
         offsets = (
             [(0, 0)] * len(boxes)
             if spec.get("registered")
             else registration_offsets(spec["frames"])
         )
-        ground = max(box[3] + dy for box, (_, dy) in zip(boxes, offsets))
+        ground = max(box[3] + dy for box, (_, dy) in zip(feet, offsets))
         lifts = []
-        for box, (_, dy) in zip(boxes, offsets):
+        for box, (_, dy) in zip(feet, offsets):
             lift = ground - (box[3] + dy)
-            lifts.append(lift if lift <= FLOAT_TOLERANCE else 0)
+            lifts.append(lift if not fixed_floor[animation] and lift <= FLOAT_TOLERANCE else 0)
         left = min(box[0] + dx for box, (dx, _) in zip(boxes, offsets))
         right = max(box[2] + dx for box, (dx, _) in zip(boxes, offsets))
         height = max(
-            box[3] - box[1] + lift for box, lift in zip(boxes, lifts)
+            foot[3] - box[1] + lift for box, foot, lift in zip(boxes, feet, lifts)
         )
-        metrics[animation] = (boxes, offsets, lifts, right - left, left, height)
+        metrics[animation] = (feet, offsets, lifts, right - left, left, height)
 
     canvas = (
         max(width for *_, width, _, _ in metrics.values()),
@@ -1086,6 +1093,41 @@ def self_test():
             frog.putpixel(edge, (25, 140, 30, 128))
     kept = defringe(frog)
     assert kept.getpixel((10, 7)) == (25, 140, 30, 128)
+
+    # A faint halo is not floor contact. A moving body over planted feet
+    # must keep that motion rather than being registered onto the first body.
+    from PIL import ImageDraw
+    planted = Image.new("RGBA", (24, 24))
+    draw = ImageDraw.Draw(planted)
+    draw.rectangle((7, 5, 16, 17), fill=(150, 80, 30, 255))
+    draw.rectangle((7, 18, 10, 20), fill=(150, 80, 30, 255))
+    draw.rectangle((13, 18, 16, 20), fill=(150, 80, 30, 255))
+    draw.rectangle((7, 21, 16, 23), fill=(150, 80, 30, 8))
+    bobbed = planted.copy()
+    ImageDraw.Draw(bobbed).rectangle((7, 4, 16, 4), fill=(150, 80, 30, 255))
+    sample = {
+        "name": "Grounding sample", "license": "CC0", "notes": [],
+        "source": {"art": "synthetic grounding fixture", "url": None},
+        "animations": {"idle": {
+            "frames": [planted, bobbed], "fps": 2, "loop": "forever", "variant_of": None,
+        }},
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        emit(sample, pathlib.Path(tmp), validate=False)
+        grounded = [Image.open(path) for path in sorted(pathlib.Path(tmp).glob("frames/*.png"))]
+        bounds = [solid_mask(frame).getbbox() for frame in grounded]
+        assert all(box[3] == frame.height for box, frame in zip(bounds, grounded)), bounds
+        assert bounds[0][1] - bounds[1][1] == 1, "planted-foot body motion is preserved"
+        rising = Image.new("RGBA", planted.size)
+        rising.paste(planted, (0, -2))
+        sample["animations"]["idle"].update(frames=[planted, rising], registered=True)
+        lifted_out = pathlib.Path(tmp) / "lifted"
+        emit(sample, lifted_out, validate=False)
+        lifted_bounds = [
+            solid_mask(Image.open(path)).getbbox()
+            for path in sorted(lifted_out.glob("frames/*.png"))
+        ]
+        assert lifted_bounds[0][3] - lifted_bounds[1][3] == 2, "authored vertical motion survives"
 
     # A synthetic v1 sheet, 8x8 cells: each declared frame is a 2x2 dot,
     # deliberately jittered per frame the way generated sheets are, so the

@@ -310,56 +310,72 @@ fn dark_eyes_left_of_silhouette_mid(width: usize, height: usize, rgba: &[[u8; 4]
     (sx / n, sil_mid)
 }
 
-/// Every grounded pose has a foot on the canvas bottom row. The airborne
-/// Animations are `fall` and the optional `grab`, which draws the sprite
-/// hanging from the cursor.
+// Clearance belongs to the art: Buddy Bot hovers, while Duck has planted feet.
+// Fall/grab strips can reserve space below curled feet independently of standing.
 #[test]
-fn timber_wolf_stands_on_the_canvas_floor() {
-    for (animation, frame, bytes) in frames_of("timber-wolf") {
-        let (width, height, alpha) = frame_alpha(&bytes);
-        let (_, bottom, bottom_pixels) = silhouette(width, height, &alpha);
-        let gap = height - 1 - bottom;
-
-        if matches!(animation.as_str(), "fall" | "grab") {
-            assert!(
-                (1..=20).contains(&gap),
-                "{frame} is a {animation} frame, so it hangs clear of the floor \
-                 by 1-20px, not {gap}px"
-            );
-            continue;
+fn shipped_frames_keep_their_authored_floor_clearance() {
+    let profiles = BTreeMap::from([
+        ("black-mage", (0, 0..=0)),
+        ("bmo", (1, 0..=2)),
+        ("buddy-bot", (20, 0..=25)),
+        ("cat", (9, 0..=3)),
+        ("jotaro-kujo", (2, 0..=2)),
+        ("nim", (1, 0..=1)),
+        ("rubber-duck", (0, 0..=0)),
+        ("timber-wolf", (0, 1..=20)),
+        ("trump", (8, 0..=6)),
+    ]);
+    for package in shipped_packages() {
+        let (grounded_max, airborne) = profiles
+            .get(package.as_str())
+            .unwrap_or_else(|| panic!("{package} needs an authored floor-clearance profile"));
+        for (animation, frame, bytes) in frames_of(&package) {
+            let (width, height, alpha) = frame_alpha(&bytes);
+            let bottom = alpha
+                .chunks_exact(width)
+                .rposition(|row| {
+                    row.iter()
+                        .filter(|&&a| a >= character::ALPHA_THRESHOLD)
+                        .count()
+                        >= FOOT_PIXELS
+                })
+                .unwrap_or_else(|| panic!("{package}/{frame} has no solid foot contact"));
+            let gap = height - 1 - bottom;
+            let permitted = if matches!(animation.as_str(), "fall" | "grab") {
+                airborne.clone()
+            } else {
+                0..=*grounded_max
+            };
+            assert!(permitted.contains(&gap),
+                "{package}/{frame} ({animation}) has {gap}px floor clearance; expected {permitted:?}");
         }
-
-        assert_eq!(
-            gap, 0,
-            "{animation} frame {frame} floats {gap}px above the canvas floor"
-        );
-        assert!(
-            bottom_pixels >= FOOT_PIXELS,
-            "{animation} frame {frame} touches the floor with only {bottom_pixels} pixels, \
-             which is a speck and not a leg"
-        );
     }
 }
 
 #[test]
-fn rubber_duck_stands_on_the_canvas_floor() {
-    for (animation, frame, bytes) in frames_of("rubber-duck") {
-        let (width, height, alpha) = frame_alpha(&bytes);
-        assert!(
-            (109..=115).contains(&height),
-            "{frame} must be 10–15% shorter than the original 128px canvas, got {height}px"
-        );
-        let foot_pixels = alpha[(height - 1) * width..]
-            .iter()
-            .filter(|&&a| a >= character::ALPHA_THRESHOLD)
-            .count();
-
-        assert!(
-            foot_pixels >= FOOT_PIXELS,
-            "{animation} frame {frame} needs solid feet on the bottom row; \
-             found {foot_pixels} pixels, so the sprite hovers"
-        );
-    }
+fn rubber_duck_keeps_its_smaller_standing_silhouette() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    let files = package_bytes("rubber-duck");
+    let tallest = character.animations["idle"]
+        .frames
+        .iter()
+        .map(|frame| {
+            let (width, height, alpha) = frame_alpha(&files[frame]);
+            let rows: Vec<_> = (0..height)
+                .filter(|&y| {
+                    alpha[y * width..(y + 1) * width]
+                        .iter()
+                        .any(|&a| a >= character::ALPHA_THRESHOLD)
+                })
+                .collect();
+            (rows.last().unwrap() - rows[0] + 1) * character.scale as usize
+        })
+        .max()
+        .unwrap();
+    assert!(
+        (102..=108).contains(&tallest),
+        "the standing silhouette must be 10–15% below 120px, got {tallest}px"
+    );
 }
 
 #[test]
