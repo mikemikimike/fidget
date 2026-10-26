@@ -224,9 +224,9 @@
     .cue-ring, .cue-wedge, .cue-wedge-edge, .cue-dash, .cue-puff { animation-duration: 1ms !important; animation-delay: 0ms !important; }
   }
 
-  /* Ported from src/main.css so this page stays one file. Speech keeps the
-     tail; the pill refuses it. The disc is #5cc9b5, the chat accent, not
-     this page's --accent, which is a different green in light mode. */
+  /* In this file so the page stays one file. Speech keeps the tail; the
+     pill refuses it. The disc is #5cc9b5, the chat accent, not this page's
+     --accent, which is a different green in light mode. */
   .quick-message {
     --qm-accent: #5cc9b5;
     --qm-panel: #14171e;
@@ -951,7 +951,6 @@ sprite.addEventListener("pointerup", e => {
   phase = "idle";
 });
 
-// Replay buttons, wallpaper, sound, and the sequence.
 document.querySelectorAll(".play").forEach(b => b.addEventListener("click", () => play(b.dataset.cue, desk, anchor())));
 document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
   desk.dataset.wall = b.dataset.wall;

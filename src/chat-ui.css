@@ -126,9 +126,8 @@
   --antigravity-accent: #C5221F;
 }
 
-/* A dense monospace log, ported from docs/design/chat-mockups.html.
-   The clock is a narrow left gutter, the speaker sits beside it, and
-   the words unfold under the speaker. */
+/* A dense monospace log. The clock is a narrow left gutter, the speaker
+   sits beside it, and the words unfold under the speaker. */
 .chat-ui-terminal {
   --chat-panel: #0A0D12;
   --chat-ink: #C6D0DC;
@@ -468,8 +467,8 @@
   outline-offset: -2px;
 }
 
-/* A frosted panel, ported from docs/design/chat-mockups.html. Backdrop
-   blur and thin light borders, over a transparent window. */
+/* A frosted panel. Backdrop blur and thin light borders, over a
+   transparent window. */
 .chat-ui-glass {
   --chat-panel: rgba(14,17,24,.62);
   --chat-ink: #F1F4F9;

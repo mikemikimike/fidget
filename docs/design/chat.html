@@ -115,14 +115,14 @@
   .trace b { color: var(--ink-3); font-weight: 500; }
   .trace span span { color: var(--ink); }
 
-  /* ---- the sprite. Art heads right, so leftward travel mirrors it. ---- */
+  /* Art heads right, so leftward travel mirrors it. */
   .sprite {
     position: absolute; left: 0; top: 0; width: 126px; height: 128px;
     transform-origin: center; will-change: transform;
   }
   .sprite img { display: block; width: 126px; height: 128px; }
 
-  /* ---- the bubble, ported from src/main.css so the two registers match ---- */
+  /* Matches src/main.css, so the two registers match. */
   .bubble {
     position: absolute; max-width: 260px; padding: 12px 16px;
     background: white; border: 2px solid #333; border-radius: 12px;
@@ -140,8 +140,8 @@
     border-top: 10px solid #333;
   }
 
-  /* ---- the window. The bubble's ink-on-white with a title bar on it: the
-         Windows-95 register the overlay already draws in. ---- */
+  /* The bubble's ink-on-white with a title bar on it: the Windows-95
+     register the overlay already draws in. */
   .win {
     position: absolute; left: 26px; bottom: 34px; width: 430px; height: 456px;
     display: flex; flex-direction: column; overflow: hidden;

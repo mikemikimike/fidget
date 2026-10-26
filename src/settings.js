@@ -783,7 +783,6 @@ if (typeof document !== "undefined") {
     // `window` module's name instead leaves both handlers below throwing.
     const settingsWindow = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
-    // Alt-drag to move the window, gated on modifier held and target is background.
     document.addEventListener("mousedown", (event) => {
       if (!shouldBeginDrag(event)) return;
       event.preventDefault();
