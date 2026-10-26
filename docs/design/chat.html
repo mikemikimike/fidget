@@ -1,14 +1,7 @@
 <!doctype html>
 <!--
-  The chat surface proposal for omesser/fidget#17: the window a Summon opens,
-  drawn by Fidget rather than by the Harness (ADR-0010). Nothing here is
-  wired into the app. The page exists so the shape and the copy can be argued
-  with before src/ grows a window, and so the one claim the issue tests — the
-  character is never blocked on a turn — can be watched rather than described.
-
-  Self-contained on purpose. BMO's idle, walk and talk frames are inlined so
-  the page opens from a clone, a Pages deploy, or an attachment with no other
-  file beside it. The Harness is a fake one: a script and a timer.
+  The window a Summon opens, drawn by Fidget rather than by the Harness. Nothing here is wired
+  into the app. Dated, so the shape and the copy can be argued before they ship.
 -->
 <html lang="en">
 <head>
@@ -95,7 +88,6 @@
   .note-list { color: var(--ink-2); max-width: 64ch; margin: 0 0 12px; padding-left: 1.2em; }
   .note-list li { margin-bottom: 4px; }
 
-  /* ---- the desktop, and the two lanes running on it ---- */
   .stage-wrap { display: grid; gap: 12px; margin: 20px 0 8px; }
   .stage-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .state {
@@ -123,14 +115,14 @@
   .trace b { color: var(--ink-3); font-weight: 500; }
   .trace span span { color: var(--ink); }
 
-  /* ---- the sprite. Art heads right, so leftward travel mirrors it. ---- */
+  /* Art heads right, so leftward travel mirrors it. */
   .sprite {
     position: absolute; left: 0; top: 0; width: 126px; height: 128px;
     transform-origin: center; will-change: transform;
   }
   .sprite img { display: block; width: 126px; height: 128px; }
 
-  /* ---- the bubble, ported from src/main.css so the two registers match ---- */
+  /* Matches src/main.css, so the two registers match. */
   .bubble {
     position: absolute; max-width: 260px; padding: 12px 16px;
     background: white; border: 2px solid #333; border-radius: 12px;
@@ -148,8 +140,8 @@
     border-top: 10px solid #333;
   }
 
-  /* ---- the window. The bubble's ink-on-white with a title bar on it: the
-         Windows-95 register the overlay already draws in. ---- */
+  /* The bubble's ink-on-white with a title bar on it: the Windows-95
+     register the overlay already draws in. */
   .win {
     position: absolute; left: 26px; bottom: 34px; width: 430px; height: 456px;
     display: flex; flex-direction: column; overflow: hidden;
@@ -185,7 +177,7 @@
   }
   .who-label { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: #8A90A0; font-weight: 700; }
   /* Sibling of .who-label, not inside it: that node uppercases and letter-spaces
-     its text, which would pull the digits apart. #445. */
+     its text, which would pull the digits apart.. */
   .row .who { display: flex; align-items: baseline; gap: 7px; }
   .when {
     font-size: 10.5px; font-variant-numeric: tabular-nums; font-weight: 700;
@@ -242,7 +234,6 @@
   }
   .composer button:disabled { border-color: #C4C8D2; background: #C4C8D2; color: #fff; cursor: default; }
 
-  /* ---- the table of states ---- */
   .states { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   .srow { display: grid; grid-template-columns: 190px 1fr 1fr; gap: 16px; padding: 14px 16px; background: var(--paper); }
   .srow .name { font-weight: 800; }
@@ -425,12 +416,9 @@ const ART = {
 // fps as BMO's Character Manifest declares them.
 const FPS = { idle: 1, walk: 8, talk: 3 };
 const HOLD = { idle: 1200, walk: 1700, talk: 1500 };
-// BMO's five Behaviors. The three ambient ones carry their Manifest weights:
-// fidget 2, walk 1, patrol 3. `report` and `greet` carry 0 rather than their
-// Manifest 3 and 4, because the Manifest gates both on `idle under …` — the
-// seconds after somebody interacted — and this page has no idle timer to gate
-// them with. Both play `talk`, so ambiently they would have BMO talking with
-// nobody having asked. `report` still plays when the Harness asks for it.
+// The three ambient Behaviors carry their manifest weights. `report` and `greet` carry 0
+// rather than their manifest weights, because both are gated on idle-under and this page has
+// no idle timer.
 const BEHAVIORS = [
   { name: "fidget", play: ["idle"], weight: 2 },
   { name: "walk", play: ["walk"], weight: 1 },
@@ -506,7 +494,7 @@ function tick(now) {
 }
 requestAnimationFrame(tick);
 
-// ---- Speech. The bubble is #119's: held for reading time, and a new line
+// ---- Speech. The bubble is's: held for reading time, and a new line
 // replaces the old one.
 let bubbleTimer = null;
 function placeBubble() {
@@ -532,7 +520,7 @@ function play(name) {
   left = 0; queue = [];
 }
 
-// ---- The chat surface. Four kinds of line, and nothing else (ADR-0010).
+// ---- The chat surface. Four kinds of line, and nothing else.
 const log = document.getElementById("log");
 const composer = document.getElementById("composer");
 const say = document.getElementById("say");
@@ -740,7 +728,6 @@ function emptyState() {
   log.scrollTop = 0;
 }
 
-// ---- Controls.
 document.getElementById("s-slow").addEventListener("click", () => { slowTurn().catch(() => {}); });
 document.getElementById("s-speak").addEventListener("click", () => { speakTurn().catch(() => {}); });
 document.getElementById("s-empty").addEventListener("click", emptyState);

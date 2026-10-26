@@ -1,4 +1,4 @@
-// scripts/verify-caffeinate-win.ps1 decides each #1788 check from
+// scripts/verify-caffeinate-win.ps1 decides each check from
 // `powercfg /requests` output and Fidget's stderr. Only its pure functions are
 // loaded, through the PowerShell parser, so no app launch or powercfg runs.
 
@@ -306,7 +306,7 @@ ${frame("Grounded", "400,900", "344,790", mochi)} -match (Get-FramePattern $beem
   );
 });
 
-// Review of a3d09020: the trace's `scale 1.2` at 125% put the click 4% short.
+// The trace's `scale 1.2` at 125% is 4% short of the DPI.
 test("the scale is the DPI over 96, exact at 125% and 175%", { skip }, () => {
   assert.deepEqual(
     run(`

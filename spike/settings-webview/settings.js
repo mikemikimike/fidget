@@ -1,14 +1,6 @@
-// One interpreter of the form description. Two halves, split on purpose:
-//
-// `controls(tab, view)` is pure: the tab as a flat list of {role, id, label,
-// value, frozen} — the same rows `scripts/ax-settings.swift dump` reads out of
-// AppKit today, so the assertions verify-settings-macos.sh makes against an AX
-// dump become `node --test` assertions against this list (see settings.test.js).
-//
-// `render(root, tab, view)` turns the same description into DOM. Nothing here
-// reads the description twice: a redraw is render() again, which is why the
-// #625 class of bug (frozen applied at build, never at draw) has no place to live.
-
+// `controls()` is pure, the rows an accessibility dump reads, so tests need no window.
+// `render()` is the DOM half. A redraw is render() again, so a frozen flag applied only at
+// build has nowhere to hide.
 export function controls(tab, view) {
   const out = [];
   for (const section of tab.sections) {
@@ -42,8 +34,6 @@ export function controls(tab, view) {
   return out;
 }
 
-// --- DOM -------------------------------------------------------------------
-
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -57,7 +47,7 @@ function el(tag, attrs = {}, ...children) {
 }
 
 // "What is this?" is a <details>: the browser owns open/closed, the closed
-// state reserves no space, and a reader announces it as a disclosure. #642.
+// state reserves no space, and a reader announces it as a disclosure..
 function disclosure(text) {
   return text
     ? el("details", { class: "disclosure" }, el("summary", { text: "What is this?" }), el("p", { text }))

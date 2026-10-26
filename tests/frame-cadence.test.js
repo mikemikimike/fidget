@@ -6,11 +6,9 @@ import { test } from "node:test";
 import { tempDir } from "./temp-path.js";
 import { DROP_MS, analyze, compare, report, summarizeTimestamps, unwrapProcessLog } from "../scripts/frame-cadence.mjs";
 
-// Five Engine ticks of a walk, one 40 ms late, and the display frames an overlay
-// drew across them: a quiet loop restarts on the late arrival, then misses a
-// vsync and holds the sprite at the latest placement. The sixth tick resends a
-// standing sprite 250 ms on, and a still sprite has no lag to measure. The
-// loop's own counter reports 23 ticks over the last 400 ms.
+// Five walk ticks, one 40 ms late, then the frames drawn: a quiet loop restarts
+// on that arrival, misses a vsync, and holds the latest placement. The sixth tick
+// resends a standing sprite at 250 ms. A still sprite has no lag. The counter says 23 ticks in 400 ms.
 const log = [
   "cadence: overlay-0 900.000 1 880.000 890.000",
   "frame: 1000 Grounded pos(1,2) sprite(3,4) walk#0 BMO",

@@ -137,7 +137,7 @@ test("Open chat and the pill take clicks; the bubble and its dots are only drawn
   const { reported, expected } = await drive();
   assert.ok(reported, "the overlay reported its rects");
   // Each names the sprite it rides with and where that sprite was, so the
-  // Shell can keep it in the region while a drag moves the sprite (#1568).
+  // Shell can keep it in the region while a drag moves the sprite.
   const rows = [
     ["Open chat", expected.openChat, true, { instance: "talker", at: [100, 400] }],
     ["the quick pill", expected.pill, true, { instance: "idler", at: [1000, 400] }],

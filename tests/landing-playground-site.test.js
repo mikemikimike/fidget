@@ -1,10 +1,6 @@
-// The published landing page, assembled the way the Pages job assembles
-// `_site/`, played with in headless Chrome: a throw lands with the hard puff,
-// a slow drop perches on the window, the desk stops painting while scrolled out
-// of view, reduced motion keeps the still tiles, a double-click opens the chat
-// mock, hovering or a long-press opens the quick-message pill, the wallpaper
-// switch repaints the desk, the picker swaps the sprite, and every picker
-// button shows its sprite at the same size.
+// The published landing page, assembled the way the Pages job builds `_site/`,
+// played in headless Chrome. A throw, a perch, reduced motion, and the picker
+// are paint, so a script stand-in cannot see them.
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

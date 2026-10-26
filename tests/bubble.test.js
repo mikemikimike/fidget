@@ -1,4 +1,3 @@
-// Run with `node --test tests/`.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -30,10 +29,9 @@ test("bubble duration is 900ms + 55ms per character, clamped to 2-8s", () => {
   assert.equal(bubbleDuration(long), 8000, "max clamp");
 });
 
-// One Speech duration. `bubbleDuration` clamps how long the bubble may show a
-// line; the Shell's `CARRY_WINDOW` is how long it may re-say one to a new bubble
-// owner. A longer carry resurrects a line nobody could still be reading, and a
-// shorter one drops one still on screen (#178).
+// One Speech duration. `bubbleDuration` clamps how long a bubble may show a
+// line; `CARRY_WINDOW` is how long the Shell may re-say it to a new owner.
+// Longer resurrects a line nobody is still reading. Shorter drops one still up.
 test("the Shell carries a line for exactly as long as the bubble can show one", () => {
   const dir = dirname(fileURLToPath(import.meta.url));
   const shell = readFileSync(join(dir, "../src-tauri/src/main.rs"), "utf8");
@@ -144,7 +142,7 @@ test("bubble inverts below sprite at ceiling when above would cover face", () =>
   assert.equal(pos.y, spriteRect.y + spriteRect.height + 10, "10px gap below, mirroring the normal above gap");
 });
 
-// #903: the overlay flips the tail from this flag. y is the known ceiling
+// the overlay flips the tail from this flag. y is the known ceiling
 // geometry (sprite at 50, 64 tall, bubble 100, 10px gap) — not recomputed.
 test("inverted Speech bubble reports inverted so the tail can point up", () => {
   const spriteRect = { x: 100, y: 50, width: 64, height: 64 };
@@ -216,7 +214,6 @@ test("bubble stays whole across display seam", () => {
   assert.ok(pos.x + bubbleSize.width <= displayBounds.x + displayBounds.width, "bubble not past right edge");
 });
 
-// --- The bubble machine: what shows and hides, driven by fake timers. ---
 
 function machineHarness() {
   let now = 0;
@@ -510,9 +507,8 @@ test("a quick-message turn that ends with no line clears its thinking", () => {
   assert.equal(surface(), null, "the dots end with the turn");
 });
 
-// --- #178: one overlay owns the bubble; the rest draw the art only. ---
 // The Shell nulls `dialogue`, `thinking` and `cue` on every overlay but the
-// owner's, so the placements below are what a losing overlay is really handed.
+// owner's, so the placements below are what a losing overlay is handed.
 
 test("a losing overlay is told no thinking, so it never arms the indicator", () => {
   const { machine, advance, placement, surface } = machineHarness();

@@ -1,5 +1,5 @@
-// Silence for this long replaces the phase line until the next update.
-// Tests read this, not a copied number of seconds.
+// Silence this long replaces the phase line until the next update.
+// Tests read this, not a copied number.
 export const STALL_MS = 30_000;
 
 // ACP `in_progress` is the call doing work. `pending` has not started.

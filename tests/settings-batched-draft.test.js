@@ -243,7 +243,7 @@ test("an unbatched popup saves its pick at once and stages nothing", () => {
   assert.deepEqual(staged, []);
 });
 
-// The regression in #995, as a tab switch does it: the page redraws the panel
+// As a tab switch does it: the page redraws the panel
 // from `{ ...snapshot, ...draft }`, so a batched edit survives only if it was
 // staged out of the widget and drawn back in.
 test("the Pi file row stays hidden until the staged source is Pi", () => {
@@ -272,7 +272,7 @@ test("a staged Model survives the redraw a tab switch performs", () => {
   assert.equal(again("director_base_url").value, "https://api.openai.com", "an untouched row still draws the snapshot");
 });
 
-// #1427: one setting drawn twice. Only the section the picker names is live,
+// one setting drawn twice. Only the section the picker names is live,
 // so the other row has to show what the live one holds.
 test("a Model typed under Harness stages and draws the Model / API row too", () => {
   let draft = {};
@@ -393,7 +393,7 @@ test("Apply sends every row the form marks batched, and only those", () => {
 const DEVELOPMENT = MODEL_API.form.tabs.find((tab) => tab.title === "Development");
 
 // What the page sends when Reasoning effort's picker lands on high. The Rust
-// side parses the same file, so the two cannot drift apart unseen (#1426).
+// side parses the same file, so the two cannot drift apart unseen.
 const PICK_HIGH_EFFORT = JSON.parse(
   readFileSync(new URL("./fixtures/settings-pick-reasoning-effort.json", import.meta.url), "utf8"),
 );

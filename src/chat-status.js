@@ -1,14 +1,14 @@
-// What the Chat surface's status bar draws, from one push and the clock, and
-// the header's line about which mind answers. Its own module because chat.js
-// reaches window.__TAURI__ as it loads; this can be imported, so it has a test.
 
-// What a cell says when there is nothing to say — the dash the Shell's
-// `engine:` trace writes. A blank cell reads as a bar that broke.
+// What the status bar draws from one push and the clock, and which mind
+// answers. Split from chat.js, which reads `window.__TAURI__` at import,
+// so node can load this.
+
+// What a cell says when there is nothing to say. A blank cell reads as a
+// bar that broke.
 const NONE = "—";
 
 // Milliseconds until the next proactive wake, in the largest unit that still
-// counts. Rounded up, and `due` past zero: a wake the Engine has not got to
-// yet is due, not late. Three characters is what the bar's width budget fits.
+// counts. Rounded up, and `due` past zero. Three characters fit the bar.
 export function untilWake(ms) {
   if (ms === null || ms === undefined) {
     return NONE;
@@ -24,7 +24,7 @@ export function untilWake(ms) {
   return mins < 60 ? `${mins}m` : `${Math.ceil(mins / 60)}h`;
 }
 
-// One push, plus how much of its countdown is left, as the text of each cell.
+// One push, plus how much of its countdown is left, as each cell's text.
 // `status` is null until the first arrives, and every cell says so.
 export function statusCells(status, msLeft) {
   return {
@@ -32,19 +32,16 @@ export function statusCells(status, msLeft) {
     primitive: status?.primitive ?? NONE,
     animation: status?.animation ?? NONE,
     state: status?.state ?? NONE,
-    // Nothing rather than an arrow before the first push: a sprite nothing has
-    // reported on faces no way, and a guessed arrow is a lie.
+    // Nothing rather than an arrow before the first push. A guessed arrow is a lie.
     facing: status ? (status.facing < 0 ? "←" : "→") : "",
-    // One fact, not both: this cell held the widest pair on the line. It costs
-    // nothing — a wake resets the ambient pace as it starts, so the countdown
-    // under a turn on the wire is always the full wait over again.
+    // One fact, not both. This cell held the widest pair, and a wake resets
+    // the countdown, so under a turn on the wire it is always the full wait.
     director: status?.thinking ? "thinking" : `wake ${untilWake(status ? msLeft : null)}`,
     happened: status?.happened ?? NONE,
   };
 }
 
-// Plain-language status for first-time readers: what the fidget is doing right
-// now, without Primitive/State vocabulary.
+// What the fidget is doing right now, without Primitive or State vocabulary.
 export function plainStatus(status, msLeft) {
   if (!status) {
     return "Starting up…";
@@ -148,10 +145,8 @@ function cleanName(raw) {
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
-// Which mind answers this window, for the header beside who you are talking
-// to. A statement and never a control. The branches follow
-// `settings::harness_state`'s order, including the missing-CLI state: an
-// install the user can still make is `missing`, not `not running`.
+// Which mind answers, beside who you are talking to. A statement, never a
+// control. An install the user can still make is `missing`, not `not running`.
 export function mindLine(opening) {
   if (!opening) {
     return "";
@@ -161,9 +156,8 @@ export function mindLine(opening) {
   }
   const harness = opening.harness;
   if (!harness) {
-    // Nothing rather than a bare separator: the Shell sends empty strings only
-    // when it could not read its own inspect, and ` · ` is punctuation
-    // pretending to be a fact.
+    // Nothing rather than a bare separator. Empty strings mean the Shell could
+    // not read its own inspect, and the dot is punctuation pretending to be a fact.
     return opening.model && opening.host ? `${opening.model} · ${opening.host}` : "";
   }
   if (harness.login) {
@@ -175,8 +169,8 @@ export function mindLine(opening) {
   if (harness.unhealthy) {
     return `${harness.name} · unhealthy`;
   }
-  // Before `not running`, which over the handshake names a state the user
-  // would have to act on when the only thing to do is wait (#949).
+  // Before `not running`. Over the handshake that names a state the user
+  // would have to act on, when the only thing to do is wait.
   if (harness.initializing) {
     return `${harness.name} · starting`;
   }
@@ -189,8 +183,7 @@ export function mindLine(opening) {
   if (!harness.session) {
     return `${harness.name} · no session yet`;
   }
-  // The head of the id, not the whole of it: a full UUID pushes the Instance's
-  // own name off a 420-point header, and Settings draws it in full, so the head
-  // cannot disagree with it.
+  // The head of the id. A full UUID pushes the Instance name off a 420-point
+  // header, and Settings draws the id in full, so the head cannot disagree.
   return `${harness.name} · session ${harness.session.slice(0, 8)}`;
 }

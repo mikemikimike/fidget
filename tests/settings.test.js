@@ -49,7 +49,7 @@ test("AI tab section order is AI, AI source, Model / API, Last user turn", () =>
   }
 });
 
-// By id: the Harness section has a Model row of its own (#1427).
+// By id: the Harness section has a Model row of its own.
 const HTTP_ROWS = ["director_base_url", "director_model", "director_api_key", "clear_key"];
 
 test("the HTTP rows are the user's when Model API drives", () => {
@@ -69,7 +69,7 @@ test("the HTTP rows freeze when a Harness drives", () => {
   assert.equal(byId(list, "director_apply").frozen, false, "Apply stays live, or the source cannot be changed back");
 });
 
-// #1427: the AI source picker decides which source section is the user's,
+// the AI source picker decides which source section is the user's,
 // and it decides as soon as it changes, before Apply saves the pick.
 const HARNESS_ROWS = ["harness_model", "pi_project_mcp", "harness_command"];
 const MODEL_API_ROWS = [
@@ -287,7 +287,7 @@ test("an InspectPath is a path and nothing else", () => {
 });
 
 // The Character popup starts on the Character in force, which is what New
-// spawns under until the user picks another (#875).
+// spawns under until the user picks another.
 test("a Composite spreads into one control per member, its text field included", () => {
   const spawn = tab(MODEL_API, "Character").filter((control) =>
     ["new_name", "new_character", "spawn"].includes(control.id),
@@ -301,7 +301,7 @@ test("a Composite spreads into one control per member, its text field included",
 });
 
 // One literal per shape the row-id reconciliation has to get right, because
-// a row the view has no value for draws blank however the file is set. #875.
+// a row the view has no value for draws blank however the file is set.
 test("a row whose id is not its field name still draws the value the snapshot carries", () => {
   const presence = tab(MODEL_API, "Presence");
   assert.equal(byId(presence, "hotkey").value, "Control-Option-Command-B");
@@ -322,11 +322,8 @@ test("a row whose id is not its field name still draws the value the snapshot ca
   assert.equal(byId(tab(MODEL_API, "Development"), "hover_delay_ms").value, "800");
 });
 
-// #888 named the macOS row for what the character reads rather than for the grant.
-// The id it draws under is the one the value map is keyed by, and deriving that
-// id from the label instead left the lookup empty, so the checkbox drew
-// unchecked whatever the grant said. #975 renamed the label a second time,
-// which is the case this test exists for.
+// The Privacy row's id is the value-map key, not the label. Deriving the id
+// from the label leaves the checkbox unchecked whatever the grant says.
 test("the Privacy consent row keeps the id its value is keyed by, whatever it is named", () => {
   const label = "Window and application names";
   for (const [state, snap] of STATES) {
@@ -399,7 +396,7 @@ function drawn(title, emit) {
 
 // Both Character <select>s offer every installed package, with the one in
 // force selected. A list of one is the bug: New could only spawn the
-// character already worn (#921).
+// character already worn.
 test("the Character popups offer every installed package, the worn one selected", () => {
   const selects = drawn("Character").filter((node) => node.tagName === "select");
   const offered = Object.fromEntries(
@@ -436,7 +433,7 @@ test("the UI Theme and Light/Dark Mode popups live on Chat", () => {
 
 // A redraw is render() again, and replaceChildren() takes the focused control
 // with it. The stub keeps activeElement and answers querySelectorAll by tag,
-// which is all the restore reads. #937.
+// which is all the restore reads.
 function focusRoot() {
   const walk = (node) => [node, ...(node.children ?? []).flatMap(walk)];
   return {
@@ -494,7 +491,7 @@ test("a secure row takes its placeholder from the key status beside it", () => {
 });
 
 // `SettingsSession::spawn` takes a Character and a name, and `AiDraft`
-// carries neither. #875.
+// carries neither.
 test("New carries the name typed beside it and the Character it shows", () => {
   const emitted = [];
   const nodes = drawn("Character", (payload) => emitted.push(payload));
@@ -508,7 +505,7 @@ test("New carries the name typed beside it and the Character it shows", () => {
 });
 
 // The line is ambiguous between two characters of one name and Character, and
-// `SettingsSession::dismiss` takes an id. #875.
+// `SettingsSession::dismiss` takes an id.
 test("Dismiss names the Instance by id, not by the line it draws", () => {
   const emitted = [];
   const buttons = drawn("Character", (payload) => emitted.push(payload)).filter(

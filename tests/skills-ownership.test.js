@@ -1,12 +1,6 @@
-// `.agents/skills/` is one flat directory with three owners: the pstack sync,
-// the Matt Pocock sync, and this repository. Each sync deletes by name from its
-// own lock file, so the lock files are the only thing standing between a sync
-// and somebody else's skill. Two lists that both claim a name mean whichever
-// sync ran last wins and the other's skill is silently gone.
-//
-// Prose in `docs/agents/` says the lists are disjoint. This asserts it, because
-// the failure is invisible: the loser is a directory that still exists, holding
-// the wrong skill under the right name.
+// Each sync deletes by name from its own lock file. Two lists that claim one
+// name mean whichever sync ran last wins, and the other's skill is silently
+// gone: the directory still exists, holding the wrong skill under the right name.
 
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";

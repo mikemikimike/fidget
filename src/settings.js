@@ -1,18 +1,13 @@
 import { mountChatAppearance } from "./chat-appearance.js";
 import { applyChatUiClass, applyPlatform } from "./chat-ui-class.js";
 
-// One interpreter of `form::describe()`, in two halves. `controls(tab, values)`
-// is pure: the tab as a flat list of {role, id, label, value, frozen} in render
-// order, the same rows `ax-settings.swift dump` reads, so tests need no window.
-// `render(root, tab, values, emit, stage)` is the DOM half; a redraw is render()
-// again. `stage` receives a batched row's edit, which no redraw may lose.
+// One interpreter of `form::describe()`, in two halves. `controls()` is pure,
+// the rows the accessibility dump reads, so tests need no window. `render()`
+// is the DOM half, and `stage` keeps a batched edit that no redraw may lose.
 
-// `emit` routes events to the `settings_event` Tauri command.
-
-// `values` is keyed by form row id and carries one scalar per row, except the
-// Instances list, which carries the rows themselves. A list item draws as
-// Name (character) and dismisses by id: the printed line is ambiguous between
-// two fidgets of the same name and Character. #875.
+// `values` is one scalar per row, except the Instances list, which carries the
+// rows themselves. A list item draws as Name (character) and dismisses by id,
+// because that printed line is ambiguous between two fidgets of the same name.
 function listItems(value) {
   const items = Array.isArray(value) ? value : [];
   return items.map((item) => ({ label: `${item.name} (${item.character})`, id: item.id }));
@@ -28,7 +23,7 @@ const OFF_NOTE = Object.freeze({
 });
 
 // A section serving the source the picker does not name is off, and its rows
-// draw frozen (#1427). The picker's value is the staged one, so the tab follows
+// draw frozen. The picker's value is the staged one, so the tab follows
 // a pick before Apply saves it.
 function offSource(section, values) {
   if (!section.serves) return null;
@@ -111,8 +106,6 @@ function choice(row, values) {
   return values[row.id] ?? row.options[0] ?? "";
 }
 
-// --- DOM -------------------------------------------------------------------
-
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -154,12 +147,9 @@ function notes(row) {
   return [help(row.help), status(row.status), disclosure(row.disclosure)];
 }
 
-// The control sits inside its label, the way a checkbox row already does.
-// WebKit publishes a label holding nothing but text as an AXStaticText carrying
-// that text with its own text run beneath, so the row's name reached the
-// accessibility tree twice and a dump read the copy as the row's control. A
-// label holding a control is an AXGroup instead. #706.
-// `body` is what sits under the title when it is more than the control alone.
+// The control sits inside its label. WebKit publishes a label holding only
+// text as an AXStaticText plus its own text run, so the row's name reached
+// the accessibility tree twice. A label holding a control is an AXGroup.
 function labelled(row, control, extra = [], body = control) {
   const id = `set-f-${row.id}`;
   control.id = id;
@@ -183,7 +173,7 @@ function popup(row, values, frozen) {
 
 // A popup that only fills in a text row, which is how `form.rs` describes the
 // Base URL and Reasoning effort pickers. Drawn as a row of its own it sat
-// above its field's title with no title of its own (#1426).
+// above its field's title with no title of its own.
 function shortcutOf(row) {
   const [control, ...rest] = row.type === "Composite" ? row.controls : [];
   return control?.type === "Popup" && control.fills && rest.length === 0 ? control : null;
@@ -221,11 +211,9 @@ function drawRow(row, values, emit, stage, tab, shortcut = null) {
         "aria-readonly": row.frozen ? "true" : null,
       });
       input.value = values[row.id] ?? "";
-      // A batched row is a draft until Apply. A blur write would retarget
-      // before Cancel could restore the row (#663), and a draft left in the
-      // widget alone is gone on the next tab switch, which redraws the panel.
-      // A field drawn twice, the Model under Harness and under Model / API,
-      // stages and shows one value in both rows (#1427).
+      // A batched row is a draft until Apply. A blur write would retarget before
+      // Cancel could restore the row, and a draft left only in the widget is gone
+      // on the next tab switch. A field drawn twice stages one value in both rows.
       if (row.batched) {
         input.addEventListener("input", () => {
           const root = input.closest?.('[role="tabpanel"]') ?? input.getRootNode();
@@ -318,7 +306,7 @@ function drawRow(row, values, emit, stage, tab, shortcut = null) {
     case "Composite": {
       const line = el("div", { class: "set-controls" });
       // Only the page can read what these controls hold, and New spawns
-      // under the name and Character beside it (#875).
+      // under the name and Character beside it.
       const fields = [];
       const typed = () => Object.fromEntries(fields.map((node) => [node.dataset.id, node.value]));
       for (const control of row.controls) {
@@ -394,22 +382,16 @@ function rowChecked(root, id) {
   return Boolean(root.querySelector?.(`[data-row="${id}"] input`)?.checked);
 }
 
-// Every control this page draws, in render order, the footer's after the
-// panel's. The list is a superset of what can hold focus (a label never does),
-// which costs nothing because a position is only ever read back off the same
-// list. Position is the one identity every control has: a row wrapper carries
-// data-row, a labelled control an id, a Composite member data-id, a checkbox
-// input and a summary nothing at all.
+// Every control this page draws, in render order, footer after the panel.
+// Position is the one identity every control has. A row wrapper, a labelled
+// control, a Composite member, a checkbox, and a summary do not share an id.
 function drawnControls(root, footer) {
   return [...root.querySelectorAll(CONTROL_SELECTOR), ...(footer?.querySelectorAll(CONTROL_SELECTOR) ?? [])];
 }
 
-// A redraw is render() again, and replaceChildren() takes the focused control
-// with it, so a commit left a keyboard user on the document and the next Tab
-// started from the top (#937). The same tab redraws the same controls in the
-// same order, so the position that held focus is handed back afterwards.
-// Open disclosures close on rebuild the same way (#939), so their positions
-// are recorded before replaceChildren() and reopened after.
+// replaceChildren() drops focus and closes disclosures, so a commit left a
+// keyboard user on the document. The same tab redraws the same controls in
+// the same order, so the focused position and open disclosures come back.
 export function render(root, tab, values, emit = () => {}, stage = () => {}) {
   const footer =
     typeof document !== "undefined" && typeof document.getElementById === "function"
@@ -494,10 +476,9 @@ export function processResponse(response) {
   }
 }
 
-// A tab switch redraws from the snapshot, so edits must stay in the draft
-// keyed by row id until Apply or Cancel. A preview counts only while its pick
-// is still the staged one, so a late answer after Cancel or a newer pick is
-// dropped.
+// A tab switch redraws from the snapshot, so edits stay in the draft keyed
+// by row id until Apply or Cancel. A preview counts only while its pick is
+// still the staged one, so a late answer after Cancel or a newer pick drops.
 export function foldDraft(draft, outcome, payload) {
   if (!outcome || outcome === true) return draft;
   if (outcome.reset) return {};
@@ -535,7 +516,7 @@ export async function handleEvent(payload) {
 }
 
 // Native Settings copies in the window controller. The webview only gets
-// Outcome::Run, so the page writes the string it already shows. #855.
+// Outcome::Run, so the page writes the string it already shows.
 const COPY_RUN_FIELDS = Object.freeze({
   copy_byo_snippet: "byo_snippet",
   copy_byo_token: "byo_token", // pragma: allowlist secret
@@ -564,8 +545,6 @@ export function copyRunForPress(payload) {
   return payload && typeof payload.press === "string" ? COPY_PRESS_RUN[payload.press] : undefined;
 }
 
-// --- The tab shell ---------------------------------------------------------
-
 // The bar lists every tab. Keep the buttons this build's form draws, in bar
 // order. A build without Caffeinate drops it.
 export function tabsTheFormDraws(buttons, form) {
@@ -581,7 +560,6 @@ export function selectTab(form, title) {
   return at === -1 ? 0 : at;
 }
 
-// Wiring to Tauri command.
 async function invokeSettingsEvent(payload) {
   if (typeof window.__TAURI_INTERNALS__ === "undefined") {
     return { action: "nothing" };
@@ -594,7 +572,6 @@ async function invokeSettingsEvent(payload) {
 // input, and a Multiline row is a <textarea> whose drag has to select text.
 const CONTROL_SELECTOR = "input, textarea, select, button, summary, pre, label";
 
-// Alt-drag gate predicate: drag begins only when modifier is held AND target is background.
 export function shouldBeginDrag(event) {
   if (!event.altKey) return false;
   const isControl = event.target.closest(CONTROL_SELECTOR);
@@ -685,10 +662,9 @@ if (typeof document !== "undefined") {
     return currentLoad;
   }
 
-  // handleEvent already invokes settings_event; a truthy outcome (refresh,
-  // fill, reset, clearKey, run) means the page's snapshot is stale. Copy
-  // starts writeText in this click turn: awaiting settings_event first
-  // drops the user gesture WebKit requires for the clipboard.
+  // A truthy outcome means the page's snapshot is stale. Copy starts writeText
+  // in this click turn. Awaiting settings_event first drops the user gesture
+  // WebKit requires for the clipboard.
   async function emitEvent(payload) {
     const writeText = (text) => navigator.clipboard.writeText(text);
     const hinted = copyRunForPress(payload);
@@ -807,14 +783,12 @@ if (typeof document !== "undefined") {
     // `window` module's name instead leaves both handlers below throwing.
     const settingsWindow = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
-    // Alt-drag to move the window, gated on modifier held and target is background.
     document.addEventListener("mousedown", (event) => {
       if (!shouldBeginDrag(event)) return;
       event.preventDefault();
       settingsWindow.startDragging();
     });
 
-    // Escape closes the window.
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -835,10 +809,8 @@ if (typeof document !== "undefined") {
       }
     });
 
-    // Tauri's listen() returns a Promise<UnlistenFn>. Window destruction does
-    // not guarantee cleanup of window-scoped listeners, so we unlisten on unload.
-    // Evidence: Tauri v2 docs state "listeners need to be manually unlistened"
-    // and the returned unlisten function exists for this reason.
+    // Tauri's listen() returns a promise of an unlisten function. Destroying the
+    // webview does not drop window listeners, so this unlistens on unload.
     let unlistenRefresh = null;
     listen("settings-refresh", () => {
       loadSnapshot();

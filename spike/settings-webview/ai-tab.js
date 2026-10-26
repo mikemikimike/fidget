@@ -1,8 +1,5 @@
-// Hand-written snapshot of `form::describe().tabs["AI"]` plus the slice of
-// `SettingsView` the tab reads, in two states. Copy is lifted verbatim from
-// src-tauri/src/settings/form.rs (director_sections, completer_source_section).
-// Shape mirrors serde's externally-tagged enum: {type: "Checkbox", ...}.
-
+// Hand-written snapshot of the AI tab and the SettingsView slice it reads. Copy is lifted from
+// form.rs. The shape mirrors serde's externally tagged enum.
 const ENDPOINTS = [
   "Custom",
   "Ollama (http://localhost:11434)",

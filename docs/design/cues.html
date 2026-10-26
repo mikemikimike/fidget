@@ -1,11 +1,7 @@
 <!doctype html>
 <!--
-  Fidget Cues playground: try the gestures on the desk. One visual and one
-  sound per interaction, drawn and synthesized by the Shell. The quick-message
-  pill is the gesture locked on #1076.
-
-  Self-contained on purpose. BMO's idle frame is inlined so the page opens
-  from a clone, a Pages deploy, or an attachment with no other file beside it.
+  One visual and one sound per gesture, drawn by the Shell. Self-contained on purpose, so
+  the page opens from a clone with no file beside it.
 -->
 <html lang="en">
 <head>
@@ -86,7 +82,6 @@
   .lede { color: var(--ink-2); max-width: 62ch; margin: 0; }
   .lede code, td code, .spec code { font-family: var(--mono); font-size: 0.92em; }
 
-  /* ---- the desktop ---- */
   .desk-wrap { display: grid; gap: 12px; margin-bottom: 40px; }
   .desk-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .desk-bar .hint { color: var(--ink-2); font-size: 14px; }
@@ -149,7 +144,7 @@
     box-shadow: inset 0 0 0 1px rgba(29, 32, 39, 0.35);
   }
 
-  /* ---- cues: this block ports to src/main.css ---- */
+  /* This block ports to src/main.css. */
   .cue { position: absolute; pointer-events: none; }
   .cue-ring {
     width: 24px; height: 24px; border-radius: 50%;
@@ -173,10 +168,8 @@
   }
   @keyframes cue-fade { to { opacity: 0; } }
 
-  /* Menu: a filled ring segment sweeping the whole way round, a radial menu's
-     silhouette. A conic gradient the script advances per frame, masked to a
-     thin donut, so it is vector-crisp at any DPI with no SVG stroke to smear
-     across pixel boundaries. */
+  /* A menu cue is a ring segment sweeping the whole way round. A conic gradient the script
+     advances, masked to a thin donut, so it stays crisp at any DPI with no SVG stroke to smear. */
   .cue-wedge {
     width: 58px; height: 58px; border-radius: 50%;
     transform: translate(-50%, -50%);
@@ -231,9 +224,9 @@
     .cue-ring, .cue-wedge, .cue-wedge-edge, .cue-dash, .cue-puff { animation-duration: 1ms !important; animation-delay: 0ms !important; }
   }
 
-  /* Ported from src/main.css so this page stays one file. Speech keeps the
-     tail; the pill refuses it. The disc is #5cc9b5, the chat accent, not
-     this page's --accent, which is a different green in light mode. */
+  /* In this file so the page stays one file. Speech keeps the tail; the
+     pill refuses it. The disc is #5cc9b5, the chat accent, not this page's
+     --accent, which is a different green in light mode. */
   .quick-message {
     --qm-accent: #5cc9b5;
     --qm-panel: #14171e;
@@ -359,7 +352,6 @@
     }
   }
 
-  /* ---- Mock Chat window ---- */
   .mock-chat {
     /* Below the desk, never over BMO's walk or the cue that opened it. */
     display: none;
@@ -422,7 +414,6 @@
     }
   }
 
-  /* ---- the table of cues ---- */
   h2 { font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 12px; }
   .cues { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   .row {
@@ -573,7 +564,6 @@ import { measurePuffInset, landingPuff } from "./cue.js";
 // ---- Cues. This block ports to src/ as the cue machine. ----
 // Every visual is one element added and removed on animationend; every sound
 // is one oscillator with a gain envelope. Nothing is loaded, nothing persists.
-
 const MASTER = 0.5;
 let ctx = null;
 let soundOn = true;
@@ -961,7 +951,6 @@ sprite.addEventListener("pointerup", e => {
   phase = "idle";
 });
 
-// Replay buttons, wallpaper, sound, and the sequence.
 document.querySelectorAll(".play").forEach(b => b.addEventListener("click", () => play(b.dataset.cue, desk, anchor())));
 document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
   desk.dataset.wall = b.dataset.wall;
@@ -973,7 +962,7 @@ document.getElementById("sequence").addEventListener("click", () => {
   ["poke", "summon", "menu", "pickup", "drop", "throw"].forEach((n, i) => setTimeout(() => play(n, desk, anchor()), i * 900));
 });
 
-// The quick-message gesture locked on #1076. The desk already decodes poke,
+// The quick-message gesture locked on. The desk already decodes poke,
 // drag and Summon; this only decides when the pill is up.
 const HOVER_DELAY_MS = 1500;
 const quick = document.getElementById("quick-message");
@@ -989,7 +978,6 @@ let pillUp = false;
 let composing = false;
 let chatOpen = false;
 
-// Initialize timing text from HOVER_DELAY_MS
 const dwellSeconds = (HOVER_DELAY_MS / 1000).toFixed(1);
 document.getElementById("lede-dwell").textContent = "~" + dwellSeconds + " seconds";
 document.getElementById("hint-dwell").textContent = "~" + dwellSeconds + "s";

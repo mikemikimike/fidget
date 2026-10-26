@@ -1,18 +1,17 @@
-// The cue machine: five interactions, each with its own visual and its own
-// sound. Every frequency, envelope, gain and duration below was decided in
-// docs/design/cues.html. The Engine decides which cue plays; this obeys.
 
+// The cue machine. Five interactions, each with its own visual and sound.
+// Frequencies, envelopes, gains, and durations were decided in
+// docs/design/cues.html. The Engine decides which cue plays; this obeys.
 const MASTER = 0.5;
 
-// How long a Poke cue is treated as in flight, so a Summon can cancel it.
-// `input.rs`'s DOUBLE_CLICK_MS: past it no Summon can belong to that Poke, and
-// the record is only holding an element and a gain node alive.
+// How long a Poke stays in flight so a Summon can cancel it. Past
+// `input.rs`'s DOUBLE_CLICK_MS no Summon belongs to that Poke, and the
+// record is only an element and a gain node.
 export const POKE_WINDOW_MS = 400;
 
 let context = null;
-// A machine with no AudioContext, or one that throws, stays silent forever
-// after the first failure: retrying every cue would be the same error sixty
-// times a second. Visuals still play.
+// No AudioContext, or one throw, stays silent after the first failure.
+// Retrying every cue would be the same error sixty times a second. Visuals still play.
 let audioFailed = false;
 let audioWarned = false;
 
@@ -35,8 +34,7 @@ function audio() {
       context = new Ctx();
     }
     // Suspended until the page has been interacted with. Every cue follows a
-    // press on the sprite, which the overlay receives whenever click-through is
-    // off — so by the time one plays, the gesture that unlocks this has landed.
+    // press on the sprite, so the gesture that unlocks audio has already landed.
     if (context.state === "suspended") context.resume();
     return context;
   } catch (err) {
@@ -46,8 +44,8 @@ function audio() {
   }
 }
 
-// A voice is a gain node the cue can be cut through. Summon cuts a Poke that
-// is still sounding; the cut is a 15 ms ramp so it does not click.
+// A gain node the cue can be cut through. Summon cuts a Poke that is still
+// sounding. The cut is a 15 ms ramp so it does not click.
 function voice() {
   const ac = audio();
   if (!ac) return null;
@@ -84,8 +82,8 @@ function tone(
     osc.connect(f);
     out = f;
   }
-  // Per-note envelope on its own gain so two notes in one voice do not fight;
-  // the voice gain above them is the one a cancel cuts.
+  // Per-note envelope on its own gain so two notes in one voice do not fight.
+  // The voice gain above them is the one a cancel cuts.
   const env = ac.createGain();
   out.connect(env);
   env.connect(g);
@@ -169,17 +167,17 @@ function reap(node, child) {
 
 const UP = { x: 0, y: -1 };
 
-// Every surface takes the same path: the puff sits on the contact, pushed off
-// the surface along its normal by the puff's own half-thickness, and lies along
-// it. A landing the Shell sent no contact for is a floor under the feet.
+// The puff sits on the contact, pushed off the surface along its normal by
+// its own half-thickness, and lies along it. A landing with no contact is a
+// floor under the feet.
 export function landingPuff(stage, c, className) {
   const normal = c.ripple_normal ?? UP;
   const inset = measurePuffInset(className);
   const x = (c.ripple_x ?? c.feetX) + normal.x * inset;
   const y = (c.ripple_y ?? c.feetY) + normal.y * inset;
   const turn = (Math.atan2(normal.y, normal.x) * 180) / Math.PI + 90;
-  // A translate, not left and top: Chrome rounds those to 1/64px, and the inset
-  // is what holds the puff flush against a wall.
+  // A translate, not left and top. Chrome rounds those to 1/64px, and the
+  // inset is what holds the puff flush against a wall.
   const wrapper = el("", 0, 0);
   wrapper.style.transform = `translate(${x}px, ${y}px) rotate(${turn}deg)`;
   wrapper.append(el(className, 0, 0));
@@ -204,14 +202,14 @@ const VISUALS = {
     return [a, b];
   },
   menu(stage, c) {
-    // Whole pixels: a ring this thin smears when its centre sits between them.
+    // Whole pixels. A ring this thin smears when its centre sits between them.
     const x = Math.round(c.x);
     const y = Math.round(c.y);
     const fill = el("cue-wedge", x, y);
     const edge = el("cue-wedge-edge", x, y);
     stage.append(fill, edge);
-    // Advance the sweep by hand: a custom property cannot be keyframed
-    // without @property, and this stays portable to the GTK WebKit.
+    // Advance the sweep by hand. A custom property cannot be keyframed
+    // without @property, and this stays portable to GTK WebKit.
     const t0 = performance.now();
     const sweepMs = 240;
     const ease = (p) => 1 - Math.pow(1 - p, 3);
@@ -252,10 +250,9 @@ const VISUALS = {
   },
 };
 
-// Where a cue hangs off the sprite: the click cues at its centre, because a
-// click landed on the art; pickup and drop at its feet, because that is the
-// contact the gesture broke and made. Overlay coordinates, the same space the
-// bubble is placed in.
+// Click cues hang at the centre, because the click landed on the art. Pickup
+// and drop hang at the feet, the contact the gesture broke and made. Overlay
+// coordinates, the same space the bubble is placed in.
 export function cueAnchor(sprite) {
   return {
     x: sprite.x + sprite.width / 2,
@@ -268,8 +265,7 @@ export function cueAnchor(sprite) {
   };
 }
 
-// The DOM and Web Audio halves, bound to one Instance's cue layer and to
-// whatever it is currently anchored to. Kept apart from the machine below so
+// DOM and Web Audio for one Instance's cue layer. Apart from the machine so
 // node can drive the bookkeeping without a window or a sound card.
 export function cueIo(layer, anchorOf) {
   return {
@@ -278,8 +274,8 @@ export function cueIo(layer, anchorOf) {
       return () => nodes.forEach((node) => node.remove());
     },
     sound(name) {
-      // Swallowed: silence is the decided behaviour for a mute machine, and a
-      // throw here would kill the frame listener and the visual with it.
+      // Swallowed. Silence is the mute machine, and a throw here would kill
+      // the frame listener and the visual with it.
       try {
         const v = voice();
         if (!v) return () => {};
@@ -293,15 +289,14 @@ export function cueIo(layer, anchorOf) {
   };
 }
 
-// The cue decisions, apart from the pixels and the oscillators. A cue rides one
-// Engine tick, like `dialogue`, so it is latched where every delivery is seen.
-// A double-click is two releases: its Summon cancels the Poke already playing.
+// Decisions apart from the pixels and the oscillators. A cue rides one
+// Engine tick, like `dialogue`, so it is latched where every delivery is
+// seen. A double-click is two releases, and its Summon cancels the Poke.
 export function createCueMachine(io) {
   const schedule = io.schedule ?? ((fn, ms) => setTimeout(fn, ms));
   const cancel = io.cancel ?? ((id) => clearTimeout(id));
 
-  // At most one, because only a Poke is ever cancelled and only the newest one
-  // can still be sounding.
+  // At most one. Only a Poke is cancelled, and only the newest can still be sounding.
   let poke = null;
 
   function forget() {
@@ -311,13 +306,12 @@ export function createCueMachine(io) {
   }
 
   return {
-    // `placement` is this overlay's view of one tick: `cue` names the cue or is
-    // null, `visible` is whether the Character is on screen at all, and `sound`
-    // is whether it may be heard as well as seen.
+    // `cue` names the cue or is null. `visible` is whether the Character is
+    // on screen. `sound` is whether it may be heard as well as seen.
     event(placement) {
       const name = placement.cue;
-      // A hidden Character produces no cue of either kind: a sound with nothing
-      // on screen to explain it is worse than silence.
+      // A hidden Character produces no cue. A sound with nothing on screen
+      // to explain it is worse than silence.
       if (!name || !placement.visible) return;
 
       if (name === "summon" && poke) {
@@ -326,21 +320,21 @@ export function createCueMachine(io) {
       }
 
       const stopVisual = io.draw(name);
-      // Sound is gated and the visual is not: Do Not Disturb and the Settings
-      // mute are folded into this flag, and a cue that cannot be heard still has
-      // to be seen, or a muted character stops answering. A throw is the same gate.
+      // Sound is gated and the visual is not. Do Not Disturb and the Settings
+      // mute fold into this flag. A cue that cannot be heard still has to be
+      // seen, or a muted character stops answering.
       let cutSound = () => {};
       if (placement.sound) {
         try {
           cutSound = io.sound(name) || (() => {});
         } catch {
-          // Mute-machine: silence, once, rather than taking the overlay with it.
+          // Mute machine: silence, once, rather than taking the overlay with it.
         }
       }
 
       if (name === "poke") {
-        // A second Poke replaces the record rather than joining it: the older
-        // one is past cancelling by the time a Summon could arrive for this one.
+        // A second Poke replaces the record. The older one is past cancelling
+        // by the time a Summon could arrive for this one.
         forget();
         poke = {
           stop: () => {

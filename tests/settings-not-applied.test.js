@@ -1,7 +1,6 @@
-// A model or effort the Harness did not take shows as a notice under its field,
-// and the field shows the value Fidget restored (#1434). This drives the real
-// Settings page headless, as chat-restored-render.test.js drives Chat: it sends
-// the snapshot the Shell would send, then the refresh that follows.
+// A model or effort the Harness did not take shows as a notice under its
+// field, and the field shows the value Fidget restored. The page is the
+// real Settings surface.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

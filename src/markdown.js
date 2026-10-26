@@ -1,12 +1,12 @@
-// Markdown in a reply, drawn as formatting instead of as its punctuation. Only
-// `marked`'s token API is used, never its HTML renderer: a reply is untrusted
-// text, so every piece reaches the DOM via `createElement` and `textContent`.
 
+// Markdown in a reply, drawn as formatting instead of its punctuation.
+// Only `marked`'s token API is used, never its HTML renderer. A reply is
+// untrusted, so every piece reaches the DOM through `textContent`.
 import { Lexer } from "./vendor/marked.esm.js";
 
-// Bidi controls can reverse a line. U+200B, word joiner and BOM can hide one.
-// Newline and tab stay, because markdown uses them. ZWJ and ZWNJ stay too:
-// joined emoji and some scripts need them.
+// Bidi controls can reverse a line. U+200B, word joiner, and BOM can hide
+// one. Newline and tab stay, because Markdown uses them. ZWJ and ZWNJ stay
+// too, because joined emoji and some scripts need them.
 const UNSAFE =
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
 
@@ -14,14 +14,13 @@ export function stripUnsafe(text) {
   return String(text ?? "").replace(UNSAFE, "");
 }
 
-// GFM, because that is what harnesses emit: tables and task lists from Claude
-// Code, fenced code with an info string from Codex, and Zed's ACP client turns
-// the same extensions on. CommonMark alone would draw a table as a run of pipes.
+// GFM, because that is what harnesses emit. CommonMark alone would draw
+// a table as a run of pipes.
 const FLAVOUR = { gfm: true, breaks: false, pedantic: false };
 
-// Schemes a link target may carry; an allowlist means `javascript:` or `data:`
-// never reaches the DOM. Checked as a scheme rather than searched for as a
-// string, so `JaVaScRiPt:` and `java<tab>script:` fail without their own rule.
+// Schemes a link may carry. An allowlist means `javascript:` or `data:`
+// never reaches the DOM. Checked as a scheme, so a disguised spelling fails
+// without its own rule.
 const SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
 function target(href) {
@@ -30,9 +29,8 @@ function target(href) {
   return scheme && SCHEMES.has(scheme[0].toLowerCase()) ? trimmed : null;
 }
 
-// Whatever `marked` grew a token for and this file does not draw reads as the
-// source the model wrote, so an unsupported construct is a line that looks
-// unformatted rather than a line that vanished.
+// A token this file does not draw reads as the source the model wrote,
+// so an unsupported construct looks unformatted rather than vanished.
 function asSource(token, parent, doc) {
   parent.append(doc.createTextNode(token.raw ?? token.text ?? ""));
 }
@@ -60,8 +58,7 @@ function inline(tokens, parent, doc) {
         break;
       case "link": {
         const where = target(token.href);
-        // A refused target leaves the link text behind rather than the row:
-        // the words a model wrote are still what it said.
+        // A refused target leaves the link text. The words are still what it said.
         const node = doc.createElement("span");
         if (where) {
           node.className = "md-link";
@@ -88,9 +85,8 @@ function row(cells, tag, doc) {
   const node = doc.createElement("tr");
   for (const cell of cells) {
     const td = doc.createElement(tag);
-    // `align` is one of three words `marked` derives from the delimiter row,
-    // never text the model chose, and it names a class so the alignment stays
-    // in the stylesheet with the rest of the table.
+    // `align` is one of three words `marked` takes from the delimiter row,
+    // never text the model chose. It names a class so the stylesheet owns it.
     if (cell.align) {
       td.className = `md-${cell.align}`;
     }
@@ -111,9 +107,8 @@ function blocks(tokens, parent, doc, skipEmptyJson) {
         wrap("p", token, parent, doc);
         break;
       case "text":
-        // A tight list item's line, which `marked` hands over as a block-level
-        // `text` token holding the inline ones. It belongs in the item with no
-        // paragraph of its own, so it flattens into the parent.
+        // A tight list item's line. `marked` hands it over as a block `text` token.
+        // It belongs in the item with no paragraph of its own.
         inline(token.tokens ?? [token], parent, doc);
         break;
       case "heading":
@@ -143,7 +138,7 @@ function blocks(tokens, parent, doc, skipEmptyJson) {
       }
       case "checkbox": {
         // Drawn and disabled. A live box would claim this surface can change
-        // what the reply says, and it cannot: the reply is a log line.
+        // the reply, and it cannot. The reply is a log line.
         const box = doc.createElement("input");
         box.type = "checkbox";
         box.checked = Boolean(token.checked);
@@ -156,15 +151,14 @@ function blocks(tokens, parent, doc, skipEmptyJson) {
         if (skipEmptyJson && emptyJsonBlock(token.text)) {
           break;
         }
-        // A fence and a table are the two blocks that do not reflow, and the
-        // Chat window opens 420 points wide. The scroll goes on a wrapper so the
-        // overflow stays inside the row instead of widening it.
+        // A fence and a table do not reflow, and Chat opens 420 points wide.
+        // The scroll goes on a wrapper so the overflow stays inside the row.
         const fence = doc.createElement("div");
         fence.className = "md-wide";
         const pre = doc.createElement("pre");
         const code = doc.createElement("code");
         // The info string is the model's, so it is filtered to a word before
-        // it names a class — the conventional hook a highlighter would read.
+        // it names a class. That is the hook a highlighter would read.
         const lang = /^[\w+#.-]+/.exec(token.lang ?? "");
         if (lang) {
           code.className = `language-${lang[0]}`;
@@ -222,46 +216,42 @@ export function onlyEmptyJson(text) {
   return tokens.length > 0 && tokens.every((token) => token.type === "code" && emptyJsonBlock(token.text));
 }
 
-// The reply drawn in each row so far, so a chunk can be added to it. Keyed on
-// the element because that is what the surface holds; a removed row takes its
-// entry with it.
+// The reply drawn in each row so far, so a chunk can be added to it.
+// Keyed on the element the surface holds. A removed row drops its entry.
 const drawn = new WeakMap();
 
-// Draw the whole of `text` into `body`, replacing whatever is there, and put
-// the caret back. Found and re-added with `querySelector` and `append`, never
-// `insertBefore`: the caret may be nested in a block, not a direct child of `body`.
+// Draw the whole of `text` into `body` and put the caret back. Found
+// and re-added with `querySelector` and `append`, never `insertBefore`.
+// The caret may be nested in a block, not a direct child of `body`.
 export function drawReply(body, text, doc = globalThis.document, options) {
   const caret = body.querySelector(".caret");
   drawn.set(body, text ?? "");
   body.replaceChildren();
   blocks(Lexer.lex(stripUnsafe(text ?? ""), FLAVOUR), body, doc, options?.skipEmptyJson);
   if (caret) {
-    // Inside the last paragraph, so it blinks at the end of the line rather
-    // than on one of its own. Anywhere else — a fence, a table, an empty
-    // reply — it goes back to the row, where it is at least valid.
+    // Inside the last paragraph, so it blinks at the end of the line.
+    // A fence, a table, or an empty reply puts it back on the row.
     const last = body.lastElementChild;
     (last && last.tagName === "P" ? last : body).append(caret);
   }
 }
 
-// One chunk of a streaming reply. The row is redrawn from the whole reply
-// rather than appended to, because a chunk lands mid-marker: `**bo` then
-// `ld**` are two things that are neither of them Markdown.
+// One chunk of a streaming reply. The row is redrawn from the whole
+// text, because a chunk can land mid-marker. `**bo` then `ld**` is
+// neither of them Markdown.
 export function appendReply(body, chunk, doc = globalThis.document) {
   drawReply(body, (drawn.get(body) ?? "") + chunk, doc);
 }
 
-// Replace the reply with the full answer-so-far. Used for streaming Speech
-// events where the Shell sends the complete text each time, not incremental chunks.
+// Replace the reply with the full answer so far. Streaming Speech
+// sends the complete text each time, not a chunk.
 export function replaceReply(body, text, doc = globalThis.document) {
   drawReply(body, text, doc);
 }
 
-// The Harness's thinking: the text it is, newlines and punctuation as written,
-// with only its links live. A resource link can arrive in a thought, and it
-// goes through the same `target` check a reply's links do. Only a link written
-// as `[text](url)` counts: `marked` also makes one of a bare URL, a `www.` host
-// and an email, and in a mark those are an agent's uri, not a link it wrote.
+// Thinking, as written, with only links spelled `[text](url)`.
+// `marked` also links a bare URL, a `www.` host, and an email. In a
+// mark those are an agent's uri, not a link it wrote.
 export function drawThought(body, text, doc = globalThis.document) {
   body.replaceChildren();
   for (const token of Lexer.lexInline(stripUnsafe(text ?? ""), FLAVOUR)) {
@@ -275,9 +265,8 @@ export function drawThought(body, text, doc = globalThis.document) {
   }
 }
 
-// An ask's title: the Harness's characters, with only the spans it wrapped in
-// backticks drawn as code. No Markdown parser sees it, so `**`, `~~`, `#`, `1.`
-// and link brackets stay characters, even around a span.
+// An ask's title. Only spans wrapped in backticks are code. No Markdown
+// parser sees it, so `**`, `~~`, `#`, and link brackets stay characters.
 export function drawTitle(body, text, doc = globalThis.document) {
   body.replaceChildren();
   for (const part of codeSpans(stripUnsafe(text ?? ""))) {
@@ -291,9 +280,9 @@ export function drawTitle(body, text, doc = globalThis.document) {
   }
 }
 
-// CommonMark's code span: a run of N backticks closes at the next run of
-// exactly N, and an opener with no closer is text. Inside, a line ending is a
-// space, and one space comes off each end when both ends have one.
+// A run of N backticks closes at the next run of exactly N. An opener
+// with no closer is text. A line ending inside is a space, and one space
+// comes off each end when both ends have one.
 function codeSpans(source) {
   const parts = [];
   let plain = "";

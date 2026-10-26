@@ -36,10 +36,9 @@ test("nothing in the Chat surface saves on a keystroke", () => {
     ["input", "keyup", "keydown", "keypress", "change"].includes(wiring.split(".")[1]),
   );
 
-  // The composer's send key is the one listener that may fire mid-typing: the
-  // field is a textarea, which does not submit its form on Enter,
-  // so Enter had to be wired by hand. It sends a turn; it does not save.
-  // Prompt-tab input/change only arm Save and Discard; they must not save.
+  // The composer's send key is the one listener that may fire mid-typing. A
+  // textarea does not submit on Enter, so Enter is wired by hand and sends a
+  // turn. It does not save. Prompt-tab input and change only arm Save and Discard.
   assert.deepEqual(
     [...typing].sort(),
     ["line.keydown", "promptText.change", "promptText.input"].sort(),

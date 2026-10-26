@@ -1,7 +1,7 @@
+
 // The webview draws the Characters and owns none of their state. Each tick the
 // Rust side sends every Instance's placement; this keeps the two most recent
 // per Instance to interpolate between, and drops an id that stops arriving.
-
 import { arrived, interpolate, onDisplay } from "./interpolate.js";
 import {
   createBubbleMachine,
@@ -70,7 +70,7 @@ function createView(id) {
   }
   // The way out of a line that did not fit. Drawn only when the turn was
   // truncated, and clicked, never implied: opening the Chat surface stays a
-  // deliberate act (ADR-0036), so nothing here reacts to the line arriving.
+  // deliberate act, so nothing here reacts to the line arriving.
   const more = document.createElement("button");
   more.type = "button";
   more.className = "bubble-more";
@@ -115,7 +115,7 @@ function createView(id) {
     hotspot: null,
     bubbleRect: null,
     // The sprite's top-left the bubble and pill were last placed from. The
-    // Shell sweeps their rects from here over the sprite's trail (#1568).
+    // Shell sweeps their rects from here over the sprite's trail.
     placedFrom: null,
     // The two most recent placements and when each arrived. Drawing one sample
     // behind, interpolated, buys continuous motion (see interpolate.js); the
@@ -159,7 +159,7 @@ function createView(id) {
     bubble.classList.add("visible");
     view.quickMachine?.setBubble(true);
     positionBubble(view, spriteRect(), currentDisplayBounds());
-    // Place now: idle overlays may not paint after arm(), and a departed
+    // Place now. Idle overlays may not paint after arm(), and a departed
     // bubble must not leave the quick-message at a stale top.
     if (view.quickMachine?.visible) positionQuick(view, spriteRect());
     arm();
@@ -195,7 +195,7 @@ function createView(id) {
       show("speech");
       traceBubble(`showSpeech instance=${id}`);
     },
-    // The question waiting in Chat (ADR-0016). The last word is the control;
+    // The question waiting in Chat. The last word is the control;
     // where the overlay cannot take that click it is plain text, and Summon
     // still opens Chat.
     showAsk() {
@@ -393,7 +393,7 @@ function syncQuick(view) {
 // Runs before the pill is up too: a leave during the dwell cancels it.
 function notePointerLeft(view) {
   if (!gestureActive) {
-    // The Shell's hit test, sent only to the pill's overlay: :hover sticks after Chat (#1565).
+    // The Shell's hit test, sent only to the pill's overlay: :hover sticks after Chat.
     if (view.latest?.hovered) view.quickMachine.enterSprite();
     else view.quickMachine.leaveSprite();
     if (view.quick.matches(":hover")) view.quickMachine.enterPill();
@@ -553,7 +553,7 @@ function reportOverlayRects() {
   for (const view of views.values()) {
     // Each rides with its sprite. A rect lands in the Shell a frame or more
     // after it was measured, so Windows keeps it over the sprite's whole trail
-    // from where it was placed, not only there (#1568).
+    // from where it was placed, not only there.
     const follows = view.placedFrom ? { instance: view.id, at: view.placedFrom } : null;
     const push = (rect, clickable) => rects.push(follows ? { rect, clickable, follows } : { rect, clickable });
     if (view.hotspot) push(view.hotspot, true);
@@ -594,7 +594,7 @@ function drawView(view, now) {
   const spriteY = Math.round(at.y);
 
   // Whole pixels, so an integer-scaled sprite is not resampled onto a fractional
-  // grid by the compositor (ADR-0006). `mirror` comes from the Shell, not the
+  // grid by the compositor. `mirror` comes from the Shell, not the
   // heading: a Character that draws its own left strip is sent as authored.
   view.sprite.style.transform = `translate(${spriteX}px, ${spriteY}px) scaleX(${latest.mirror})`;
 
@@ -610,7 +610,7 @@ function drawView(view, now) {
     view.bubble.style.transition = `opacity ${latest.fade_ms}ms linear`;
     view.bubble.style.opacity = "0";
     // A control nobody can see is not one to click, and a fading bubble is
-    // still `.visible` — so this is cleared here as well as in `hide`.
+    // still `.visible`, so this is cleared here as well as in `hide`.
     view.hotspot = null;
     view.bubbleRect = null;
     reportOverlayRects();
@@ -662,17 +662,9 @@ function drawView(view, now) {
   view.sprite.style.visibility = "visible";
 }
 
-// Armed rather than looping. `draw` used to re-arm itself at the top of every
-// frame, so the overlay asked for a display frame at panel refresh forever,
-// whatever the sprite was doing. The asking is what costs, and not in this
-// process: WebKit runs a CVDisplayLink per display in the host, for as long as
-// a page wants frames, and #741 measured those threads at half an idle character's
-// wakeups. Every arrival that says something new arms this again, so a placement
-// is still drawn the frame after it lands, and a resend of one is not.
-//
-// Arming is per display too. Every overlay hears about every Instance in its
-// own coordinates, so a Character on a seam stays whole, which also means a
-// placement landing here says nothing about whether this display has work (#764).
+// Armed rather than looping. A looping overlay keeps a CVDisplayLink running
+// in the host while the sprite is idle. A new placement arms this again.
+// A seam sprite is not work on this display.
 let armed = false;
 
 // A pixel would cover what two displays at different scale factors round apart
@@ -786,11 +778,9 @@ async function start() {
         view.sprite.style.zIndex = `${index * 2}`;
         view.cueLayer.style.zIndex = `${index * 2}`;
 
-        // One overlay owns each Instance's bubble (`bubble_owner`), and the
-        // Shell sends the line, the indicator and the cue to that one only.
-        // Speech hides on its reading timer, not on the next frame, so the
-        // overlay that just lost ownership drops its bubble once, on the change,
-        // keeping the turn so a reply landing mid-crossing still shows.
+        // One overlay owns each Instance's bubble. Speech hides on its reading
+        // timer, not the next frame, so the overlay that lost ownership drops its
+        // bubble once, on the change, and keeps the turn so a reply still shows.
         if (!sprite.bubble && view.latest?.bubble !== false) view.bubbles.hideButKeepTurn();
 
         const placement = {

@@ -1,8 +1,6 @@
-// #924: a comment citing a superseded ADR sends the reader to a document whose
-// first line tells them to go somewhere else, and they follow it because a
-// citation reads as authority. A removed ADR sends them nowhere. Markdown is exempt, since narrating a
-// supersession is what prose is for, and `docs/design` pages are Dated
-// snapshots (ADR-0011) that must keep the link they shipped with.
+// A comment citing a superseded ADR sends the reader to a document whose
+// first line points somewhere else, and a citation reads as authority.
+// A removed ADR sends them nowhere. Markdown and Dated design pages stay exempt.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

@@ -1,6 +1,6 @@
-// This file exists because chat.js touches `window.__TAURI__` at import and
-// node tests cannot load it. The log is the history.
 
+// Recall of sent lines from the composer. The log is the history. Split from
+// chat.js, which reads `window.__TAURI__` at import, so node can load this.
 export function createComposerRecall(log) {
   let place = { at: "draft" };
 

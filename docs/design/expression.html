@@ -1,23 +1,8 @@
 <!doctype html>
 <!--
-  Overlay Expression: speech-bubble reading time and the thinking ellipsis,
-  operated from src/bubble.js. A Generated page under ADR-0011. This file is
-  the chrome; durations and the speech-wins machine arrive by importing
-  bubble.js, which scripts/make-expression-page.py copies beside it at deploy.
-  Opened from a clone without that copy, the module 404s rather than inventing
-  a second formula.
-
-  The sprite is Buddy Bot, the shipped Character Package — its own frames at
-  its own fps, read from characters/buddy-bot/character.manifest by the same
-  script and rewritten into the <script id="sprite"> block below. The
-  committed block names the packages where this file can see them, two
-  directories up, so the paths it declares are checkable; the build rewrites
-  them to the copies it lays down beside the page, and fails if the manifest
-  and this block disagree.
-
-  Judge the page from the build, not from this directory: bubble.css is a
-  slice of src/main.css and cannot exist in a clone without inventing one, so
-  `python3 scripts/make-expression-page.py --out _site` and serve that.
+  Speech reading time and the thinking ellipsis, operated from src/bubble.js. Generated.
+  A clone without the copied module 404s rather than inventing a second formula. Judge the
+  page from the build, not from this directory.
 -->
 <html lang="en">
 <head>
@@ -264,11 +249,8 @@ const statusEl = document.getElementById("status");
 const turnEl = document.getElementById("turn");
 const desk = document.getElementById("desk");
 
-// The sprite. `talk` while a line is displayed, `idle` the rest of the time —
-// the two strips the Engine plays around Speech. The frame loop here is a
-// timer per Animation's own fps, not the Engine's; nothing on this page is
-// judging playback rate, and a port of the Engine's clock would drift from it
-// (ADR-0011).
+// The sprite plays `talk` while a line is up and `idle` the rest of the time. The frame loop
+// uses each Animation's own fps. Nothing here judges the Engine.
 const spriteEl = document.getElementById("sprite-img");
 const sprite = JSON.parse(document.getElementById("sprite").textContent);
 spriteEl.dataset.smooth = String(sprite.smooth);
@@ -377,19 +359,8 @@ function poke() {
   note(`reactive turn in flight · ellipsis after the ${THINKING_GRACE_MS} ms grace`);
 }
 
-// A proactive wake is the same machine with `thinking` never raised. The
-// Shell decides that, not this page: `Slots::thinking` is `waiting &&
-// reactive` (src-tauri/src/model.rs), and the frame's `thinking` is
-// `reactive_wake || slots.thinking(..)` (src-tauri/src/frame_loop.rs), so a
-// turn the user did not ask for cannot arm the grace however long it runs.
-//
-// What lands is still seen. `director::fallback` returns a proposal whose
-// `dialogue` reaches the frame like any other, so an unasked line opens the
-// bubble with nothing before it. "Proactive wakes stay invisible" in
-// GLOSSARY.md is the ellipsis entry and means the indicator, not the answer.
-//
-// The wait is this demo's pacing, not a shipped timer — long enough that the
-// grace above visibly passes with the indicator still down.
+// A proactive wake is the same machine with thinking never raised. The Shell decides that, not
+// this page. Fallback dialogue still reaches the frame, so an unasked line opens the bubble.
 const WAKE_WAIT_MS = 1500;
 let waking = null;
 

@@ -18,7 +18,6 @@ function stub(dir, name, body) {
   chmodSync(path, 0o755);
 }
 
-// Node passes an undefined env value on as the string "undefined".
 function session(display, wayland) {
   return {
     ...(display ? { DISPLAY: display } : {}),
