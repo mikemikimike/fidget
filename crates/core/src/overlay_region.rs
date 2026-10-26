@@ -32,13 +32,8 @@ pub struct Follows {
 }
 
 /// The rects a Windows region has to hold while the sprites they ride with
-/// move. A rect reaches the Shell a frame or more after the renderer measured
-/// it, and the region lands before or after the renderer draws the next
-/// placement, so a bubble kept only where it was measured loses its leading
-/// edge under a drag (#1568). Each following rect is stretched over every
-/// spot it is drawn at as its sprite crosses `placements`, the same trail the
-/// sprite's own ink is swept over (#1378). `placements` answers an Instance's
-/// recent top-lefts in overlay coordinates, or `None` when it is not here.
+/// move. A rect kept only where it was measured loses its leading edge under
+/// a drag, so each one is stretched over every spot its sprite is drawn at.
 pub fn follow_placements(
     rects: &[OverlayRect],
     placements: impl Fn(&str) -> Option<Vec<(i32, i32)>>,
@@ -243,10 +238,9 @@ mod tests {
         }
     }
 
-    /// #1568: a bubble measured with its sprite at (100, 200) while the drag
-    /// has since carried the sprite to (130, 190) is drawn 30px right and 10px
-    /// up. The region must hold it there and where it was measured, or Windows
-    /// clips the bubble's leading edge.
+    /// A bubble measured at sprite (100, 200), since dragged to (130, 190),
+    /// is drawn 30px right and 10px up. The region must hold both spots, or
+    /// Windows clips the leading edge.
     #[test]
     fn a_bubble_is_kept_over_every_spot_its_dragged_sprite_puts_it() {
         let bubble = riding([120, 80, 200, 90], "buddy", [100, 200]);
@@ -434,7 +428,7 @@ mod tests {
             .any(|&[left, top, right, bottom]| x >= left && x < right && y >= top && y < bottom)
     }
 
-    /// #1699: the shape hides whatever it leaves out, so it holds every
+    /// The shape hides whatever it leaves out, so it holds every
     /// Character on the overlay, not only the first.
     #[test]
     fn every_character_on_the_overlay_is_drawn() {
@@ -553,7 +547,7 @@ mod tests {
         }
     }
 
-    /// #1699: with no compositor the overlay shows what is drawn and nothing
+    /// With no compositor the overlay shows what is drawn and nothing
     /// else, and an overlay drawing nothing shows nothing rather than black.
     #[test]
     fn without_a_compositor_the_shape_follows_what_is_drawn() {

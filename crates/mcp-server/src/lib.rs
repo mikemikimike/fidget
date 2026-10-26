@@ -121,12 +121,9 @@ fn no_app(var: &str) -> String {
     format!("{var} is unset: fidget is not running, or this Harness dropped the environment it was given")
 }
 
-/// One line of stdio in, the line to write back out — `None` only for a
-/// notification, which gets no response.
-///
-/// Every other outcome is answered, because a request left unanswered is a
-/// Harness waiting forever. A failure is a JSON-RPC error; a notification that
-/// failed is a line on standard error alone.
+/// One line of stdio in, the line to write back, or `None` for a notification.
+/// A request left unanswered leaves the Harness waiting, so every other outcome
+/// is answered. A failure is a JSON-RPC error. A failed notification is stderr.
 pub fn relay(line: &str, endpoint: Result<&Endpoint, &str>) -> Option<String> {
     let id = serde_json::from_str::<Value>(line)
         .ok()

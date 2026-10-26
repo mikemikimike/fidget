@@ -93,11 +93,9 @@ fn shipped_packages() -> Vec<String> {
     names
 }
 
-/// `[source]` is optional to the loader and required of anything shipped here
-/// (#289). The gallery publishes what a package declares at a public URL, and
-/// a package that declares nothing gets no attribution panel at all — which is
-/// right for a stranger's package and wrong for one of ours. Nothing but this
-/// test makes the difference.
+/// `[source]` is optional to the loader and required of anything shipped here.
+/// The gallery publishes a package's attribution, so one of ours that declares
+/// nothing publishes art with no word on where it came from. Nothing else enforces this.
 #[test]
 fn every_shipped_package_declares_where_its_art_came_from() {
     for name in shipped_packages() {
@@ -314,7 +312,7 @@ fn dark_eyes_left_of_silhouette_mid(width: usize, height: usize, rgba: &[[u8; 4]
 
 /// Every grounded pose has a foot on the canvas bottom row. The airborne
 /// Animations are `fall` and the optional `grab`, which draws the sprite
-/// hanging from the cursor. #161.
+/// hanging from the cursor.
 #[test]
 fn timber_wolf_stands_on_the_canvas_floor() {
     for (animation, frame, bytes) in frames_of("timber-wolf") {
@@ -343,7 +341,7 @@ fn timber_wolf_stands_on_the_canvas_floor() {
     }
 }
 
-/// #161: one canvas for the package, silhouette heavy beside Jotaro's 110px
+/// One canvas for the package, silhouette heavy beside Jotaro's 110px
 /// without dwarfing the desktop.
 #[test]
 fn timber_wolf_frames_share_one_canvas_at_a_desktop_scale() {
@@ -431,7 +429,7 @@ fn mean_rgb_distance(a: &[[u8; 4]], b: &[[u8; 4]]) -> f64 {
     }
 }
 
-/// #161: idle, land, sit, sleep, hold, react and talk must each be their own
+/// Idle, land, sit, sleep, hold, react and talk must each be their own
 /// art — not byte-identical copies, and not near-duplicate frontals (mean RGB
 /// ~1-3) that look like one shared stand. Sit must also read as a hunker:
 /// clearly shorter silhouette than idle.
@@ -638,7 +636,7 @@ fn patrol_idle_art(character: &character::Character, seed: u64, stretches: usize
     art
 }
 
-/// #316: the TAC laser is a weighted draw taken when idle starts, so it
+/// The TAC laser is a weighted draw taken when idle starts, so it
 /// surfaces inside a Behavior's idle Primitive — a turn of under a second,
 /// which is the case an author is most likely to think is broken.
 #[test]
@@ -659,7 +657,7 @@ fn timber_wolf_scans_inside_a_behaviors_idle_primitive() {
     );
 }
 
-/// #316: the same seed and Character draw the same members in the same order.
+/// The same seed and Character draw the same members in the same order.
 /// A draw is the only thing deciding which member plays, so nothing else pins
 /// this.
 #[test]
@@ -680,9 +678,8 @@ fn the_same_seed_draws_timber_wolfs_variants_in_the_same_order() {
     );
 }
 
-/// #307: the laser on a window, which is what `PERCHED_IDLE_AFTER_MS` was
-/// tuned for and no longer has to be. A quiet perch leaves sit for idle, and
-/// that start is a draw like any other — whatever the timer's value.
+/// A quiet perch leaves sit for idle, and that start is a draw like any
+/// other, whatever `PERCHED_IDLE_AFTER_MS` is.
 #[test]
 fn timber_wolf_scans_on_the_first_perched_idle_whatever_the_seed() {
     let character = load_package("timber-wolf").expect("Timber Wolf package is valid");
@@ -737,7 +734,7 @@ fn timber_wolf_scans_on_the_first_perched_idle_whatever_the_seed() {
     );
 }
 
-/// #161: a patrol mech tracks a near contact and raises a weapon on a rush.
+/// A patrol mech tracks a near contact and raises a weapon on a rush.
 #[test]
 fn timber_wolf_declares_cursor_reactions() {
     let character = load_package("timber-wolf").expect("Timber Wolf package is valid");
@@ -1125,15 +1122,9 @@ fn buddy_bot_behaviors_cover_a_helpful_idle_life() {
     );
 }
 
-/// #368: `PRIMITIVE_MS` is the Engine's turn, not the art's length. Cat's idle
-/// runs 1200ms and the `waiting` variant of it 1000ms, so a Behavior stepping
-/// through idle has to leave whichever strip the ring drew running — a clock
-/// the Primitive restarted would replay the opening half-second of it and
-/// never the rest.
-///
-/// Through the Engine, because `draw` called with a chosen `ms` decides for
-/// itself when the clock started and so cannot disagree with the Engine about
-/// it. That is the seam the reset hid behind.
+/// `PRIMITIVE_MS` is the Engine's turn, not the art's length. Restarting that
+/// clock would replay the opening of the strip and never the rest. The test
+/// goes through the Engine, because `draw` with a chosen `ms` starts its own.
 #[test]
 fn a_behaviors_idle_sweeps_every_frame_of_the_strip_the_cat_drew() {
     let character = load_package("cat").expect("cat package is valid");
