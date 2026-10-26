@@ -454,6 +454,12 @@ uv run scripts/import-pet.py ~/.codex/pets/labubu --format petscodex -o characte
 
 `[source]` is filled from the pet's `pet.json`, with `url` pointing at its page. Also check every animation reads as its name, and that walk heads right. A pet whose art strays from petdex's row semantics is recut with `--walk-row`, `--mirror-walk`, or `--map`.
 
+Rubber Duck uses a dedicated cutter for all eleven source rows and grounded feet:
+
+```sh
+uv run scripts/import-rubber-duck.py ~/.codex/pets/rubber-duck-debugger
+```
+
 ### Shimeji Shop
 
 Download the pack's `.zip` from its gallery page. The importer wants per-pose PNGs named `shime1.png`, `shime2.png`, and so on, together in one folder at the pack's root or under it. Without an `actions.xml` it assumes Shimeji-ee's standard conf, which reads `shime1`-`shime14` and `shime18`-`shime21`. Pass the zip as is:

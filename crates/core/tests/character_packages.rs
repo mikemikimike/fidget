@@ -347,6 +347,10 @@ fn timber_wolf_stands_on_the_canvas_floor() {
 fn rubber_duck_stands_on_the_canvas_floor() {
     for (animation, frame, bytes) in frames_of("rubber-duck") {
         let (width, height, alpha) = frame_alpha(&bytes);
+        assert!(
+            (109..=115).contains(&height),
+            "{frame} must be 10–15% shorter than the original 128px canvas, got {height}px"
+        );
         let foot_pixels = alpha[(height - 1) * width..]
             .iter()
             .filter(|&&a| a >= character::ALPHA_THRESHOLD)
@@ -358,6 +362,71 @@ fn rubber_duck_stands_on_the_canvas_floor() {
              found {foot_pixels} pixels, so the sprite hovers"
         );
     }
+}
+
+#[test]
+fn rubber_duck_plays_thinking_and_looking_in_its_idle_rotation() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    assert_eq!(
+        character.art.len(),
+        74,
+        "all drawn source cells are available"
+    );
+    assert_eq!(character.animations["idle"].frames.len(), 7);
+
+    for (name, source_frames) in [
+        ("wave", 6),
+        ("thinking", 6),
+        ("pondering", 6),
+        ("look-right", 8),
+        ("look-left", 8),
+    ] {
+        assert!(character.animations["idle"]
+            .variants
+            .contains(&name.to_string()));
+        let animation = &character.animations[name];
+        assert!(animation.looping, "{name} repeats while idling");
+        assert_eq!(
+            animation.frames.iter().collect::<BTreeSet<_>>().len(),
+            source_frames
+        );
+
+        let seed = (0..4096)
+            .find(|seed| character.draw("idle", 0, *seed, 1.0).unwrap().animation == name)
+            .unwrap_or_else(|| panic!("{name} is unreachable from idle"));
+        for index in 0..animation.frames.len() {
+            let elapsed = (index as u32 * 1000).div_ceil(animation.fps);
+            let drawn = character.draw("idle", elapsed, seed, 1.0).unwrap();
+            assert_eq!(drawn.animation, name);
+            assert_eq!(drawn.index, index, "{name} reaches its complete loop");
+        }
+    }
+}
+
+#[test]
+fn rubber_duck_uses_its_drawn_left_walk() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    let left = character.draw("walk", 0, 0, -1.0).expect("walk draws");
+    assert_eq!(left.animation, "walk-left");
+    assert!(!left.mirrored);
+    assert_eq!(character.animations["walk-left"].frames.len(), 8);
+}
+
+#[test]
+fn rubber_duck_dozes_most_of_the_way_through_its_sleep_cycle() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    let sleep = &character.animations["sleep"];
+    assert!(sleep.looping);
+    assert_eq!(sleep.frames.iter().collect::<BTreeSet<_>>().len(), 8);
+    let closed = sleep
+        .frames
+        .iter()
+        .filter(|frame| matches!(frame.as_str(), "frames/doze-3.png" | "frames/doze-4.png"))
+        .count();
+    assert!(
+        closed * 5 >= sleep.frames.len() * 4,
+        "at least 80% of sleep stays on the closed-eye poses"
+    );
 }
 
 /// #161: one canvas for the package, silhouette heavy beside Jotaro's 110px
