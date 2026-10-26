@@ -1,6 +1,6 @@
 // A renderer test that needs more than 90 seconds is slow for a reason. Find it
 // (a launch per case, a missing kill, a cold start) and measure before raising
-// a budget. Cuts of 120s, 400s and 780s had hidden one.
+// a budget.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";

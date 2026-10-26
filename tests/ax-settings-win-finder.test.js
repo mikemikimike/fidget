@@ -1,6 +1,6 @@
-// The webview arm matched any Window named Settings, which is also the
-// Windows Settings app. Live UIA is not on this VM or in CI, so this parses
-// Find-SettingsWindow's conditions and applies them to fixtures.
+// A Window named Settings is also the Windows Settings app. Live UIA is not
+// on this VM or in CI, so this parses Find-SettingsWindow's conditions and
+// applies them to fixtures.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

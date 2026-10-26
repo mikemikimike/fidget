@@ -323,8 +323,7 @@ test("a row whose id is not its field name still draws the value the snapshot ca
 });
 
 // The Privacy row's id is the value-map key, not the label. Deriving the id
-// from the label left the checkbox unchecked whatever the grant said. The
-// label has been renamed again, which is the case this test exists for.
+// from the label leaves the checkbox unchecked whatever the grant says.
 test("the Privacy consent row keeps the id its value is keyed by, whatever it is named", () => {
   const label = "Window and application names";
   for (const [state, snap] of STATES) {

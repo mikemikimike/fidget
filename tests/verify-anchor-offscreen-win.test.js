@@ -64,7 +64,6 @@ function rect(left, top, width, height) {
   return { Left: left, Top: top, Right: left + width, Bottom: top + height };
 }
 
-// A 3440x1440 primary and a 1200x1920 portrait beside it.
 const monitors = [rect(0, 0, 3440, 1440), rect(3440, 0, 1200, 1920)];
 
 const parkedAnchor = { Name: "parkedAnchor", Class: "Tauri Window", Title: "Fidget", ...rect(-32000, -32000, 136, 39) };
@@ -102,8 +101,7 @@ test(
 );
 
 // spawnSync status is null, not 134, and stderr names the truncated MMI
-// assembly. The FileLoadException line alone already skipped the analyzer
-// hook. decide() was still asserting status 0.
+// assembly.
 const MACOS_PWSH_ABORT = `An error has occurred that was not properly handled. Additional information is shown below. The PowerShell process will exit.
 
 Unhandled exception. System.IO.FileLoadException: The given assembly name was invalid.
