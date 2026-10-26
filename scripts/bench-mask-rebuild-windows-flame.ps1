@@ -1,24 +1,35 @@
 # Record a WPR CPU trace, with stacks, while fidget rebuilds its click-through
 # region (#428). Windows only, from an elevated PowerShell: WPR needs admin.
 # Usage: scripts\bench-mask-rebuild-windows-flame.ps1 -Bin PATH\fidget.exe [-Out DIR] [-Target N] [-Seconds N]
+#          [-HalfWidth N -HalfHeight N] [-Instances NAME]
 #   FIDGET_BENCH_GREEN_LIGHT=1: the operator agreed to fidget on the desktop
 #   and to this script moving the pointer. Hands off the mouse while it runs.
 #
 # The pointer is held on the sprite's centre, which is what gates a rebuild,
-# until Target region rebuilds land or Seconds pass. Open trace.etl in WPA:
-# CPU Usage (Sampled), process fidget.exe, Flame by Stack. SetWindowRgn and
-# CombineRgn sit under fidget::platform::windows::overlay::apply_input_mask.
+# until Target region rebuilds land or Seconds pass. Target defaults to 100.
+# Seconds defaults to Target / 2 + 15, which allows 2 rebuilds a second, half
+# the rate seen on X11 (#428). The pointer goes to the sprite's top-left from
+# each frame line plus half the sprite size from the "overlay: ... sprite WxH"
+# line. HalfWidth and HalfHeight override that, and BMO's 63x64 is the
+# fallback when the line is missing.
+#
+# Open trace.etl in WPA: CPU Usage (Sampled), process fidget.exe, Flame by
+# Stack, and search for SetWindowRgn. Release builds can inline
+# overlay::apply_input_mask into overlay::update_input_region, or further into
+# the frame_loop closure that calls it, so read the frames above SetWindowRgn
+# and CombineRgn rather than looking for apply_input_mask by name.
 # Build with CARGO_PROFILE_RELEASE_DEBUG=line-tables-only so the PDB has frames.
 
 param(
     [Parameter(Mandatory = $true)]
     [string]$Bin,
     [string]$Out = "",
-    [int]$Target = 400,
-    [int]$Seconds = 60,
-    # Half the sprite's rendered size: BMO is 126x128 at 1x.
-    [int]$HalfWidth = 63,
-    [int]$HalfHeight = 64,
+    [int]$Target = 100,
+    # 0: Target / 2 + 15.
+    [int]$Seconds = 0,
+    # 0: half the size on the overlay line.
+    [int]$HalfWidth = 0,
+    [int]$HalfHeight = 0,
     [string]$Instances = "BMO"
 )
 
@@ -58,6 +69,8 @@ if ($status -match 'WPR is recording') {
     [Console]::Error.WriteLine("WPR is already recording. Stop that session first (wpr -cancel or wpr -stop).")
     exit 2
 }
+
+if ($Seconds -le 0) { $Seconds = [int][math]::Ceiling($Target / 2) + 15 }
 
 if (-not $Out) {
     $Out = Join-Path "E:\workspace\fidget-428-flame" (Get-Date -Format "yyyyMMdd-HHmmss")
@@ -147,11 +160,27 @@ if ((Wait-Tail $first 60).Count -eq 0) {
     exit 1
 }
 
+# The overlay line comes before the first frame line. Select-String reads the
+# log the app still has open, as Get-Content -Wait does.
+if ($HalfWidth -le 0 -or $HalfHeight -le 0) {
+    $overlay = Select-String -LiteralPath $processLog -Pattern 'overlay: \d+ display\(s\); sprite (\d+)x(\d+)' | Select-Object -Last 1
+    if ($overlay -and [int]$overlay.Matches[0].Groups[1].Value -gt 0) {
+        $w = [int]$overlay.Matches[0].Groups[1].Value
+        $h = [int]$overlay.Matches[0].Groups[2].Value
+        if ($HalfWidth -le 0) { $HalfWidth = [int]($w / 2) }
+        if ($HalfHeight -le 0) { $HalfHeight = [int]($h / 2) }
+    } else {
+        [Console]::Error.WriteLine("warning: no sprite size on an overlay line; using BMO's 63x64 half size")
+        if ($HalfWidth -le 0) { $HalfWidth = 63 }
+        if ($HalfHeight -le 0) { $HalfHeight = 64 }
+    }
+}
+
 & wpr.exe -start CPU -filemode
 if ($LASTEXITCODE -ne 0) { Stop-All; [Console]::Error.WriteLine("wpr -start CPU failed ($LASTEXITCODE)"); exit 1 }
 $recording = $true
 $since = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-Write-Host "recording; holding the pointer on $Instances until $Target region rebuilds or ${Seconds}s"
+Write-Host "recording; holding the pointer at sprite + ($HalfWidth,$HalfHeight) on $Instances until $Target region rebuilds or ${Seconds}s"
 
 $steer = Start-Job -ScriptBlock $tail -ArgumentList $processLog, $since, $true, $HalfWidth, $HalfHeight, $Target
 $lines = Wait-Tail $steer $Seconds
