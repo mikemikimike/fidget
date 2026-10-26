@@ -758,8 +758,10 @@
   background: linear-gradient(rgba(248,249,252,.93), rgba(242,244,248,.95));
 }
 
-/* macOS: the window's NSVisualEffectView blurs the desktop and stays active
-   when the window loses focus; the CSS blur could drop out there (#1854). */
+/* macOS: the window's NSVisualEffectView blurs the desktop instead. The CSS
+   blur drops after another Fidget window closes, such as Chat closing while
+   Settings is open (#1854). The cause is unproven; the best read is WebKit's
+   backdrop layer. The native view sits outside WebKit's layers. */
 [data-platform="macos"].chat-ui-glass body {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

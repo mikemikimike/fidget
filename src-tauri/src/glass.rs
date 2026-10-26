@@ -1,6 +1,9 @@
 //! Glass's blur on macOS: a native `NSVisualEffectView` behind the webview.
-//! CSS `backdrop-filter` alone can stop sampling the desktop once the window
-//! is inactive; AppKit's view is told outright to stay active.
+//! The CSS `backdrop-filter` blur drops from Settings about 1 s after another
+//! Fidget window closes, such as Chat closing while Settings is open (#1854).
+//! Focus loss alone keeps it. The best read, unproven, is that WebKit's
+//! backdrop layer stops sampling. AppKit's view sits outside WebKit's layers
+//! and is held active.
 
 #[cfg(any(target_os = "macos", test))]
 use tauri::utils::config::WindowEffectsConfig;
@@ -43,7 +46,7 @@ mod tests {
     use tauri::window::EffectState;
 
     #[test]
-    fn glass_blur_stays_active_when_its_window_loses_focus() {
+    fn glass_blur_is_held_active() {
         let glass = effects("glass").expect("Glass wears a window effect");
         assert_eq!(glass.state, Some(EffectState::Active));
     }
