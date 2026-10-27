@@ -163,7 +163,9 @@
     border-radius: 12px; padding: .75rem .5rem .6rem; text-align: center; }
   .cast .art { height: 96px; display: flex; align-items: flex-end; justify-content: center; }
   .cast img { max-height: 96px; max-width: 100%; }
-  .cast img.pixel { image-rendering: pixelated; height: 96px; }
+  /* A narrow card caps the width at 100% while the height stays 96px, so
+     contain letterboxes the art instead of stretching it. */
+  .cast img.pixel { image-rendering: pixelated; height: 96px; object-fit: contain; object-position: bottom; }
   .cast figcaption { font-size: .88rem; color: var(--ink-2); margin-top: .4rem; }
 
   .moment[hidden] { display: none; }
@@ -180,7 +182,7 @@
   .moment-cast .say::after { margin: 0 0 0 2px; }
   .moment-art { height: 96px; display: flex; align-items: flex-end; justify-content: center; }
   .moment-art img { max-height: 96px; max-width: 100%; }
-  .moment-art img.pixel { image-rendering: pixelated; height: 96px; }
+  .moment-art img.pixel { image-rendering: pixelated; height: 96px; object-fit: contain; object-position: bottom; }
   .moment-cast figcaption { margin: .5rem 0 .7rem; font-size: .88rem; color: var(--ink-2); }
   .moment-cast blockquote { margin: 0; padding-top: .6rem; align-self: stretch; border-top: 1px dashed var(--line);
     font-size: .85rem; font-style: italic; color: var(--ink-2); }
@@ -232,7 +234,7 @@
   .twist-scene .say::after { margin: 0 0 0 2px; }
   .twist-art { height: 96px; display: flex; align-items: flex-end; justify-content: center; }
   .twist-art img { max-height: 96px; max-width: 100%; }
-  .twist-art img.pixel { image-rendering: pixelated; height: 96px; }
+  .twist-art img.pixel { image-rendering: pixelated; height: 96px; object-fit: contain; object-position: bottom; }
   .twist-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem;
     margin-top: 1.5rem; }
   .twist-label { margin: 0; font-size: .8rem; color: var(--ink-3); }
