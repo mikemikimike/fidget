@@ -1,0 +1,285 @@
+# Source rows start at one. import-rubber-duck.py selects all eleven rows;
+# shared import-pet.py scales, registers, and aligns the solid foot baseline.
+# Standing height is 105px, reduced 12.5% from the default import.
+
+name = "Rubber Duck"
+render_mode = "smooth"
+scale = 1
+
+[source]
+art = "Rubber Duck Debugger, cut from the petscodex (petdex) pet `rubber-duck-debugger` by scripts/import-rubber-duck.py. A companion inspired by rubber duck debugging: patient listening that helps developers explain code, expose assumptions, and discover solutions."
+url = "https://petscodex.com/pets/rubber-duck-debugger"
+license = "MIT for these frames as cut and arranged here, along with the personality prose and the manifest. The art those frames adapt is not: it declares no license anywhere in the source ecosystem, and the importer warned so."
+
+# A patient listener leaves longer silences when nobody addresses it.
+
+[director]
+model_base = 2
+model_power = 1
+
+[cursor]
+near_reaction = "face"
+rush_reaction = "react"
+
+[animations.idle]
+frames = [
+  "frames/idle-0.png",
+  "frames/idle-1.png",
+  "frames/idle-2.png",
+  "frames/idle-3.png",
+  "frames/idle-4.png",
+  "frames/idle-5.png",
+  "frames/idle-6.png",
+]
+fps = 5
+weight = 10
+
+[animations.wave]
+frames = [
+  "frames/wave-0.png",
+  "frames/wave-1.png",
+  "frames/wave-2.png",
+  "frames/wave-3.png",
+  "frames/wave-4.png",
+  "frames/wave-5.png",
+]
+fps = 4
+variant_of = "idle"
+
+[animations.thinking]
+frames = [
+  "frames/thinking-0.png",
+  "frames/thinking-1.png",
+  "frames/thinking-2.png",
+  "frames/thinking-3.png",
+  "frames/thinking-4.png",
+  "frames/thinking-5.png",
+]
+fps = 3
+variant_of = "idle"
+
+[animations.pondering]
+frames = [
+  "frames/pondering-0.png",
+  "frames/pondering-1.png",
+  "frames/pondering-2.png",
+  "frames/pondering-3.png",
+  "frames/pondering-4.png",
+  "frames/pondering-5.png",
+]
+fps = 3
+variant_of = "idle"
+
+# Each head sweep returns along its own poses, avoiding a snap at the loop seam.
+[animations.look-right]
+frames = [
+  "frames/look-right-0.png",
+  "frames/look-right-1.png",
+  "frames/look-right-2.png",
+  "frames/look-right-3.png",
+  "frames/look-right-4.png",
+  "frames/look-right-5.png",
+  "frames/look-right-6.png",
+  "frames/look-right-7.png",
+  "frames/look-right-6.png",
+  "frames/look-right-5.png",
+  "frames/look-right-4.png",
+  "frames/look-right-3.png",
+  "frames/look-right-2.png",
+  "frames/look-right-1.png",
+]
+fps = 4
+variant_of = "idle"
+
+[animations.look-left]
+frames = [
+  "frames/look-left-0.png",
+  "frames/look-left-1.png",
+  "frames/look-left-2.png",
+  "frames/look-left-3.png",
+  "frames/look-left-4.png",
+  "frames/look-left-5.png",
+  "frames/look-left-6.png",
+  "frames/look-left-7.png",
+  "frames/look-left-6.png",
+  "frames/look-left-5.png",
+  "frames/look-left-4.png",
+  "frames/look-left-3.png",
+  "frames/look-left-2.png",
+  "frames/look-left-1.png",
+]
+fps = 4
+variant_of = "idle"
+
+[animations.walk]
+frames = [
+  "frames/walk-0.png",
+  "frames/walk-1.png",
+  "frames/walk-2.png",
+  "frames/walk-3.png",
+  "frames/walk-4.png",
+  "frames/walk-5.png",
+  "frames/walk-6.png",
+  "frames/walk-7.png",
+]
+fps = 8
+
+[animations.walk-left]
+frames = [
+  "frames/walk-left-0.png",
+  "frames/walk-left-1.png",
+  "frames/walk-left-2.png",
+  "frames/walk-left-3.png",
+  "frames/walk-left-4.png",
+  "frames/walk-left-5.png",
+  "frames/walk-left-6.png",
+  "frames/walk-left-7.png",
+]
+fps = 8
+left_of = "walk"
+
+[animations.talk]
+frames = [
+  "frames/talk-0.png",
+  "frames/talk-1.png",
+  "frames/talk-2.png",
+  "frames/talk-3.png",
+]
+fps = 6
+
+[animations.jump]
+frames = [
+  "frames/jump-0.png",
+  "frames/jump-1.png",
+  "frames/jump-2.png",
+  "frames/jump-3.png",
+  "frames/jump-4.png",
+]
+fps = 8
+loop = "once"
+
+[animations.fall]
+frames = [
+  "frames/jump-2.png",
+  "frames/jump-3.png",
+]
+fps = 6
+
+[animations.land]
+frames = [
+  "frames/jump-3.png",
+  "frames/jump-4.png",
+  "frames/idle-0.png",
+]
+fps = 6
+loop = "once"
+
+[animations.hold]
+frames = [
+  "frames/jump-1.png",
+  "frames/jump-2.png",
+]
+fps = 6
+
+[animations.react]
+frames = [
+  "frames/wave-0.png",
+  "frames/wave-1.png",
+  "frames/wave-2.png",
+  "frames/wave-3.png",
+  "frames/wave-4.png",
+  "frames/wave-5.png",
+]
+fps = 6
+loop = "once"
+
+[animations.sit]
+frames = [
+  "frames/pondering-0.png",
+  "frames/pondering-1.png",
+  "frames/pondering-2.png",
+  "frames/pondering-3.png",
+  "frames/pondering-4.png",
+  "frames/pondering-5.png",
+]
+fps = 3
+
+# Row 6 falls asleep and wakes up. Hold the closed-eye poses for 8 of 9.5 seconds.
+[animations.sleep]
+frames = [
+  "frames/doze-0.png",
+  "frames/doze-1.png",
+  "frames/doze-2.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-3.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-4.png",
+  "frames/doze-5.png",
+  "frames/doze-6.png",
+  "frames/doze-7.png",
+]
+fps = 4
+
+# Listening outweighs interruptions; a walk waits for a pause in typing.
+[behaviors.listen]
+play = ["idle"]
+weight = 50
+
+[behaviors.ask]
+play = ["talk", "idle"]
+weight = 10
+when = "idle under 1m"
+
+[behaviors.greet]
+play = ["talk"]
+then = "listen"
+weight = 20
+when = "idle under 10s"
+
+[behaviors.waddle]
+play = ["walk", "idle"]
+weight = 20
+when = "idle over 30s"
+
+[behaviors.ponder]
+play = ["sit"]
+then = "listen"
+weight = 30
+when = "idle over 1m"
+
+[behaviors.nap]
+play = ["sit", "sleep"]
+weight = 40
+when = "idle over 5m"
+
+[behaviors.wave]
+play = ["react"]
+weight = 0

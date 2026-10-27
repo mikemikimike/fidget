@@ -196,7 +196,7 @@ Search paths, in order. An earlier directory wins when two packages share a name
 
 The user directory is the same per-platform data directory as `settings.json`, with `characters` under it. The Settings window's Character picker shows that path.
 
-Eight characters ship: **Buddy Bot** (default), BMO, Nim, Black Mage, Cat, Jotaro Kujo, Timber Wolf, Trump.
+Nine characters ship: **Buddy Bot** (default), BMO, Nim, Black Mage, Cat, Jotaro Kujo, Rubber Duck, Timber Wolf, Trump.
 
 ### Writing a Character
 
@@ -422,6 +422,12 @@ Leave these out of a personality file. `character_prompt` in `crates/core/src/di
 cd src-tauri && FIDGET_INSTANCES="buddy-bot:One,buddy-bot:Two,nim:Nim" cargo run
 ```
 
+A single instance can use its package folder name without a colon:
+
+```sh
+FIDGET_INSTANCES=rubber-duck cargo run -p fidget
+```
+
 ## Importing Pets
 
 Translate [Pets Codex](https://petscodex.com/), [petdex](https://petdex.dev/), or [Shimeji Shop](https://shimejishop.com/) packs to Character Packages. `scripts/import-pet.py` needs Python 3.11 or newer, Pillow and defusedxml. Set it up once, from the repository root:
@@ -450,6 +456,12 @@ uv run scripts/import-pet.py ~/.codex/pets/labubu --format petscodex -o characte
 ```
 
 `[source]` is filled from the pet's `pet.json`, with `url` pointing at its page. Also check every animation reads as its name, and that walk heads right. A pet whose art strays from petdex's row semantics is recut with `--walk-row`, `--mirror-walk`, or `--map`.
+
+Rubber Duck uses a dedicated cutter for all eleven source rows and grounded feet:
+
+```sh
+uv run scripts/import-rubber-duck.py ~/.codex/pets/rubber-duck-debugger
+```
 
 ### Shimeji Shop
 

@@ -310,35 +310,189 @@ fn dark_eyes_left_of_silhouette_mid(width: usize, height: usize, rgba: &[[u8; 4]
     (sx / n, sil_mid)
 }
 
-/// Every grounded pose has a foot on the canvas bottom row. The airborne
-/// Animations are `fall` and the optional `grab`, which draws the sprite
-/// hanging from the cursor.
+// Clearance belongs to the art: Buddy Bot hovers, while Duck has planted feet.
+// Fall/grab strips can reserve space below curled feet independently of standing.
 #[test]
-fn timber_wolf_stands_on_the_canvas_floor() {
-    for (animation, frame, bytes) in frames_of("timber-wolf") {
-        let (width, height, alpha) = frame_alpha(&bytes);
-        let (_, bottom, bottom_pixels) = silhouette(width, height, &alpha);
-        let gap = height - 1 - bottom;
-
-        if matches!(animation.as_str(), "fall" | "grab") {
-            assert!(
-                (1..=20).contains(&gap),
-                "{frame} is a {animation} frame, so it hangs clear of the floor \
-                 by 1-20px, not {gap}px"
-            );
-            continue;
+fn shipped_frames_keep_their_authored_floor_clearance() {
+    let profiles = BTreeMap::from([
+        ("black-mage", (0, 0..=0)),
+        ("bmo", (1, 0..=2)),
+        ("buddy-bot", (20, 0..=25)),
+        ("cat", (9, 0..=3)),
+        ("jotaro-kujo", (2, 0..=2)),
+        ("nim", (1, 0..=1)),
+        ("rubber-duck", (0, 0..=0)),
+        ("timber-wolf", (0, 1..=20)),
+        ("trump", (8, 0..=6)),
+    ]);
+    for package in shipped_packages() {
+        let (grounded_max, airborne) = profiles
+            .get(package.as_str())
+            .unwrap_or_else(|| panic!("{package} needs an authored floor-clearance profile"));
+        for (animation, frame, bytes) in frames_of(&package) {
+            let (width, height, alpha) = frame_alpha(&bytes);
+            let bottom = alpha
+                .chunks_exact(width)
+                .rposition(|row| {
+                    row.iter()
+                        .filter(|&&a| a >= character::ALPHA_THRESHOLD)
+                        .count()
+                        >= FOOT_PIXELS
+                })
+                .unwrap_or_else(|| panic!("{package}/{frame} has no solid foot contact"));
+            let gap = height - 1 - bottom;
+            let permitted = if matches!(animation.as_str(), "fall" | "grab") {
+                airborne.clone()
+            } else {
+                0..=*grounded_max
+            };
+            assert!(permitted.contains(&gap),
+                "{package}/{frame} ({animation}) has {gap}px floor clearance; expected {permitted:?}");
         }
-
-        assert_eq!(
-            gap, 0,
-            "{animation} frame {frame} floats {gap}px above the canvas floor"
-        );
-        assert!(
-            bottom_pixels >= FOOT_PIXELS,
-            "{animation} frame {frame} touches the floor with only {bottom_pixels} pixels, \
-             which is a speck and not a leg"
-        );
     }
+}
+
+#[test]
+fn rubber_duck_keeps_its_smaller_standing_silhouette() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    let files = package_bytes("rubber-duck");
+    let tallest = character.animations["idle"]
+        .frames
+        .iter()
+        .map(|frame| {
+            let (width, height, alpha) = frame_alpha(&files[frame]);
+            let rows: Vec<_> = (0..height)
+                .filter(|&y| {
+                    alpha[y * width..(y + 1) * width]
+                        .iter()
+                        .any(|&a| a >= character::ALPHA_THRESHOLD)
+                })
+                .collect();
+            (rows.last().unwrap() - rows[0] + 1) * character.scale as usize
+        })
+        .max()
+        .unwrap();
+    assert!(
+        (102..=108).contains(&tallest),
+        "the standing silhouette must be 10–15% below 120px, got {tallest}px"
+    );
+}
+
+#[test]
+fn rubber_duck_jumps_above_the_floor_with_its_grounded_frames() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    let world = WorldSnapshot {
+        displays: vec![Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        }],
+        elapsed_ms: 100,
+        ..WorldSnapshot::default()
+    };
+    let mut engine =
+        Engine::new(Point { x: 100.0, y: 0.0 }).with_behaviors(character.behaviors.clone());
+    for _ in 0..40 {
+        engine.tick(&world);
+    }
+    let floor = engine.tick(&world).position.y;
+    engine.tick(&WorldSnapshot {
+        proposal: Some(BehaviorProposal {
+            behavior: "jump".into(),
+            dialogue: None,
+        }),
+        ..world.clone()
+    });
+
+    let mut peak = floor;
+    let mut landed = None;
+    for _ in 0..40 {
+        let frame = engine.tick(&world);
+        peak = peak.min(frame.position.y);
+        character
+            .draw(
+                frame.animation,
+                frame.animation_ms,
+                frame.variant_draw,
+                frame.facing,
+            )
+            .expect("the actual duck package draws every jump phase");
+        if peak < floor && frame.position.y == floor {
+            landed = Some(frame);
+            break;
+        }
+    }
+    assert!(
+        floor - peak > 50.0,
+        "the duck clears the floor: {floor} -> {peak}"
+    );
+    assert_eq!(landed.expect("the duck lands").animation, "land");
+}
+
+#[test]
+fn rubber_duck_plays_thinking_and_looking_in_its_idle_rotation() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    assert_eq!(
+        character.art.len(),
+        74,
+        "all drawn source cells are available"
+    );
+    assert_eq!(character.animations["idle"].frames.len(), 7);
+
+    for (name, source_frames) in [
+        ("wave", 6),
+        ("thinking", 6),
+        ("pondering", 6),
+        ("look-right", 8),
+        ("look-left", 8),
+    ] {
+        assert!(character.animations["idle"]
+            .variants
+            .contains(&name.to_string()));
+        let animation = &character.animations[name];
+        assert!(animation.looping, "{name} repeats while idling");
+        assert_eq!(
+            animation.frames.iter().collect::<BTreeSet<_>>().len(),
+            source_frames
+        );
+
+        let seed = (0..4096)
+            .find(|seed| character.draw("idle", 0, *seed, 1.0).unwrap().animation == name)
+            .unwrap_or_else(|| panic!("{name} is unreachable from idle"));
+        for index in 0..animation.frames.len() {
+            let elapsed = (index as u32 * 1000).div_ceil(animation.fps);
+            let drawn = character.draw("idle", elapsed, seed, 1.0).unwrap();
+            assert_eq!(drawn.animation, name);
+            assert_eq!(drawn.index, index, "{name} reaches its complete loop");
+        }
+    }
+}
+
+#[test]
+fn rubber_duck_uses_its_drawn_left_walk() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    let left = character.draw("walk", 0, 0, -1.0).expect("walk draws");
+    assert_eq!(left.animation, "walk-left");
+    assert!(!left.mirrored);
+    assert_eq!(character.animations["walk-left"].frames.len(), 8);
+}
+
+#[test]
+fn rubber_duck_dozes_most_of_the_way_through_its_sleep_cycle() {
+    let character = load_package("rubber-duck").expect("Rubber Duck package is valid");
+    let sleep = &character.animations["sleep"];
+    assert!(sleep.looping);
+    assert_eq!(sleep.frames.iter().collect::<BTreeSet<_>>().len(), 8);
+    let closed = sleep
+        .frames
+        .iter()
+        .filter(|frame| matches!(frame.as_str(), "frames/doze-3.png" | "frames/doze-4.png"))
+        .count();
+    assert!(
+        closed * 5 >= sleep.frames.len() * 4,
+        "at least 80% of sleep stays on the closed-eye poses"
+    );
 }
 
 /// One canvas for the package, silhouette heavy beside Jotaro's 110px

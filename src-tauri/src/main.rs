@@ -6479,6 +6479,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rubber_duck_instance_resolves_the_shipped_package() {
+        let specs = roster::parse_specs("rubber-duck").expect("instance spec parses");
+        let (character, _) = load_from(
+            &[shipped_characters()],
+            Some(OsStr::new(&specs[0].character)),
+        )
+        .expect("Rubber Duck is shipped");
+        assert_eq!(character.name, "Rubber Duck");
+    }
+
     fn shipped_characters() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../characters")
     }
@@ -6490,7 +6501,7 @@ mod tests {
         let shipped = shipped_characters();
         let chosen = choose_character(
             std::slice::from_ref(&shipped),
-            Some(OsStr::new("rubber-duck")),
+            Some(OsStr::new("uninstalled-test-character")),
         )
         .expect("Buddy Bot is shipped");
         assert_eq!(chosen.character.name, "Buddy Bot");
@@ -6498,7 +6509,7 @@ mod tests {
             chosen.fell_back_from.as_deref(),
             Some(
                 format!(
-                    "no Character Package named rubber-duck loaded. Fidget looked in: {}",
+                    "no Character Package named uninstalled-test-character loaded. Fidget looked in: {}",
                     shipped.display()
                 )
                 .as_str()
@@ -6509,20 +6520,20 @@ mod tests {
     #[test]
     fn a_character_whose_package_does_not_load_falls_back_to_buddy_bot() {
         let user = tempfile::tempdir().expect("temp dir");
-        let broken = user.path().join("rubber-duck");
+        let broken = user.path().join("broken-test-character");
         std::fs::create_dir(&broken).expect("package dir");
         std::fs::write(broken.join("character.manifest"), "not a manifest").expect("manifest");
 
         let chosen = choose_character(
             &[user.path().to_path_buf(), shipped_characters()],
-            Some(OsStr::new("rubber-duck")),
+            Some(OsStr::new("broken-test-character")),
         )
         .expect("Buddy Bot is shipped");
         assert_eq!(chosen.character.name, "Buddy Bot");
         assert_eq!(
             chosen.fell_back_from,
             Some(format!(
-                "no Character Package named rubber-duck loaded. Fidget looked in: {}, {}",
+                "no Character Package named broken-test-character loaded. Fidget looked in: {}, {}",
                 user.path().display(),
                 shipped_characters().display()
             ))
