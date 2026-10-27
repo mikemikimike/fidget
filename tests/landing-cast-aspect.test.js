@@ -33,10 +33,15 @@ const probe = `
         .map((img) => {
           const box = img.getBoundingClientRect();
           const art = painted(img, box);
+          const room = img.parentElement.getBoundingClientRect();
           return { alt: img.alt, pixel: img.classList.contains("pixel"), natural: img.naturalWidth / img.naturalHeight,
-            drawn: art.width / art.height, height: art.height, inside: box.width <= img.parentElement.clientWidth + 0.5 };
+            drawn: art.width / art.height, width: art.width, height: art.height, cast: !!img.closest("#characters"),
+            inside: box.width <= room.width + 0.5 && box.height <= room.height + 0.5 };
         });
-      console.log("__PROBE_RESULT__" + JSON.stringify({ sprites }));
+      // Cards in the cast's first row: those level with the first card.
+      const cards = [...document.querySelectorAll("#characters .cast figure")];
+      const columns = cards.filter((card) => Math.abs(card.offsetTop - cards[0].offsetTop) < 1).length;
+      console.log("__PROBE_RESULT__" + JSON.stringify({ sprites, columns, cards: cards.length }));
     } catch (err) {
       console.log("__PROBE_RESULT__" + JSON.stringify({ error: String(err) }));
     }
@@ -68,7 +73,7 @@ async function layOut(width, height) {
   }
 }
 
-for (const [label, width, height] of [["a 412px phone", 412, 915], ["a 1280px desktop", 1280, 800]]) {
+for (const [label, width, height] of [["a 412px phone", 412, 915], ["a 360px phone", 360, 800], ["a 1280px desktop", 1280, 800]]) {
   test(`on ${label}, every character sprite keeps its own aspect ratio`, { skip: chromeSkip }, async () => {
     const { error, sprites } = await layOut(width, height);
     assert.equal(error, undefined);
@@ -76,7 +81,23 @@ for (const [label, width, height] of [["a 412px phone", 412, 915], ["a 1280px de
     for (const s of sprites) {
       assert.ok(Math.abs(s.drawn / s.natural - 1) <= 0.02, `${s.alt} is drawn ${s.drawn.toFixed(3)} wide per tall, not ${s.natural.toFixed(3)}`);
       assert.ok(s.inside, `${s.alt} fits its card`);
-      assert.ok(s.height <= 96.5, `${s.alt} is at most 96px tall, not ${s.height}`);
     }
   });
 }
+
+// A wide sprite fills its card's width before its height, so "bigger" is its longer side.
+test("on a 412px phone, the cast is three cards a row with sprites past the old 96px cap", { skip: chromeSkip }, async () => {
+  const { error, sprites, columns } = await layOut(412, 915);
+  assert.equal(error, undefined);
+  assert.equal(columns, 3);
+  for (const s of sprites.filter((one) => one.cast)) {
+    assert.ok(Math.max(s.width, s.height) > 96, `${s.alt} is drawn ${s.width.toFixed(1)}x${s.height.toFixed(1)}`);
+  }
+});
+
+test("on a 1280px desktop, the cast is one row of 96px-tall art", { skip: chromeSkip }, async () => {
+  const { error, sprites, columns, cards } = await layOut(1280, 800);
+  assert.equal(error, undefined);
+  assert.equal(columns, cards);
+  for (const s of sprites) assert.ok(s.height <= 96.5, `${s.alt} is at most 96px tall, not ${s.height}`);
+});
