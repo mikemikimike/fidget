@@ -28,3 +28,24 @@ updates:
       interval: "weekly"
     labels:
       - "maintenance"
+
+  - directory: "/"
+    package-ecosystem: "npm"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "maintenance"
+
+  - directory: "/scripts"
+    package-ecosystem: "pip"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "maintenance"
+
+  - directory: "/"
+    package-ecosystem: "pre-commit"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "maintenance"
