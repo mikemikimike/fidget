@@ -29,6 +29,9 @@ updates:
     labels:
       - "maintenance"
 
+  # marked is vendored as src/vendor/marked.esm.js. A marked bump must
+  # re-vendor that file per src/vendor/README.md, or the test that checks
+  # package.json against the vendored copy fails.
   - directory: "/"
     package-ecosystem: "npm"
     schedule:
