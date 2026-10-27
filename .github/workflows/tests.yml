@@ -90,7 +90,8 @@ jobs:
       - name: Install shfmt
         # jq, not a regex: POSIX ERE has no lazy `.+?`, so a regex over the JSON
         # matches kilobytes. Authenticated, because hosted runners share the
-        # 60-an-hour anonymous API limit and the query 403s at random.
+        # 60-an-hour anonymous API limit and the query 403s at random. Pinned,
+        # because shfmt releases format the same script differently.
         if: steps.changes.outputs.code == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -104,7 +105,7 @@ jobs:
           esac
           url=$(curl -fsSL --retry 3 --retry-all-errors \
             -H "Authorization: Bearer $GH_TOKEN" \
-            https://api.github.com/repos/mvdan/sh/releases/latest \
+            https://api.github.com/repos/mvdan/sh/releases/tags/v3.14.1 \
             | jq -r --arg asset "$asset" \
               '.assets[] | select(.name | endswith($asset)) | .browser_download_url')
           if [ -z "$url" ]; then
