@@ -12,7 +12,7 @@ import { chromeSkip, chromePath, launchWithPipe, createPageTarget, captureConsol
 import { tempDir } from "./temp-path.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const PROBE_MS = 5000;
+const PROBE_MS = 3000;
 
 // The painted picture's size: `fill` stretches it to the box, `contain`
 // letterboxes it. Any other object-fit is new to the page, so it throws.
