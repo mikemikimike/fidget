@@ -85,7 +85,7 @@ CONTEXT.md vocabulary. fidget column is honest about what is and is not built.
 
 | Project | Target User | Core use case | Main strength | Main weakness | Evidence quality |
 |---|---|---|---|---|---|
-| fidget | personality-driven desktop mascot fans; later attach own agent | personality-driven idle AI behavior + physics | personality-driven AI behavior via Director + authored personality.txt, plus Spatial (Perches, throw, hide, capture exclusion); Harness ACP Completer + MCP server + Summon chat shipped (2026-09-07/08) | Windows NSIS ships (some platform cells stub/degraded); nine Character Packages (black-mage, bmo, buddy-bot, cat, jotaro-kujo, nim, rubber-duck, timber-wolf, trump); no Steam — itch.io page + Homebrew cask (macOS arm64) + GitHub Releases | high for own spec/ship split |
+| fidget | personality-driven desktop mascot fans; later attach own agent | personality-driven idle AI behavior + physics | personality-driven AI behavior via Director + authored personality.txt, plus Spatial (Perches, throw, hide, capture exclusion); Harness ACP Completer + MCP server + Summon chat shipped (2026-09-07/08) | Windows NSIS ships (some platform cells stub/degraded); a growing set of built-in Character Packages (e.g. buddy-bot, nim, rubber-duck); no Steam — itch.io page + Homebrew cask (macOS arm64) + GitHub Releases | high for own spec/ship split |
 | Desktop Mate | licensed 3D fans (Miku, Sanrio, VTubers) | character catalog on Steam | Steam reach + 41 official DLC | Mixed reviews (61%); DLC/mod revolt; no official Linux | 2M = vendor claim; reviews real |
 | VPet | free care-sim + Workshop fans | feed/bathe/Workshop content | 51,874 reviews (98%), Workshop open | Windows-only official; Proton transparency issues | review proof strong |
 | Shimeji-ee | classic 2D fan mascots (decades of packs) | my character via folklore (Java, img/) | 1000s free packs + throw/climb prior art | Windows+Java official; forks elsewhere; no agent | Android 500K+; desktop no central count |
@@ -149,7 +149,7 @@ cash grab," "removed mod support to make you purchase the overpriced DLC,"
 this" (594014141938699644); VaporLens sentiment: 22% recommend MateEngine.
 
 **Differences.** Desktop Mate is commercial DLC-driven (41 official DLC;
-character packs $7.49–$14.99 each); fidget has nine Character Packages, internal
+character packs $7.49–$14.99 each); fidget has a growing set of built-in Character Packages, internal
 package format (undocumented until v2), and import adapters for petdex / Pets
 Codex and Shimeji-ee ecosystems. User preference: official SKUs vs *my* character.
 Desktop Mate has no ballistic physics, no agent integrations, no BYO character
@@ -279,7 +279,7 @@ list.
 chat via user's OpenAI key, while fidget ships Director + authored
 personality-driven idle speech (Character talks in-character while living on
 windows, not a chat window). Desktop Pet is beta with limited character selection
-(1 shipped, +2 soon) and no public validation; fidget has nine Character Packages,
+(1 shipped, +2 soon) and no public validation; fidget has a growing set of built-in Character Packages,
 internal package format, and import adapters for petdex / Pets Codex
 and Shimeji-ee. Desktop Pet has no ballistic physics, no Perches, no window
 awareness. Desktop Pet's AI is an OpenAI chat window; fidget's Director drives
@@ -339,7 +339,7 @@ local-first + BYO model. OpenPets ships MCP (`openpets_status`, `openpets_react`
 `openpets_say`) and plugin SDK v3 today; fidget ships Harness ACP Completer
 (#433 2026-09-07) + MCP server (loopback HTTP + stdio fallback, #117/#491/#497
 2026-09-08). OpenPets has mature catalog (openpets.dev) and 9 official plugins;
-fidget has nine Character Packages and no plugin system. fidget adds
+fidget has a growing set of built-in Character Packages and no plugin system. fidget adds
 ballistic physics (gravity arcs, throw, Perches with acceleration gate) and
 window awareness; OpenPets has gravity overlay but no Perch riding or window app
 name tracking. OpenPets plugin runtime is sandboxed Electron BrowserWindows with
@@ -498,8 +498,8 @@ package-authored.
    Workshop-open is the actual ecosystem strength (98% of 51,874 reviews).
    MateEngine: VRM + Workshop-open, free, the switching target after Desktop
    Mate disabled mods (3,709 stars + 1,032 Steam reviews 97%). Shimeji-ee: 1000s
-   free packs, community folklore. OpenPets: openpets.dev catalog. fidget: nine
-   Character Packages + `scripts/import-pet.py` (petdex + Shimeji-ee) =
+   free packs, community folklore. OpenPets: openpets.dev catalog. fidget: a growing
+   set of built-in Character Packages + `scripts/import-pet.py` (petdex + Shimeji-ee) =
    authoring-time import, not a live gallery or first-party store.
 
 2. **Agent integrations shipped:** Desktop Pet has OpenAI chat (vendor-only
@@ -547,8 +547,8 @@ config #1024; `antigravity` named+verified #1143, Google first-party ACP
 run with goose, copilot, and codex; prior ACP: cursor-agent #762, grok #587,
 codex #623, pi #628).
 The README Get It section, #1204, and #1259 record the Homebrew cask. The tap
-`omesser/homebrew-fidget` cask is bumped on each Release (#1736) and pins
-v0.7.0 for macOS arm64 as of 2026-10-27. Each stable Release is pushed to
+`omesser/homebrew-fidget` cask (macOS arm64) is bumped automatically on each
+Release (#1736). Each stable Release is pushed to
 [itch.io](https://omesser.itch.io/fidget) with butler (#1774); Windows, macOS,
 and Linux builds are listed there.
 Similar projects verified against Steam pages (Desktop Mate [App ID
