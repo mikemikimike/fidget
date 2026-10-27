@@ -75,13 +75,17 @@ repos:
       - id: pretty-format-yaml
         args: [--autofix, --indent, '2', '--offset', '2', --preserve-quotes]
 
-    # Shell formatting and check
-  - repo: https://github.com/jumanjihouse/pre-commit-hooks
-    rev: 3.0.0
+    # Shell formatting and check. The shfmt hook installs a prebuilt shfmt of
+    # the version in its rev, so this file alone pins it, locally and in CI.
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.14.1-1
     hooks:
       - id: shfmt
         args: ['-l', '-i', '2', '-ci', '-sr', '-w']
         exclude: *vendored
+  - repo: https://github.com/jumanjihouse/pre-commit-hooks
+    rev: 3.0.0
+    hooks:
       - id: shellcheck
         exclude: *vendored
 

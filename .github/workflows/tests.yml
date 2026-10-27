@@ -87,34 +87,6 @@ jobs:
           # A red run is the one about to be pushed again; keep its cache warm.
           cache-on-failure: true
 
-      - name: Install shfmt
-        # jq, not a regex: POSIX ERE has no lazy `.+?`, so a regex over the JSON
-        # matches kilobytes. Authenticated, because hosted runners share the
-        # 60-an-hour anonymous API limit and the query 403s at random. Pinned,
-        # because shfmt releases format the same script differently.
-        if: steps.changes.outputs.code == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          case "$(uname -s)_$(uname -m)" in
-            Linux_x86_64)  asset=_linux_amd64 ;;
-            Linux_aarch64) asset=_linux_arm64 ;;
-            Darwin_arm64)  asset=_darwin_arm64 ;;
-            Darwin_x86_64) asset=_darwin_amd64 ;;
-            *) echo "no shfmt asset known for $(uname -s) $(uname -m)"; exit 1 ;;
-          esac
-          url=$(curl -fsSL --retry 3 --retry-all-errors \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            https://api.github.com/repos/mvdan/sh/releases/tags/v3.14.1 \
-            | jq -r --arg asset "$asset" \
-              '.assets[] | select(.name | endswith($asset)) | .browser_download_url')
-          if [ -z "$url" ]; then
-            echo "no shfmt release asset ending in $asset"; exit 1
-          fi
-          curl -fsSL --retry 3 --retry-all-errors -o shfmt "$url"
-          chmod +x shfmt && sudo mv shfmt /usr/local/bin/
-          shfmt --version
-
       - name: Install shellcheck
         # Linux gets shellcheck from apt below, so apt updates once.
         # No auto-update: it refreshes every formula before this install.
@@ -288,7 +260,7 @@ jobs:
           pip install pillow
           node --test tests/*.test.js
 
-  # Own job: Windows cannot run the shfmt/shellcheck/apt path `checks` uses.
+  # Own job: Windows cannot run the shellcheck/apt path `checks` uses.
   # Clippy always runs — a path gate would miss `not(unix)` arms outside the list.
   # Tests only on the path list below, the `windows` label, or non-PR events.
   windows:
