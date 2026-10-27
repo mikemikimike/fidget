@@ -358,7 +358,7 @@ body {
 
 
 /* One cue per interaction, over the sprite and gone in under half a second.
-   Keyframes were decided in docs/design/cues.html. Opacity and transform
+   Keyframes were decided in website/cues.html. Opacity and transform
    only. Nothing here may cost a repaint. */
 :root {
   --cue-stroke: #ffffff;

@@ -8,7 +8,7 @@ A Generated page under ADR-0038. The headline, opening paragraph, feature list,
 How It Works labels, Harness names, install notes, FAQ and opening hero video
 are read from README.md;
 the cast, count and sprites are read from Character Manifests. The page shell
-is docs/design/landing.html, with double-brace slots this script fills. A
+is website/landing.html, with double-brace slots this script fills. A
 source it cannot find fails the build.
 
 Two sources are optional. Without the hero video the desk scene stands in.
@@ -30,7 +30,7 @@ src/main.css and src/cue.js. Its picker offers every Character, so each must
 carry every loop in PLAY_LOOPS. Its still tiles name their Characters in
 PLAY_TILES. A loop or constant it cannot find fails the build.
 
-Every other page in `<out>` gets the same site header, docs/design/site-nav.html,
+Every other page in `<out>` gets the same site header, website/site-nav.html,
 right after its `<body>`, and every page, this one included, gets the GoatCounter
 visit counter right before its `</head>`, so assemble-site.sh runs this script
 after the steps that publish pages.
@@ -57,9 +57,9 @@ import zlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 CHARACTERS = ROOT / "characters"
-SHELL = ROOT / "docs" / "design" / "landing.html"
-NAV = ROOT / "docs" / "design" / "site-nav.html"
-MOMENTS = ROOT / "docs" / "design" / "moments.json"
+SHELL = ROOT / "website" / "landing.html"
+NAV = ROOT / "website" / "site-nav.html"
+MOMENTS = ROOT / "website" / "moments.json"
 PAGE = "index.html"
 REPO = "https://github.com/omesser/fidget"
 # GoatCounter's snippet for the site `fidget`, as its docs gave it on 2026-10-21 (#1753).
@@ -67,7 +67,7 @@ COUNTER = '<script data-goatcounter="https://fidget.goatcounter.com/count" async
 # The README names Buddy Bot as the default Character; the hero is that one.
 HERO = "buddy-bot"
 # The twist toy's lines; its prompts come from the README's Instance Prompt table.
-TWISTS = ROOT / "docs" / "design" / "twists.json"
+TWISTS = ROOT / "website" / "twists.json"
 # What the README's Instance Prompt setup list names, so the page's small print stays true.
 TWIST_SETUP = ("[Harness]", "Model API", "**Window and application names** consent")
 # The small print under a prompt that names no setup of its own in twists.json.

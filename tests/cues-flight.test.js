@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
 
-const html = readFileSync(new URL("../docs/design/cues.html", import.meta.url), "utf8");
+const html = readFileSync(new URL("../website/cues.html", import.meta.url), "utf8");
 
 function loadFlight() {
   const start = html.indexOf("const GRAVITY = 3600;");

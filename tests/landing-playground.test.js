@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { animationOf, character, decodePresses, feet, pick, step } from "../docs/design/playground.js";
+import { animationOf, character, decodePresses, feet, pick, step } from "../website/playground.js";
 
 const TUNING = {
   gravity: 3600, walkSpeed: 120, primitiveMs: 600, pokeCooldownMs: 2500, perchedIdleAfterMs: 4000,

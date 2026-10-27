@@ -6,7 +6,7 @@
 
 Reads every Character Manifest, copies the frames the manifests name into
 `<out>/characters/`, and writes `<out>/characters.html` — the page shell in
-docs/design/characters.html with its data block substituted. A Generated page
+website/characters.html with its data block substituted. A Generated page
 under ADR-0011: the manifests are the source of the frame count, fps, loop,
 render_mode, scale, weight, variant rings and attribution the page shows, so a
 page that disagrees with a package cannot be deployed.
@@ -42,7 +42,7 @@ import tomllib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHARACTERS = ROOT / "characters"
 RUST = ROOT / "crates" / "core" / "src" / "character.rs"
-SHELL = ROOT / "docs" / "design" / "characters.html"
+SHELL = ROOT / "website" / "characters.html"
 PLACEHOLDER = '{"characters": [], "required": [], "defaults": {}}'
 
 # Packages that stay off the published page, and why. The gallery is a public

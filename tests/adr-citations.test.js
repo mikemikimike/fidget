@@ -10,7 +10,7 @@ import { test } from "node:test";
 const repo = new URL("..", import.meta.url);
 
 // Empty on purpose. A code citation of a superseded or removed ADR fails this test.
-// Markdown, `docs/` and `.agents/` stay exempt. Narrating a supersession is
+// Markdown, `docs/`, `website/` and `.agents/` stay exempt. Narrating a supersession is
 // what prose is for, and a Dated page keeps the link it shipped with.
 const KNOWN_STALE = {};
 
@@ -41,6 +41,7 @@ function citedStale(live) {
     const exempt =
       path.endsWith(".md") ||
       path.startsWith("docs/") ||
+      path.startsWith("website/") ||
       path.startsWith(".agents/");
     if (exempt) continue;
     let text;
