@@ -88,6 +88,13 @@ impl Voice {
             failed => failed,
         }
     }
+
+    /// Whether a reply still streaming is so far a line the turn already
+    /// said through `speak`, so the bubble does not say it a second time.
+    pub fn repeats(&self, so_far: &str) -> bool {
+        let so_far = so_far.trim();
+        !so_far.is_empty() && self.said.iter().any(|spoken| spoken.starts_with(so_far))
+    }
 }
 
 /// A hold on a spoken line or an ask, owned by the shell.
@@ -172,6 +179,15 @@ mod tests {
             reply("Celebrate", None),
             "the Behavior plays, the line is not repeated"
         );
+    }
+
+    #[test]
+    fn a_streaming_reply_is_held_back_while_it_repeats_a_speak_line() {
+        let mut voice = Voice::default();
+        voice.heard("Tests pass!", IN_TURN);
+        assert!(voice.repeats("Tests pa"));
+        assert!(!voice.repeats("Tests passed, all"));
+        assert!(!voice.repeats(" "));
     }
 
     #[test]

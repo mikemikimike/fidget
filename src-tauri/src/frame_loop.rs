@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ use fidget_core::roster::{InstanceId, Roster};
 use fidget_core::scheduler;
 use fidget_core::sensing::{Activity, DesktopSense, SystemClock};
 use fidget_core::snapshot::SnapshotAssembler;
-use fidget_core::speech;
+use fidget_core::speech::{self, Heard, Moment, Voice};
 use fidget_core::visibility::{fullscreen_displays, Change, Desktop, HideRules};
 use fidget_core::window_source::{Rect, WindowSource};
 use tauri::{Emitter, Manager};
@@ -188,6 +189,9 @@ pub(crate) fn run_frame_loop(
         } = extras;
         let mut caffeinate_switch = crate::caffeinate::Caffeinate::new();
         let mut slots = completer::Slots::new();
+        // Beside `slots` rather than in `InstanceState`: `answer_tool_call` reaches
+        // it while the Roster is borrowed for the same call.
+        let mut voices: HashMap<InstanceId, Voice> = HashMap::new();
         publish_instances(&roster, &instance_rows);
         let (mut tray_actions, mut last_menu) = {
             let installed: Vec<String> = characters.keys().cloned().collect();
@@ -1151,19 +1155,44 @@ pub(crate) fn run_frame_loop(
                 .map(|settings| settings.caffeinate_flags())
                 .unwrap_or(Err(fidget_core::caffeinate::Empty));
             caffeinate_switch.set_flags(caffeinate_configured);
+            let mut moments: HashMap<InstanceId, Moment> = HashMap::new();
             while let Ok(call) = mcp.try_recv() {
+                if moments.is_empty() {
+                    let now = Instant::now();
+                    moments = lives
+                        .iter()
+                        .map(|live| {
+                            let moment = Moment {
+                                turn_open: slots.waiting(&live.id),
+                                do_not_disturb: roster
+                                    .get(&live.id)
+                                    .is_some_and(|instance| instance.do_not_disturb()),
+                                bubble_held: live.speech.visible_at(now),
+                            };
+                            (live.id.clone(), moment)
+                        })
+                        .collect();
+                }
                 let excluded = settings
                     .lock()
                     .map(|settings| settings.excluded_applications.clone())
                     .unwrap_or_default();
-                answer_tool_call(
+                let spoke = answer_tool_call(
                     call,
-                    &mut roster,
+                    &mut Speaking {
+                        roster: &mut roster,
+                        moments: &mut moments,
+                        voices: &mut voices,
+                        spoke: Vec::new(),
+                    },
                     assembler.source(),
                     excluded,
                     &displays,
                     Some(&mut caffeinate_switch),
                 );
+                for spoke in spoke {
+                    transcribe(&app, &lives, spoke);
+                }
             }
             let (caffeinate_fact, caffeinate_drawn) = {
                 let mut requests = Vec::new();
@@ -1559,6 +1588,13 @@ pub(crate) fn run_frame_loop(
                 let mut proposal = None;
                 let arrived = match slots.take(&live.id) {
                     Some(completer::Arrived::Answered(answered)) => Some(*answered),
+                    Some(completer::Arrived::Speech(line))
+                        if voices
+                            .get(&live.id)
+                            .is_some_and(|voice| voice.repeats(&line)) =>
+                    {
+                        None
+                    }
                     // A line with no Behavior, so `talk` plays while it grows.
                     // The reply's own Behavior is applied when it lands. The same
                     // speech updates the Chat row so both surfaces stream together.
@@ -1588,6 +1624,13 @@ pub(crate) fn run_frame_loop(
                     }
                     None => None,
                 };
+                // Settled before anything reads the wake, so a turn that spoke
+                // through `speak` and replied with nothing is not a failure.
+                let arrived = arrived.map(|mut answered| {
+                    let voice = voices.entry(live.id.clone()).or_default();
+                    answered.wake = voice.settle(answered.wake, answered.silent);
+                    answered
+                });
                 let applied = arrived.is_some();
 
                 let answering_chat = arrived
@@ -1617,6 +1660,7 @@ pub(crate) fn run_frame_loop(
                     near_miss,
                     truncated: cut_off,
                     peeled_thought,
+                    silent: _,
                 }) = arrived
                 {
                     truncated = cut_off;
@@ -1914,6 +1958,7 @@ pub(crate) fn run_frame_loop(
                                 false
                             }
                             completer::Woke::Started => {
+                                voices.entry(live.id.clone()).or_default().opened();
                                 // One panel for however many Instances are running, so it shows
                                 // the newest call, and the last payload sent is the honest answer.
                                 if let Ok(mut inspect) = inspect.lock() {
@@ -2920,17 +2965,119 @@ fn replace_session(
     }
 }
 
+/// One `speak` line and what became of it, for Chat and the Action Log.
+#[derive(Debug, PartialEq)]
+struct Spoke {
+    instance: InstanceId,
+    line: String,
+    heard: Heard,
+    turn_open: bool,
+}
+
+/// The Roster as a tool call reaches it. A `speak` line goes through its
+/// Instance's `Voice` before it is queued, and is kept for the transcript.
+struct Speaking<'a> {
+    roster: &'a mut Roster,
+    moments: &'a mut HashMap<InstanceId, Moment>,
+    voices: &'a mut HashMap<InstanceId, Voice>,
+    spoke: Vec<Spoke>,
+}
+
+impl fidget_core::dispatch::ExpressionHandle for Speaking<'_> {
+    fn enqueue(&mut self, instance_id: &str, proposal: BehaviorProposal) -> bool {
+        let line = match (proposal.behavior.as_str(), &proposal.dialogue) {
+            ("", Some(line)) if self.roster.get(instance_id).is_some() => line.clone(),
+            _ => return self.roster.enqueue(instance_id, proposal),
+        };
+        let moment = self.moments.entry(instance_id.to_string()).or_default();
+        let heard = self
+            .voices
+            .entry(instance_id.to_string())
+            .or_default()
+            .heard(&line, *moment);
+        if heard == Heard::Said {
+            self.roster.enqueue(instance_id, proposal);
+            // A second line in the same tick meets the bubble this one takes.
+            moment.bubble_held = true;
+        }
+        self.spoke.push(Spoke {
+            instance: instance_id.to_string(),
+            line,
+            heard,
+            turn_open: moment.turn_open,
+        });
+        true
+    }
+}
+
+/// Put one `speak` line in the Action Log, and in Chat when it was said, so
+/// Chat and the bubble tell the same conversation.
+fn transcribe(app: &tauri::AppHandle, lives: &[InstanceState], spoke: Spoke) {
+    let declined = match spoke.heard {
+        Heard::Said => None,
+        Heard::Declined(why) => Some(why),
+    };
+    crate::action_log::append(
+        &fidget_core::memory::data_dir(),
+        "speak",
+        serde_json::json!({
+            "instance": spoke.instance,
+            "text": spoke.line,
+            "turn_open": spoke.turn_open,
+            "declined": declined,
+        }),
+    );
+    if declined.is_some() {
+        return;
+    }
+    let reacting_to = if spoke.turn_open {
+        lives
+            .iter()
+            .find(|live| live.id == spoke.instance)
+            .and_then(|live| live.happened_last)
+            .map(|cell| format!("when {cell}"))
+    } else {
+        Some(director::unprompted_ai())
+    };
+    session_log::log_reply(
+        app,
+        &spoke.instance,
+        Some(spoke.line.clone()),
+        reacting_to.clone(),
+        session_log::Failed::default(),
+        SystemTime::now(),
+    );
+    let _ = app.emit_to(
+        chat_label(&spoke.instance),
+        CHAT_EVENT,
+        ChatReply {
+            said: Some(spoke.line),
+            busy: false,
+            reacting_to,
+            you: false,
+            thought: false,
+            at: None,
+            error: None,
+            failure: None,
+            notice: None,
+            superseded_by: None,
+            streaming: false,
+        },
+    );
+}
+
 /// Dispatch one `tools/call` against the live Instances, not stubs, and answer
-/// it, so a `speak` changes what the bubble draws.
+/// it, so a `speak` changes what the bubble draws. Returns the `speak` lines.
 fn answer_tool_call(
     call: mcp_http::Call,
-    roster: &mut Roster,
+    speaking: &mut Speaking,
     source: &dyn WindowSource,
     excluded_applications: Vec<String>,
     displays: &platform::Displays,
     caffeinate: Option<&mut dyn fidget_core::caffeinate::CaffeinateHandle>,
-) {
+) -> Vec<Spoke> {
     let watched = crate::names_hint::live().watching(source);
+    let roster = &*speaking.roster;
     let live: Vec<InstanceInfo> = roster
         .list()
         .into_iter()
@@ -2955,7 +3102,7 @@ fn answer_tool_call(
             filter_password_fields: true,
         },
         roster: &live,
-        expression: Some(roster),
+        expression: Some(speaking),
         placement: PlacementQuery {
             frames: &displays.frames,
             usable: &displays.usable_frames,
@@ -2967,6 +3114,7 @@ fn answer_tool_call(
     let _ = call
         .reply
         .send(dispatch(&call.tool, call.arguments, &mut context));
+    std::mem::take(&mut speaking.spoke)
 }
 
 /// What the wake says happened, from one tick of pointer input. Whether the
@@ -3145,14 +3293,46 @@ mod tests {
         let mut roster = Roster::new();
         let id = roster.spawn(&character(), "Pip".to_string(), Point { x: 0.0, y: 0.0 });
 
+        let (result, spoke) = speak(&mut roster, &mut HashMap::new(), "hello from a Harness");
+        assert_eq!(result["success"], json!(true));
+        assert_eq!(
+            spoke,
+            vec![Spoke {
+                instance: id.clone(),
+                line: "hello from a Harness".to_string(),
+                heard: Heard::Said,
+                turn_open: false,
+            }],
+            "a line the bubble draws is handed on for Chat and the Action Log"
+        );
+
+        assert_eq!(
+            next_line(&mut roster, &id).as_deref(),
+            Some("hello from a Harness"),
+            "the Speech bubble draws Frame::dialogue"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Answer one `speak` the way the frame loop does, with these moments.
+    fn speak(
+        roster: &mut Roster,
+        moments: &mut HashMap<InstanceId, Moment>,
+        message: &str,
+    ) -> (serde_json::Value, Vec<Spoke>) {
         let (reply, answers) = mpsc::channel();
-        answer_tool_call(
+        let spoke = answer_tool_call(
             mcp_http::Call {
                 tool: "speak".to_string(),
-                arguments: json!({"message": "hello from a Harness"}),
+                arguments: json!({"message": message}),
                 reply,
             },
-            &mut roster,
+            &mut Speaking {
+                roster,
+                moments,
+                voices: &mut HashMap::new(),
+                spoke: Vec::new(),
+            },
             &EmptyDesktop,
             Vec::new(),
             &platform::Displays::default(),
@@ -3162,17 +3342,56 @@ mod tests {
             .recv()
             .expect("the call is answered")
             .expect("dispatch succeeds");
-        assert_eq!(result["success"], json!(true));
+        (result, spoke)
+    }
 
+    fn next_line(roster: &mut Roster, id: &InstanceId) -> Option<String> {
         let snapshot =
             SnapshotAssembler::new(EmptyDesktop).assemble(16, Point { x: 0.0, y: 0.0 }, Vec::new());
-        let frame = roster.get_mut(&id).expect("still there").tick(&snapshot);
+        roster
+            .get_mut(id)
+            .expect("still there")
+            .tick(&snapshot)
+            .dialogue
+    }
+
+    /// Outside a turn, Do Not Disturb holds for `speak` as it does for an
+    /// unprompted wake. The agent is told success, so it does not retry.
+    #[test]
+    fn a_speak_outside_a_turn_under_do_not_disturb_is_declined_as_success() {
+        let mut roster = Roster::new();
+        let id = roster.spawn(&character(), "Pip".to_string(), Point { x: 0.0, y: 0.0 });
+        let mut moments = HashMap::from([(
+            id.clone(),
+            Moment {
+                do_not_disturb: true,
+                ..Moment::default()
+            },
+        )]);
+
+        let (result, spoke) = speak(&mut roster, &mut moments, "psst");
+        assert_eq!(result["success"], json!(true));
+        assert_eq!(spoke[0].heard, Heard::Declined("do_not_disturb"));
         assert_eq!(
-            frame.dialogue.as_deref(),
-            Some("hello from a Harness"),
-            "the Speech bubble draws Frame::dialogue"
+            next_line(&mut roster, &id),
+            None,
+            "nothing reached the bubble"
         );
-        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Two unprompted lines in one tick: the first takes the bubble, so the
+    /// second meets it held.
+    #[test]
+    fn a_second_speak_in_the_same_tick_waits_out_the_first() {
+        let mut roster = Roster::new();
+        let id = roster.spawn(&character(), "Pip".to_string(), Point { x: 0.0, y: 0.0 });
+        let mut moments = HashMap::new();
+
+        speak(&mut roster, &mut moments, "one");
+        let (result, spoke) = speak(&mut roster, &mut moments, "two");
+        assert_eq!(result["success"], json!(true));
+        assert_eq!(spoke[0].heard, Heard::Declined("bubble_held"));
+        assert_eq!(next_line(&mut roster, &id).as_deref(), Some("one"));
     }
 
     /// The Harness reads placement from the live Instances and the displays
@@ -3214,7 +3433,12 @@ mod tests {
                 arguments: json!({}),
                 reply,
             },
-            &mut roster,
+            &mut Speaking {
+                roster: &mut roster,
+                moments: &mut HashMap::new(),
+                voices: &mut HashMap::new(),
+                spoke: Vec::new(),
+            },
             &EmptyDesktop,
             Vec::new(),
             &displays,

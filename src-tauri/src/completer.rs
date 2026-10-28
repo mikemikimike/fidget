@@ -134,6 +134,8 @@ pub struct Answered {
     pub truncated: bool,
     /// Planning peeled from the reply for the Thinking row.
     pub peeled_thought: Option<String>,
+    /// The Completer answered with no words. See `Voice::settle`.
+    pub silent: bool,
 }
 
 impl Default for Slot {
@@ -270,6 +272,7 @@ impl Slots {
                 near_miss: None,
                 truncated: false,
                 peeled_thought: None,
+                silent: false,
             });
             let _ = tx.send(Delivered {
                 epoch,
@@ -279,6 +282,7 @@ impl Slots {
                     near_miss: woken.near_miss,
                     truncated: woken.truncated,
                     peeled_thought: woken.peeled_thought,
+                    silent: woken.silent,
                 })),
             });
         });

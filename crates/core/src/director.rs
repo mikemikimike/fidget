@@ -291,6 +291,8 @@ pub struct Woken {
     /// Planning cut from the reply by a heuristic peel, for the Thinking row.
     /// Never speech. `None` when nothing was peeled.
     pub peeled_thought: Option<String>,
+    /// The Completer answered with no words, as against failing to answer.
+    pub silent: bool,
 }
 
 /// Result of one model call.
@@ -404,6 +406,7 @@ impl<C: Completer> ModelDirector<C> {
                     near_miss: resolved.near_miss,
                     truncated: reply.truncated,
                     peeled_thought: resolved.peeled_thought,
+                    silent: reply.text.trim().is_empty(),
                 }
             }
             Err(_) => Woken {
@@ -411,6 +414,7 @@ impl<C: Completer> ModelDirector<C> {
                 near_miss: None,
                 truncated: false,
                 peeled_thought: None,
+                silent: false,
             },
         }
     }
