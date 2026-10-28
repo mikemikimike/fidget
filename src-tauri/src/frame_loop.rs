@@ -3035,7 +3035,11 @@ fn transcribe(app: &tauri::AppHandle, lives: &[InstanceState], spoke: Spoke) {
             .iter()
             .find(|live| live.id == spoke.instance)
             .and_then(|live| live.happened_last)
-            .map(|cell| format!("when {cell}"))
+            // `reacting_to`'s wording, rebuilt from the cell the wake kept.
+            .map(|cell| match cell {
+                "proactive" => "unprompted".to_string(),
+                cell => format!("when {cell}"),
+            })
     } else {
         Some(director::unprompted_ai())
     };
