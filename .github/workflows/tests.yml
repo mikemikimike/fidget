@@ -254,6 +254,7 @@ jobs:
 
       - name: Importer self-test
         if: steps.changes.outputs.code == 'true'
+        # Pillow also supports the renderer's GIF and app-icon checks below.
         run: |
           pip install -r scripts/requirements-import.txt
           python scripts/import-pet.py --self-test

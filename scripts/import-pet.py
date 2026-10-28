@@ -899,6 +899,16 @@ def emit(pet, out, validate=True, stand=None, frames_only=False):
     )
     if frames_only:
         authored = tomllib.loads((out / "character.manifest").read_text())
+        referenced = {frame for animation in authored["animations"].values()
+                      for frame in animation["frames"]}
+        for animation, spec in animations.items():
+            expected = {frame for frame in referenced
+                        if re.fullmatch(rf"frames/{re.escape(animation)}-\d+\.png", frame)}
+            selected = {f"frames/{animation}-{i}.png" for i in range(len(spec["frames"]))}
+            if (expected and selected != expected) or (not expected and animation in authored["animations"]):
+                sys.exit(f"{animation}: recut frame files differ from the authored manifest "
+                         f"({len(selected)} selected, {len(expected)} referenced); "
+                         "edit the manifest first or import a new baseline package")
         reference = out / authored["animations"]["idle"]["frames"][0]
         with Image.open(reference) as image:
             existing_canvas = image.size
@@ -1275,6 +1285,23 @@ def self_test():
         with Image.open(out / "frames" / "idle-0.png") as image:
             assert image.size == original_canvas, "partial recuts retain the package canvas"
         assert (out / "frames" / "idle-0.png").read_bytes() == original_idle
+        before_recut = {path: path.read_bytes() for path in out.rglob("*") if path.is_file()}
+        for indices in ((0, 1, 2), (*range(6), 0)):
+            mismatched = read_petscodex(source, overrides={"idle": (0, indices)}, only_mapped=True)
+            try:
+                emit(mismatched, out, validate=False, frames_only=True)
+            except SystemExit as error:
+                assert "recut frame files differ" in str(error)
+            else:
+                raise AssertionError("a recut must agree with the authored strip's frame files")
+            assert {path: path.read_bytes() for path in out.rglob("*") if path.is_file()} == before_recut
+        repeated = manifest_before.decode().replace('"frames/idle-1.png"',
+                                                   '"frames/idle-1.png", "frames/idle-1.png"')
+        (out / "character.manifest").write_text(repeated)
+        emit(read_petscodex(source, overrides={"idle": (0, None)}, only_mapped=True),
+             out, validate=False, frames_only=True)
+        assert (out / "character.manifest").read_text() == repeated
+        (out / "character.manifest").write_bytes(manifest_before)
 
         extended = Image.new("RGBA", (ATLAS_COLUMNS * 192, 11 * 208))
         for row in range(11):

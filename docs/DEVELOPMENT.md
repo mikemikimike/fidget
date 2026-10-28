@@ -476,7 +476,10 @@ Names on a source sheet are hints; the rendered motion determines its role.
 To recut frames after those edits, use `--frames-only`. It requires an existing
 manifest, keeps the manifest, personality, and other files, and validates the
 package in a temporary copy before replacing the selected frames. It retains
-the existing canvas and rejects strips that would exceed it. Add `--only-mapped` to skip the
+the existing canvas and rejects strips that would exceed it. Existing strips must
+produce the exact frame files referenced by the manifest; edit the manifest first
+to change a strip's frame count. Repeated references for timing do not add source
+frames. Add `--only-mapped` to skip the
 default mappings and write exactly the named strips. Include an `idle` mapping
 to establish standing scale, and keep `--stand`, the manifest's `scale`, and its
 render mode consistent with the existing package. Unselected frames stay intact.
