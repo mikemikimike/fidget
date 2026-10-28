@@ -1004,8 +1004,7 @@ impl Completer for Endpoint {
     }
 }
 
-/// Scheme, host, and port. The xAI key probe hangs `/v1/api-key` off this,
-/// and `models_url` falls back to it for a URL with no inference path.
+/// Scheme, host, and port of a URL.
 fn origin(url: &str) -> String {
     url_of(url).map_or_else(|| url.to_string(), |url| url.origin().ascii_serialization())
 }
