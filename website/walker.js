@@ -10,9 +10,14 @@ const HIDDEN_KEY = "fidget.hidden";
 // one, then a minute or two apart.
 const LINES = { first: [6000, 15000], gap: [60000, 120000] };
 
-// Intersection ratios the twist section reports at: every 5%, so when taller
-// than the screen it still reports as its share of the screen grows.
-const STEPS = Array.from({ length: 21 }, (_, i) => i / 20);
+// When a section counts as taking over the page, and the ratios its observer
+// reports at. Most of the screen counts for one taller than the screen, so that
+// rule reports every 5%, as its share of the screen grows.
+const mostOf = { most: (entry) => entry.intersectionRatio >= 0.6, threshold: [0, 0.6] };
+const mostOfScreen = {
+  most: (entry) => mostOf.most(entry) || entry.intersectionRect.height >= 0.6 * entry.rootBounds.height,
+  threshold: Array.from({ length: 21 }, (_, i) => i / 20),
+};
 
 const span = ([low, high], roll) => low + (high - low) * roll;
 
@@ -208,22 +213,20 @@ export function mount(doc, data, { cue, bubble, play, still }) {
       report();
     }).observe(stage);
   }
-  const takesOver = (target, key, screen = false) => {
-    // In once most of it shows, or with `screen` most of the screen; out only once
-    // none does, so a reader resting at the edge does not bounce it. The first
-    // report decides either way, as a reload can restore mid-section.
+  const takesOver = (target, key, { most, threshold }) => {
+    // In once the rule says most shows, out only once none does, so a reader
+    // resting at the edge does not bounce it. The first report decides either
+    // way, as a reload can restore mid-section.
     new IntersectionObserver(([entry]) => {
-      const most = entry.intersectionRatio >= 0.6 || (screen && entry.intersectionRect.height >= 0.6 * entry.rootBounds.height);
-      const next = most || (entry.isIntersecting && view[key] === true);
+      const next = most(entry) || (entry.isIntersecting && view[key] === true);
       if (next === view[key]) return;
       view[key] = next;
       report();
-    }, { threshold: screen ? STEPS : [0, 0.6] }).observe(target);
+    }, { threshold }).observe(target);
   };
   const desk = doc.getElementById("play-desk");
-  if (play && desk) takesOver(desk, "play");
-  // Taller than some screens, so most of the screen counts too.
-  if (twist) takesOver(twist, "twist", true);
+  if (play && desk) takesOver(desk, "play", mostOf);
+  if (twist) takesOver(twist, "twist", mostOfScreen);
 
   let touched = 0;
   decodePresses(sprite, data.tuning, {
