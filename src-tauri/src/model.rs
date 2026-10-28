@@ -1004,8 +1004,8 @@ impl Completer for Endpoint {
     }
 }
 
-/// Scheme, host, and port. The pre-flight probe hangs `/v1/models` off this,
-/// and a trace line names the endpoint by it.
+/// Scheme, host, and port. The xAI key probe hangs `/v1/api-key` off this,
+/// and `models_url` falls back to it for a URL with no inference path.
 fn origin(url: &str) -> String {
     url_of(url).map_or_else(|| url.to_string(), |url| url.origin().ascii_serialization())
 }
@@ -1093,13 +1093,13 @@ fn model_matches(served: &str, wanted: &str) -> bool {
     served == wanted || served.trim_end_matches(":latest") == wanted.trim_end_matches(":latest")
 }
 
-/// Read a `/v1/models` answer. An unreadable body gets the benefit of the
+/// Read a model list answer. An unreadable body gets the benefit of the
 /// doubt, because MLX and some llama.cpp builds omit `data`. An empty `data`
 /// list means the server serves nothing, which is worth hearing.
 fn preflight_verdict(models: Result<(u16, String), String>, model: &str) -> Result<(), String> {
     let (code, body) = models.map_err(|error| format!("unreachable: {error}"))?;
     if !(200..300).contains(&code) {
-        return Err(format!("/v1/models answered {code}"));
+        return Err(format!("answered {code}"));
     }
     let parsed = serde_json::from_str::<serde_json::Value>(&body).ok();
     let Some(items) = parsed.as_ref().and_then(|value| value["data"].as_array()) else {
@@ -1145,7 +1145,7 @@ pub fn spawn_preflight(settings: &DirectorSettings) {
                 }
             }
             // A transport error already quotes the URL it failed to reach;
-            // naming the origin again would say it twice.
+            // naming the models URL again would say it twice.
             Err(why) => {
                 let reason = if why.contains(&models_endpoint) {
                     why
@@ -3613,6 +3613,11 @@ pub(crate) mod tests {
 
     #[test]
     fn the_models_url_keeps_the_provider_path() {
+        assert_eq!(
+            models_url(&completions_url("https://openrouter.ai/api")),
+            "https://openrouter.ai/api/v1/models",
+            "the Base URL in settings keeps its path"
+        );
         assert_eq!(
             models_url("https://openrouter.ai/api/v1/chat/completions"),
             "https://openrouter.ai/api/v1/models"
