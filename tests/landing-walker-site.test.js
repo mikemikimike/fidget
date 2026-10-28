@@ -262,6 +262,49 @@ const midway = `
   });
 </script>`;
 
+// The twist section shows a Character of its own, so the page's sinks away
+// once the section fills most of the screen and walks back once it is gone.
+const twist = `
+<script>${helpers}
+  window.addEventListener("load", async () => {
+    console.log("__PROBE_READY__");
+    const at = document.getElementById("fidget-at");
+    const sprite = document.getElementById("fidget-sprite");
+    const section = document.getElementById("twist");
+    const seen = async (what, check) => { try { await until(what, check, 2000); return true; } catch { return false; } };
+    try {
+      document.getElementById("characters").scrollIntoView({ block: "start" });
+      let lastSpot = null;
+      const onPage = () => {
+        const spot = at.style.transform;
+        const still = spot === lastSpot;
+        lastSpot = spot;
+        return !at.hidden && still && Math.abs(sprite.getBoundingClientRect().bottom - innerHeight) < 1;
+      };
+      await until("the walk onto the page", onPage, 2000);
+      // Its top 30% up the screen: in sight, but not most of it.
+      window.scrollTo(0, scrollY + section.getBoundingClientRect().top - innerHeight * 0.7);
+      let sank = false;
+      const end = performance.now() + 300;
+      // Waits for something that must not happen: the first frames of a sink.
+      while (performance.now() < end) {
+        await frame();
+        if (at.hidden || sprite.getBoundingClientRect().bottom > innerHeight + 1) sank = true;
+      }
+      section.scrollIntoView({ block: "end" });
+      // How much of the screen the section can fill.
+      const share = Math.round(100 * Math.min(innerHeight, section.offsetHeight) / innerHeight);
+      const left = await seen("the sink for the twist section", () => at.hidden);
+      // Just past its end, none of it in sight.
+      window.scrollTo(0, scrollY + section.getBoundingClientRect().bottom + 2);
+      const back = await seen("the walk back on past it", onPage);
+      done({ sliverKept: !sank, share, left, back });
+    } catch (err) {
+      done({ errors: [...errors, String(err)] });
+    }
+  });
+</script>`;
+
 // Hide and Bring back pressed with real keys, which the page asks for by name.
 const keys = `
 <script>${helpers}
@@ -465,3 +508,11 @@ test("on a phone a press moved across the page character pokes it rather than gr
   const result = await play(phone, [], { width: 390, height: 844 });
   assert.deepEqual(result, { errors: [], narrow: true, lifted: 0, touchAction: "auto" });
 });
+
+for (const [name, viewport] of [["a desktop", null], ["a phone", { width: 412, height: 915 }]]) {
+  test(`on ${name} the page character leaves while the twist section fills most of the screen, and comes back after`, { skip: chromeSkip }, async () => {
+    const result = await play(twist, [], viewport);
+    assert.ok(result.share >= 60, `the section filled most of the screen: ${result.share}%`);
+    assert.deepEqual(result, { errors: [], sliverKept: true, share: result.share, left: true, back: true });
+  });
+}

@@ -10,6 +10,10 @@ const HIDDEN_KEY = "fidget.hidden";
 // one, then a minute or two apart.
 const LINES = { first: [6000, 15000], gap: [60000, 120000] };
 
+// Intersection ratios the observers report at: every 5%, so a section taller
+// than the screen still reports as its share of the screen grows.
+const STEPS = Array.from({ length: 21 }, (_, i) => i / 20);
+
 const span = ([low, high], roll) => low + (high - low) * roll;
 
 // phase is who has the Character: page, lent (the playground), away (nobody,
@@ -190,31 +194,35 @@ export function mount(doc, data, { cue, bubble, play, still }) {
     wake();
   };
 
-  // Where the playground and the hero's stage are. Without a playground it is
-  // never in view. While any of the stage shows, the page's fidget stays off,
-  // never beside the hero's.
-  const view = { play: play ? null : false, blocked: stage ? null : false };
+  // Where the playground, the hero's stage and the twist section are. Without
+  // a playground it is never in view. While any of the stage shows, or the twist
+  // fills most of the screen, the page's fidget stays off: both show their own.
+  const twist = doc.getElementById("twist");
+  const view = { play: play ? null : false, stage: stage ? null : false, twist: twist ? null : false };
   const report = () => {
-    if (view.play !== null && view.blocked !== null) apply({ type: "view", ...view });
+    if (!Object.values(view).includes(null)) apply({ type: "view", play: view.play, blocked: view.stage || view.twist });
   };
   if (stage) {
     new IntersectionObserver(([entry]) => {
-      view.blocked = entry.isIntersecting;
+      view.stage = entry.isIntersecting;
       report();
     }).observe(stage);
   }
-  const desk = doc.getElementById("play-desk");
-  if (play && desk) {
-    // In once most of the desk shows, out only once none does: between the two
-    // nothing changes, so a reader resting at the edge does not bounce it. The
-    // first report decides either way, as a reload can restore mid-desk.
+  const takesOver = (target, key) => {
+    // In once most of it shows, or most of the screen when it is taller; out
+    // only once none does, so a reader resting at the edge does not bounce it.
+    // The first report decides either way, as a reload can restore mid-section.
     new IntersectionObserver(([entry]) => {
-      const next = entry.intersectionRatio >= 0.6 || (entry.isIntersecting && view.play === true);
-      if (next === view.play) return;
-      view.play = next;
+      const most = entry.intersectionRatio >= 0.6 || entry.intersectionRect.height >= 0.6 * entry.rootBounds.height;
+      const next = most || (entry.isIntersecting && view[key] === true);
+      if (next === view[key]) return;
+      view[key] = next;
       report();
-    }, { threshold: [0, 0.6] }).observe(desk);
-  }
+    }, { threshold: STEPS }).observe(target);
+  };
+  const desk = doc.getElementById("play-desk");
+  if (play && desk) takesOver(desk, "play");
+  if (twist) takesOver(twist, "twist");
 
   let touched = 0;
   decodePresses(sprite, data.tuning, {
