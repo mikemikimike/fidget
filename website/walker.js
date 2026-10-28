@@ -10,8 +10,8 @@ const HIDDEN_KEY = "fidget.hidden";
 // one, then a minute or two apart.
 const LINES = { first: [6000, 15000], gap: [60000, 120000] };
 
-// Intersection ratios the observers report at: every 5%, so a section taller
-// than the screen still reports as its share of the screen grows.
+// Intersection ratios the twist section reports at: every 5%, so when taller
+// than the screen it still reports as its share of the screen grows.
 const STEPS = Array.from({ length: 21 }, (_, i) => i / 20);
 
 const span = ([low, high], roll) => low + (high - low) * roll;
@@ -208,21 +208,22 @@ export function mount(doc, data, { cue, bubble, play, still }) {
       report();
     }).observe(stage);
   }
-  const takesOver = (target, key) => {
-    // In once most of it shows, or most of the screen when it is taller; out
-    // only once none does, so a reader resting at the edge does not bounce it.
-    // The first report decides either way, as a reload can restore mid-section.
+  const takesOver = (target, key, screen = false) => {
+    // In once most of it shows, or with `screen` most of the screen; out only once
+    // none does, so a reader resting at the edge does not bounce it. The first
+    // report decides either way, as a reload can restore mid-section.
     new IntersectionObserver(([entry]) => {
-      const most = entry.intersectionRatio >= 0.6 || entry.intersectionRect.height >= 0.6 * entry.rootBounds.height;
+      const most = entry.intersectionRatio >= 0.6 || (screen && entry.intersectionRect.height >= 0.6 * entry.rootBounds.height);
       const next = most || (entry.isIntersecting && view[key] === true);
       if (next === view[key]) return;
       view[key] = next;
       report();
-    }, { threshold: STEPS }).observe(target);
+    }, { threshold: screen ? STEPS : [0, 0.6] }).observe(target);
   };
   const desk = doc.getElementById("play-desk");
   if (play && desk) takesOver(desk, "play");
-  if (twist) takesOver(twist, "twist");
+  // Taller than some screens, so most of the screen counts too.
+  if (twist) takesOver(twist, "twist", true);
 
   let touched = 0;
   decodePresses(sprite, data.tuning, {
