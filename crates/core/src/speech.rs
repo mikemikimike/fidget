@@ -1,9 +1,94 @@
-//! How long a speech bubble stays up.
+//! How long a speech bubble stays up, and how the two Speech channels share it.
 //!
 //! The overlay times its own bubble. The shell keeps this clock so a resting
 //! stroll can stop while that bubble is showing. The engine only hears a bool.
+//!
+//! A line reaches the bubble through the turn's reply or through MCP `speak`.
+//! `Voice` holds the rules between them; `docs/harness.md` (Speech channels)
+//! states them.
 
 use std::time::{Duration, Instant};
+
+use crate::director::Wake;
+use crate::engine::BehaviorProposal;
+
+/// What one Instance's open turn has already said through `speak`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Voice {
+    said: Vec<String>,
+}
+
+/// Where a `speak` line lands, from the Shell's side of that Instance.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Moment {
+    /// A Fidget turn is on the wire for this Instance.
+    pub turn_open: bool,
+    pub do_not_disturb: bool,
+    /// The bubble still holds a line or an ask for its reading time.
+    pub bubble_held: bool,
+}
+
+/// What became of one `speak` line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Heard {
+    Said,
+    /// Not shown, and answered as success: an error would invite a retry or
+    /// the same line in the reply. The reason goes to the Action Log.
+    Declined(&'static str),
+}
+
+impl Voice {
+    /// A wake started a turn. Lines from the turn it replaced are not this
+    /// turn's to repeat.
+    pub fn opened(&mut self) {
+        self.said.clear();
+    }
+
+    /// Decide one `speak` line. Inside a turn it is the turn's own speech and
+    /// newest wins. Outside one it is unprompted, so Do Not Disturb silences
+    /// it and it never cuts short a line still being read.
+    pub fn heard(&mut self, line: &str, at: Moment) -> Heard {
+        if at.turn_open {
+            self.said.push(line.trim().to_string());
+            return Heard::Said;
+        }
+        if at.do_not_disturb {
+            return Heard::Declined("do_not_disturb");
+        }
+        if at.bubble_held {
+            return Heard::Declined("bubble_held");
+        }
+        Heard::Said
+    }
+
+    /// Settle the turn's reply against what the turn said through `speak`.
+    /// A reply line the turn already said is not said again; its Behavior
+    /// still plays. An empty reply after `speak` is a turn that spoke, not a
+    /// failure. `silent` is the Completer answering with no words.
+    pub fn settle(&mut self, wake: Wake, silent: bool) -> Wake {
+        let said = std::mem::take(&mut self.said);
+        match wake {
+            Wake::Failed if silent && !said.is_empty() => Wake::Proposed(BehaviorProposal {
+                behavior: String::new(),
+                dialogue: None,
+            }),
+            Wake::Proposed(mut proposal) => {
+                // ponytail: exact match after trimming, so a reworded or
+                // repunctuated repeat still shows twice. Normalise if that
+                // shows up in the Action Log.
+                if proposal
+                    .dialogue
+                    .as_deref()
+                    .is_some_and(|line| said.iter().any(|spoken| spoken == line.trim()))
+                {
+                    proposal.dialogue = None;
+                }
+                Wake::Proposed(proposal)
+            }
+            failed => failed,
+        }
+    }
+}
 
 /// A hold on a spoken line or an ask, owned by the shell.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -62,6 +147,118 @@ pub fn note_speech(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const IN_TURN: Moment = Moment {
+        turn_open: true,
+        do_not_disturb: false,
+        bubble_held: false,
+    };
+
+    fn reply(behavior: &str, line: Option<&str>) -> Wake {
+        Wake::Proposed(BehaviorProposal {
+            behavior: behavior.to_string(),
+            dialogue: line.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn a_reply_repeating_the_turns_speak_line_is_not_said_twice() {
+        let mut voice = Voice::default();
+        voice.opened();
+        assert_eq!(voice.heard("Tests pass!", IN_TURN), Heard::Said);
+        let settled = voice.settle(reply("Celebrate", Some(" Tests pass!")), false);
+        assert_eq!(
+            settled,
+            reply("Celebrate", None),
+            "the Behavior plays, the line is not repeated"
+        );
+    }
+
+    #[test]
+    fn a_reply_with_a_new_line_still_says_it() {
+        let mut voice = Voice::default();
+        voice.heard("Running the tests", IN_TURN);
+        let settled = voice.settle(reply("Celebrate", Some("All green")), false);
+        assert_eq!(settled, reply("Celebrate", Some("All green")));
+    }
+
+    #[test]
+    fn a_line_from_a_replaced_turn_does_not_swallow_the_next_reply() {
+        let mut voice = Voice::default();
+        voice.heard("hi", IN_TURN);
+        voice.opened();
+        assert_eq!(
+            voice.settle(reply("", Some("hi")), false),
+            reply("", Some("hi"))
+        );
+    }
+
+    #[test]
+    fn a_late_line_does_not_cut_short_the_reply_being_read() {
+        let mut voice = Voice::default();
+        voice.settle(reply("", Some("Done.")), false);
+        let late = Moment {
+            turn_open: false,
+            do_not_disturb: false,
+            bubble_held: true,
+        };
+        assert_eq!(
+            voice.heard("Still working", late),
+            Heard::Declined("bubble_held")
+        );
+    }
+
+    #[test]
+    fn a_line_outside_a_turn_shows_once_the_bubble_is_free() {
+        let mut voice = Voice::default();
+        assert_eq!(voice.heard("Build done", Moment::default()), Heard::Said);
+    }
+
+    #[test]
+    fn do_not_disturb_silences_a_line_outside_a_turn_only() {
+        let mut voice = Voice::default();
+        let quiet = Moment {
+            do_not_disturb: true,
+            ..Moment::default()
+        };
+        assert_eq!(
+            voice.heard("psst", quiet),
+            Heard::Declined("do_not_disturb")
+        );
+        let answering = Moment {
+            turn_open: true,
+            ..quiet
+        };
+        assert_eq!(
+            voice.heard("you poked me", answering),
+            Heard::Said,
+            "a turn's speak obeys what its reply obeys"
+        );
+    }
+
+    #[test]
+    fn an_empty_reply_after_speak_is_a_turn_that_spoke() {
+        let mut voice = Voice::default();
+        voice.heard("Tests pass!", IN_TURN);
+        assert_eq!(voice.settle(Wake::Failed, true), reply("", None));
+    }
+
+    #[test]
+    fn an_empty_reply_with_no_speak_still_fails() {
+        let mut voice = Voice::default();
+        assert_eq!(voice.settle(Wake::Failed, true), Wake::Failed);
+    }
+
+    #[test]
+    fn a_failed_call_after_speak_still_fails() {
+        let mut voice = Voice::default();
+        voice.heard("On it", IN_TURN);
+        assert_eq!(
+            voice.settle(Wake::Failed, false),
+            Wake::Failed,
+            "a timeout or a lost Harness is not a reply"
+        );
+    }
     use std::time::Duration;
 
     #[test]
