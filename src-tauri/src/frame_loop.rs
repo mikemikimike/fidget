@@ -974,6 +974,7 @@ pub(crate) fn run_frame_loop(
                                     notice: None,
                                     superseded_by: None,
                                     streaming: false,
+                                    aside: false,
                                 },
                             );
                         }
@@ -1064,6 +1065,7 @@ pub(crate) fn run_frame_loop(
                             notice: None,
                             superseded_by: None,
                             streaming: false,
+                            aside: false,
                         },
                     );
                     continue;
@@ -1089,6 +1091,7 @@ pub(crate) fn run_frame_loop(
                             notice: None,
                             superseded_by: None,
                             streaming: false,
+                            aside: false,
                         },
                     );
                     continue;
@@ -1113,6 +1116,7 @@ pub(crate) fn run_frame_loop(
                             notice: None,
                             superseded_by: None,
                             streaming: false,
+                            aside: false,
                         },
                     );
                     continue;
@@ -1141,6 +1145,7 @@ pub(crate) fn run_frame_loop(
                             notice: None,
                             superseded_by: None,
                             streaming: false,
+                            aside: false,
                         },
                     );
                 }
@@ -1618,6 +1623,7 @@ pub(crate) fn run_frame_loop(
                                 notice: None,
                                 superseded_by: None,
                                 streaming: true,
+                                aside: false,
                             },
                         );
                         None
@@ -1827,6 +1833,7 @@ pub(crate) fn run_frame_loop(
                             notice: None,
                             superseded_by: None,
                             streaming: false,
+                            aside: false,
                         },
                     );
                 } else if applied {
@@ -3010,24 +3017,29 @@ impl fidget_core::dispatch::ExpressionHandle for Speaking<'_> {
     }
 }
 
-/// Put one `speak` line in the Action Log, and in Chat when it was said, so
-/// Chat and the bubble tell the same conversation.
-fn transcribe(app: &tauri::AppHandle, lives: &[InstanceState], spoke: Spoke) {
+/// The Action Log's `speak` event, written for a declined line too.
+fn speak_event(spoke: &Spoke) -> serde_json::Value {
     let declined = match spoke.heard {
         Heard::Said => None,
         Heard::Declined(why) => Some(why.as_str()),
     };
+    serde_json::json!({
+        "instance": spoke.instance,
+        "text": spoke.line,
+        "turn_open": spoke.turn_open,
+        "declined": declined,
+    })
+}
+
+/// Put one `speak` line in the Action Log, and in Chat when it was said, so
+/// Chat and the bubble tell the same conversation.
+fn transcribe(app: &tauri::AppHandle, lives: &[InstanceState], spoke: Spoke) {
     crate::action_log::append(
         &fidget_core::memory::data_dir(),
         "speak",
-        serde_json::json!({
-            "instance": spoke.instance,
-            "text": spoke.line,
-            "turn_open": spoke.turn_open,
-            "declined": declined,
-        }),
+        speak_event(&spoke),
     );
-    if declined.is_some() {
+    if spoke.heard != Heard::Said {
         return;
     }
     let reacting_to = if spoke.turn_open {
@@ -3035,11 +3047,7 @@ fn transcribe(app: &tauri::AppHandle, lives: &[InstanceState], spoke: Spoke) {
             .iter()
             .find(|live| live.id == spoke.instance)
             .and_then(|live| live.happened_last)
-            // `reacting_to`'s wording, rebuilt from the cell the wake kept.
-            .map(|cell| match cell {
-                "proactive" => "unprompted".to_string(),
-                cell => format!("when {cell}"),
-            })
+            .map(director::reacting_to_cell)
     } else {
         Some(director::unprompted_ai())
     };
@@ -3066,6 +3074,7 @@ fn transcribe(app: &tauri::AppHandle, lives: &[InstanceState], spoke: Spoke) {
             notice: None,
             superseded_by: None,
             streaming: false,
+            aside: true,
         },
     );
 }
@@ -3382,6 +3391,31 @@ mod tests {
             None,
             "nothing reached the bubble"
         );
+    }
+
+    /// A declined line still reaches the Action Log, with why.
+    #[test]
+    fn every_speak_line_is_an_action_log_event() {
+        let spoke = Spoke {
+            instance: "pip".to_string(),
+            line: "psst".to_string(),
+            heard: Heard::Declined(Declined::DoNotDisturb),
+            turn_open: false,
+        };
+        assert_eq!(
+            speak_event(&spoke),
+            json!({
+                "instance": "pip",
+                "text": "psst",
+                "turn_open": false,
+                "declined": "do_not_disturb",
+            })
+        );
+        let said = Spoke {
+            heard: Heard::Said,
+            ..spoke
+        };
+        assert_eq!(speak_event(&said)["declined"], json!(null));
     }
 
     /// Two unprompted lines in one tick: the first takes the bubble, so the

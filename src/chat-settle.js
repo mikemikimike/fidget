@@ -71,6 +71,11 @@ export function createChatTurns() {
       if (payload.notice) {
         return { action: "notice", turn: null, note: payload.notice };
       }
+      // A `speak` line is its own row. The turn it was said in still owes
+      // its reply, so it must not be popped here.
+      if (payload.aside) {
+        return { action: "orphan", turn: null, said: payload.said ?? "" };
+      }
       if (payload.streaming) {
         const turn = waiting.at(-1) ?? null;
         if (!turn) {

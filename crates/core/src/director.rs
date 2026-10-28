@@ -72,9 +72,15 @@ pub enum Happened {
 /// The Chat surface's row label. Derived from `happened_cell` so the row and
 /// the bar cell under it cannot disagree.
 pub fn reacting_to(happened: &Happened) -> String {
-    match happened {
-        Happened::Proactive => "unprompted".to_string(),
-        caused => format!("when {}", happened_cell(caused)),
+    reacting_to_cell(happened_cell(happened))
+}
+
+/// The same label from the cell a wake kept, for a row written after the
+/// `Happened` is gone.
+pub fn reacting_to_cell(cell: &str) -> String {
+    match cell {
+        "proactive" => "unprompted".to_string(),
+        cell => format!("when {cell}"),
     }
 }
 

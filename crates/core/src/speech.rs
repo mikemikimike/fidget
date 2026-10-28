@@ -244,6 +244,27 @@ mod tests {
     }
 
     #[test]
+    fn a_line_landing_after_the_reply_waits_out_its_reading_time() {
+        let now = Instant::now();
+        let mut bubble = SpeechBubble::default();
+        let mut voice = Voice::default();
+        voice.settle(reply("", Some("Done.")), false);
+        note_speech(&mut bubble, now, Some("Done."), false, true, false);
+        let landing = |at| Moment {
+            bubble_held: bubble.visible_at(at),
+            ..Moment::default()
+        };
+        assert_eq!(
+            voice.heard("late", landing(now + Duration::from_millis(500))),
+            Heard::Declined(Declined::BubbleHeld)
+        );
+        assert_eq!(
+            voice.heard("later", landing(now + Duration::from_millis(2000))),
+            Heard::Said
+        );
+    }
+
+    #[test]
     fn a_line_outside_a_turn_shows_once_the_bubble_is_free() {
         let mut voice = Voice::default();
         assert_eq!(voice.heard("Build done", Moment::default()), Heard::Said);

@@ -160,3 +160,17 @@ test("a notice after typed() leaves the waiting turn for the reply", () => {
   assert.equal(reply.said, "Hello");
   assert.ok(reply.turn, "the typed turn must still be waiting for Hello");
 });
+
+// A `speak` line inside a typed turn is the transcript, not the answer.
+test("a speak line after typed() is its own row and leaves the turn for the reply", () => {
+  const turns = createChatTurns();
+  turns.typed();
+
+  const spoke = turns.settle({ said: "Tests pass!", aside: true });
+  assert.equal(spoke.action, "orphan");
+  assert.equal(spoke.said, "Tests pass!");
+
+  const reply = turns.settle({ said: "All green" });
+  assert.equal(reply.action, "speech");
+  assert.ok(reply.turn, "the typed turn must still be waiting for its reply");
+});

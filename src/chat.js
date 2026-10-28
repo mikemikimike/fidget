@@ -1154,7 +1154,9 @@ async function start() {
         note("Still answering the last one — ask again when it lands.");
         return;
       }
-      thinking.landed();
+      if (!payload.aside) {
+        thinking.landed();
+      }
       const outcome = turns.settle(payload);
       if (outcome.action === "orphan") {
         // An answer with no question in this window: the Instance was asked

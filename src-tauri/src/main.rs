@@ -336,6 +336,7 @@ pub(crate) fn emit_chat_notice(app: &tauri::AppHandle, instance: &str, text: Str
                 notice: Some(text),
                 superseded_by: None,
                 streaming: false,
+                aside: false,
             },
         );
     }
@@ -3471,6 +3472,10 @@ struct ChatReply {
     /// stays open; the row replaces content instead of appending.
     #[serde(default)]
     streaming: bool,
+    /// A `speak` line: its own row, which settles no turn. The turn it was
+    /// said in still waits on its reply.
+    #[serde(default)]
+    aside: bool,
 }
 
 /// What the Shell owes a Chat surface when a newer wake cancels the slot. `None`
@@ -3489,6 +3494,7 @@ fn cancelled_caret(chat_turn: bool, by: &Happened) -> Option<ChatReply> {
         notice: None,
         superseded_by: Some(happened_cell(by)),
         streaming: false,
+        aside: false,
     })
 }
 
@@ -3562,6 +3568,7 @@ fn replayed_reply(turn: session_log::Turn) -> ChatReply {
         notice: None,
         superseded_by: None,
         streaming: false,
+        aside: false,
         at: Some(
             turn.at
                 .duration_since(UNIX_EPOCH)
@@ -3606,6 +3613,7 @@ fn chat_ready(
                     notice: Some(text),
                     superseded_by: None,
                     streaming: false,
+                    aside: false,
                 },
             );
         }
