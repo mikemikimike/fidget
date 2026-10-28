@@ -34,7 +34,25 @@ pub enum Heard {
     Said,
     /// Not shown, and answered as success: an error would invite a retry or
     /// the same line in the reply. The reason goes to the Action Log.
-    Declined(&'static str),
+    Declined(Declined),
+}
+
+/// Why a `speak` line was not shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Declined {
+    DoNotDisturb,
+    /// The bubble still holds a line or an ask for its reading time.
+    BubbleHeld,
+}
+
+impl Declined {
+    /// The Action Log's spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DoNotDisturb => "do_not_disturb",
+            Self::BubbleHeld => "bubble_held",
+        }
+    }
 }
 
 impl Voice {
@@ -53,10 +71,10 @@ impl Voice {
             return Heard::Said;
         }
         if at.do_not_disturb {
-            return Heard::Declined("do_not_disturb");
+            return Heard::Declined(Declined::DoNotDisturb);
         }
         if at.bubble_held {
-            return Heard::Declined("bubble_held");
+            return Heard::Declined(Declined::BubbleHeld);
         }
         Heard::Said
     }
@@ -64,7 +82,7 @@ impl Voice {
     /// Settle the turn's reply against what the turn said through `speak`.
     /// A reply line the turn already said is not said again; its Behavior
     /// still plays. An empty reply after `speak` is a turn that spoke, not a
-    /// failure. `silent` is the Completer answering with no words.
+    /// failure.
     pub fn settle(&mut self, wake: Wake, silent: bool) -> Wake {
         let said = std::mem::take(&mut self.said);
         match wake {
@@ -154,6 +172,7 @@ pub fn note_speech(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     const IN_TURN: Moment = Moment {
         turn_open: true,
@@ -220,7 +239,7 @@ mod tests {
         };
         assert_eq!(
             voice.heard("Still working", late),
-            Heard::Declined("bubble_held")
+            Heard::Declined(Declined::BubbleHeld)
         );
     }
 
@@ -239,7 +258,7 @@ mod tests {
         };
         assert_eq!(
             voice.heard("psst", quiet),
-            Heard::Declined("do_not_disturb")
+            Heard::Declined(Declined::DoNotDisturb)
         );
         let answering = Moment {
             turn_open: true,
@@ -275,8 +294,6 @@ mod tests {
             "a timeout or a lost Harness is not a reply"
         );
     }
-    use std::time::Duration;
-
     #[test]
     fn a_short_line_stays_up_for_two_seconds() {
         let now = Instant::now();

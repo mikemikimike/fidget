@@ -3015,7 +3015,7 @@ impl fidget_core::dispatch::ExpressionHandle for Speaking<'_> {
 fn transcribe(app: &tauri::AppHandle, lives: &[InstanceState], spoke: Spoke) {
     let declined = match spoke.heard {
         Heard::Said => None,
-        Heard::Declined(why) => Some(why),
+        Heard::Declined(why) => Some(why.as_str()),
     };
     crate::action_log::append(
         &fidget_core::memory::data_dir(),
@@ -3175,6 +3175,7 @@ mod tests {
         DEFAULT_MODEL_POWER, REQUIRED_ANIMATIONS,
     };
     use fidget_core::engine::Point;
+    use fidget_core::speech::Declined;
     use fidget_core::window_source::{Capabilities, WorldGeometry};
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -3375,7 +3376,7 @@ mod tests {
 
         let (result, spoke) = speak(&mut roster, &mut moments, "psst");
         assert_eq!(result["success"], json!(true));
-        assert_eq!(spoke[0].heard, Heard::Declined("do_not_disturb"));
+        assert_eq!(spoke[0].heard, Heard::Declined(Declined::DoNotDisturb));
         assert_eq!(
             next_line(&mut roster, &id),
             None,
@@ -3394,7 +3395,7 @@ mod tests {
         speak(&mut roster, &mut moments, "one");
         let (result, spoke) = speak(&mut roster, &mut moments, "two");
         assert_eq!(result["success"], json!(true));
-        assert_eq!(spoke[0].heard, Heard::Declined("bubble_held"));
+        assert_eq!(spoke[0].heard, Heard::Declined(Declined::BubbleHeld));
         assert_eq!(next_line(&mut roster, &id).as_deref(), Some("one"));
     }
 
