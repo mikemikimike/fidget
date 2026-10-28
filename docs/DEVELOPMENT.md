@@ -483,6 +483,7 @@ frames. Add `--only-mapped` to skip the
 default mappings and write exactly the named strips. Include an `idle` mapping
 to establish standing scale, and keep `--stand`, the manifest's `scale`, and its
 render mode consistent with the existing package. Unselected frames stay intact.
+New strips are written with a warning until the manifest references them.
 Do not use `--force` for this pass: it replaces the whole package.
 
 ### Shimeji Shop

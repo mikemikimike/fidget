@@ -909,6 +909,9 @@ def emit(pet, out, validate=True, stand=None, frames_only=False):
                 sys.exit(f"{animation}: recut frame files differ from the authored manifest "
                          f"({len(selected)} selected, {len(expected)} referenced); "
                          "edit the manifest first or import a new baseline package")
+            if not expected:
+                print(f"warning: new strip {animation!r} is not referenced by the manifest; "
+                      "edit the manifest to use these frames", file=sys.stderr)
         reference = out / authored["animations"]["idle"]["frames"][0]
         with Image.open(reference) as image:
             existing_canvas = image.size
@@ -1302,6 +1305,16 @@ def self_test():
              out, validate=False, frames_only=True)
         assert (out / "character.manifest").read_text() == repeated
         (out / "character.manifest").write_bytes(manifest_before)
+        from contextlib import redirect_stderr
+        from io import StringIO
+        warning = StringIO()
+        added = read_petscodex(source, overrides={"idle": (0, None), "extra": (6, None)},
+                              only_mapped=True)
+        with redirect_stderr(warning):
+            emit(added, out, validate=False, frames_only=True)
+        assert "new strip 'extra' is not referenced" in warning.getvalue()
+        assert len(list((out / "frames").glob("extra-*.png"))) == 6
+        assert (out / "character.manifest").read_bytes() == manifest_before
 
         extended = Image.new("RGBA", (ATLAS_COLUMNS * 192, 11 * 208))
         for row in range(11):
