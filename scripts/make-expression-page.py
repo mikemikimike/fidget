@@ -14,12 +14,12 @@ The sprite under the bubble is a shipped Character, not a coloured div, so
 its Animations are the third input: which frames Buddy Bot's `idle` and
 `talk` strips hold and at what fps is read from its own manifest here, and
 the frames are copied beside the page. The committed shell carries the same
-block naming the packages where that file can see them, two directories up,
+block naming the packages where that file can see them, one directory up,
 and `require_current_sprite` fails the build when the two disagree — which is
 the only way a hand-edited shell could start naming art it does not have.
 
 That path is checkable, not runnable: bubble.css exists nowhere but here, so
-the page is judged from `--out`, never from `docs/design/`.
+the page is judged from `--out`, never from `website/`.
 
 Pure standard library. The CSS slice is text, not a parser, so it cannot
 quietly pick up the overlay's transparent fullscreen rules sitting above
@@ -41,7 +41,7 @@ import tomllib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUBBLE_JS = ROOT / "src" / "bubble.js"
 MAIN_CSS = ROOT / "src" / "main.css"
-SHELL = ROOT / "docs" / "design" / "expression.html"
+SHELL = ROOT / "website" / "expression.html"
 GALLERY = ROOT / "scripts" / "make-character-gallery.py"
 SPRITE = ROOT / "characters" / "buddy-bot" / "character.manifest"
 
@@ -57,10 +57,10 @@ EXPORTS = (
 SPRITE_PACKAGE = "buddy-bot"
 SPRITE_ANIMATIONS = ("idle", "talk")
 
-# Where the art sits relative to the page: `docs/design/expression.html` in a
-# clone reaches the packages two directories up, and `_site/expression.html`
+# Where the art sits relative to the page: `website/expression.html` in a
+# clone reaches the packages one directory up, and `_site/expression.html`
 # reaches the copies beside it. The shell is committed with the first.
-CLONE_ART = "../../characters/"
+CLONE_ART = "../characters/"
 SITE_ART = "characters/"
 
 # The class line ADR-0011 makes every page repeat in its own header, because a
@@ -239,8 +239,8 @@ def extract_sprite(html):
 def require_current_sprite(html, characters_root):
     """The shell's own block must be what the manifest says today.
 
-    The shell is a working page on its own — opened from `docs/design/` it
-    plays the frames two directories up — and that only stays true while its
+    The shell is a working page on its own — opened from `website/` it
+    plays the frames one directory up — and that only stays true while its
     block matches `characters/buddy-bot/`. Comparing here means a re-cut strip
     fails the build rather than leaving a clone playing frames that moved.
     """
@@ -288,7 +288,7 @@ def require_honest_page(html):
 def assemble(src_root, out):
     bubble_path = src_root / "src" / "bubble.js"
     css_path = src_root / "src" / "main.css"
-    shell_path = src_root / "docs" / "design" / "expression.html"
+    shell_path = src_root / "website" / "expression.html"
     characters_root = src_root / "characters"
 
     if not bubble_path.is_file():
@@ -301,7 +301,7 @@ def assemble(src_root, out):
     css = extract_bubble_css(css_path.read_text(encoding="utf-8"), css_path.parent)
 
     if not shell_path.is_file():
-        raise Malformed("docs/design/expression.html is missing")
+        raise Malformed("website/expression.html is missing")
     html = shell_path.read_text(encoding="utf-8")
     require_honest_page(html)
     require_current_sprite(html, characters_root)
@@ -320,13 +320,13 @@ def assemble(src_root, out):
 def _tree(scratch, bubble=None, css=None, html=None, manifest=None):
     root = scratch / "src_root"
     (root / "src").mkdir(parents=True)
-    (root / "docs" / "design").mkdir(parents=True)
+    (root / "website").mkdir(parents=True)
     if bubble is not None:
         (root / "src" / "bubble.js").write_text(bubble, encoding="utf-8")
     if css is not None:
         (root / "src" / "main.css").write_text(css, encoding="utf-8")
     if html is not None:
-        (root / "docs" / "design" / "expression.html").write_text(html, encoding="utf-8")
+        (root / "website" / "expression.html").write_text(html, encoding="utf-8")
     # The real package, so a case that is not about the art is not also
     # testing a hand-rolled stand-in for it.
     shutil.copytree(ROOT / "characters" / SPRITE_PACKAGE, root / "characters" / SPRITE_PACKAGE)

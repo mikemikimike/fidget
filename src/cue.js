@@ -1,7 +1,7 @@
 
 // The cue machine. Five interactions, each with its own visual and sound.
 // Frequencies, envelopes, gains, and durations were decided in
-// docs/design/cues.html. The Engine decides which cue plays; this obeys.
+// website/cues.html. The Engine decides which cue plays; this obeys.
 const MASTER = 0.5;
 
 // How long a Poke stays in flight so a Summon can cancel it. Past

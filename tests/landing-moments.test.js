@@ -1,5 +1,5 @@
 // "The same moment" on the built landing page: every scene in
-// docs/design/moments.json, the first one showing without JavaScript, and the
+// website/moments.json, the first one showing without JavaScript, and the
 // button that cycles them, clicked in headless Chrome.
 
 import assert from "node:assert/strict";
@@ -12,7 +12,7 @@ import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { tempDir } from "./temp-path.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const MOMENTS = JSON.parse(readFileSync(join(ROOT, "docs", "design", "moments.json"), "utf8"));
+const MOMENTS = JSON.parse(readFileSync(join(ROOT, "website", "moments.json"), "utf8"));
 
 let scratch;
 let page;

@@ -1,5 +1,5 @@
 // The built landing page shows the README's Instance Prompts word for word,
-// each prompt's one wake, and every Character's line from docs/design/twists.json.
+// each prompt's one wake, and every Character's line from website/twists.json.
 // The pickers are clicked in headless Chrome.
 
 import assert from "node:assert/strict";
@@ -12,7 +12,7 @@ import { chromeSkip, probePage } from "./chrome-cdp.js";
 import { tempDir } from "./temp-path.js";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const TWISTS = JSON.parse(readFileSync(join(ROOT, "docs", "design", "twists.json"), "utf8"));
+const TWISTS = JSON.parse(readFileSync(join(ROOT, "website", "twists.json"), "utf8"));
 const README = readFileSync(join(ROOT, "README.md"), "utf8");
 const PROMPTS = [...README.split("### Give It an Instance Prompt")[1].split("\n## ")[0]
   .matchAll(/^\| `([^`]+)` \|/gm)].map((row) => row[1]);

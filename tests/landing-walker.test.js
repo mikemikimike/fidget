@@ -3,8 +3,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { feet } from "../docs/design/playground.js";
-import { animation, start, update } from "../docs/design/walker.js";
+import { feet } from "../website/playground.js";
+import { animation, start, update } from "../website/walker.js";
 
 const TUNING = {
   gravity: 3600, walkSpeed: 120, primitiveMs: 600, pokeCooldownMs: 2500, perchedIdleAfterMs: 4000,

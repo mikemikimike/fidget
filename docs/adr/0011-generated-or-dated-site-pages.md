@@ -27,7 +27,7 @@ because that is where a contributor already is.
 
 A page earns its place when the thing it documents is timed, audible, or
 operated, and github.com can only give you a still or a paragraph.
-`docs/design/cues.html` plays a 660 Hz tone falling to 600 over a 140 ms decay
+`website/cues.html` plays a 660 Hz tone falling to 600 over a 140 ms decay
 (`src/cue.js:111`); you cannot hear a table.
 
 ## The pages
